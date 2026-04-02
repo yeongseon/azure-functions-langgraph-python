@@ -15,10 +15,6 @@ class InvokeRequest(BaseModel):
         default=None,
         description="LangGraph config, e.g. {'configurable': {'thread_id': '...'}}",
     )
-    metadata: Optional[dict[str, Any]] = Field(
-        default=None,
-        description="Additional metadata passed to the run",
-    )
 
 
 class StreamRequest(BaseModel):
@@ -32,10 +28,6 @@ class StreamRequest(BaseModel):
     stream_mode: str = Field(
         default="values",
         description="Stream mode: 'values', 'updates', 'messages', or 'custom'",
-    )
-    metadata: Optional[dict[str, Any]] = Field(
-        default=None,
-        description="Additional metadata passed to the run",
     )
 
 

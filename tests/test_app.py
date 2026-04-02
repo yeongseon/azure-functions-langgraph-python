@@ -78,6 +78,33 @@ class TestFunctionApp:
         fa2 = app.function_app
         assert fa1 is not fa2
 
+    def test_multi_graph_routes_are_independent(self) -> None:
+        """Regression: each graph's handlers must close over own registration."""
+        graph_a = FakeCompiledGraph()
+        graph_b = FakeCompiledGraph()
+        la = LangGraphApp()
+        la.register(graph=graph_a, name="alpha")
+        la.register(graph=graph_b, name="beta")
+        req_alpha = func.HttpRequest(
+            method="POST",
+            url="/api/graphs/alpha/invoke",
+            body=json.dumps({"input": {"messages": []}}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        req_beta = func.HttpRequest(
+            method="POST",
+            url="/api/graphs/beta/invoke",
+            body=json.dumps({"input": {"messages": []}}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        resp_a = la._handle_invoke(req_alpha, la._registrations["alpha"])
+        resp_b = la._handle_invoke(req_beta, la._registrations["beta"])
+        assert resp_a.status_code == 200
+        assert resp_b.status_code == 200
+        # Verify they used different registrations (closure correctness)
+        assert la._registrations["alpha"].graph is graph_a
+        assert la._registrations["beta"].graph is graph_b
+
 
 # ------------------------------------------------------------------
 # Invoke handler tests

@@ -17,7 +17,6 @@ class TestInvokeRequest:
         req = InvokeRequest(input={"messages": [{"role": "human", "content": "hi"}]})
         assert req.input["messages"][0]["content"] == "hi"
         assert req.config is None
-        assert req.metadata is None
 
     def test_with_config(self) -> None:
         req = InvokeRequest(
@@ -26,13 +25,6 @@ class TestInvokeRequest:
         )
         assert req.config is not None
         assert req.config["configurable"]["thread_id"] == "t1"
-
-    def test_with_metadata(self) -> None:
-        req = InvokeRequest(
-            input={"messages": []},
-            metadata={"user_id": "u1"},
-        )
-        assert req.metadata == {"user_id": "u1"}
 
 
 class TestStreamRequest:

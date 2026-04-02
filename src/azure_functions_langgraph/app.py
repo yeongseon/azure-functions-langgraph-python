@@ -138,26 +138,22 @@ class LangGraphApp:
     def _register_invoke_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
         route = f"graphs/{reg.name}/invoke"
         fn_name = f"aflg_{reg.name}_invoke"
+        captured_reg = reg
 
         @app.function_name(name=fn_name)
         @app.route(route=route, methods=["POST"], auth_level=self.auth_level)
-        def invoke_handler(
-            req: func.HttpRequest,
-            _reg: _GraphRegistration = reg,
-        ) -> func.HttpResponse:
-            return self._handle_invoke(req, _reg)
+        def invoke_handler(req: func.HttpRequest) -> func.HttpResponse:
+            return self._handle_invoke(req, captured_reg)
 
     def _register_stream_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
         route = f"graphs/{reg.name}/stream"
         fn_name = f"aflg_{reg.name}_stream"
+        captured_reg = reg
 
         @app.function_name(name=fn_name)
         @app.route(route=route, methods=["POST"], auth_level=self.auth_level)
-        def stream_handler(
-            req: func.HttpRequest,
-            _reg: _GraphRegistration = reg,
-        ) -> func.HttpResponse:
-            return self._handle_stream(req, _reg)
+        def stream_handler(req: func.HttpRequest) -> func.HttpResponse:
+            return self._handle_stream(req, captured_reg)
 
     # ------------------------------------------------------------------
     # Request handlers

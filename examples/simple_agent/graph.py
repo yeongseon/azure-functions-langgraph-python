@@ -10,7 +10,7 @@ Requirements::
 Usage::
 
     # In your function_app.py
-    from examples.simple_agent.graph import func_app as app
+    from graph import compiled_graph
 """
 
 from __future__ import annotations
@@ -18,8 +18,6 @@ from __future__ import annotations
 from typing import Any
 
 from typing_extensions import TypedDict
-
-from azure_functions_langgraph import LangGraphApp
 
 # ------------------------------------------------------------------
 # 1. Define state
@@ -68,20 +66,8 @@ try:
 
     compiled_graph = builder.compile()
 
-    # ------------------------------------------------------------------
-    # 4. Deploy via LangGraphApp
-    # ------------------------------------------------------------------
-
-    langgraph_app = LangGraphApp()
-    langgraph_app.register(
-        graph=compiled_graph,
-        name="simple_agent",
-        description="A simple two-node greeting agent",
-    )
-
-    func_app = langgraph_app.function_app
-
 except ImportError:
-    # langgraph not installed — skip graph creation
-    compiled_graph = None  # type: ignore[assignment]
-    func_app = None  # type: ignore[assignment]
+    raise ImportError(
+        "langgraph is required for this example. "
+        "Install it with: pip install langgraph langchain-core"
+    )
