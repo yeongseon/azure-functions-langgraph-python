@@ -1,0 +1,135 @@
+[project]
+name = "azure-functions-langgraph"
+description = "LangGraph integration for Azure Functions Python v2 — deploy compiled graphs as HTTP endpoints"
+keywords = ["azure-functions", "azure", "python", "langgraph", "langchain", "ai-agent", "llm", "serverless"]
+authors = [{ name = "Yeongseon Choe", email = "yeongseon.choe@gmail.com" }]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+dynamic = ["version"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    "azure-functions",
+    "langgraph>=0.2",
+    "pydantic>=2.0,<3.0",
+]
+
+[project.urls]
+Homepage = "https://yeongseon.github.io/azure-functions-langgraph/"
+Documentation = "https://yeongseon.github.io/azure-functions-langgraph/"
+Repository = "https://github.com/yeongseon/azure-functions-langgraph"
+Issues = "https://github.com/yeongseon/azure-functions-langgraph/issues"
+
+[project.optional-dependencies]
+dev = [
+    "bandit==1.9.4",
+    "build",
+    "coverage",
+    "git-cliff",
+    "hatch",
+    "mypy==1.19.1",
+    "pre-commit",
+    "pytest",
+    "pytest-asyncio>=0.23,<1",
+    "pytest-cov",
+    "ruff==0.15.7",
+    "requests",
+    "types-requests",
+]
+docs = [
+    "mkdocs<2.0",
+    "mkdocs-material<10.0",
+    "mkdocstrings[python]<2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+sources = ["src"]
+
+[tool.hatch.build.targets.wheel]
+
+[tool.hatch.version]
+path = "src/azure_functions_langgraph/__init__.py"
+
+[tool.hatch.publish.index]
+default = "pypi"
+
+[tool.hatch.publish.index.repos.pypi]
+url = "https://upload.pypi.org/legacy/"
+
+[tool.hatch.publish.index.repos.test]
+url = "https://test.pypi.org/legacy/"
+
+[tool.hatch.envs.default]
+python = "3.10"
+features = ["dev", "docs"]
+
+[tool.hatch.envs.default.scripts]
+format = "ruff format src tests"
+style = "ruff check src tests"
+typecheck = "mypy src tests"
+lint = "hatch run style && hatch run typecheck"
+test = "pytest -v tests"
+cov = "pytest --cov-report=term-missing --cov-report=html --cov-report=xml tests/"
+e2e-azure = "pytest -v -m e2e tests/e2e/"
+docs = "mkdocs serve"
+precommit = "pre-commit run --all-files"
+precommit-install = "pre-commit install"
+security = "python -m bandit -r src"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+fixable = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["azure_functions_langgraph"]
+force-sort-within-sections = true
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+exclude = "examples/"
+show_error_codes = true
+pretty = true
+
+[tool.pytest.ini_options]
+addopts = "--cov=src/azure_functions_langgraph --cov-report=xml --cov-report=term-missing -ra -q -m 'not e2e'"
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+asyncio_mode = "auto"
+markers = ["e2e: real Azure end-to-end tests (require E2E_BASE_URL)"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/azure_functions_langgraph"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+skip_covered = true
+
+[tool.bandit]
+exclude_dirs = ["tests"]

@@ -1,0 +1,74 @@
+site_name: Azure Functions LangGraph
+site_description: Deploy LangGraph agents as Azure Functions HTTP endpoints
+site_author: Yeongseon Choe
+repo_url: https://github.com/yeongseon/azure-functions-langgraph
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: installation.md
+      - Quickstart: getting-started.md
+      - Configuration: configuration.md
+  - User Guide:
+      - Usage: usage.md
+      - Architecture: architecture.md
+  - Examples:
+      - Simple Agent: examples/simple_agent.md
+  - API Reference: api.md
+  - Contributing:
+      - Development: development.md
+      - Testing: testing.md
+      - Guidelines: contributing.md
+  - Troubleshooting: troubleshooting.md
+  - FAQ: faq.md
+  - Security: security.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - tables
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.inlinehilite
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_signature: true
+            show_root_full_path: false
+            merge_init_into_class: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/yeongseon/azure-functions-langgraph
+  copyright: |
+    © 2026 Yeongseon Choe – MIT Licensed
+
+extra_javascript:
+  - https://unpkg.com/mermaid@11/dist/mermaid.min.js
