@@ -214,14 +214,21 @@ class TestInvokeHandler:
         resp = app._handle_invoke(req, app._registrations["agent"])
         assert resp.status_code == 422
 
-    def test_invoke_graph_failure(self, fake_failing_graph: FakeFailingGraph) -> None:
+    def test_invoke_graph_failure(self) -> None:
+        class ExplodingGraph:
+            checkpointer = None
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
+                raise RuntimeError("database password leaked")
+
         app = LangGraphApp()
-        app.register(graph=fake_failing_graph, name="agent")
+        app.register(graph=ExplodingGraph(), name="agent")
         req = self._make_request({"input": {"messages": []}})
         resp = app._handle_invoke(req, app._registrations["agent"])
         assert resp.status_code == 500
         data = json.loads(resp.get_body())
-        assert "Graph execution failed" in data["detail"]
+        assert data["detail"] == "Graph execution failed"
+        assert "database password leaked" not in data["detail"]
 
     def test_invoke_non_dict_result(self) -> None:
         """Graph returning non-dict result is wrapped in {'result': ...}."""
@@ -301,6 +308,8 @@ class TestStreamHandler:
         assert resp.status_code == 200  # SSE always 200, error is in the stream
         body = resp.get_body().decode()
         assert "event: error" in body
+        assert '"error": "stream processing failed"' in body
+        assert "Stream execution failed" not in body
 
     def test_stream_contains_chunks(self, fake_graph: FakeCompiledGraph) -> None:
         app = LangGraphApp()
@@ -400,10 +409,10 @@ class TestOpenAPI:
         assert "200" in health_get["responses"]
         assert health_get["responses"]["200"]["description"] == "Service is healthy"
 
-    def test_invoke_endpoint_has_responses_and_parameters(
+    def test_invoke_endpoint_has_responses_and_no_parameters(
         self, fake_graph: FakeCompiledGraph
     ) -> None:
-        """Invoke endpoint must have responses and parameters fields."""
+        """Invoke endpoint must have responses and no path parameters."""
         app = LangGraphApp()
         app.register(graph=fake_graph, name="agent")
         spec = app._build_openapi()
@@ -411,20 +420,12 @@ class TestOpenAPI:
         invoke_post = spec["paths"]["/graphs/agent/invoke"]["post"]
         assert "responses" in invoke_post
         assert "200" in invoke_post["responses"]
-        assert "parameters" in invoke_post
+        assert "parameters" not in invoke_post
 
-        # Verify parameters contain name path parameter
-        params = invoke_post["parameters"]
-        assert len(params) > 0
-        name_param = params[0]
-        assert name_param["name"] == "name"
-        assert name_param["in"] == "path"
-        assert name_param["required"] is True
-
-    def test_stream_endpoint_has_responses_and_parameters(
+    def test_stream_endpoint_has_responses_and_no_parameters(
         self, fake_graph: FakeCompiledGraph
     ) -> None:
-        """Stream endpoint must have responses and parameters fields."""
+        """Stream endpoint must have responses and no path parameters."""
         app = LangGraphApp()
         app.register(graph=fake_graph, name="agent")
         spec = app._build_openapi()
@@ -432,15 +433,16 @@ class TestOpenAPI:
         stream_post = spec["paths"]["/graphs/agent/stream"]["post"]
         assert "responses" in stream_post
         assert "200" in stream_post["responses"]
-        assert "parameters" in stream_post
+        assert "parameters" not in stream_post
 
-        # Verify parameters contain name path parameter
-        params = stream_post["parameters"]
-        assert len(params) > 0
-        name_param = params[0]
-        assert name_param["name"] == "name"
-        assert name_param["in"] == "path"
-        assert name_param["required"] is True
+    def test_invoke_only_registration_omits_stream_path(self) -> None:
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="invoke_only", stream=False)
+
+        spec = app._build_openapi()
+
+        assert "/graphs/invoke_only/invoke" in spec["paths"]
+        assert "/graphs/invoke_only/stream" not in spec["paths"]
 
     def test_multiple_graphs_have_separate_paths(self) -> None:
         """Each registered graph should have its own paths in OpenAPI spec."""
