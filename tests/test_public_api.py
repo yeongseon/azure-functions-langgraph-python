@@ -27,10 +27,12 @@ def test_all_exports() -> None:
     assert "HealthResponse" in azure_functions_langgraph.__all__
     assert "GraphInfo" in azure_functions_langgraph.__all__
     assert "ErrorResponse" in azure_functions_langgraph.__all__
+    assert "StateResponse" in azure_functions_langgraph.__all__
     # Protocols
     assert "InvocableGraph" in azure_functions_langgraph.__all__
     assert "StreamableGraph" in azure_functions_langgraph.__all__
     assert "LangGraphLike" in azure_functions_langgraph.__all__
+    assert "StatefulGraph" in azure_functions_langgraph.__all__
 
 
 def test_contracts_importable() -> None:
@@ -58,6 +60,7 @@ def test_all_contracts_importable() -> None:
         HealthResponse,
         InvokeRequest,
         InvokeResponse,
+        StateResponse,
         StreamRequest,
     )
 
@@ -67,18 +70,21 @@ def test_all_contracts_importable() -> None:
     assert HealthResponse is not None
     assert GraphInfo is not None
     assert ErrorResponse is not None
+    assert StateResponse is not None
 
 
 def test_all_protocols_importable() -> None:
     from azure_functions_langgraph import (
         InvocableGraph,
         LangGraphLike,
+        StatefulGraph,
         StreamableGraph,
     )
 
     assert InvocableGraph is not None
     assert StreamableGraph is not None
     assert LangGraphLike is not None
+    assert StatefulGraph is not None
 
 
 def test_invalid_attr_raises() -> None:

@@ -14,11 +14,13 @@ if TYPE_CHECKING:
         HealthResponse,
         InvokeRequest,
         InvokeResponse,
+        StateResponse,
         StreamRequest,
     )
     from azure_functions_langgraph.protocols import (
         InvocableGraph,
         LangGraphLike,
+        StatefulGraph,
         StreamableGraph,
     )
 
@@ -59,6 +61,10 @@ def __getattr__(name: str) -> object:
         from azure_functions_langgraph.contracts import ErrorResponse
 
         return ErrorResponse
+    if name == "StateResponse":
+        from azure_functions_langgraph.contracts import StateResponse
+
+        return StateResponse
     # Protocols
     if name == "InvocableGraph":
         from azure_functions_langgraph.protocols import InvocableGraph
@@ -72,6 +78,10 @@ def __getattr__(name: str) -> object:
         from azure_functions_langgraph.protocols import LangGraphLike
 
         return LangGraphLike
+    if name == "StatefulGraph":
+        from azure_functions_langgraph.protocols import StatefulGraph
+
+        return StatefulGraph
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -85,8 +95,10 @@ __all__ = [
     "HealthResponse",
     "GraphInfo",
     "ErrorResponse",
+    "StateResponse",
     # Protocols
     "InvocableGraph",
     "StreamableGraph",
     "LangGraphLike",
+    "StatefulGraph",
 ]
