@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import logging
+import os
 from typing import Any, Optional
 
 import azure.functions as func
@@ -69,7 +70,9 @@ class LangGraphApp:
     _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.auth_level == func.AuthLevel.ANONYMOUS:
+        if self.auth_level == func.AuthLevel.ANONYMOUS and os.environ.get(
+            "AZURE_FUNCTIONS_ENVIRONMENT"
+        ):
             logger.warning(
                 "LangGraphApp is configured with anonymous HTTP auth. "
                 "Use FUNCTION or ADMIN auth levels for production deployments."
@@ -140,6 +143,7 @@ class LangGraphApp:
                 status_code=200,
             )
 
+        # OpenAPI endpoint
         @app.function_name(name="aflg_openapi")
         @app.route(route="openapi.json", methods=["GET"], auth_level=self.auth_level)
         def openapi(req: func.HttpRequest) -> func.HttpResponse:

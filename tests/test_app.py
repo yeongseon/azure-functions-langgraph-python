@@ -18,15 +18,36 @@ from tests.conftest import FakeCompiledGraph, FakeFailingGraph, FakeInvokeOnlyGr
 
 
 class TestRegistration:
-    def test_warns_for_anonymous_auth_level(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_warns_for_anonymous_auth_level(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         with caplog.at_level("WARNING"):
+            monkeypatch.setenv("AZURE_FUNCTIONS_ENVIRONMENT", "Production")
             LangGraphApp()
 
         assert "anonymous HTTP auth" in caplog.text
 
-    def test_no_warning_for_function_auth_level(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_no_warning_for_function_auth_level(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         with caplog.at_level("WARNING"):
+            monkeypatch.setenv("AZURE_FUNCTIONS_ENVIRONMENT", "Production")
             LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+
+        assert "anonymous HTTP auth" not in caplog.text
+
+    def test_no_warning_without_azure_env(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        with caplog.at_level("WARNING"):
+            monkeypatch.delenv("AZURE_FUNCTIONS_ENVIRONMENT", raising=False)
+            LangGraphApp()
 
         assert "anonymous HTTP auth" not in caplog.text
 
@@ -358,6 +379,16 @@ class TestHelpers:
 
 
 class TestOpenAPI:
+    def test_openapi_endpoint_returns_valid_spec(self, fake_graph: FakeCompiledGraph) -> None:
+        """OpenAPI endpoint returns a valid OpenAPI 3.0.3 spec."""
+        app = LangGraphApp()
+        app.register(graph=fake_graph, name="agent")
+        spec = app._build_openapi()
+
+        assert spec["openapi"] == "3.0.3"
+        assert spec["info"]["title"] == "azure-functions-langgraph"
+        assert "paths" in spec
+
     def test_health_endpoint_has_responses(self, fake_graph: FakeCompiledGraph) -> None:
         """Health endpoint in OpenAPI spec must have responses field."""
         app = LangGraphApp()
@@ -411,11 +442,23 @@ class TestOpenAPI:
         assert name_param["in"] == "path"
         assert name_param["required"] is True
 
-    def test_all_operations_have_responses(self, fake_graph: FakeCompiledGraph) -> None:
-        """All operations in OpenAPI spec must have responses field.
+    def test_multiple_graphs_have_separate_paths(self) -> None:
+        """Each registered graph should have its own paths in OpenAPI spec."""
+        graph_a = FakeCompiledGraph()
+        graph_b = FakeCompiledGraph()
+        app = LangGraphApp()
+        app.register(graph=graph_a, name="alpha")
+        app.register(graph=graph_b, name="beta")
+        spec = app._build_openapi()
 
-        This is a required field per OpenAPI 3.0.3 specification.
-        """
+        # Verify both graphs have invoke and stream paths
+        assert "/graphs/alpha/invoke" in spec["paths"]
+        assert "/graphs/alpha/stream" in spec["paths"]
+        assert "/graphs/beta/invoke" in spec["paths"]
+        assert "/graphs/beta/stream" in spec["paths"]
+
+    def test_all_operations_have_responses(self, fake_graph: FakeCompiledGraph) -> None:
+        """All operations in OpenAPI spec must have responses field (OpenAPI 3.0 requirement)."""
         app = LangGraphApp()
         app.register(graph=fake_graph, name="agent")
         spec = app._build_openapi()
@@ -423,7 +466,8 @@ class TestOpenAPI:
         for path, path_item in spec["paths"].items():
             for method, operation in path_item.items():
                 if method in ["get", "post", "put", "delete", "patch"]:
-                    msg = f"Path {path} method {method} missing responses"
-                    assert "responses" in operation, msg
+                    assert "responses" in operation, (
+                        f"Path {path} method {method} missing responses"
+                    )
                     assert isinstance(operation["responses"], dict)
                     assert len(operation["responses"]) > 0
