@@ -29,6 +29,13 @@ class StreamableGraph(Protocol):
 
 
 @runtime_checkable
+class StatefulGraph(Protocol):
+    """Protocol for a graph that supports state retrieval via a checkpointer."""
+
+    def get_state(self, config: dict[str, Any]) -> Any: ...
+
+
+@runtime_checkable
 class LangGraphLike(InvocableGraph, StreamableGraph, Protocol):
     """Protocol combining invoke and stream — matches LangGraph's CompiledStateGraph."""
 

@@ -10,7 +10,13 @@ import azure.functions as func
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp, _has_checkpointer
-from tests.conftest import FakeCompiledGraph, FakeFailingGraph, FakeInvokeOnlyGraph
+from tests.conftest import (
+    FakeCompiledGraph,
+    FakeFailingGraph,
+    FakeFailingStatefulGraph,
+    FakeInvokeOnlyGraph,
+    FakeStatefulGraph,
+)
 
 # ------------------------------------------------------------------
 # Registration tests
@@ -442,6 +448,139 @@ class TestStreamHandler:
         assert resp.status_code == 501
         payload = json.loads(resp.get_body())
         assert "invoke-only" in payload["detail"]
+
+
+# ------------------------------------------------------------------
+# State handler tests
+# ------------------------------------------------------------------
+
+
+class TestStateHandler:
+    @staticmethod
+    def _make_state_request(thread_id: str = "t1") -> func.HttpRequest:
+        return func.HttpRequest(
+            method="GET",
+            url=f"/api/graphs/agent/threads/{thread_id}/state",
+            body=b"",
+            route_params={"thread_id": thread_id},
+        )
+
+    def test_state_success(
+        self, fake_stateful_graph: FakeStatefulGraph
+    ) -> None:
+        app = LangGraphApp()
+        app.register(graph=fake_stateful_graph, name="agent")
+        req = self._make_state_request("t1")
+        resp = app._handle_state(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert "values" in data
+        assert isinstance(data["next"], list)
+
+    def test_state_returns_values_and_next(
+        self, fake_stateful_graph: FakeStatefulGraph
+    ) -> None:
+        from tests.conftest import _FakeStateSnapshot
+
+        snapshot = _FakeStateSnapshot(
+            values={"count": 42},
+            next_nodes=("agent", "tool"),
+            metadata={"step": 3},
+        )
+        graph = FakeStatefulGraph(state_snapshot=snapshot)
+        app = LangGraphApp()
+        app.register(graph=graph, name="agent")
+        req = self._make_state_request("t1")
+        resp = app._handle_state(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["values"] == {"count": 42}
+        assert data["next"] == ["agent", "tool"]
+        assert data["metadata"] == {"step": 3}
+
+    def test_state_non_stateful_graph_returns_409(
+        self, fake_graph: FakeCompiledGraph
+    ) -> None:
+        app = LangGraphApp()
+        app.register(graph=fake_graph, name="agent")
+        req = self._make_state_request("t1")
+        resp = app._handle_state(req, app._registrations["agent"])
+        assert resp.status_code == 409
+        data = json.loads(resp.get_body())
+        assert "does not support state" in data["detail"]
+
+    def test_state_missing_thread_id(
+        self, fake_stateful_graph: FakeStatefulGraph
+    ) -> None:
+        app = LangGraphApp()
+        app.register(graph=fake_stateful_graph, name="agent")
+        req = func.HttpRequest(
+            method="GET",
+            url="/api/graphs/agent/threads//state",
+            body=b"",
+            route_params={},
+        )
+        resp = app._handle_state(req, app._registrations["agent"])
+        assert resp.status_code == 400
+        data = json.loads(resp.get_body())
+        assert "Missing thread_id" in data["detail"]
+
+    def test_state_get_state_failure_returns_404(
+        self, fake_failing_stateful_graph: FakeFailingStatefulGraph
+    ) -> None:
+        app = LangGraphApp()
+        app.register(graph=fake_failing_stateful_graph, name="agent")
+        req = self._make_state_request("bad_thread")
+        resp = app._handle_state(req, app._registrations["agent"])
+        assert resp.status_code == 404
+        data = json.loads(resp.get_body())
+        assert "not found" in data["detail"]
+        # Must NOT leak internal error message
+        assert "Checkpointer unavailable" not in data["detail"]
+
+    def test_state_route_only_registered_for_stateful_graph(self) -> None:
+        """State route should only exist for graphs satisfying StatefulGraph."""
+        app = LangGraphApp()
+        app.register(graph=FakeStatefulGraph(), name="stateful")
+        app.register(graph=FakeCompiledGraph(), name="basic")
+        fa = app.function_app
+        fa.functions_bindings = {}
+        fn_names = [f.get_function_name() for f in fa.get_functions()]
+        assert "aflg_stateful_state" in fn_names
+        assert "aflg_basic_state" not in fn_names
+
+    def test_state_uses_per_graph_auth(self) -> None:
+        app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+        app.register(
+            graph=FakeStatefulGraph(),
+            name="agent",
+            auth_level=func.AuthLevel.ADMIN,
+        )
+        fa = app.function_app
+        fa.functions_bindings = {}
+        for f in fa.get_functions():
+            if f.get_function_name() == "aflg_agent_state":
+                assert f.get_trigger().auth_level == func.AuthLevel.ADMIN  # type: ignore[union-attr]
+                break
+        else:
+            pytest.fail("State function not found")
+
+    def test_state_openapi_includes_state_path_for_stateful_graph(self) -> None:
+        app = LangGraphApp()
+        app.register(graph=FakeStatefulGraph(), name="agent")
+        spec = app._build_openapi()
+        state_path = "/graphs/agent/threads/{thread_id}/state"
+        assert state_path in spec["paths"]
+        state_op = spec["paths"][state_path]["get"]
+        assert "parameters" in state_op
+        assert state_op["parameters"][0]["name"] == "thread_id"
+
+    def test_state_openapi_excludes_state_path_for_non_stateful_graph(self) -> None:
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        spec = app._build_openapi()
+        state_paths = [p for p in spec["paths"] if "state" in p]
+        assert len(state_paths) == 0
 
 
 # ------------------------------------------------------------------

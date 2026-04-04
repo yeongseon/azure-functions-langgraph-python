@@ -17,9 +17,10 @@ from azure_functions_langgraph.contracts import (
     HealthResponse,
     InvokeRequest,
     InvokeResponse,
+    StateResponse,
     StreamRequest,
 )
-from azure_functions_langgraph.protocols import InvocableGraph, StreamableGraph
+from azure_functions_langgraph.protocols import InvocableGraph, StatefulGraph, StreamableGraph
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class LangGraphApp:
     - ``POST /api/graphs/{name}/invoke`` — synchronous invocation
     - ``POST /api/graphs/{name}/stream`` — buffered SSE response (not true streaming)
     - ``GET /api/health`` — health check with registered graph list
+    - ``GET /api/graphs/{name}/threads/{thread_id}/state`` — thread state (StatefulGraph only)
 
     Note:
         The graph argument must satisfy the :class:`LangGraphLike` protocol
@@ -163,6 +165,8 @@ class LangGraphApp:
         for reg in self._registrations.values():
             self._register_invoke_route(app, reg)
             self._register_stream_route(app, reg)
+            if isinstance(reg.graph, StatefulGraph):
+                self._register_state_route(app, reg)
 
         return app
 
@@ -187,6 +191,18 @@ class LangGraphApp:
         @app.route(route=route, methods=["POST"], auth_level=effective_auth)
         def stream_handler(req: func.HttpRequest) -> func.HttpResponse:
             return self._handle_stream(req, captured_reg)
+
+
+    def _register_state_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
+        route = f"graphs/{reg.name}/threads/{{thread_id}}/state"
+        fn_name = f"aflg_{reg.name}_state"
+        captured_reg = reg
+        effective_auth = self._effective_auth_level(reg)
+
+        @app.function_name(name=fn_name)
+        @app.route(route=route, methods=["GET"], auth_level=effective_auth)
+        def state_handler(req: func.HttpRequest) -> func.HttpResponse:
+            return self._handle_state(req, captured_reg)
 
     def _effective_auth_level(self, reg: _GraphRegistration) -> func.AuthLevel:
         """Return per-graph auth if set, otherwise app-level auth."""
@@ -302,6 +318,44 @@ class LangGraphApp:
             },
         )
 
+
+    def _handle_state(
+        self, req: func.HttpRequest, reg: _GraphRegistration
+    ) -> func.HttpResponse:
+        """Handle a GET request for thread state."""
+        if not isinstance(reg.graph, StatefulGraph):
+            return _error_response(
+                409, f"Graph {reg.name!r} does not support state retrieval"
+            )
+
+        thread_id = req.route_params.get("thread_id")
+        if not thread_id:
+            return _error_response(400, "Missing thread_id in URL path")
+
+        config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+
+        try:
+            snapshot = reg.graph.get_state(config)
+        except Exception as exc:
+            logger.exception(
+                "Graph %s get_state failed for thread %s", reg.name, thread_id
+            )
+            _ = exc
+            return _error_response(404, f"Thread {thread_id!r} not found")
+
+        values = snapshot.values if isinstance(snapshot.values, dict) else {}
+        next_nodes: list[str] = list(snapshot.next) if hasattr(snapshot, "next") else []
+        metadata = (
+            dict(snapshot.metadata) if hasattr(snapshot, "metadata") and snapshot.metadata else None
+        )
+
+        response = StateResponse(values=values, next=next_nodes, metadata=metadata)
+        return func.HttpResponse(
+            body=json.dumps(response.model_dump(), default=str),
+            mimetype="application/json",
+            status_code=200,
+        )
+
     def _build_openapi(self) -> dict[str, Any]:
         """Build OpenAPI 3.0.3 specification from registered graphs."""
         paths: dict[str, Any] = {
@@ -327,6 +381,25 @@ class LangGraphApp:
                         "responses": {"200": {"description": "SSE stream"}},
                     }
                 }
+            if isinstance(reg.graph, StatefulGraph):
+                paths[f"/graphs/{reg.name}/threads/{{thread_id}}/state"] = {
+                    "get": {
+                        "summary": f"Get thread state for '{reg.name}'",
+                        "parameters": [
+                            {
+                                "name": "thread_id",
+                                "in": "path",
+                                "required": True,
+                                "schema": {"type": "string"},
+                            }
+                        ],
+                        "responses": {
+                            "200": {"description": "Thread state"},
+                            "404": {"description": "Thread not found"},
+                        },
+                    }
+                }
+
 
         return {
             "openapi": "3.0.3",

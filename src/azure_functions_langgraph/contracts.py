@@ -57,3 +57,13 @@ class ErrorResponse(BaseModel):
 
     error: str
     detail: Optional[str] = None
+
+
+class StateResponse(BaseModel):
+    """Response body for thread state retrieval."""
+
+    values: dict[str, Any] = Field(description="Current state values")
+    next: list[str] = Field(default_factory=list, description="Next node(s) to execute")
+    metadata: Optional[dict[str, Any]] = Field(
+        default=None, description="State metadata"
+    )
