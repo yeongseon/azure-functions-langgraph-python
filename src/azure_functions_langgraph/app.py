@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import azure.functions as func
 
+from azure_functions_langgraph import __version__
 from azure_functions_langgraph.contracts import (
     ErrorResponse,
     GraphInfo,
@@ -128,6 +129,16 @@ class LangGraphApp:
                 status_code=200,
             )
 
+        @app.function_name(name="aflg_openapi")
+        @app.route(route="openapi.json", methods=["GET"], auth_level=self.auth_level)
+        def openapi(req: func.HttpRequest) -> func.HttpResponse:
+            _ = req
+            return func.HttpResponse(
+                body=json.dumps(self._build_openapi(), default=str),
+                mimetype="application/json",
+                status_code=200,
+            )
+
         # Per-graph endpoints
         for reg in self._registrations.values():
             self._register_invoke_route(app, reg)
@@ -237,6 +248,48 @@ class LangGraphApp:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    def _build_openapi(self) -> dict[str, Any]:
+        """Build OpenAPI 3.0.3 specification from registered graphs."""
+        paths: dict[str, Any] = {
+            "/health": {
+                "get": {
+                    "summary": "Health check",
+                    "responses": {"200": {"description": "Service is healthy"}},
+                }
+            }
+        }
+
+        for reg in self._registrations.values():
+            name_param = {
+                "name": "name",
+                "in": "path",
+                "required": True,
+                "schema": {"type": "string"},
+            }
+            paths[f"/graphs/{reg.name}/invoke"] = {
+                "post": {
+                    "summary": f"Invoke graph '{reg.name}'",
+                    "parameters": [name_param],
+                    "responses": {"200": {"description": "Invocation result"}},
+                }
+            }
+            paths[f"/graphs/{reg.name}/stream"] = {
+                "post": {
+                    "summary": f"Stream graph '{reg.name}'",
+                    "parameters": [name_param],
+                    "responses": {"200": {"description": "SSE stream"}},
+                }
+            }
+
+        return {
+            "openapi": "3.0.3",
+            "info": {
+                "title": "azure-functions-langgraph",
+                "version": __version__,
+            },
+            "paths": paths,
+        }
 
 
 # ------------------------------------------------------------------

@@ -105,6 +105,19 @@ class TestFunctionApp:
         assert la._registrations["alpha"].graph is graph_a
         assert la._registrations["beta"].graph is graph_b
 
+    def test_openapi_paths_match_registered_routes_without_api_prefix(self) -> None:
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+
+        openapi = app._build_openapi()
+        paths = openapi["paths"]
+
+        assert "/graphs/agent/invoke" in paths
+        assert "/graphs/agent/stream" in paths
+        assert "/health" in paths
+        assert "/api/graphs/agent/invoke" not in paths
+        assert "/api/graphs/agent/stream" not in paths
+
 
 # ------------------------------------------------------------------
 # Invoke handler tests
@@ -290,3 +303,80 @@ class TestHelpers:
         graph = MagicMock()
         graph.checkpointer = None
         assert _has_checkpointer(graph) is False
+
+
+# ------------------------------------------------------------------
+# OpenAPI tests
+# ------------------------------------------------------------------
+
+
+class TestOpenAPI:
+    def test_health_endpoint_has_responses(self, fake_graph: FakeCompiledGraph) -> None:
+        """Health endpoint in OpenAPI spec must have responses field."""
+        app = LangGraphApp()
+        app.register(graph=fake_graph, name="agent")
+        spec = app._build_openapi()
+
+        health_get = spec["paths"]["/health"]["get"]
+        assert "responses" in health_get
+        assert "200" in health_get["responses"]
+        assert health_get["responses"]["200"]["description"] == "Service is healthy"
+
+    def test_invoke_endpoint_has_responses_and_parameters(
+        self, fake_graph: FakeCompiledGraph
+    ) -> None:
+        """Invoke endpoint must have responses and parameters fields."""
+        app = LangGraphApp()
+        app.register(graph=fake_graph, name="agent")
+        spec = app._build_openapi()
+
+        invoke_post = spec["paths"]["/graphs/agent/invoke"]["post"]
+        assert "responses" in invoke_post
+        assert "200" in invoke_post["responses"]
+        assert "parameters" in invoke_post
+
+        # Verify parameters contain name path parameter
+        params = invoke_post["parameters"]
+        assert len(params) > 0
+        name_param = params[0]
+        assert name_param["name"] == "name"
+        assert name_param["in"] == "path"
+        assert name_param["required"] is True
+
+    def test_stream_endpoint_has_responses_and_parameters(
+        self, fake_graph: FakeCompiledGraph
+    ) -> None:
+        """Stream endpoint must have responses and parameters fields."""
+        app = LangGraphApp()
+        app.register(graph=fake_graph, name="agent")
+        spec = app._build_openapi()
+
+        stream_post = spec["paths"]["/graphs/agent/stream"]["post"]
+        assert "responses" in stream_post
+        assert "200" in stream_post["responses"]
+        assert "parameters" in stream_post
+
+        # Verify parameters contain name path parameter
+        params = stream_post["parameters"]
+        assert len(params) > 0
+        name_param = params[0]
+        assert name_param["name"] == "name"
+        assert name_param["in"] == "path"
+        assert name_param["required"] is True
+
+    def test_all_operations_have_responses(self, fake_graph: FakeCompiledGraph) -> None:
+        """All operations in OpenAPI spec must have responses field.
+
+        This is a required field per OpenAPI 3.0.3 specification.
+        """
+        app = LangGraphApp()
+        app.register(graph=fake_graph, name="agent")
+        spec = app._build_openapi()
+
+        for path, path_item in spec["paths"].items():
+            for method, operation in path_item.items():
+                if method in ["get", "post", "put", "delete", "patch"]:
+                    msg = f"Path {path} method {method} missing responses"
+                    assert "responses" in operation, msg
+                    assert isinstance(operation["responses"], dict)
+                    assert len(operation["responses"]) > 0
