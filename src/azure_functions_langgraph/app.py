@@ -32,7 +32,7 @@ class _GraphRegistration:
     name: str
     description: Optional[str] = None
     stream_enabled: bool = True
-
+    auth_level: Optional[func.AuthLevel] = None
 
 @dataclass
 class LangGraphApp:
@@ -84,6 +84,7 @@ class LangGraphApp:
         name: str,
         description: Optional[str] = None,
         stream: bool = True,
+        auth_level: Optional[func.AuthLevel] = None,
     ) -> None:
         """Register a compiled LangGraph graph.
 
@@ -92,6 +93,9 @@ class LangGraphApp:
                 (typically a ``CompiledStateGraph`` from ``langgraph``).
             name: Unique name for this graph (used in URL routes).
             description: Optional human-readable description.
+            stream: Whether to enable the stream endpoint for this graph.
+            auth_level: Override app-level auth for this graph's endpoints.
+                When ``None`` (default), the app-level ``auth_level`` is used.
 
         Raises:
             TypeError: If *graph* does not satisfy the required protocol.
@@ -106,6 +110,7 @@ class LangGraphApp:
             name=name,
             description=description,
             stream_enabled=stream,
+            auth_level=auth_level,
         )
         # Reset cached function app so routes are re-generated
         self._function_app = None
@@ -165,9 +170,10 @@ class LangGraphApp:
         route = f"graphs/{reg.name}/invoke"
         fn_name = f"aflg_{reg.name}_invoke"
         captured_reg = reg
+        effective_auth = self._effective_auth_level(reg)
 
         @app.function_name(name=fn_name)
-        @app.route(route=route, methods=["POST"], auth_level=self.auth_level)
+        @app.route(route=route, methods=["POST"], auth_level=effective_auth)
         def invoke_handler(req: func.HttpRequest) -> func.HttpResponse:
             return self._handle_invoke(req, captured_reg)
 
@@ -175,11 +181,18 @@ class LangGraphApp:
         route = f"graphs/{reg.name}/stream"
         fn_name = f"aflg_{reg.name}_stream"
         captured_reg = reg
+        effective_auth = self._effective_auth_level(reg)
 
         @app.function_name(name=fn_name)
-        @app.route(route=route, methods=["POST"], auth_level=self.auth_level)
+        @app.route(route=route, methods=["POST"], auth_level=effective_auth)
         def stream_handler(req: func.HttpRequest) -> func.HttpResponse:
             return self._handle_stream(req, captured_reg)
+
+    def _effective_auth_level(self, reg: _GraphRegistration) -> func.AuthLevel:
+        """Return per-graph auth if set, otherwise app-level auth."""
+        if reg.auth_level is not None:
+            return reg.auth_level
+        return self.auth_level
 
     # ------------------------------------------------------------------
     # Request handlers

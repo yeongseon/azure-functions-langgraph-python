@@ -88,7 +88,90 @@ class TestRegistration:
         app.register(graph=fake_invoke_only_graph, name="invoke_only")
         assert "invoke_only" in app._registrations
 
+    def test_register_with_auth_level_override(self, fake_graph: FakeCompiledGraph) -> None:
+        app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+        app.register(graph=fake_graph, name="agent", auth_level=func.AuthLevel.ADMIN)
+        assert app._registrations["agent"].auth_level == func.AuthLevel.ADMIN
 
+    def test_register_auth_level_defaults_to_none(self, fake_graph: FakeCompiledGraph) -> None:
+        app = LangGraphApp()
+        app.register(graph=fake_graph, name="agent")
+        assert app._registrations["agent"].auth_level is None
+
+    def test_register_anonymous_auth_override(self, fake_graph: FakeCompiledGraph) -> None:
+        """AuthLevel.ANONYMOUS is falsy-ish; ensure 'is not None' check preserves it."""
+        app = LangGraphApp(auth_level=func.AuthLevel.ADMIN)
+        app.register(graph=fake_graph, name="agent", auth_level=func.AuthLevel.ANONYMOUS)
+        assert app._registrations["agent"].auth_level == func.AuthLevel.ANONYMOUS
+
+
+# ------------------------------------------------------------------
+# Per-graph auth level tests
+# ------------------------------------------------------------------
+
+
+class TestPerGraphAuth:
+    """Verify per-graph auth_level overrides propagate to Azure Functions routes."""
+
+    @staticmethod
+    def _get_trigger_auth(fa: func.FunctionApp, fn_name: str) -> func.AuthLevel:
+        """Extract the auth_level from a registered function's HTTP trigger."""
+        # Reset bindings cache to avoid duplicate-name validation on repeat calls
+        fa.functions_bindings = {}
+        for f in fa.get_functions():
+            if f.get_function_name() == fn_name:
+                return f.get_trigger().auth_level  # type: ignore[union-attr, no-any-return]
+        raise ValueError(f"Function {fn_name!r} not found")
+
+    def test_per_graph_auth_overrides_invoke_route(self) -> None:
+        app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+        app.register(graph=FakeCompiledGraph(), name="secure", auth_level=func.AuthLevel.ADMIN)
+        fa = app.function_app
+        assert self._get_trigger_auth(fa, "aflg_secure_invoke") == func.AuthLevel.ADMIN
+
+    def test_per_graph_auth_overrides_stream_route(self) -> None:
+        app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+        app.register(graph=FakeCompiledGraph(), name="secure", auth_level=func.AuthLevel.ADMIN)
+        fa = app.function_app
+        assert self._get_trigger_auth(fa, "aflg_secure_stream") == func.AuthLevel.ADMIN
+
+    def test_fallback_to_app_auth_when_none(self) -> None:
+        app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+        app.register(graph=FakeCompiledGraph(), name="default")
+        fa = app.function_app
+        assert self._get_trigger_auth(fa, "aflg_default_invoke") == func.AuthLevel.FUNCTION
+        assert self._get_trigger_auth(fa, "aflg_default_stream") == func.AuthLevel.FUNCTION
+
+    def test_anonymous_override_is_preserved(self) -> None:
+        """AuthLevel.ANONYMOUS must not be swallowed by falsy check."""
+        app = LangGraphApp(auth_level=func.AuthLevel.ADMIN)
+        app.register(
+            graph=FakeCompiledGraph(), name="public", auth_level=func.AuthLevel.ANONYMOUS
+        )
+        fa = app.function_app
+        assert self._get_trigger_auth(fa, "aflg_public_invoke") == func.AuthLevel.ANONYMOUS
+        assert self._get_trigger_auth(fa, "aflg_public_stream") == func.AuthLevel.ANONYMOUS
+
+    def test_mixed_graphs_use_correct_auth(self) -> None:
+        """Two graphs: one with override, one with default — each gets correct auth."""
+        app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+        app.register(graph=FakeCompiledGraph(), name="private", auth_level=func.AuthLevel.ADMIN)
+        app.register(graph=FakeCompiledGraph(), name="default")
+        fa = app.function_app
+        # Private graph → ADMIN
+        assert self._get_trigger_auth(fa, "aflg_private_invoke") == func.AuthLevel.ADMIN
+        assert self._get_trigger_auth(fa, "aflg_private_stream") == func.AuthLevel.ADMIN
+        # Default graph → FUNCTION (app-level)
+        assert self._get_trigger_auth(fa, "aflg_default_invoke") == func.AuthLevel.FUNCTION
+        assert self._get_trigger_auth(fa, "aflg_default_stream") == func.AuthLevel.FUNCTION
+
+    def test_health_always_uses_app_auth(self) -> None:
+        """Health/OpenAPI endpoints must use app-level auth, not per-graph."""
+        app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+        app.register(graph=FakeCompiledGraph(), name="agent", auth_level=func.AuthLevel.ADMIN)
+        fa = app.function_app
+        assert self._get_trigger_auth(fa, "aflg_health") == func.AuthLevel.FUNCTION
+        assert self._get_trigger_auth(fa, "aflg_openapi") == func.AuthLevel.FUNCTION
 # ------------------------------------------------------------------
 # Function app creation tests
 # ------------------------------------------------------------------
