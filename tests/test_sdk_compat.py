@@ -71,6 +71,12 @@ _ROUTE_TABLE: list[tuple[str, re.Pattern[str], str, list[str]]] = [
         [],
     ),
     (
+        "POST",
+        re.compile(r"^/assistants/count$"),
+        "aflg_platform_assistants_count",
+        [],
+    ),
+    (
         "GET",
         re.compile(r"^/assistants/(?P<assistant_id>[^/]+)$"),
         "aflg_platform_assistants_get",
@@ -244,6 +250,30 @@ class TestSdkAssistants:
         with pytest.raises(NotFoundError):
             client.assistants.get("nonexistent")
 
+    def test_count_all(self) -> None:
+        """assistants.count() returns total number of registered graphs."""
+        _, client = _make_app()
+        result = client.assistants.count()
+        assert result == 1
+
+    def test_count_with_graph_id_filter(self) -> None:
+        """assistants.count(graph_id=...) filters by graph_id."""
+        _, client = _make_app()
+        assert client.assistants.count(graph_id="agent") == 1
+        assert client.assistants.count(graph_id="nonexistent") == 0
+
+    def test_count_with_metadata_filter(self) -> None:
+        """assistants.count(metadata=...) returns 0 (no user metadata on assistants)."""
+        _, client = _make_app()
+        assert client.assistants.count(metadata={"key": "value"}) == 0
+
+    def test_count_with_name_filter(self) -> None:
+        """assistants.count(name=...) filters by case-insensitive substring."""
+        _, client = _make_app()
+        assert client.assistants.count(name="agent") == 1
+        assert client.assistants.count(name="AGENT") == 1
+        assert client.assistants.count(name="age") == 1
+        assert client.assistants.count(name="nonexistent") == 0
 
 # ---------------------------------------------------------------------------
 # Tests — Threads

@@ -224,7 +224,150 @@ class TestAssistantsSearch:
         resp = fn(req)
         assert resp.status_code == 200
 
+    def test_search_filter_by_name(self, store: InMemoryThreadStore) -> None:
+        g1 = FakeCompiledGraph()
+        g2 = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"chatbot": g1, "summarizer": g2}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_assistants_search")
 
+        # Substring match
+        req = _post_request("/api/assistants/search", {"name": "chat"})
+        resp = fn(req)
+        data = json.loads(resp.get_body())
+        assert len(data) == 1
+        assert data[0]["assistant_id"] == "chatbot"
+
+        # Case-insensitive
+        req = _post_request("/api/assistants/search", {"name": "SUMM"})
+        resp = fn(req)
+        data = json.loads(resp.get_body())
+        assert len(data) == 1
+        assert data[0]["assistant_id"] == "summarizer"
+
+        # No match
+        req = _post_request("/api/assistants/search", {"name": "nonexistent"})
+        resp = fn(req)
+        data = json.loads(resp.get_body())
+        assert len(data) == 0
+
+
+
+class TestAssistantsCount:
+    def test_count_all(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_assistants_count")
+
+        req = _post_request("/api/assistants/count")
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body()) == 1
+
+    def test_count_multiple_graphs(self, store: InMemoryThreadStore) -> None:
+        g1 = FakeCompiledGraph()
+        g2 = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"alpha": g1, "beta": g2}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_assistants_count")
+
+        req = _post_request("/api/assistants/count")
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body()) == 2
+
+    def test_count_filter_by_graph_id(self, store: InMemoryThreadStore) -> None:
+        g1 = FakeCompiledGraph()
+        g2 = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"alpha": g1, "beta": g2}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_assistants_count")
+
+        req = _post_request("/api/assistants/count", {"graph_id": "alpha"})
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body()) == 1
+
+    def test_count_filter_by_graph_id_no_match(self, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_assistants_count")
+
+        req = _post_request("/api/assistants/count", {"graph_id": "nonexistent"})
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body()) == 0
+
+    def test_count_filter_by_metadata_returns_zero(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """Assistants don't have user metadata, so any metadata filter yields 0."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_assistants_count")
+
+        req = _post_request("/api/assistants/count", {"metadata": {"key": "val"}})
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body()) == 0
+
+    def test_count_filter_by_name_substring(self, store: InMemoryThreadStore) -> None:
+        g1 = FakeCompiledGraph()
+        g2 = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"chatbot": g1, "summarizer": g2}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_assistants_count")
+
+        # Exact match
+        req = _post_request("/api/assistants/count", {"name": "chatbot"})
+        resp = fn(req)
+        assert json.loads(resp.get_body()) == 1
+
+        # Substring match
+        req = _post_request("/api/assistants/count", {"name": "chat"})
+        resp = fn(req)
+        assert json.loads(resp.get_body()) == 1
+
+        # Case-insensitive
+        req = _post_request("/api/assistants/count", {"name": "CHAT"})
+        resp = fn(req)
+        assert json.loads(resp.get_body()) == 1
+
+        # No match
+        req = _post_request("/api/assistants/count", {"name": "nonexistent"})
+        resp = fn(req)
+        assert json.loads(resp.get_body()) == 0
+
+    def test_count_empty_body(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        """POST with no body should still work."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_assistants_count")
+
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/assistants/count",
+            body=b"",
+            headers={},
+        )
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body()) == 1
+
+    def test_count_invalid_json(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        """Malformed JSON returns 400."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_assistants_count")
+
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/assistants/count",
+            body=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
 class TestAssistantsGet:
     def test_get_existing(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)

@@ -13,6 +13,7 @@ import pytest
 
 from azure_functions_langgraph.platform.contracts import (
     Assistant,
+    AssistantCount,
     AssistantSearch,
     Checkpoint,
     Interrupt,
@@ -531,9 +532,9 @@ class TestAssistantSearch:
         s = AssistantSearch()
         assert s.graph_id is None
         assert s.metadata is None
+        assert s.name is None
         assert s.limit == 10
         assert s.offset == 0
-
     def test_with_filters(self) -> None:
         s = AssistantSearch(graph_id="chatbot", limit=5, offset=20)
         assert s.graph_id == "chatbot"
@@ -553,6 +554,23 @@ class TestAssistantSearch:
         assert s.graph_id == "g"
         assert not hasattr(s, "some_new_field")
 
+
+class TestAssistantCount:
+    def test_defaults(self) -> None:
+        c = AssistantCount()
+        assert c.graph_id is None
+        assert c.metadata is None
+        assert c.name is None
+
+    def test_with_filters(self) -> None:
+        c = AssistantCount(graph_id="chatbot", name="bot")
+        assert c.graph_id == "chatbot"
+        assert c.name == "bot"
+
+    def test_extra_fields_ignored(self) -> None:
+        c = AssistantCount.model_validate({"graph_id": "g", "some_new_field": True})
+        assert c.graph_id == "g"
+        assert not hasattr(c, "some_new_field")
 
 # ---------------------------------------------------------------------------
 # Type alias sanity checks

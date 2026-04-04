@@ -8,6 +8,7 @@ Python client can communicate with Azure Functions–hosted graphs.
 Routes registered (under ``/api/`` prefix, managed by Azure Functions):
 
 * ``POST /api/assistants/search``
+* ``POST /api/assistants/count``
 * ``GET  /api/assistants/{assistant_id}``
 * ``POST /api/threads``
 * ``GET  /api/threads/{thread_id}``
@@ -42,6 +43,7 @@ from azure_functions_langgraph.platform._sse import (
 )
 from azure_functions_langgraph.platform.contracts import (
     Assistant,
+    AssistantCount,
     AssistantSearch,
     RunCreate,
     ThreadCreate,
@@ -213,18 +215,60 @@ def register_platform_routes(
             return _platform_error(422, f"Validation error: {exc}")
 
         results: list[Assistant] = []
-        for name, reg in deps.registrations.items():
-            if search.graph_id is not None and name != search.graph_id:
+        for reg_name, reg in deps.registrations.items():
+            if search.graph_id is not None and reg_name != search.graph_id:
                 continue
             if search.metadata is not None:
-                # Assistants don't have user metadata — skip filter
+                # Assistants don't have user metadata — any filter excludes all
                 continue
-            results.append(_registration_to_assistant(name, reg))
+            if search.name is not None and search.name.casefold() not in reg_name.casefold():
+                continue
+            results.append(_registration_to_assistant(reg_name, reg))
 
         # Apply offset/limit
         page = results[search.offset : search.offset + search.limit]
         return func.HttpResponse(
             body=json.dumps([a.model_dump(mode="json") for a in page], default=str),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    # ── POST /assistants/count ────────────────────────────────────
+
+    @app.function_name(name="aflg_platform_assistants_count")
+    @app.route(route="assistants/count", methods=["POST"], auth_level=auth)
+    def assistants_count(req: func.HttpRequest) -> func.HttpResponse:
+        # Body size check — reject before parsing
+        raw = req.get_body()
+        size_err = validate_body_size(raw, deps.max_request_body_bytes)
+        if size_err:
+            return _platform_error(400, size_err)
+        if raw and raw.strip() != b"":
+            try:
+                body: dict[str, Any] = req.get_json()
+            except ValueError:
+                return _platform_error(400, "Invalid JSON body")
+        else:
+            body = {}
+
+        try:
+            count_req = AssistantCount.model_validate(body)
+        except Exception as exc:
+            return _platform_error(422, f"Validation error: {exc}")
+
+        total = 0
+        for reg_name, _reg in deps.registrations.items():
+            if count_req.graph_id is not None and reg_name != count_req.graph_id:
+                continue
+            if count_req.metadata is not None:
+                # Assistants don't have user metadata — any filter excludes all
+                continue
+            if count_req.name is not None and count_req.name.casefold() not in reg_name.casefold():
+                continue
+            total += 1
+
+        return func.HttpResponse(
+            body=json.dumps(total),
             mimetype="application/json",
             status_code=200,
         )

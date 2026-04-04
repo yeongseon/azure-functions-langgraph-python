@@ -193,9 +193,22 @@ class AssistantSearch(BaseModel):
 
     graph_id: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
+    name: Optional[str] = None
     limit: int = Field(default=10, ge=1)
     offset: int = Field(default=0, ge=0)
 
+
+class AssistantCount(BaseModel):
+    """Request body to count Assistants.
+
+    Covers ``POST /assistants/count``.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    graph_id: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
+    name: Optional[str] = None
 
 # ---------------------------------------------------------------------------
 # Public surface
@@ -219,4 +232,5 @@ __all__ = [
     "RunCreate",
     "ThreadCreate",
     "AssistantSearch",
+    "AssistantCount",
 ]
