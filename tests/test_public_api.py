@@ -20,6 +20,17 @@ def test_all_exports() -> None:
 
     assert "LangGraphApp" in azure_functions_langgraph.__all__
     assert "__version__" in azure_functions_langgraph.__all__
+    # Contracts
+    assert "InvokeRequest" in azure_functions_langgraph.__all__
+    assert "InvokeResponse" in azure_functions_langgraph.__all__
+    assert "StreamRequest" in azure_functions_langgraph.__all__
+    assert "HealthResponse" in azure_functions_langgraph.__all__
+    assert "GraphInfo" in azure_functions_langgraph.__all__
+    assert "ErrorResponse" in azure_functions_langgraph.__all__
+    # Protocols
+    assert "InvocableGraph" in azure_functions_langgraph.__all__
+    assert "StreamableGraph" in azure_functions_langgraph.__all__
+    assert "LangGraphLike" in azure_functions_langgraph.__all__
 
 
 def test_contracts_importable() -> None:
@@ -38,6 +49,36 @@ def test_contracts_importable() -> None:
     assert HealthResponse is not None
     assert GraphInfo is not None
     assert ErrorResponse is not None
+
+
+def test_all_contracts_importable() -> None:
+    from azure_functions_langgraph import (
+        ErrorResponse,
+        GraphInfo,
+        HealthResponse,
+        InvokeRequest,
+        InvokeResponse,
+        StreamRequest,
+    )
+
+    assert InvokeRequest is not None
+    assert InvokeResponse is not None
+    assert StreamRequest is not None
+    assert HealthResponse is not None
+    assert GraphInfo is not None
+    assert ErrorResponse is not None
+
+
+def test_all_protocols_importable() -> None:
+    from azure_functions_langgraph import (
+        InvocableGraph,
+        LangGraphLike,
+        StreamableGraph,
+    )
+
+    assert InvocableGraph is not None
+    assert StreamableGraph is not None
+    assert LangGraphLike is not None
 
 
 def test_invalid_attr_raises() -> None:
