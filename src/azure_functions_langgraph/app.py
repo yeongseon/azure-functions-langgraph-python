@@ -202,7 +202,8 @@ class LangGraphApp:
             result = reg.graph.invoke(request.input, config=config)
         except Exception as exc:
             logger.exception("Graph %s invoke failed", reg.name)
-            return _error_response(500, f"Graph execution failed: {exc}")
+            _ = exc
+            return _error_response(500, "Graph execution failed")
 
         output = result if isinstance(result, dict) else {"result": result}
         response = InvokeResponse(output=output)
@@ -272,7 +273,8 @@ class LangGraphApp:
                     break
         except Exception as exc:
             logger.exception("Graph %s stream failed", reg.name)
-            error_payload = json.dumps({"error": str(exc)})
+            _ = exc
+            error_payload = json.dumps({"error": "stream processing failed"})
             _append_chunk(f"event: error\ndata: {error_payload}\n\n")
 
         _append_chunk("event: end\ndata: {}\n\n")
@@ -299,26 +301,19 @@ class LangGraphApp:
         }
 
         for reg in self._registrations.values():
-            name_param = {
-                "name": "name",
-                "in": "path",
-                "required": True,
-                "schema": {"type": "string"},
-            }
             paths[f"/graphs/{reg.name}/invoke"] = {
                 "post": {
                     "summary": f"Invoke graph '{reg.name}'",
-                    "parameters": [name_param],
                     "responses": {"200": {"description": "Invocation result"}},
                 }
             }
-            paths[f"/graphs/{reg.name}/stream"] = {
-                "post": {
-                    "summary": f"Stream graph '{reg.name}'",
-                    "parameters": [name_param],
-                    "responses": {"200": {"description": "SSE stream"}},
+            if reg.stream_enabled:
+                paths[f"/graphs/{reg.name}/stream"] = {
+                    "post": {
+                        "summary": f"Stream graph '{reg.name}'",
+                        "responses": {"200": {"description": "SSE stream"}},
+                    }
                 }
-            }
 
         return {
             "openapi": "3.0.3",
