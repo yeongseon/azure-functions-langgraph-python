@@ -12,7 +12,7 @@
 
 この文書の言語: [한국어](README.ko.md) | **日本語** | [简体中文](README.zh-CN.md) | [English](README.md)
 
-> **アルファ版について** — このパッケージは初期開発段階（`0.1.0a0`）です。リリース間でAPIが予告なく変更される場合があります。本番環境での使用前に十分なテストを実施してください。
+> **ベータ版について** — このパッケージは活発に開発中（`0.2.0`）です。コアAPIは安定化に向かっていますが、マイナーリリース間で変更される可能性があります。GitHubでイシューを報告してください。
 
 [LangGraph](https://github.com/langchain-ai/langgraph) エージェントを **Azure Functions** HTTPエンドポイントとしてボイラープレートなしでデプロイできます。
 
@@ -37,6 +37,9 @@ LangGraphエージェントをAzureにデプロイするのは、思ったより
 - **Healthエンドポイント** — `GET /api/health` で登録済みグラフ一覧とチェックポインターの状態を確認
 - **プロトコルベース** — `invoke()` と `stream()` メソッドを持つ任意のオブジェクトで動作し、LangGraphに限定されません
 - **チェックポインター転送** — LangGraphネイティブのconfigによるスレッドベースの会話状態管理
+- **Stateエンドポイント** — `GET /api/graphs/{name}/threads/{thread_id}/state` でスレッド状況を検查（StatefulGraphのみ）
+- **グラフごとの認証** — `register(graph, name, auth_level=...)` でアプリレベルの認証をグラフごとにオーバーライド
+- **OpenAPIエンドポイント** — `GET /api/openapi.json` 自動生成APIスペック
 
 ## LangGraph Platformとの比較
 
@@ -44,7 +47,7 @@ LangGraphエージェントをAzureにデプロイするのは、思ったより
 |------|-------------------|--------------------------|
 | ホスティング | LangChain Cloud（有料） | ユーザーのAzureサブスクリプション |
 | Invoke | `POST /runs/stream` | `POST /api/graphs/{name}/invoke` |
-| ストリーミング | True SSE | バッファリングSSE（v0.1） |
+|| ストリーミング | True SSE | バッファリングSSE（v0.2） |
 | スレッド | 組み込み | LangGraphチェックポインター経由 |
 | インフラ | マネージド | Azure Functions（サーバーレス） |
 | コストモデル | 使用量/シートベース | Azure Functions料金プラン |
@@ -116,7 +119,9 @@ func_app = app.function_app  # ← Azure Functionsアプリとして使用
 
 1. `POST /api/graphs/echo_agent/invoke` — エージェントの呼び出し
 2. `POST /api/graphs/echo_agent/stream` — エージェントレスポンスのストリーミング（バッファリングSSE）
-3. `GET /api/health` — ヘルスチェック
+3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — スレッド状況の検查
+4. `GET /api/health` — ヘルスチェック
+5. `GET /api/openapi.json` — OpenAPIスペック
 
 ### リクエスト形式
 

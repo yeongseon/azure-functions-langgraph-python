@@ -14,9 +14,11 @@
 User Code                     azure-functions-langgraph           Azure Functions
 ─────────────────────────────────────────────────────────────────────────────────
 StateGraph → compile()  →  LangGraphApp.register(graph)  →  FunctionApp with routes
-                           ├─ POST /graphs/{name}/invoke  →  graph.invoke(input, config)
-                           ├─ POST /graphs/{name}/stream  →  graph.stream(input, config)
-                           └─ GET /health                 →  list registered graphs
+                            ├─ POST /graphs/{name}/invoke  →  graph.invoke(input, config)
+                            ├─ POST /graphs/{name}/stream  →  graph.stream(input, config)
+                            ├─ GET /graphs/{name}/threads/{id}/state → graph.get_state(config)
+                            ├─ GET /health                 →  list registered graphs
+                            └─ GET /openapi.json           →  auto-generated spec
 ```
 
 ## Key Decisions
@@ -38,19 +40,27 @@ Following LangGraph conventions, `thread_id` is passed in `config.configurable.t
 ### 4. No Durable Functions dependency (v0.1)
 The v0.1 release is HTTP-only. This keeps the dependency footprint small and the mental model simple. Durable Functions can be added later for timeout extension and fan-out patterns.
 
+### 5. Per-graph auth override (v0.2)
+Each graph registration can override the app-level `auth_level`. This enables mixed-auth deployments where public-facing graphs use `ANONYMOUS` while admin graphs require `FUNCTION` keys. The override is stored per-registration and applied at route creation time.
+
+### 6. State endpoint via StatefulGraph protocol (v0.2)
+Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpointer) expose a `GET /graphs/{name}/threads/{thread_id}/state` endpoint. This uses a new `StatefulGraph` protocol added to `protocols.py`, keeping the protocol-based design consistent.
+
 ## Module Structure
 
 ```
 src/azure_functions_langgraph/
-├── __init__.py       # Package init, lazy LangGraphApp import
+├── __init__.py       # Package init, lazy imports, __version__
 ├── app.py            # LangGraphApp class, route registration, request handlers
-├── contracts.py      # Pydantic request/response models
+├── contracts.py      # Pydantic request/response models (InvokeRequest, StreamRequest, InvokeResponse, StateResponse, etc.)
+├── protocols.py      # Protocol interfaces (InvocableGraph, StreamableGraph, StatefulGraph, LangGraphLike)
 └── py.typed          # PEP 561 marker
 ```
 
 ## Testing Strategy
 
-- Unit tests use `FakeCompiledGraph` (mock with `invoke()`/`stream()` methods)
+- Unit tests use `FakeCompiledGraph` and `FakeStatefulGraph` mock objects
 - No real LLM calls in unit tests
+- 105 tests, 98%+ coverage as of v0.2.0
 - Integration tests (future) would use LangGraph with mock tools
 - E2E tests (future) deploy to Azure Functions and hit real endpoints

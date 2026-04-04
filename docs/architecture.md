@@ -13,6 +13,8 @@ flowchart LR
     E --> F["POST /graphs/{name}/invoke"]
     E --> G["POST /graphs/{name}/stream"]
     E --> H[GET /health]
+    E --> I["GET /graphs/{name}/threads/{id}/state"]
+    E --> J[GET /openapi.json]
 ```
 
 ## Request flow
@@ -67,7 +69,7 @@ src/azure_functions_langgraph/
 ├── __init__.py       # Package init, lazy LangGraphApp import, __version__
 ├── app.py            # LangGraphApp class, route registration, request handlers
 ├── contracts.py      # Pydantic request/response models
-├── protocols.py      # Protocol interfaces (InvocableGraph, StreamableGraph, LangGraphLike)
+├── protocols.py      # Protocol interfaces (InvocableGraph, StreamableGraph, StatefulGraph, LangGraphLike)
 └── py.typed          # PEP 561 marker for typed package
 ```
 
@@ -78,6 +80,9 @@ The core module. Contains:
 - `LangGraphApp` — main class, a dataclass that holds graph registrations and builds an `azure.functions.FunctionApp`
 - `_GraphRegistration` — internal record for a registered graph
 - `_handle_invoke()` — parses request, calls `graph.invoke()`, returns JSON
+- `_handle_stream()` — parses request, calls `graph.stream()`, collects chunks into buffered SSE
+- `_handle_state()` — retrieves thread state via `graph.get_state()` for StatefulGraph instances
+- `_build_openapi()` — generates OpenAPI 3.0 spec from registered graphs
 - `_handle_stream()` — parses request, calls `graph.stream()`, collects chunks into buffered SSE
 - `_error_response()` — consistent error response builder
 
@@ -91,12 +96,17 @@ Pydantic v2 models for request/response validation:
 - `HealthResponse` — status + list of GraphInfo
 - `ErrorResponse` — error + detail
 - `GraphInfo` — name, description, has_checkpointer
+- `StateResponse` — thread state values, next steps, metadata, config, timestamps
+- `GraphInfo` — name, description, has_checkpointer
 
 ### `protocols.py`
 
 `typing.Protocol` interfaces with `@runtime_checkable`:
 
 - `InvocableGraph` — has `invoke(input, config)`
+- `StreamableGraph` — has `stream(input, config, stream_mode)`
+- `LangGraphLike` — combines both (matches `CompiledStateGraph`)
+- `StatefulGraph` — has `get_state(config)` for thread state inspection
 - `StreamableGraph` — has `stream(input, config, stream_mode)`
 - `LangGraphLike` — combines both (matches `CompiledStateGraph`)
 
@@ -127,3 +137,11 @@ Azure Functions Python worker does not support true chunked HTTP streaming. In v
 ### Thread ID in request body
 
 Following LangGraph conventions, `thread_id` is passed in `config.configurable.thread_id`, not as a URL path parameter. This keeps the API surface minimal and matches LangGraph's native client expectations.
+
+### Per-graph auth override (v0.2)
+
+Each graph registration can override the app-level `auth_level`. This allows mixed-auth deployments (e.g., public-facing graphs with `ANONYMOUS` auth and admin graphs with `FUNCTION` keys).
+
+### State endpoint via StatefulGraph (v0.2)
+
+Graphs compiled with a checkpointer implement the `StatefulGraph` protocol (`get_state(config)`). These graphs automatically get a state inspection endpoint. The protocol check uses `isinstance()` with `@runtime_checkable`, consistent with the existing protocol pattern.

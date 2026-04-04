@@ -12,7 +12,7 @@
 
 本文档语言: [한국어](README.ko.md) | [日本語](README.ja.md) | **简体中文** | [English](README.md)
 
-> **Alpha 版本说明** — 此软件包处于早期开发阶段（`0.1.0a0`）。API 可能在版本之间发生不兼容变更。在生产环境使用前请进行充分测试。
+> **Beta 版本说明** — 此软件包正在积极开发中（`0.2.0`）。核心 API 趋于稳定，但可能在小版本之间发生变更。请在 GitHub 上报告问题。
 
 将 [LangGraph](https://github.com/langchain-ai/langgraph) 智能体零样板代码部署为 **Azure Functions** HTTP 端点。
 
@@ -37,6 +37,9 @@
 - **Health 端点** — `GET /api/health` 列出已注册图及检查点器状态
 - **基于协议** — 与任何具有 `invoke()` 和 `stream()` 方法的对象兼容，不限于 LangGraph
 - **检查点器透传** — 通过 LangGraph 原生 config 实现基于线程的对话状态管理
+- **State 端点** — `GET /api/graphs/{name}/threads/{thread_id}/state` 用于线程状态检查（仅 StatefulGraph）
+- **按图认证** — `register(graph, name, auth_level=...)` 按图覆盖应用级认证
+- **OpenAPI 端点** — `GET /api/openapi.json` 自动生成 API 规范
 
 ## 与 LangGraph Platform 对比
 
@@ -44,7 +47,7 @@
 |------|-------------------|--------------------------|
 | 托管 | LangChain Cloud（付费） | 您的 Azure 订阅 |
 | Invoke | `POST /runs/stream` | `POST /api/graphs/{name}/invoke` |
-| 流式传输 | True SSE | 缓冲式 SSE（v0.1） |
+|| 流式传输 | True SSE | 缓冲式 SSE（v0.2） |
 | 线程 | 内置 | 通过 LangGraph 检查点器 |
 | 基础设施 | 托管服务 | Azure Functions（无服务器） |
 | 成本模型 | 按使用量/座位 | Azure Functions 定价 |
@@ -116,7 +119,9 @@ func_app = app.function_app  # ← 用作 Azure Functions 应用
 
 1. `POST /api/graphs/echo_agent/invoke` — 调用智能体
 2. `POST /api/graphs/echo_agent/stream` — 流式传输智能体响应（缓冲式 SSE）
-3. `GET /api/health` — 健康检查
+3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — 检查线程状态
+4. `GET /api/health` — 健康检查
+5. `GET /api/openapi.json` — OpenAPI 规范
 
 ### 请求格式
 

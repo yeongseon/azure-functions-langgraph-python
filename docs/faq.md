@@ -15,7 +15,7 @@ app.register(graph=builder, name="agent")
 
 ## Does this support true SSE streaming?
 
-Not in v0.1. The stream endpoint collects all chunks from `graph.stream()` into memory, then returns them as a single SSE-formatted HTTP response. This is a limitation of the Azure Functions Python worker, which does not support chunked transfer encoding.
+Not yet. In v0.2, the stream endpoint collects all chunks from `graph.stream()` into memory, then returns them as a single SSE-formatted HTTP response. This is a limitation of the Azure Functions Python worker, which does not support chunked transfer encoding.
 
 True streaming support is planned for a future release.
 
@@ -79,7 +79,7 @@ app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 | Feature | LangGraph Platform | azure-functions-langgraph |
 |---------|-------------------|--------------------------|
 | Hosting | LangChain Cloud (paid) | Your Azure subscription |
-| Streaming | True SSE | Buffered SSE (v0.1) |
+| Streaming | True SSE | Buffered SSE (v0.2) |
 | Threads | Built-in | Via LangGraph checkpointer |
 | Infrastructure | Managed | Azure Functions (serverless) |
 | Cost model | Per-seat/usage | Azure Functions pricing |
@@ -91,3 +91,24 @@ No. This package requires the Azure Functions Python **v2 programming model** (t
 ## What Python versions are supported?
 
 Python 3.10, 3.11, 3.12, 3.13, and 3.14.
+
+Python 3.10, 3.11, 3.12, 3.13, and 3.14.
+
+## What is the state endpoint?
+
+The state endpoint (`GET /api/graphs/{name}/threads/{thread_id}/state`) lets you inspect the current state of a conversation thread. It's only available for graphs compiled with a checkpointer (graphs satisfying the `StatefulGraph` protocol).
+
+## Can I set different auth levels per graph?
+
+Yes, as of v0.2.0. Use the `auth_level` parameter in `register()`:
+
+```python
+app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYMOUS)
+app.register(graph=private_graph, name="private", auth_level=func.AuthLevel.FUNCTION)
+```
+
+This overrides the app-level `auth_level` for that specific graph's endpoints.
+
+## What is the OpenAPI endpoint?
+
+`GET /api/openapi.json` returns an auto-generated OpenAPI 3.0 specification for all registered graphs. This is useful for API documentation and client generation.
