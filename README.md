@@ -12,7 +12,7 @@
 
 Read this in: [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-> **Alpha Notice** — This package is in early development (`0.1.0a0`). APIs may change without notice between releases. Do not use in production without thorough testing.
+> **Beta Notice** — This package is under active development (`0.2.0`). Core APIs are stabilizing but may still change between minor releases. Please report issues on GitHub.
 
 Deploy [LangGraph](https://github.com/langchain-ai/langgraph) agents as **Azure Functions** HTTP endpoints with zero boilerplate.
 
@@ -37,6 +37,9 @@ Deploying LangGraph agents to Azure is harder than it should be:
 - **Health endpoint** — `GET /api/health` listing registered graphs with checkpointer status
 - **Protocol-based** — works with any object that has `invoke()` and `stream()` methods, not just LangGraph
 - **Checkpointer pass-through** — thread-based conversation state works via LangGraph's native config
+- **State endpoint** — `GET /api/graphs/{name}/threads/{thread_id}/state` for thread state inspection (StatefulGraph only)
+- **Per-graph auth** — Override app-level auth per graph with `register(graph, name, auth_level=...)`
+- **OpenAPI endpoint** — `GET /api/openapi.json` auto-generated API specification
 
 ## LangGraph Platform comparison
 
@@ -44,7 +47,7 @@ Deploying LangGraph agents to Azure is harder than it should be:
 |---------|-------------------|--------------------------|
 | Hosting | LangChain Cloud (paid) | Your Azure subscription |
 | Invoke | `POST /runs/stream` | `POST /api/graphs/{name}/invoke` |
-| Streaming | True SSE | Buffered SSE (v0.1) |
+| Streaming | True SSE | Buffered SSE (v0.2) |
 | Threads | Built-in | Via LangGraph checkpointer |
 | Infrastructure | Managed | Azure Functions (serverless) |
 | Cost model | Per-seat/usage | Azure Functions pricing |
@@ -125,6 +128,16 @@ from azure_functions_langgraph import LangGraphApp
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 ```
 
+### Per-graph auth
+
+Override app-level auth settings per graph:
+
+```python
+# Per-graph authentication override
+app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYMOUS)
+app.register(graph=private_graph, name="private", auth_level=func.AuthLevel.FUNCTION)
+```
+
 Example request using a function key:
 
 ```bash
@@ -137,7 +150,9 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 
 1. `POST /api/graphs/echo_agent/invoke` — invoke the agent
 2. `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE)
-3. `GET /api/health` — health check
+3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — inspect thread state
+4. `GET /api/health` — health check
+5. `GET /api/openapi.json` — OpenAPI specification
 
 ### Request format
 
