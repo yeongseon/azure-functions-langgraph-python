@@ -961,6 +961,10 @@ class TestPlatformRouteDeps:
         assert deps.thread_store is store
         assert deps.auth_level == func.AuthLevel.ANONYMOUS
         assert deps.max_stream_response_bytes == 1024
+        # New validation params — should have defaults
+        assert deps.max_request_body_bytes == 1024 * 1024
+        assert deps.max_input_depth == 32
+        assert deps.max_input_nodes == 10_000
 
 
 # ---------------------------------------------------------------------------

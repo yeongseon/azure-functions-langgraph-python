@@ -28,6 +28,12 @@ import uuid
 
 import azure.functions as func
 
+from azure_functions_langgraph._validation import (
+    validate_body_size,
+    validate_graph_name,
+    validate_input_structure,
+    validate_thread_id,
+)
 from azure_functions_langgraph.platform._sse import (
     format_data_event,
     format_end_event,
@@ -106,7 +112,15 @@ class PlatformRouteDeps:
     ``platform_compat`` is enabled.
     """
 
-    __slots__ = ("registrations", "thread_store", "auth_level", "max_stream_response_bytes")
+    __slots__ = (
+        "registrations",
+        "thread_store",
+        "auth_level",
+        "max_stream_response_bytes",
+        "max_request_body_bytes",
+        "max_input_depth",
+        "max_input_nodes",
+    )
 
     def __init__(
         self,
@@ -115,11 +129,17 @@ class PlatformRouteDeps:
         thread_store: ThreadStore,
         auth_level: func.AuthLevel,
         max_stream_response_bytes: int,
+        max_request_body_bytes: int = 1024 * 1024,
+        max_input_depth: int = 32,
+        max_input_nodes: int = 10_000,
     ) -> None:
         self.registrations = registrations
         self.thread_store = thread_store
         self.auth_level = auth_level
         self.max_stream_response_bytes = max_stream_response_bytes
+        self.max_request_body_bytes = max_request_body_bytes
+        self.max_input_depth = max_input_depth
+        self.max_input_nodes = max_input_nodes
 
 
 # ---------------------------------------------------------------------------
@@ -174,14 +194,18 @@ def register_platform_routes(
     @app.function_name(name="aflg_platform_assistants_search")
     @app.route(route="assistants/search", methods=["POST"], auth_level=auth)
     def assistants_search(req: func.HttpRequest) -> func.HttpResponse:
+        # Body size check — reject before parsing
         raw = req.get_body()
-        if not raw or raw.strip() == b"":
-            body: dict[str, Any] = {}
-        else:
+        size_err = validate_body_size(raw, deps.max_request_body_bytes)
+        if size_err:
+            return _platform_error(400, size_err)
+        if raw and raw.strip() != b"":
             try:
-                body = req.get_json()
+                body: dict[str, Any] = req.get_json()
             except ValueError:
                 return _platform_error(400, "Invalid JSON body")
+        else:
+            body = {}
 
         try:
             search = AssistantSearch.model_validate(body)
@@ -226,14 +250,18 @@ def register_platform_routes(
     @app.function_name(name="aflg_platform_threads_create")
     @app.route(route="threads", methods=["POST"], auth_level=auth)
     def threads_create(req: func.HttpRequest) -> func.HttpResponse:
+        # Body size check — reject before parsing
         raw = req.get_body()
-        if not raw or raw.strip() == b"":
-            body: dict[str, Any] = {}
-        else:
+        size_err = validate_body_size(raw, deps.max_request_body_bytes)
+        if size_err:
+            return _platform_error(400, size_err)
+        if raw and raw.strip() != b"":
             try:
-                body = req.get_json()
+                body: dict[str, Any] = req.get_json()
             except ValueError:
                 return _platform_error(400, "Invalid JSON body")
+        else:
+            body = {}
 
         try:
             create_req = ThreadCreate.model_validate(body)
@@ -253,6 +281,9 @@ def register_platform_routes(
     @app.route(route="threads/{thread_id}", methods=["GET"], auth_level=auth)
     def threads_get(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        tid_err = validate_thread_id(thread_id)
+        if tid_err:
+            return _platform_error(400, tid_err)
         thread = deps.thread_store.get(thread_id)
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
@@ -270,6 +301,9 @@ def register_platform_routes(
     )
     def threads_state_get(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        tid_err = validate_thread_id(thread_id)
+        if tid_err:
+            return _platform_error(400, tid_err)
         thread = deps.thread_store.get(thread_id)
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
@@ -356,13 +390,17 @@ def register_platform_routes(
     )
     def runs_wait(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
-
-        # Thread must exist
-        thread = deps.thread_store.get(thread_id)
-        if thread is None:
-            return _platform_error(404, f"Thread {thread_id!r} not found")
+        tid_err = validate_thread_id(thread_id)
+        if tid_err:
+            return _platform_error(400, tid_err)
 
         # Parse request
+        # Body size check — reject before parsing
+        raw_body = req.get_body()
+        size_err = validate_body_size(raw_body, deps.max_request_body_bytes)
+        if size_err:
+            return _platform_error(400, size_err)
+
         try:
             body = req.get_json()
         except ValueError:
@@ -373,10 +411,19 @@ def register_platform_routes(
         except Exception as exc:
             return _platform_error(422, f"Validation error: {exc}")
 
+        # Validate assistant_id as a graph name
+        name_err = validate_graph_name(run_req.assistant_id)
+        if name_err:
+            return _platform_error(400, name_err)
         # Preflight: reject unsupported features
         preflight = _preflight_run_create(run_req)
         if preflight is not None:
             return preflight
+
+        # Thread must exist (after cheap syntax checks)
+        thread = deps.thread_store.get(thread_id)
+        if thread is None:
+            return _platform_error(404, f"Thread {thread_id!r} not found")
 
         # Resolve assistant → graph registration
         reg = deps.registrations.get(run_req.assistant_id)
@@ -384,6 +431,20 @@ def register_platform_routes(
             return _platform_error(
                 404, f"Assistant {run_req.assistant_id!r} not found"
             )
+
+        # Structural validation on user-supplied fields
+        if run_req.input:
+            input_err = validate_input_structure(
+                run_req.input, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+            )
+            if input_err:
+                return _platform_error(400, input_err)
+        if run_req.config:
+            config_err = validate_input_structure(
+                run_req.config, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+            )
+            if config_err:
+                return _platform_error(400, config_err)
 
         # Thread-assistant binding: set on first run, immutable after.
         # NOTE: There is an inherent TOCTOU race between the read above and
@@ -417,6 +478,7 @@ def register_platform_routes(
             user_config = dict(run_req.config)
             user_configurable = user_config.pop("configurable", {})
             config["configurable"].update(user_configurable)
+            config["configurable"]["thread_id"] = thread_id
             config.update(user_config)
 
         # Execute graph synchronously
@@ -456,13 +518,17 @@ def register_platform_routes(
     )
     def runs_stream(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
-
-        # Thread must exist
-        thread = deps.thread_store.get(thread_id)
-        if thread is None:
-            return _platform_error(404, f"Thread {thread_id!r} not found")
+        tid_err = validate_thread_id(thread_id)
+        if tid_err:
+            return _platform_error(400, tid_err)
 
         # Parse request
+        # Body size check — reject before parsing
+        raw_body = req.get_body()
+        size_err = validate_body_size(raw_body, deps.max_request_body_bytes)
+        if size_err:
+            return _platform_error(400, size_err)
+
         try:
             body = req.get_json()
         except ValueError:
@@ -473,10 +539,19 @@ def register_platform_routes(
         except Exception as exc:
             return _platform_error(422, f"Validation error: {exc}")
 
+        # Validate assistant_id as a graph name
+        name_err = validate_graph_name(run_req.assistant_id)
+        if name_err:
+            return _platform_error(400, name_err)
         # Preflight: reject unsupported features
         preflight = _preflight_run_create(run_req)
         if preflight is not None:
             return preflight
+
+        # Thread must exist (after cheap syntax checks)
+        thread = deps.thread_store.get(thread_id)
+        if thread is None:
+            return _platform_error(404, f"Thread {thread_id!r} not found")
 
         # Resolve stream_mode early — string: use as-is; one-item list:
         # unwrap; multi-item list: unsupported (501).  Done before thread
@@ -502,6 +577,20 @@ def register_platform_routes(
             return _platform_error(
                 404, f"Assistant {run_req.assistant_id!r} not found"
             )
+
+        # Structural validation on user-supplied fields
+        if run_req.input:
+            input_err = validate_input_structure(
+                run_req.input, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+            )
+            if input_err:
+                return _platform_error(400, input_err)
+        if run_req.config:
+            config_err = validate_input_structure(
+                run_req.config, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+            )
+            if config_err:
+                return _platform_error(400, config_err)
 
         # Graph must support streaming
         if not isinstance(reg.graph, StreamableGraph):
@@ -538,6 +627,7 @@ def register_platform_routes(
             user_config = dict(run_req.config)
             user_configurable = user_config.pop("configurable", {})
             config["configurable"].update(user_configurable)
+            config["configurable"]["thread_id"] = thread_id
             config.update(user_config)
 
         # Synthetic run ID for metadata event
