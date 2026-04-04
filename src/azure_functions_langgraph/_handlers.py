@@ -14,6 +14,11 @@ from typing import Any
 
 import azure.functions as func
 
+from azure_functions_langgraph._validation import (
+    validate_body_size,
+    validate_input_structure,
+    validate_thread_id,
+)
 from azure_functions_langgraph.contracts import (
     ErrorResponse,
     InvokeRequest,
@@ -48,8 +53,18 @@ def _error_response(status_code: int, detail: str) -> func.HttpResponse:
 def handle_invoke(
     req: func.HttpRequest,
     reg: Any,
+    *,
+    max_request_body_bytes: int,
+    max_input_depth: int,
+    max_input_nodes: int,
 ) -> func.HttpResponse:
     """Handle a synchronous invoke request."""
+    # Body size check — reject before parsing
+    raw_body = req.get_body()
+    size_err = validate_body_size(raw_body, max_request_body_bytes)
+    if size_err:
+        return _error_response(400, size_err)
+
     try:
         body = req.get_json()
     except ValueError:
@@ -59,6 +74,19 @@ def handle_invoke(
         request = InvokeRequest.model_validate(body)
     except Exception as exc:
         return _error_response(422, f"Validation error: {exc}")
+
+    # Structural validation on user-supplied fields
+    structure_err = validate_input_structure(
+        request.input, max_depth=max_input_depth, max_nodes=max_input_nodes,
+    )
+    if structure_err:
+        return _error_response(400, structure_err)
+    if request.config:
+        config_err = validate_input_structure(
+            request.config, max_depth=max_input_depth, max_nodes=max_input_nodes,
+        )
+        if config_err:
+            return _error_response(400, config_err)
 
     config = request.config or {}
     try:
@@ -87,6 +115,9 @@ def handle_stream(
     reg: Any,
     *,
     max_stream_response_bytes: int,
+    max_request_body_bytes: int,
+    max_input_depth: int,
+    max_input_nodes: int,
 ) -> func.HttpResponse:
     """Handle a streaming request.
 
@@ -101,6 +132,12 @@ def handle_stream(
     if not isinstance(reg.graph, StreamableGraph):
         return _error_response(501, f"Graph {reg.name!r} does not support streaming")
 
+    # Body size check — reject before parsing
+    raw_body = req.get_body()
+    size_err = validate_body_size(raw_body, max_request_body_bytes)
+    if size_err:
+        return _error_response(400, size_err)
+
     try:
         body = req.get_json()
     except ValueError:
@@ -110,6 +147,19 @@ def handle_stream(
         request = StreamRequest.model_validate(body)
     except Exception as exc:
         return _error_response(422, f"Validation error: {exc}")
+
+    # Structural validation on user-supplied fields
+    structure_err = validate_input_structure(
+        request.input, max_depth=max_input_depth, max_nodes=max_input_nodes,
+    )
+    if structure_err:
+        return _error_response(400, structure_err)
+    if request.config:
+        config_err = validate_input_structure(
+            request.config, max_depth=max_input_depth, max_nodes=max_input_nodes,
+        )
+        if config_err:
+            return _error_response(400, config_err)
 
     config = request.config or {}
     chunks: list[str] = []
@@ -182,6 +232,9 @@ def handle_state(
     thread_id = req.route_params.get("thread_id")
     if not thread_id:
         return _error_response(400, "Missing thread_id in URL path")
+    tid_err = validate_thread_id(thread_id)
+    if tid_err:
+        return _error_response(400, tid_err)
 
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
 

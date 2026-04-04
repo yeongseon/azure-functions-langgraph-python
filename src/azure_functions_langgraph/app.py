@@ -16,6 +16,9 @@ from azure_functions_langgraph._handlers import (
     handle_state,
     handle_stream,
 )
+from azure_functions_langgraph._validation import (
+    validate_graph_name,
+)
 from azure_functions_langgraph.contracts import (
     GraphInfo,
     HealthResponse,
@@ -68,6 +71,9 @@ class LangGraphApp:
 
     auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
     max_stream_response_bytes: int = 1024 * 1024
+    max_request_body_bytes: int = 1024 * 1024
+    max_input_depth: int = 32
+    max_input_nodes: int = 10_000
     platform_compat: bool = False
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
@@ -107,10 +113,13 @@ class LangGraphApp:
 
         Raises:
             TypeError: If *graph* does not satisfy the required protocol.
-            ValueError: If *name* is already registered.
+            ValueError: If *name* is already registered or invalid.
         """
         if not isinstance(graph, InvocableGraph):
             raise TypeError(f"Graph must have an invoke() method. Got {type(graph).__name__}")
+        name_err = validate_graph_name(name)
+        if name_err:
+            raise ValueError(name_err)
         if name in self._registrations:
             raise ValueError(f"Graph {name!r} is already registered")
         self._registrations[name] = _GraphRegistration(
@@ -200,6 +209,9 @@ class LangGraphApp:
                 thread_store=self._thread_store,
                 auth_level=self.auth_level,
                 max_stream_response_bytes=self.max_stream_response_bytes,
+                max_request_body_bytes=self.max_request_body_bytes,
+                max_input_depth=self.max_input_depth,
+                max_input_nodes=self.max_input_nodes,
             )
             register_platform_routes(app, deps)
 
@@ -251,17 +263,33 @@ class LangGraphApp:
 
     def _handle_invoke(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a synchronous invoke request."""
-        return handle_invoke(req, reg)
+        return handle_invoke(
+            req,
+            reg,
+            max_request_body_bytes=self.max_request_body_bytes,
+            max_input_depth=self.max_input_depth,
+            max_input_nodes=self.max_input_nodes,
+        )
 
     def _handle_stream(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a streaming request."""
-        return handle_stream(req, reg, max_stream_response_bytes=self.max_stream_response_bytes)
+        return handle_stream(
+            req,
+            reg,
+            max_stream_response_bytes=self.max_stream_response_bytes,
+            max_request_body_bytes=self.max_request_body_bytes,
+            max_input_depth=self.max_input_depth,
+            max_input_nodes=self.max_input_nodes,
+        )
 
     def _handle_state(
         self, req: func.HttpRequest, reg: _GraphRegistration
     ) -> func.HttpResponse:
         """Handle a GET request for thread state."""
-        return handle_state(req, reg)
+        return handle_state(
+            req,
+            reg,
+        )
 
     # ------------------------------------------------------------------
     # OpenAPI
