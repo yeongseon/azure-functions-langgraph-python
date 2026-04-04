@@ -210,6 +210,19 @@ class AssistantCount(BaseModel):
     metadata: Optional[dict[str, Any]] = None
     name: Optional[str] = None
 
+
+class ThreadUpdate(BaseModel):
+    """Request body to update a Thread.
+
+    Covers ``PATCH /threads/{thread_id}``.
+    The SDK also sends a ``ttl`` field which is silently dropped
+    (``extra="ignore"``).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    metadata: Optional[dict[str, Any]] = None
+
 # ---------------------------------------------------------------------------
 # Public surface
 # ---------------------------------------------------------------------------
@@ -233,4 +246,5 @@ __all__ = [
     "ThreadCreate",
     "AssistantSearch",
     "AssistantCount",
+    "ThreadUpdate",
 ]
