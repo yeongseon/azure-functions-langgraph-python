@@ -10,6 +10,7 @@ import azure.functions as func
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp, _has_checkpointer
+from tests import conftest
 from tests.conftest import (
     FakeCompiledGraph,
     FakeFailingGraph,
@@ -709,3 +710,344 @@ class TestOpenAPI:
                     )
                     assert isinstance(operation["responses"], dict)
                     assert len(operation["responses"]) > 0
+
+
+
+# ------------------------------------------------------------------
+# HTTP Handler tests for uncovered lines
+# ------------------------------------------------------------------
+
+
+class TestHealthEndpointHTTPHandler:
+    """Test health endpoint via actual HTTP request dispatch."""
+
+    def test_health_endpoint_with_no_graphs(self) -> None:
+        """Health endpoint should work even with no registered graphs."""
+        app = LangGraphApp()
+        fa = app.function_app
+        
+        # Get the health function and call it
+        for fn in fa.get_functions():
+            if fn.get_function_name() == "aflg_health":
+                health_fn = fn.get_user_function()
+                req = func.HttpRequest(
+                    method="GET",
+                    url="http://localhost:7071/api/health",
+                    body=b"",
+                )
+                resp = health_fn(req)
+                assert resp.status_code == 200
+                body = json.loads(resp.get_body())
+                assert body["status"] == "ok"
+                assert body["graphs"] == []
+                break
+        else:
+            raise AssertionError("health function not found")
+
+    def test_health_endpoint_with_graphs_no_checkpointer(self) -> None:
+        """Health endpoint lists graphs without checkpointer marker."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(checkpointer=None), name="agent1")
+        app.register(graph=FakeCompiledGraph(checkpointer=None), name="agent2")
+        fa = app.function_app
+        
+        for fn in fa.get_functions():
+            if fn.get_function_name() == "aflg_health":
+                health_fn = fn.get_user_function()
+                req = func.HttpRequest(
+                    method="GET",
+                    url="http://localhost:7071/api/health",
+                    body=b"",
+                )
+                resp = health_fn(req)
+                body = json.loads(resp.get_body())
+                assert len(body["graphs"]) == 2
+                assert body["graphs"][0]["name"] == "agent1"
+                assert body["graphs"][0]["has_checkpointer"] is False
+                assert body["graphs"][1]["name"] == "agent2"
+                assert body["graphs"][1]["has_checkpointer"] is False
+                break
+
+    def test_health_endpoint_with_graphs_with_checkpointer(self) -> None:
+        """Health endpoint marks graphs with checkpointer."""
+        app = LangGraphApp()
+        app.register(
+            graph=FakeCompiledGraph(checkpointer=MagicMock()), name="stateful_agent"
+        )
+        fa = app.function_app
+        
+        for fn in fa.get_functions():
+            if fn.get_function_name() == "aflg_health":
+                health_fn = fn.get_user_function()
+                req = func.HttpRequest(
+                    method="GET",
+                    url="http://localhost:7071/api/health",
+                    body=b"",
+                )
+                resp = health_fn(req)
+                body = json.loads(resp.get_body())
+                assert len(body["graphs"]) == 1
+                assert body["graphs"][0]["name"] == "stateful_agent"
+                assert body["graphs"][0]["has_checkpointer"] is True
+                break
+
+
+class TestOpenAPIEndpointHTTPHandler:
+    """Test OpenAPI endpoint via actual HTTP request dispatch."""
+
+    def test_openapi_endpoint_returns_spec(self) -> None:
+        """OpenAPI endpoint returns valid OpenAPI 3.0 spec."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        fa = app.function_app
+        
+        for fn in fa.get_functions():
+            if fn.get_function_name() == "aflg_openapi":
+                openapi_fn = fn.get_user_function()
+                req = func.HttpRequest(
+                    method="GET",
+                    url="http://localhost:7071/api/openapi.json",
+                    body=b"",
+                )
+                resp = openapi_fn(req)
+                assert resp.status_code == 200
+                spec = json.loads(resp.get_body())
+                assert spec["openapi"] == "3.0.3"
+                assert "paths" in spec
+                assert "info" in spec
+                break
+        else:
+            raise AssertionError("openapi function not found")
+
+    def test_openapi_spec_includes_version(self) -> None:
+        """OpenAPI spec info.version should include __version__."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        fa = app.function_app
+        
+        for fn in fa.get_functions():
+            if fn.get_function_name() == "aflg_openapi":
+                openapi_fn = fn.get_user_function()
+                req = func.HttpRequest(
+                    method="GET",
+                    url="http://localhost:7071/api/openapi.json",
+                    body=b"",
+                )
+                resp = openapi_fn(req)
+                spec = json.loads(resp.get_body())
+                from azure_functions_langgraph import __version__
+                assert spec["info"]["version"] == __version__
+                break
+
+
+class TestStreamValidationError:
+    """Test stream endpoint validation error path (lines 266-267)."""
+
+    def test_stream_with_invalid_body_returns_422(self) -> None:
+        """Stream endpoint should return 422 on invalid request model."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        
+        # Create request with missing required 'input' field
+        req = func.HttpRequest(
+            method="POST",
+            url="http://localhost:7071/api/graphs/agent/stream",
+            body=json.dumps({"not_input": "bad"}).encode(),
+        )
+        resp = app._handle_stream(req, app._registrations["agent"])
+        assert resp.status_code == 422
+        body = json.loads(resp.get_body())
+        assert body["error"] == "error"
+        assert "Validation error" in body["detail"]
+
+
+class TestInvokeWithEmptyInput:
+    """Test invoke with empty input dict."""
+
+    def test_invoke_with_empty_input_dict(self) -> None:
+        """Invoke should handle empty input dict."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        
+        req = func.HttpRequest(
+            method="POST",
+            url="http://localhost:7071/api/graphs/agent/invoke",
+            body=json.dumps({"input": {}}).encode(),
+        )
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        body = json.loads(resp.get_body())
+        assert "output" in body
+
+
+class TestStreamWithEmptyInput:
+    """Test stream with empty input dict."""
+
+    def test_stream_with_empty_input_dict(self) -> None:
+        """Stream should handle empty input dict."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        
+        req = func.HttpRequest(
+            method="POST",
+            url="http://localhost:7071/api/graphs/agent/stream",
+            body=json.dumps({"input": {}}).encode(),
+        )
+        resp = app._handle_stream(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/event-stream"
+
+
+class TestMultipleGraphsStatefulNonStateful:
+    """Test registering multiple stateful and non-stateful graphs together."""
+
+    def test_mixed_stateful_and_nonstateful_graphs(self) -> None:
+        """Multiple graphs with mixed stateful/non-stateful should all be registered."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="simple")
+        app.register(graph=FakeStatefulGraph(), name="stateful1")
+        app.register(graph=FakeCompiledGraph(), name="simple2")
+        app.register(graph=FakeStatefulGraph(), name="stateful2")
+        
+        fa = app.function_app
+        function_names = {fn.get_function_name() for fn in fa.get_functions()}
+        
+        # Should have invoke/stream for all, plus state for stateful graphs
+        assert "aflg_simple_invoke" in function_names
+        assert "aflg_simple_stream" in function_names
+        assert "aflg_stateful1_state" in function_names
+        assert "aflg_stateful2_state" in function_names
+        # non-stateful should NOT have state endpoint
+        assert "aflg_simple_state" not in function_names
+
+
+class TestStateResponseEdgeCases:
+    """Test StateResponse model edge cases."""
+
+    def test_state_response_with_empty_values(self) -> None:
+        """StateResponse should handle empty values dict."""
+        from azure_functions_langgraph.contracts import StateResponse
+        
+        resp = StateResponse(values={})
+        assert resp.values == {}
+        assert resp.next == []
+        assert resp.metadata is None
+        
+    def test_state_response_model_dump_all_fields(self) -> None:
+        """StateResponse model_dump should include all fields."""
+        from azure_functions_langgraph.contracts import StateResponse
+        
+        resp = StateResponse(
+            values={"a": 1}, next=["node1"], metadata={"key": "value"}
+        )
+        dumped = resp.model_dump()
+        assert "values" in dumped
+        assert "next" in dumped
+        assert "metadata" in dumped
+        assert dumped["values"] == {"a": 1}
+        assert dumped["next"] == ["node1"]
+        assert dumped["metadata"] == {"key": "value"}
+
+
+class TestRegisterWithFunctionAuth:
+    """Test register graph with auth_level=FUNCTION."""
+
+    def test_register_with_function_auth_level(self) -> None:
+        """Register should accept and preserve auth_level=FUNCTION."""
+        app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
+        app.register(
+            graph=FakeCompiledGraph(), name="secure", auth_level=func.AuthLevel.FUNCTION
+        )
+        
+        reg = app._registrations["secure"]
+        assert reg.auth_level == func.AuthLevel.FUNCTION
+
+
+class TestHasCheckpointerEdgeCases:
+    """Test _has_checkpointer helper with edge cases."""
+
+    def test_has_checkpointer_with_string_checkpointer(self) -> None:
+        """_has_checkpointer should return True for non-None checkpointer (e.g. string)."""
+        from azure_functions_langgraph.app import _has_checkpointer
+        
+        class GraphWithStringCheckpointer:
+            checkpointer = "memory"
+        
+        graph = GraphWithStringCheckpointer()
+        assert _has_checkpointer(graph) is True
+
+    def test_has_checkpointer_with_none(self) -> None:
+        """_has_checkpointer should return False for None."""
+        from azure_functions_langgraph.app import _has_checkpointer
+        
+        class GraphWithoutCheckpointer:
+            checkpointer = None
+        
+        graph = GraphWithoutCheckpointer()
+        assert _has_checkpointer(graph) is False
+
+    def test_has_checkpointer_with_missing_attr(self) -> None:
+        """_has_checkpointer should return False when checkpointer attr is missing."""
+        from azure_functions_langgraph.app import _has_checkpointer
+        
+        class GraphWithoutAttr:
+            pass
+        
+        graph = GraphWithoutAttr()
+        assert _has_checkpointer(graph) is False
+
+
+class TestStateEndpointEmptyMetadata:
+    """Test state endpoint with empty/missing metadata in snapshot."""
+
+    def test_state_endpoint_with_empty_metadata(self) -> None:
+        """State endpoint should handle snapshot with empty metadata."""
+        app = LangGraphApp()
+        snapshot_empty_metadata = conftest._FakeStateSnapshot(
+            values={"messages": []}, metadata={}
+        )
+        graph = FakeStatefulGraph(state_snapshot=snapshot_empty_metadata)
+        app.register(graph=graph, name="agent")
+        
+        req = func.HttpRequest(
+            method="GET",
+            url="http://localhost:7071/api/graphs/agent/threads/t1/state",
+            body=b"",
+            route_params={"thread_id": "t1"},
+        )
+        resp = app._handle_state(req, app._registrations["agent"])
+        body = json.loads(resp.get_body())
+        assert body["metadata"] is None  # Empty dict is falsy, returns None
+
+    def test_state_endpoint_with_no_metadata_attr(self) -> None:
+        """State endpoint handles snapshot with no metadata attr gracefully."""
+        app = LangGraphApp()
+        
+        class FakeSnapshot:
+            def __init__(self) -> None:
+                self.values = {"data": "value"}
+                self.next = ()
+        
+        graph = FakeStatefulGraph(state_snapshot=FakeSnapshot())  # type: ignore[arg-type]
+        app.register(graph=graph, name="agent")
+        
+        req = func.HttpRequest(
+            method="GET",
+            url="http://localhost:7071/api/graphs/agent/threads/t1/state",
+            body=b"",
+            route_params={"thread_id": "t1"},
+        )
+        resp = app._handle_state(req, app._registrations["agent"])
+        body = json.loads(resp.get_body())
+        assert body["metadata"] is None
+
+
+class TestVersionIsString:
+    """Test that __version__ is a string."""
+
+    def test_version_is_string(self) -> None:
+        """__version__ should be a string."""
+        from azure_functions_langgraph import __version__
+        
+        assert isinstance(__version__, str)
+        assert len(__version__) > 0
