@@ -49,6 +49,7 @@ dev = [
     "ruff==0.15.8",
     "requests",
     "types-requests",
+    "langgraph-sdk>=0.3,<0.4",
 ]
 docs = [
     "mkdocs<2.0",
