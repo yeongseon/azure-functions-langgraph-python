@@ -261,6 +261,25 @@ class TestStreamHandler:
         assert body.count("event: data") == 2
         assert body.count("event: end") == 1
 
+    def test_stream_enforces_bounded_buffer(self) -> None:
+        large_events = [
+            {"messages": [{"role": "assistant", "content": "x" * 400}]},
+            {"messages": [{"role": "assistant", "content": "y" * 400}]},
+            {"messages": [{"role": "assistant", "content": "z" * 400}]},
+        ]
+        app = LangGraphApp(max_stream_response_bytes=700)
+        app.register(graph=FakeCompiledGraph(stream_results=large_events), name="agent")
+        req = self._make_request({"input": {"messages": []}})
+
+        resp = app._handle_stream(req, app._registrations["agent"])
+
+        assert resp.status_code == 200
+        body = resp.get_body().decode()
+        assert "event: data" in body
+        assert "event: error" in body
+        assert "exceeded max buffered size" in body
+        assert body.count("event: data") == 1
+
     def test_stream_invoke_only_graph_returns_501(
         self, fake_invoke_only_graph: FakeInvokeOnlyGraph
     ) -> None:

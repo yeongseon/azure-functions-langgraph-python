@@ -62,6 +62,7 @@ class LangGraphApp:
     """
 
     auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
+    max_stream_response_bytes: int = 1024 * 1024
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
 
@@ -209,6 +210,25 @@ class LangGraphApp:
 
         config = request.config or {}
         chunks: list[str] = []
+        buffered_bytes = 0
+
+        def _append_chunk(chunk: str) -> bool:
+            nonlocal buffered_bytes
+            chunk_bytes = len(chunk.encode())
+            if buffered_bytes + chunk_bytes > self.max_stream_response_bytes:
+                error_payload = json.dumps(
+                    {
+                        "error": (
+                            "stream response exceeded max buffered size "
+                            f"({self.max_stream_response_bytes} bytes)"
+                        )
+                    }
+                )
+                chunks.append(f"event: error\ndata: {error_payload}\n\n")
+                return False
+            chunks.append(chunk)
+            buffered_bytes += chunk_bytes
+            return True
 
         try:
             for event in reg.graph.stream(
@@ -220,13 +240,14 @@ class LangGraphApp:
                     event if isinstance(event, dict) else {"data": str(event)},
                     default=str,
                 )
-                chunks.append(f"event: data\ndata: {serialized}\n\n")
+                if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
+                    break
         except Exception as exc:
             logger.exception("Graph %s stream failed", reg.name)
             error_payload = json.dumps({"error": str(exc)})
-            chunks.append(f"event: error\ndata: {error_payload}\n\n")
+            _append_chunk(f"event: error\ndata: {error_payload}\n\n")
 
-        chunks.append("event: end\ndata: {}\n\n")
+        _append_chunk("event: end\ndata: {}\n\n")
 
         return func.HttpResponse(
             body="".join(chunks),
