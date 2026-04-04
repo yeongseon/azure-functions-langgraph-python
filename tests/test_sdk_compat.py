@@ -95,6 +95,18 @@ _ROUTE_TABLE: list[tuple[str, re.Pattern[str], str, list[str]]] = [
         ["thread_id"],
     ),
     (
+        "PATCH",
+        re.compile(r"^/threads/(?P<thread_id>[^/]+)$"),
+        "aflg_platform_threads_update",
+        ["thread_id"],
+    ),
+    (
+        "DELETE",
+        re.compile(r"^/threads/(?P<thread_id>[^/]+)$"),
+        "aflg_platform_threads_delete",
+        ["thread_id"],
+    ),
+    (
         "GET",
         re.compile(r"^/threads/(?P<thread_id>[^/]+)/state$"),
         "aflg_platform_threads_state_get",
@@ -330,7 +342,47 @@ class TestSdkThreads:
         with pytest.raises(ConflictError):
             client.threads.get_state(thread["thread_id"])
 
+    def test_update(self) -> None:
+        """threads.update() merges metadata."""
+        _, client = _make_app()
+        thread = client.threads.create(metadata={"a": 1})
+        updated = client.threads.update(thread["thread_id"], metadata={"b": 2})
+        assert updated["metadata"] == {"a": 1, "b": 2}
 
+    def test_update_overwrite_key(self) -> None:
+        """threads.update() overwrites existing metadata keys (shallow merge)."""
+        _, client = _make_app()
+        thread = client.threads.create(metadata={"x": "old"})
+        updated = client.threads.update(thread["thread_id"], metadata={"x": "new"})
+        assert updated["metadata"] == {"x": "new"}
+
+    def test_update_nonexistent_404(self) -> None:
+        """threads.update() on a nonexistent thread raises NotFoundError."""
+        _, client = _make_app()
+        with pytest.raises(NotFoundError):
+            client.threads.update("nonexistent", metadata={"a": 1})
+
+    def test_delete(self) -> None:
+        """threads.delete() removes the thread."""
+        _, client = _make_app()
+        thread = client.threads.create()
+        client.threads.delete(thread["thread_id"])
+        with pytest.raises(NotFoundError):
+            client.threads.get(thread["thread_id"])
+
+    def test_delete_nonexistent_404(self) -> None:
+        """threads.delete() on a nonexistent thread raises NotFoundError."""
+        _, client = _make_app()
+        with pytest.raises(NotFoundError):
+            client.threads.delete("nonexistent")
+
+    def test_update_nested_shallow_merge(self) -> None:
+        """Shallow merge replaces nested dicts, does not deep-merge."""
+        _, client = _make_app()
+        thread = client.threads.create(metadata={"a": {"x": 1}})
+        updated = client.threads.update(thread["thread_id"], metadata={"a": {"y": 2}})
+        # Entire 'a' replaced, not deep-merged
+        assert updated["metadata"] == {"a": {"y": 2}}
 # ---------------------------------------------------------------------------
 # Tests — Runs
 # ---------------------------------------------------------------------------

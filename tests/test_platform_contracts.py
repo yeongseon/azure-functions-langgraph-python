@@ -26,6 +26,7 @@ from azure_functions_langgraph.platform.contracts import (
     ThreadState,
     ThreadStatus,
     ThreadTask,
+    ThreadUpdate,
 )
 
 # ---------------------------------------------------------------------------
@@ -572,6 +573,26 @@ class TestAssistantCount:
         assert c.graph_id == "g"
         assert not hasattr(c, "some_new_field")
 
+
+class TestThreadUpdate:
+    def test_defaults(self) -> None:
+        tu = ThreadUpdate()
+        assert tu.metadata is None
+
+    def test_with_metadata(self) -> None:
+        tu = ThreadUpdate(metadata={"key": "value"})
+        assert tu.metadata == {"key": "value"}
+
+    def test_extra_fields_ignored(self) -> None:
+        """SDK sends ttl field which should be silently dropped."""
+        tu = ThreadUpdate.model_validate({"metadata": {"x": 1}, "ttl": {"days": 7}})
+        assert tu.metadata == {"x": 1}
+        assert not hasattr(tu, "ttl")
+
+    def test_empty_metadata_dict(self) -> None:
+        """Empty dict means 'no new keys', not 'clear metadata'."""
+        tu = ThreadUpdate(metadata={})
+        assert tu.metadata == {}
 # ---------------------------------------------------------------------------
 # Type alias sanity checks
 # ---------------------------------------------------------------------------

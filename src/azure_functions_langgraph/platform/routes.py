@@ -12,6 +12,8 @@ Routes registered (under ``/api/`` prefix, managed by Azure Functions):
 * ``GET  /api/assistants/{assistant_id}``
 * ``POST /api/threads``
 * ``GET  /api/threads/{thread_id}``
+* ``PATCH /api/threads/{thread_id}``
+* ``DELETE /api/threads/{thread_id}``
 * ``GET  /api/threads/{thread_id}/state``
 * ``POST /api/threads/{thread_id}/runs/wait``
 * ``POST /api/threads/{thread_id}/runs/stream``
@@ -48,6 +50,7 @@ from azure_functions_langgraph.platform.contracts import (
     RunCreate,
     ThreadCreate,
     ThreadState,
+    ThreadUpdate,
 )
 from azure_functions_langgraph.platform.stores import ThreadStore
 from azure_functions_langgraph.protocols import StatefulGraph, StreamableGraph
@@ -335,6 +338,76 @@ def register_platform_routes(
             body=json.dumps(thread.model_dump(mode="json"), default=str),
             mimetype="application/json",
             status_code=200,
+        )
+
+    # ── PATCH /threads/{thread_id} ────────────────────────────────────
+
+    @app.function_name(name="aflg_platform_threads_update")
+    @app.route(route="threads/{thread_id}", methods=["PATCH"], auth_level=auth)
+    def threads_update(req: func.HttpRequest) -> func.HttpResponse:
+        thread_id = req.route_params.get("thread_id", "")
+        tid_err = validate_thread_id(thread_id)
+        if tid_err:
+            return _platform_error(400, tid_err)
+
+        # Body size check — reject before parsing
+        raw = req.get_body()
+        size_err = validate_body_size(raw, deps.max_request_body_bytes)
+        if size_err:
+            return _platform_error(400, size_err)
+        if raw and raw.strip() != b"":
+            try:
+                body: dict[str, Any] = req.get_json()
+            except ValueError:
+                return _platform_error(400, "Invalid JSON body")
+        else:
+            body = {}
+
+        try:
+            update_req = ThreadUpdate.model_validate(body)
+        except Exception as exc:
+            return _platform_error(422, f"Validation error: {exc}")
+
+        # Thread must exist
+        thread = deps.thread_store.get(thread_id)
+        if thread is None:
+            return _platform_error(404, f"Thread {thread_id!r} not found")
+
+        # Merge metadata (shallow) only when metadata is provided
+        if update_req.metadata is not None:
+            merged = {**(thread.metadata or {}), **update_req.metadata}
+            try:
+                updated = deps.thread_store.update(thread_id, metadata=merged)
+            except KeyError:
+                return _platform_error(404, f"Thread {thread_id!r} not found")
+        else:
+            # No fields to update — just return current thread
+            updated = thread
+
+        return func.HttpResponse(
+            body=json.dumps(updated.model_dump(mode="json"), default=str),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    # ── DELETE /threads/{thread_id} ───────────────────────────────────
+
+    @app.function_name(name="aflg_platform_threads_delete")
+    @app.route(route="threads/{thread_id}", methods=["DELETE"], auth_level=auth)
+    def threads_delete(req: func.HttpRequest) -> func.HttpResponse:
+        thread_id = req.route_params.get("thread_id", "")
+        tid_err = validate_thread_id(thread_id)
+        if tid_err:
+            return _platform_error(400, tid_err)
+
+        try:
+            deps.thread_store.delete(thread_id)
+        except KeyError:
+            return _platform_error(404, f"Thread {thread_id!r} not found")
+
+        return func.HttpResponse(
+            body=b"",
+            status_code=204,
         )
 
     # ── GET /threads/{thread_id}/state ───────────────────────────────

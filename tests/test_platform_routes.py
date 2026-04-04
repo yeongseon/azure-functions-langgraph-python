@@ -91,6 +91,30 @@ def _get_request(url: str, **route_params: str) -> func.HttpRequest:
     )
 
 
+def _patch_request(
+    url: str,
+    body: dict[str, Any] | None = None,
+    **route_params: str,
+) -> func.HttpRequest:
+    """Build a PATCH request with JSON body."""
+    return func.HttpRequest(
+        method="PATCH",
+        url=url,
+        body=json.dumps(body or {}).encode(),
+        headers={"Content-Type": "application/json"},
+        route_params=route_params,
+    )
+
+
+def _delete_request(url: str, **route_params: str) -> func.HttpRequest:
+    """Build a DELETE request."""
+    return func.HttpRequest(
+        method="DELETE",
+        url=url,
+        body=b"",
+        route_params=route_params,
+    )
+
 # ---------------------------------------------------------------------------
 # LangGraphApp integration — platform_compat flag
 # ---------------------------------------------------------------------------
@@ -104,12 +128,15 @@ class TestPlatformCompatFlag:
         fa.functions_bindings = {}
         fn_names = [f.get_function_name() for f in fa.get_functions()]
 
-        # All 7 platform route names must be present
+        # All 9 platform route names must be present
         expected = {
             "aflg_platform_assistants_search",
+            "aflg_platform_assistants_count",
             "aflg_platform_assistants_get",
             "aflg_platform_threads_create",
             "aflg_platform_threads_get",
+            "aflg_platform_threads_update",
+            "aflg_platform_threads_delete",
             "aflg_platform_threads_state_get",
             "aflg_platform_runs_wait",
             "aflg_platform_runs_stream",
@@ -472,6 +499,300 @@ class TestThreadsGet:
         assert resp.status_code == 404
         data = json.loads(resp.get_body())
         assert "not found" in data["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Thread update (PATCH) endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestThreadsUpdate:
+    def test_update_metadata(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        # Create thread with initial metadata
+        create_fn = _get_fn(fa, "aflg_platform_threads_create")
+        resp = create_fn(_post_request("/api/threads", {"metadata": {"key": "old"}}))
+        thread_id = json.loads(resp.get_body())["thread_id"]
+
+        # Update metadata
+        fa.functions_bindings = {}
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = _patch_request(
+            f"/api/threads/{thread_id}",
+            {"metadata": {"key": "new", "extra": "val"}},
+            thread_id=thread_id,
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["thread_id"] == thread_id
+        # Shallow merge: old key overwritten, new key added
+        assert data["metadata"] == {"key": "new", "extra": "val"}
+
+    def test_update_merge_preserves_existing_keys(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        # Create with metadata
+        thread = store.create(metadata={"a": 1, "b": 2})
+
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = _patch_request(
+            f"/api/threads/{thread.thread_id}",
+            {"metadata": {"b": 99, "c": 3}},
+            thread_id=thread.thread_id,
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        # a kept, b overwritten, c added
+        assert data["metadata"] == {"a": 1, "b": 99, "c": 3}
+
+    def test_update_no_metadata_returns_unchanged(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """PATCH with no metadata field returns thread unchanged."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create(metadata={"x": 1})
+
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = _patch_request(
+            f"/api/threads/{thread.thread_id}", {},
+            thread_id=thread.thread_id,
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["metadata"] == {"x": 1}
+
+    def test_update_not_found(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_update")
+
+        req = _patch_request(
+            "/api/threads/missing", {"metadata": {"x": 1}},
+            thread_id="missing",
+        )
+        resp = fn(req)
+        assert resp.status_code == 404
+        data = json.loads(resp.get_body())
+        assert "not found" in data["detail"]
+
+    def test_update_empty_body(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """PATCH with empty body returns thread unchanged."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create()
+
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = func.HttpRequest(
+            method="PATCH",
+            url=f"/api/threads/{thread.thread_id}",
+            body=b"",
+            headers={},
+            route_params={"thread_id": thread.thread_id},
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 200
+
+    def test_update_invalid_json(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create()
+
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = func.HttpRequest(
+            method="PATCH",
+            url=f"/api/threads/{thread.thread_id}",
+            body=b"not json",
+            headers={"Content-Type": "application/json"},
+            route_params={"thread_id": thread.thread_id},
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 400
+
+    def test_update_ttl_field_ignored(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """SDK sends ttl field; it should be silently dropped."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create()
+
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = _patch_request(
+            f"/api/threads/{thread.thread_id}",
+            {"metadata": {"k": "v"}, "ttl": {"days": 7}},
+            thread_id=thread.thread_id,
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["metadata"] == {"k": "v"}
+        assert "ttl" not in data
+
+    def test_update_empty_metadata_is_noop(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """PATCH with metadata={} means 'no new keys' — not 'clear'."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create(metadata={"keep": "me"})
+
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = _patch_request(
+            f"/api/threads/{thread.thread_id}",
+            {"metadata": {}},
+            thread_id=thread.thread_id,
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["metadata"] == {"keep": "me"}
+
+    def test_update_metadata_on_thread_with_none_metadata(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """PATCH metadata on a thread that has no existing metadata."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create()  # metadata=None by default
+
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = _patch_request(
+            f"/api/threads/{thread.thread_id}",
+            {"metadata": {"new_key": "new_val"}},
+            thread_id=thread.thread_id,
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["metadata"] == {"new_key": "new_val"}
+
+    def test_update_nested_metadata_shallow_merge(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """Shallow merge replaces nested dicts, does not deep-merge."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create(metadata={"a": {"x": 1}})
+
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = _patch_request(
+            f"/api/threads/{thread.thread_id}",
+            {"metadata": {"a": {"y": 2}}},
+            thread_id=thread.thread_id,
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        # Shallow merge: entire 'a' value replaced, NOT deep-merged
+        assert data["metadata"] == {"a": {"y": 2}}
+
+    def test_update_metadata_wrong_type_422(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """metadata must be a dict; other types return 422."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create()
+
+        update_fn = _get_fn(fa, "aflg_platform_threads_update")
+        req = _patch_request(
+            f"/api/threads/{thread.thread_id}",
+            {"metadata": "not-a-dict"},
+            thread_id=thread.thread_id,
+        )
+        resp = update_fn(req)
+        assert resp.status_code == 422
+
+# ---------------------------------------------------------------------------
+# Thread delete (DELETE) endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestThreadsDelete:
+    def test_delete_thread(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create()
+
+        delete_fn = _get_fn(fa, "aflg_platform_threads_delete")
+        req = _delete_request(
+            f"/api/threads/{thread.thread_id}",
+            thread_id=thread.thread_id,
+        )
+        resp = delete_fn(req)
+        assert resp.status_code == 204
+        assert resp.get_body() == b""
+
+        # Verify thread is gone
+        assert store.get(thread.thread_id) is None
+
+    def test_delete_not_found(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_delete")
+
+        req = _delete_request("/api/threads/missing", thread_id="missing")
+        resp = fn(req)
+        assert resp.status_code == 404
+        data = json.loads(resp.get_body())
+        assert "not found" in data["detail"]
+
+    def test_delete_then_get_returns_404(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """After delete, GET returns 404."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+
+        thread = store.create()
+
+        # Delete
+        delete_fn = _get_fn(fa, "aflg_platform_threads_delete")
+        req = _delete_request(
+            f"/api/threads/{thread.thread_id}",
+            thread_id=thread.thread_id,
+        )
+        delete_fn(req)
+
+        # GET should 404
+        fa.functions_bindings = {}
+        get_fn = _get_fn(fa, "aflg_platform_threads_get")
+        req = _get_request(
+            f"/api/threads/{thread.thread_id}",
+            thread_id=thread.thread_id,
+        )
+        resp = get_fn(req)
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
