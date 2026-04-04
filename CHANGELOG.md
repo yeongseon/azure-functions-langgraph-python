@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-05
+
+### Added
+
+- State endpoint: `GET /api/graphs/{name}/threads/{thread_id}/state` for retrieving thread state from stateful graphs (#17)
+- Per-graph auth level override via `register(graph, name, auth_level=...)` (#18)
+- `StateResponse` contract model for state endpoint responses
+- `StatefulGraph` protocol for graphs that support `get_state()`
+- `StateResponse` and `StatefulGraph` exported in public API `__all__`
+- Release automation: auto GitHub Release on tag push via `release.yml` workflow (#22)
+- 105 tests total, 98%+ coverage with `fail_under=90` (#19)
+
+### Changed
+
+- `__all__` cleaned up with proper re-exports of all contracts and protocols from package root (#21)
+- CI/Release automation validated and hardened (#20)
+- `git-cliff` pinned to `>=2.12,<3` in release workflow
+
+### Fixed
+
+- Narrowed exception handling in `_handle_state`: `KeyError`/`ValueError` → 404, unexpected errors → 500
+
 ## [0.1.0a0] - 2026-04-02
 
 ### Added
