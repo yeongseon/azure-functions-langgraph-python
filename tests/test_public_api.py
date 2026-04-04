@@ -6,7 +6,7 @@ from __future__ import annotations
 def test_version_string() -> None:
     from azure_functions_langgraph import __version__
 
-    assert __version__ == "0.2.0"
+    assert __version__ == "0.3.0"
 
 
 def test_langgraph_app_importable() -> None:

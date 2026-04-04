@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-05
+
+### Added
+
+- **Platform API compatibility layer**: Full `langgraph-sdk`-compatible HTTP API surface (#35–#42)
+- `platform/` subpackage with Pydantic contracts, route layer, SSE streaming, and thread store (#35, #36)
+- `ThreadStore` protocol + `InMemoryThreadStore` for thread lifecycle management (#37)
+- Platform API routes: assistants (search, get), threads (create, get, state), runs (wait, stream) (#38)
+- Platform-compatible SSE streaming with `metadata → values → end` event sequence (#39)
+- Input validation and request size limits: body size, JSON depth, node count, thread_id format (#40)
+- Integration tests with real `StateGraph` + `MemorySaver` graphs (#41)
+- SDK compatibility tests using real `langgraph_sdk.SyncLangGraphClient` via `httpx.MockTransport` bridge (#42)
+- 427 tests total, 96% coverage
+
+### Changed
+
+- Handlers extracted from `app.py` into `_handlers.py` for native routes (#35)
+- Transport-agnostic validators in `_validation.py` (#40)
+- Unsupported features (interrupt_before/after, webhook, multi-stream-mode) return 501 with clear messages (#39, #40)
+
+### Documentation
+
+- Updated README with platform compat quickstart and architecture diagram (#30)
+- Added DESIGN.md documenting architecture, design decisions, and ADRs (#43)
+- Full i18n documentation (ko/en) (#43)
 ## [0.2.0] - 2026-04-05
 
 ### Added
