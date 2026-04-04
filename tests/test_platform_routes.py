@@ -827,6 +827,13 @@ class TestRunsStream:
         body = resp.get_body().decode()
         assert "event: error" in body
         assert "max buffered size" in body
+        # Must end with end event (SDK protocol requirement)
+        assert "event: end\ndata: null" in body
+        # Thread should be marked as error on overflow
+        updated = store.get(thread.thread_id)
+        assert updated is not None
+        assert updated.status == "error"
+        assert updated.status == "error"
 
 
 # ---------------------------------------------------------------------------
@@ -1134,3 +1141,371 @@ class TestStableAssistantTimestamps:
 
         assert data1["created_at"] == data2["created_at"]
         assert data1["updated_at"] == data2["updated_at"]
+
+
+# ---------------------------------------------------------------------------
+# SSE wire-format tests (issue #39)
+# ---------------------------------------------------------------------------
+
+
+def _decode_sse_frame(frame: str) -> dict[str, Any]:
+    """Parse a single SSE frame into {"event": str, "data": Any}."""
+    event_name: str | None = None
+    data_str: str | None = None
+    for line in frame.strip().split("\n"):
+        if line.startswith("event: "):
+            event_name = line[len("event: "):]
+        elif line.startswith("data: "):
+            data_str = line[len("data: "):]
+    assert event_name is not None, f"Missing event in frame: {frame!r}"
+    parsed_data: Any = None
+    if data_str is not None and data_str != "":
+        parsed_data = json.loads(data_str)
+    return {"event": event_name, "data": parsed_data}
+
+
+def _decode_sse_body(body: str) -> list[dict[str, Any]]:
+    """Split a full SSE response body into decoded frames."""
+    frames = [f for f in body.split("\n\n") if f.strip()]
+    return [_decode_sse_frame(f) for f in frames]
+
+
+class TestStreamSSEWireFormat:
+    """Exact byte-level verification of SSE output for SDK compatibility."""
+
+    def test_frame_order_metadata_data_end(self, store: InMemoryThreadStore) -> None:
+        """Successful stream must emit: metadata, data chunks, end."""
+        g = FakeCompiledGraph(
+            stream_results=[
+                {"messages": [{"role": "assistant", "content": "a"}]},
+                {"messages": [{"role": "assistant", "content": "b"}]},
+            ]
+        )
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+
+        thread = store.create()
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        body = resp.get_body().decode()
+        parts = _decode_sse_body(body)
+
+        assert len(parts) == 4  # metadata + 2 data + end
+        assert parts[0]["event"] == "metadata"
+        assert "run_id" in parts[0]["data"]
+        assert parts[1]["event"] == "values"
+        assert parts[1]["data"]["messages"][0]["content"] == "a"
+        assert parts[2]["event"] == "values"
+        assert parts[2]["data"]["messages"][0]["content"] == "b"
+        assert parts[3]["event"] == "end"
+        assert parts[3]["data"] is None
+
+    def test_end_event_data_is_null(self, store: InMemoryThreadStore) -> None:
+        """End event must have ``data: null`` (not ``data: {}``)."""
+        g = FakeCompiledGraph(stream_results=[{"ok": True}])
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+
+        thread = store.create()
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        body = resp.get_body().decode()
+
+        # Raw text must contain exact "data: null" (not "data: {}")
+        assert "event: end\ndata: null\n" in body
+
+    def test_error_then_end_sequence(self, store: InMemoryThreadStore) -> None:
+        """On failure: metadata → error → end."""
+        class BoomGraph:
+            def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> Any:
+                return {}
+
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Iterator[Any]:
+                raise RuntimeError("kaboom")
+
+        app = _build_platform_app(graphs={"agent": BoomGraph()}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        body = resp.get_body().decode()
+        parts = _decode_sse_body(body)
+
+        events = [p["event"] for p in parts]
+        assert events == ["metadata", "error", "end"]
+        assert parts[1]["data"] == {"error": "stream processing failed"}
+        assert parts[2]["data"] is None
+
+    def test_content_type_is_event_stream(self, store: InMemoryThreadStore) -> None:
+        """Response Content-Type must contain 'text/event-stream'."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert "text/event-stream" in resp.mimetype
+
+    def test_stream_mode_from_string(self, store: InMemoryThreadStore) -> None:
+        """stream_mode='updates' → event: updates."""
+        g = FakeCompiledGraph(stream_results=[{"node": {"key": "val"}}])
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": "updates"},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        parts = _decode_sse_body(resp.get_body().decode())
+        # Data event should use "updates" as event type
+        assert parts[1]["event"] == "updates"
+
+    def test_stream_mode_single_item_list(self, store: InMemoryThreadStore) -> None:
+        """stream_mode=['values'] should unwrap to 'values'."""
+        g = FakeCompiledGraph(stream_results=[{"ok": True}])
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": ["values"]},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 200
+        parts = _decode_sse_body(resp.get_body().decode())
+        assert parts[1]["event"] == "values"
+
+    def test_stream_mode_multi_item_list_returns_501(self, store: InMemoryThreadStore) -> None:
+        """stream_mode=['values', 'updates'] → 501 (unsupported)."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": ["values", "updates"]},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 501
+        data = json.loads(resp.get_body())
+        assert "Multi-stream-mode" in data["detail"]
+
+    def test_stream_mode_empty_list_defaults_to_values(self, store: InMemoryThreadStore) -> None:
+        """stream_mode=[] → defaults to 'values'."""
+        g = FakeCompiledGraph(stream_results=[{"x": 1}])
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": []},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 200
+        parts = _decode_sse_body(resp.get_body().decode())
+        assert parts[1]["event"] == "values"
+
+    def test_non_dict_event_wrapped(self, store: InMemoryThreadStore) -> None:
+        """Non-dict stream events should be wrapped as {"data": payload}."""
+
+        class StringStreamGraph:
+            def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> Any:
+                return {}
+
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Iterator[Any]:
+                yield "hello"
+                yield 42
+                yield [1, 2, 3]
+
+        app = _build_platform_app(graphs={"agent": StringStreamGraph()}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        parts = _decode_sse_body(resp.get_body().decode())
+
+        # Skip metadata (idx 0) and end (last)
+        data_parts = parts[1:-1]
+        assert len(data_parts) == 3
+        assert data_parts[0]["data"] == {"data": "hello"}
+        assert data_parts[1]["data"] == {"data": 42}
+        assert data_parts[2]["data"] == {"data": [1, 2, 3]}
+
+    def test_multi_mode_501_resets_thread_to_idle(self, store: InMemoryThreadStore) -> None:
+        """After 501 from multi-mode, thread should be idle (not stuck busy)."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": ["values", "updates"]},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 501
+
+        updated = store.get(thread.thread_id)
+        assert updated is not None
+        assert updated.status == "idle"
+
+
+class TestMaxBytesMetadataOverflow:
+    """Edge case: max_bytes smaller than the metadata frame."""
+
+    def test_max_bytes_less_than_metadata_returns_error_end(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        """When metadata alone exceeds limit, return error+end immediately."""
+        g = FakeCompiledGraph()
+        app = LangGraphApp(platform_compat=True, max_stream_response_bytes=10)
+        app._thread_store = store
+        app.register(graph=g, name="agent")
+        fa = app.function_app
+
+        thread = store.create()
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        body = resp.get_body().decode()
+
+        assert "event: metadata" in body
+        assert "event: error" in body
+        assert "max buffered size" in body
+        assert "event: end\ndata: null" in body
+
+        updated = store.get(thread.thread_id)
+        assert updated is not None
+        assert updated.status == "error"
+
+
+class TestMultiMode501AssistantId:
+    """Multi-mode 501 must not bind assistant_id to thread."""
+
+    def test_multi_mode_501_does_not_bind_assistant_id(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        """Thread assistant_id should remain None after 501 rejection."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        # Confirm assistant_id is initially None
+        assert thread.assistant_id is None
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": ["values", "updates"]},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 501
+
+        # assistant_id must NOT have been mutated
+        updated = store.get(thread.thread_id)
+        assert updated is not None
+        assert updated.assistant_id is None
+
+
+class TestNaNPayloadInStream:
+    """Graph that yields NaN should produce error event, not crash."""
+
+    def test_nan_payload_produces_error_event(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        """NaN in graph output should be caught and returned as SSE error."""
+
+        class NaNGraph:
+            def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> Any:
+                return {}
+
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Iterator[dict[str, Any]]:
+                yield {"value": float("nan")}
+
+        app = LangGraphApp(platform_compat=True)
+        app._thread_store = store
+        app.register(graph=NaNGraph(), name="agent")
+        fa = app.function_app
+
+        thread = store.create()
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        body = resp.get_body().decode()
+
+        # Should contain error event (NaN rejected by allow_nan=False)
+        assert "event: error" in body
+        # Stream must still end properly
+        assert "event: end\ndata: null" in body
+
+        updated = store.get(thread.thread_id)
+        assert updated is not None
+        assert updated.status == "error"

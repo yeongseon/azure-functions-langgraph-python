@@ -10,7 +10,7 @@ Modules:
 - ``contracts`` — Pydantic models for Platform API request/response shapes
 - ``stores`` — ThreadStore protocol and in-memory implementation
 - ``routes`` — Route registration for Platform-compatible endpoints
-- ``sse`` — SSE format rewriter (Platform wire format)
+- ``_sse`` — Internal SSE format helpers (Platform wire format)
 
 .. versionadded:: 0.3.0
 """

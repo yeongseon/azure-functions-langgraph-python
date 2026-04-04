@@ -28,6 +28,12 @@ import uuid
 
 import azure.functions as func
 
+from azure_functions_langgraph.platform._sse import (
+    format_data_event,
+    format_end_event,
+    format_error_event,
+    format_metadata_event,
+)
 from azure_functions_langgraph.platform.contracts import (
     Assistant,
     AssistantSearch,
@@ -472,6 +478,24 @@ def register_platform_routes(
         if preflight is not None:
             return preflight
 
+        # Resolve stream_mode early — string: use as-is; one-item list:
+        # unwrap; multi-item list: unsupported (501).  Done before thread
+        # mutation so a rejection cannot leave stale assistant_id bindings.
+        raw_mode = run_req.stream_mode
+        if isinstance(raw_mode, list):
+            if len(raw_mode) == 1:
+                stream_mode = raw_mode[0]
+            elif len(raw_mode) == 0:
+                stream_mode = "values"
+            else:
+                return _platform_error(
+                    501,
+                    "Multi-stream-mode is not supported in this release. "
+                    "Provide a single stream_mode string or a one-element list.",
+                )
+        else:
+            stream_mode = raw_mode
+
         # Resolve assistant → graph
         reg = deps.registrations.get(run_req.assistant_id)
         if reg is None:
@@ -516,11 +540,6 @@ def register_platform_routes(
             config["configurable"].update(user_configurable)
             config.update(user_config)
 
-        # Resolve stream_mode
-        stream_mode = run_req.stream_mode
-        if isinstance(stream_mode, list):
-            stream_mode = stream_mode[0] if stream_mode else "values"
-
         # Synthetic run ID for metadata event
         run_id = str(uuid.uuid4())
 
@@ -530,32 +549,56 @@ def register_platform_routes(
         max_bytes = deps.max_stream_response_bytes
 
         # Metadata event (first SSE event per SDK protocol)
-        meta_data = json.dumps({"run_id": run_id})
-        chunks.append(f"event: metadata\ndata: {meta_data}\n\n")
+        meta_chunk = format_metadata_event(run_id)
+        chunks.append(meta_chunk)
+        buffered_bytes += len(meta_chunk.encode())
 
+        # If metadata alone exceeds the limit, bail immediately.
+        if buffered_bytes > max_bytes:
+            chunks.append(
+                format_error_event(
+                    f"stream response exceeded max buffered size "
+                    f"({max_bytes} bytes)"
+                )
+            )
+            chunks.append(format_end_event())
+            deps.thread_store.update(thread_id, status="error")
+            return func.HttpResponse(
+                body="".join(chunks),
+                mimetype="text/event-stream",
+                status_code=200,
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                    "Content-Location": f"/api/threads/{thread_id}/runs/{run_id}",
+                },
+            )
         try:
             for event in reg.graph.stream(
                 graph_input,
                 config=config,
                 stream_mode=stream_mode,
             ):
-                serialized = json.dumps(
-                    event if isinstance(event, dict) else {"data": str(event)},
-                    default=str,
-                )
-                chunk = f"event: {stream_mode}\ndata: {serialized}\n\n"
+                chunk = format_data_event(stream_mode, event)
                 chunk_bytes = len(chunk.encode())
                 if buffered_bytes + chunk_bytes > max_bytes:
-                    error_payload = json.dumps(
-                        {
-                            "error": (
-                                "stream response exceeded max buffered size "
-                                f"({max_bytes} bytes)"
-                            )
-                        }
+                    err_chunk = format_error_event(
+                        f"stream response exceeded max buffered size "
+                        f"({max_bytes} bytes)"
                     )
-                    chunks.append(f"event: error\ndata: {error_payload}\n\n")
-                    break
+                    chunks.append(err_chunk)
+                    chunks.append(format_end_event())
+                    deps.thread_store.update(thread_id, status="error")
+                    return func.HttpResponse(
+                        body="".join(chunks),
+                        mimetype="text/event-stream",
+                        status_code=200,
+                        headers={
+                            "Cache-Control": "no-cache",
+                            "X-Accel-Buffering": "no",
+                            "Content-Location": f"/api/threads/{thread_id}/runs/{run_id}",
+                        },
+                    )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
         except Exception:
@@ -565,10 +608,9 @@ def register_platform_routes(
                 thread_id,
             )
             deps.thread_store.update(thread_id, status="error")
-            error_payload = json.dumps({"error": "stream processing failed"})
-            chunks.append(f"event: error\ndata: {error_payload}\n\n")
+            chunks.append(format_error_event("stream processing failed"))
             # End event after error
-            chunks.append("event: end\ndata: null\n\n")
+            chunks.append(format_end_event())
             return func.HttpResponse(
                 body="".join(chunks),
                 mimetype="text/event-stream",
@@ -581,7 +623,7 @@ def register_platform_routes(
             )
 
         # End event
-        chunks.append("event: end\ndata: null\n\n")
+        chunks.append(format_end_event())
 
         # Update thread state to idle after successful stream
         deps.thread_store.update(thread_id, status="idle")
