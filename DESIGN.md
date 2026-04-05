@@ -18,7 +18,16 @@ StateGraph → compile()  →  LangGraphApp.register(graph)  →  FunctionApp wi
                             ├─ POST /graphs/{name}/stream  →  graph.stream(input, config)
                             ├─ GET /graphs/{name}/threads/{id}/state → graph.get_state(config)
                             ├─ GET /health                 →  list registered graphs
-                            └─ GET /openapi.json           →  auto-generated spec
+                            ├─ GET /openapi.json           →  auto-generated spec
+                            │
+                            │  platform_compat=True adds:
+                            ├─ POST /assistants/search     →  list registered graphs as assistants
+                            ├─ POST /threads               →  thread lifecycle (CRUD, search)
+                            ├─ POST /threads/{id}/runs/wait →  graph.invoke via SDK client
+                            ├─ POST /runs/wait             →  threadless run (ephemeral thread)
+                            ├─ GET /threads/{id}/state     →  graph.get_state(config)
+                            ├─ POST /threads/{id}/state    →  graph.update_state(config, values)
+                            └─ POST /threads/{id}/history   →  graph.get_state_history(config)
 ```
 
 ## Key Decisions
@@ -46,21 +55,75 @@ Each graph registration can override the app-level `auth_level`. This enables mi
 ### 6. State endpoint via StatefulGraph protocol (v0.2)
 Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpointer) expose a `GET /graphs/{name}/threads/{thread_id}/state` endpoint. This uses a new `StatefulGraph` protocol added to `protocols.py`, keeping the protocol-based design consistent.
 
+### 7. Azure Blob Storage checkpointer (v0.4)
+
+**Context**: LangGraph's built-in `MemorySaver` loses state on process restart. Azure Functions are stateless — each invocation may run on a different instance. Users need durable checkpoint persistence.
+
+**Decision**: Implement `AzureBlobCheckpointSaver` as an optional extra (`azure-functions-langgraph[azure-blob]`). Each checkpoint is stored as a hierarchy of blobs: `{thread_id}/{checkpoint_ns}/{checkpoint_id}/checkpoint.bin`, with separate blobs for channel values and pending writes. A `latest.json` hint blob accelerates lookups.
+
+**Consequences**: Checkpoint data survives restarts and scales across instances. Blob Storage provides high throughput and automatic geo-replication. The `azure-storage-blob` dependency is optional — import fails with a helpful message if not installed.
+
+**Non-goals**: Async I/O (synchronous for v0.4), concurrent-writer conflict resolution (single-writer assumed).
+
+### 8. Azure Table Storage thread store (v0.4)
+
+**Context**: `InMemoryThreadStore` loses thread metadata on restart. Thread lifecycle (create, search, count, delete) needs to persist across Azure Functions instances.
+
+**Decision**: Implement `AzureTableThreadStore` as an optional extra (`azure-functions-langgraph[azure-table]`). Single-partition design (`PartitionKey="thread"`) with client-side filtering for metadata subset matching and status filters.
+
+**Consequences**: Thread records persist across restarts. Table Storage is low-cost and low-latency for key-value lookups. Client-side filtering works well for <100K threads; at scale, the single partition may become a bottleneck (~500 entities/sec).
+
+**Non-goals**: Server-side metadata querying (Azure Table OData filters don't support nested JSON), multi-partition sharding.
+
+### 9. Threadless runs (v0.4)
+
+**Context**: The LangGraph SDK supports `runs.wait(None, ...)` and `runs.stream(None, ...)` for fire-and-forget executions that don't need a persistent thread.
+
+**Decision**: Add `POST /runs/wait` and `POST /runs/stream` endpoints. These clone the registered graph with `checkpointer=None`, producing a stateless execution. Client-supplied `thread_id` in config is stripped to prevent accidental state pollution.
+
+**Consequences**: SDK clients can run graphs without pre-creating threads. No checkpoint is saved, so the execution is truly ephemeral. The thread store is not modified by threadless runs.
+
+**Non-goals**: Persisting threadless run results, associating threadless runs with thread records.
+
+### 10. Protocol-based capability detection (v0.4)
+
+**Context**: v0.4 adds `update_state()` and `get_state_history()` endpoints, but not all graphs support these operations.
+
+**Decision**: Add `UpdatableStateGraph` and `StateHistoryGraph` protocols to `protocols.py`, each with `@runtime_checkable`. Route handlers use `isinstance()` checks to return 409 when a graph doesn't support the operation.
+
+**Consequences**: Graceful degradation — graphs without these capabilities still work for all other endpoints. New protocols follow the same pattern as existing `StatefulGraph` and `StreamableGraph`.
+
 ## Module Structure
 
 ```
 src/azure_functions_langgraph/
-├── __init__.py       # Package init, lazy imports, __version__
-├── app.py            # LangGraphApp class, route registration, request handlers
-├── contracts.py      # Pydantic request/response models (InvokeRequest, StreamRequest, InvokeResponse, StateResponse, etc.)
-├── protocols.py      # Protocol interfaces (InvocableGraph, StreamableGraph, StatefulGraph, LangGraphLike)
-└── py.typed          # PEP 561 marker
+├── __init__.py              # Package init, lazy imports, __version__
+├── app.py                   # LangGraphApp class, route registration
+├── _handlers.py             # Native route handlers (invoke, stream, state, health)
+├── _validation.py           # Transport-agnostic request validators
+├── contracts.py             # Pydantic request/response models
+├── protocols.py             # Protocol interfaces (LangGraphLike, StatefulGraph, etc.)
+├── py.typed                 # PEP 561 marker
+├── platform/                # LangGraph Platform API compatibility layer (v0.3+)
+│   ├── __init__.py
+│   ├── contracts.py         # Platform API Pydantic models (Thread, Run, Assistant, etc.)
+│   ├── routes.py            # SDK-compatible HTTP route handlers
+│   ├── stores.py            # ThreadStore protocol + InMemoryThreadStore
+│   └── _sse.py              # SSE event formatting
+├── checkpointers/           # Persistent checkpoint storage (v0.4+)
+│   ├── __init__.py          # Lazy-loading package
+│   └── azure_blob.py        # AzureBlobCheckpointSaver (Azure Blob Storage)
+└── stores/                  # Persistent thread storage (v0.4+)
+    ├── __init__.py          # Lazy-loading package
+    └── azure_table.py       # AzureTableThreadStore (Azure Table Storage)
 ```
 
 ## Testing Strategy
 
 - Unit tests use `FakeCompiledGraph` and `FakeStatefulGraph` mock objects
-- No real LLM calls in unit tests
-- 105 tests, 98%+ coverage as of v0.2.0
-- Integration tests (future) would use LangGraph with mock tools
-- E2E tests (future) deploy to Azure Functions and hit real endpoints
+- SDK compatibility tests use real `langgraph_sdk.SyncLangGraphClient` via `httpx.MockTransport`
+- Integration tests use real `StateGraph` compiled graphs with `MemorySaver` and mocked Azure backends
+- Persistent storage integration tests verify end-to-end flows with restart simulation
+- No real LLM calls in any tests
+- 645 tests, 91%+ coverage as of v0.4.0
+- Coverage threshold enforced at 90% (`fail_under = 90`)

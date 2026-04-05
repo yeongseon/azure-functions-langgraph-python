@@ -12,7 +12,7 @@
 
 Read this in: [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-> **Beta Notice** — This package is under active development (`0.2.0`). Core APIs are stabilizing but may still change between minor releases. Please report issues on GitHub.
+> **Beta Notice** — This package is under active development (`0.4.0`). Core APIs are stabilizing but may still change between minor releases. Please report issues on GitHub.
 
 Deploy [LangGraph](https://github.com/langchain-ai/langgraph) agents as **Azure Functions** HTTP endpoints with zero boilerplate.
 
@@ -40,15 +40,21 @@ Deploying LangGraph agents to Azure is harder than it should be:
 - **State endpoint** — `GET /api/graphs/{name}/threads/{thread_id}/state` for thread state inspection (StatefulGraph only)
 - **Per-graph auth** — Override app-level auth per graph with `register(graph, name, auth_level=...)`
 - **OpenAPI endpoint** — `GET /api/openapi.json` auto-generated API specification
+- **LangGraph Platform API compatibility** — SDK-compatible endpoints for threads, runs, assistants, and state (v0.3+)
+- **Persistent storage backends** — Azure Blob Storage checkpointer and Azure Table Storage thread store (v0.4+)
 
 ## LangGraph Platform comparison
 
 | Feature | LangGraph Platform | azure-functions-langgraph |
 |---------|-------------------|--------------------------|
 | Hosting | LangChain Cloud (paid) | Your Azure subscription |
-| Invoke | `POST /runs/stream` | `POST /api/graphs/{name}/invoke` |
-| Streaming | True SSE | Buffered SSE (v0.2) |
-| Threads | Built-in | Via LangGraph checkpointer |
+| Assistants | Built-in | SDK-compatible API (v0.3+) |
+| Thread lifecycle | Built-in | Create, get, update, delete, search, count (v0.3+) |
+| Runs | Built-in | Threaded + threadless runs (v0.4+) |
+| State read/update | Built-in | get_state + update_state (v0.4+) |
+| State history | Built-in | Checkpoint history with filtering (v0.4+) |
+| Streaming | True SSE | Buffered SSE |
+| Persistent storage | Built-in | Azure Blob + Table Storage (v0.4+) |
 | Infrastructure | Managed | Azure Functions (serverless) |
 | Cost model | Per-seat/usage | Azure Functions pricing |
 
@@ -64,6 +70,19 @@ This package is a **deployment adapter** — it wraps LangGraph, it does not rep
 
 ```bash
 pip install azure-functions-langgraph
+```
+
+For persistent storage with Azure services:
+
+```bash
+# Azure Blob Storage checkpointer
+pip install azure-functions-langgraph[azure-blob]
+
+# Azure Table Storage thread store
+pip install azure-functions-langgraph[azure-table]
+
+# Both
+pip install azure-functions-langgraph[azure-blob,azure-table]
 ```
 
 Your Azure Functions app should also include:
@@ -154,6 +173,25 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 4. `GET /api/health` — health check
 5. `GET /api/openapi.json` — OpenAPI specification
 
+With `platform_compat=True`, you also get SDK-compatible endpoints:
+
+6. `POST /assistants/search` — list registered assistants
+7. `GET /assistants/{id}` — get assistant details
+8. `POST /assistants/count` — count assistants
+9. `POST /threads` — create thread
+10. `GET /threads/{id}` — get thread
+11. `PATCH /threads/{id}` — update thread metadata
+12. `DELETE /threads/{id}` — delete thread
+13. `POST /threads/search` — search threads
+14. `POST /threads/count` — count threads
+15. `POST /threads/{id}/runs/wait` — run and wait for result
+16. `POST /threads/{id}/runs/stream` — run and stream result
+17. `POST /runs/wait` — threadless run
+18. `POST /runs/stream` — threadless stream
+19. `GET /threads/{id}/state` — get thread state
+20. `POST /threads/{id}/state` — update thread state
+21. `POST /threads/{id}/history` — get state history
+
 ### Request format
 
 ```json
@@ -167,12 +205,70 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 }
 ```
 
+### Persistent storage (v0.4+)
+
+Use Azure Blob Storage for checkpoint persistence and Azure Table Storage for thread metadata:
+
+from azure.storage.blob import ContainerClient
+from langgraph.graph import END, START, StateGraph
+from typing_extensions import TypedDict
+
+from azure_functions_langgraph import LangGraphApp
+from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
+from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
+
+
+class AgentState(TypedDict):
+    messages: list[dict[str, str]]
+
+
+def chat(state: AgentState) -> dict:
+    user_msg = state["messages"][-1]["content"]
+    return {"messages": state["messages"] + [{"role": "assistant", "content": f"Echo: {user_msg}"}]}
+
+
+# Build graph with Azure Blob checkpointer
+container_client = ContainerClient.from_connection_string(
+    "DefaultEndpointsProtocol=https;AccountName=...", "checkpoints"
+)
+saver = AzureBlobCheckpointSaver(container_client=container_client)
+
+builder = StateGraph(AgentState)
+builder.add_node("chat", chat)
+builder.add_edge(START, "chat")
+builder.add_edge("chat", END)
+graph = builder.compile(checkpointer=saver)
+
+# Deploy with Azure Table thread store
+thread_store = AzureTableThreadStore.from_connection_string(
+    "DefaultEndpointsProtocol=https;AccountName=...", table_name="threads"
+)
+thread_store = AzureTableThreadStore.from_connection_string(
+    "DefaultEndpointsProtocol=https;AccountName=...", table_name="threads"
+)
+
+app = LangGraphApp(platform_compat=True)
+app.thread_store = thread_store
+app.register(graph=graph, name="echo_agent")
+func_app = app.function_app
+```
+
+Checkpoints and thread metadata survive Azure Functions restarts and scale across instances.
+
+### Upgrading from v0.3.0
+
+v0.4.0 is fully backward-compatible with v0.3.0. No breaking changes.
+
+- **New optional extras**: `pip install azure-functions-langgraph[azure-blob,azure-table]` for persistent storage
+- **New platform endpoints**: thread CRUD, state update/history, threadless runs, assistants count
+- **New protocols**: `UpdatableStateGraph`, `StateHistoryGraph` (available from `azure_functions_langgraph.protocols`)
 ## When to use
 
 - You have LangGraph agents and want to deploy them on Azure Functions
 - You want serverless deployment without LangGraph Platform costs
 - You need HTTP endpoints for your compiled graphs with minimal setup
 - You want thread-based conversation state via LangGraph checkpointers
+- You need durable state persistence with Azure Blob/Table Storage
 
 ## Documentation
 

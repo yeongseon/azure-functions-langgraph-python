@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-05
+
+### Added
+
+- **Thread update and delete**: `PATCH /threads/{thread_id}` with shallow-merge metadata update, `DELETE /threads/{thread_id}` soft-delete (#54, PR #64)
+- **Thread search and count**: `POST /threads/search` with status/metadata filtering + limit/offset pagination, `POST /threads/count` (#55, PR #65)
+- **Assistants count**: `POST /assistants/count` endpoint (#56, PR #63)
+- **Threadless runs**: `POST /runs/wait` and `POST /runs/stream` without `thread_id` — stateless execution with cloned graph (`checkpointer=None`) (#53, PR #66)
+- **Thread state update**: `POST /threads/{thread_id}/state` — inject values as a graph node via `update_state()` (#57, PR #67)
+- **Thread state history**: `POST /threads/{thread_id}/history` — retrieve checkpoint history with `limit`/`before` filtering (#58, PR #67)
+- **Azure Blob Storage checkpointer**: `AzureBlobCheckpointSaver` for durable checkpoint persistence, optional extra `azure-blob` (#60, PR #68)
+- **Azure Table Storage thread store**: `AzureTableThreadStore` for durable thread metadata persistence, optional extra `azure-table` (#59, PR #69)
+- **Persistent storage integration tests**: end-to-end tests verifying Platform API with both in-memory and Azure-mocked backends, including restart simulation (#61, PR #70)
+- `UpdatableStateGraph` protocol for graphs supporting `update_state()`
+- `StateHistoryGraph` protocol for graphs supporting `get_state_history()`
+- Platform API coverage: 7 → ~18 of 50 LangGraph Platform endpoints
+- 645 tests total, 91% coverage
+
+### Changed
+
+- Thread metadata update uses **shallow merge** semantics (not replace)
+- Threadless run endpoints strip client-supplied `thread_id` from config
+- Optional Azure dependencies: `pip install azure-functions-langgraph[azure-blob]` or `[azure-table]`
+
+### Documentation
+
+- Updated README with persistent storage quickstart and new endpoint list
+- Updated DESIGN.md with `checkpointers/`, `stores/` subpackage architecture and new ADRs
 ## [0.3.0] - 2026-04-05
 
 ### Added
