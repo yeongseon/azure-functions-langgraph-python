@@ -35,6 +35,9 @@ Repository = "https://github.com/yeongseon/azure-functions-langgraph"
 Issues = "https://github.com/yeongseon/azure-functions-langgraph/issues"
 
 [project.optional-dependencies]
+azure-blob = [
+    "azure-storage-blob>=12.0,<13",
+]
 dev = [
     "bandit==1.9.4",
     "build",
