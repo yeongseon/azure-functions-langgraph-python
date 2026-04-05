@@ -127,7 +127,7 @@ addopts = "--cov=src/azure_functions_langgraph --cov-report=xml --cov-report=ter
 testpaths = ["tests"]
 pythonpath = ["src", "."]
 asyncio_mode = "auto"
-markers = ["e2e: real Azure end-to-end tests (require E2E_BASE_URL)"]
+markers = ["e2e: real Azure end-to-end tests (require E2E_BASE_URL)", "integration: persistent storage integration tests"]
 
 [tool.coverage.run]
 branch = true
