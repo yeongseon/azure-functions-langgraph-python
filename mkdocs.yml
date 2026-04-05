@@ -1,6 +1,7 @@
 site_name: Azure Functions LangGraph
 site_description: Deploy LangGraph agents as Azure Functions HTTP endpoints
 site_author: Yeongseon Choe
+site_url: https://yeongseon.github.io/azure-functions-langgraph/
 repo_url: https://github.com/yeongseon/azure-functions-langgraph
 edit_uri: edit/main/docs/
 
@@ -71,4 +72,4 @@ extra:
     © 2026 Yeongseon Choe – MIT Licensed
 
 extra_javascript:
-  - https://unpkg.com/mermaid@11/dist/mermaid.min.js
+  - https://unpkg.com/mermaid@11.14.0/dist/mermaid.min.js
