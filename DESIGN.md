@@ -1,4 +1,4 @@
-# DESIGN — Azure Functions LangGraph
+# DESIGN.md
 
 ## Design Principles
 

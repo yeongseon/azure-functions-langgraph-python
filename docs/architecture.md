@@ -117,6 +117,8 @@ sequenceDiagram
     AzureFunctions-->>SDK: JSON response
 ```
 
+Successful run responses include `Content-Location: /api/threads/{thread_id}/runs/{run_id}`. Threadless runs use `/api/runs/{run_id}`.
+
 ## Module Boundaries (key import edges)
 
 ```mermaid
@@ -256,7 +258,7 @@ Users typically call `.compile()` before registering. Registration enforces only
 
 ### Protocol-based graph acceptance
 
-Rather than importing `CompiledStateGraph` from `langgraph`, the library uses `typing.Protocol`. This means no hard dependency on `langgraph` at import time, any object with `invoke()` and `stream()` works, and testing with mock graphs is straightforward.
+Rather than importing `CompiledStateGraph` from `langgraph`, the library uses `typing.Protocol`. Registration requires only the `InvocableGraph` protocol (`invoke()`). Native stream endpoints additionally require `stream_enabled=True` on the registration and the graph to satisfy `StreamableGraph` (`stream()`). Platform stream routes check only `StreamableGraph` via `isinstance()`. A graph that does not satisfy the required protocol returns **501 Not Implemented**. This protocol approach means no hard dependency on `langgraph` at import time and testing with mock graphs is straightforward.
 
 ### Protocol-based capability detection (v0.4)
 
