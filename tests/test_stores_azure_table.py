@@ -68,10 +68,19 @@ class MockTableClient:
         if query_filter is None:
             return entities
 
-        if query_filter.startswith("status eq '") and query_filter.endswith("'"):
-            status = query_filter[len("status eq '") : -1].replace("''", "'")
-            return [entity for entity in entities if entity.get("status") == status]
-        raise ValueError(f"Unsupported query filter: {query_filter}")
+        # Parse PartitionKey + optional status filter
+        parts = [p.strip() for p in query_filter.split(" and ")]
+        filtered = entities
+        for part in parts:
+            if part.startswith("PartitionKey eq '") and part.endswith("'"):
+                pk = part[len("PartitionKey eq '") : -1].replace("''", "'")
+                filtered = [e for e in filtered if e.get("PartitionKey") == pk]
+            elif part.startswith("status eq '") and part.endswith("'"):
+                status = part[len("status eq '") : -1].replace("''", "'")
+                filtered = [e for e in filtered if e.get("status") == status]
+            else:
+                raise ValueError(f"Unsupported query filter part: {part}")
+        return filtered
 
 
 def _new_store() -> tuple[Any, MockTableClient]:
@@ -221,7 +230,7 @@ def test_search_status_metadata_combined_limit_offset_ordering(monkeypatch: Any)
 
     busy = store.search(status="busy", limit=10)
     assert [thread.thread_id for thread in busy] == [t2.thread_id, t1.thread_id]
-    assert table_client.last_query_filter == "status eq 'busy'"
+    assert table_client.last_query_filter == "PartitionKey eq 'thread' and status eq 'busy'"
 
     prod = store.search(metadata={"env": "prod"}, limit=10)
     assert [thread.thread_id for thread in prod] == [t4.thread_id, t2.thread_id, t1.thread_id]
@@ -317,10 +326,9 @@ def test_from_connection_string_missing_dependency_raises_helpful_error(monkeypa
         )
 
 
-def test_init_without_not_found_error_raises_valueerror() -> None:
-    with pytest.raises(ValueError, match="not_found_error"):
+def test_init_without_not_found_error_raises_typeerror() -> None:
+    with pytest.raises(TypeError):
         AzureTableThreadStore(table_client=MockTableClient())
-
 
 def test_from_connection_string_success_sets_not_found_error(monkeypatch: Any) -> None:
     table_client = MockTableClient()
@@ -348,7 +356,7 @@ def test_from_connection_string_success_sets_not_found_error(monkeypatch: Any) -
     )
 
     assert FakeTableClient.called_with == ("UseDevelopmentStorage=true", "threads")
-    assert AzureTableThreadStore._not_found_error is FakeResourceNotFoundError
+    assert store._not_found_error is FakeResourceNotFoundError
     assert store.get("missing") is None
 
 
@@ -435,3 +443,84 @@ def test_internal_helper_branches(monkeypatch: Any, caplog: Any) -> None:
     no_metadata = store.create()
     assert store.search(metadata={"x": "y"}, limit=10, offset=0) == []
     store.delete(no_metadata.thread_id)
+
+
+def test_search_excludes_non_thread_partition_rows() -> None:
+    """Regression: search/count must only return rows with PartitionKey='thread'."""
+    store, table_client = _new_store()
+
+    # Create a thread via the store (PartitionKey='thread')
+    thread = store.create(metadata={"env": "prod"})
+
+    # Manually inject a foreign-partition entity into the table
+    foreign_entity = {
+        "PartitionKey": "other_partition",
+        "RowKey": "foreign-1",
+        "created_at": thread.created_at,
+        "updated_at": thread.updated_at,
+        "status": "idle",
+        "interrupts_json": "{}",
+    }
+    table_client.entities[("other_partition", "foreign-1")] = deepcopy(foreign_entity)
+
+    # search/count should only see our thread, not the foreign entity
+    results = store.search(limit=100)
+    assert len(results) == 1
+    assert results[0].thread_id == thread.thread_id
+    assert store.count() == 1
+
+
+def test_update_entity_race_raises_keyerror() -> None:
+    """Regression: if entity is deleted between read and update_entity, raise KeyError."""
+    store, table_client = _new_store()
+    thread = store.create()
+
+    # Monkey-patch update_entity to simulate race: entity disappears after get
+    original_update = table_client.update_entity
+
+    def racing_update(entity: dict[str, Any], mode: str) -> None:
+        # Delete the entity before the real update
+        pk = str(entity["PartitionKey"])
+        rk = str(entity["RowKey"])
+        key = (pk, rk)
+        if key in table_client.entities:
+            del table_client.entities[key]
+        original_update(entity, mode)
+
+    table_client.update_entity = racing_update  # type: ignore[method-assign]
+
+    with pytest.raises(KeyError):
+        store.update(thread.thread_id, status="busy")
+
+
+def test_from_connection_string_does_not_leak_class_state(monkeypatch: Any) -> None:
+    """Regression: from_connection_string() must not change class-level _not_found_error."""
+    table_client = MockTableClient()
+
+    class FakeTableClient:
+        @classmethod
+        def from_connection_string(cls, conn_str: str, table_name: str) -> MockTableClient:
+            del conn_str, table_name
+            return table_client
+
+    azure_data_tables = types.ModuleType("azure.data.tables")
+    setattr(azure_data_tables, "TableClient", FakeTableClient)
+
+    azure_core_exceptions = types.ModuleType("azure.core.exceptions")
+    setattr(azure_core_exceptions, "ResourceNotFoundError", FakeResourceNotFoundError)
+
+    monkeypatch.setitem(sys.modules, "azure.data.tables", azure_data_tables)
+    monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions)
+
+    # Create store via from_connection_string
+    store = AzureTableThreadStore.from_connection_string(
+        connection_string="UseDevelopmentStorage=true",
+        table_name="threads",
+    )
+
+    # Instance should work
+    assert store.get("missing") is None
+
+    # Constructing a new instance without not_found_error should still fail
+    with pytest.raises(TypeError):
+        AzureTableThreadStore(table_client=MockTableClient())

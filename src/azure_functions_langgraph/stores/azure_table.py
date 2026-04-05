@@ -34,23 +34,21 @@ class _TableClientProtocol(Protocol):
 
 
 class AzureTableThreadStore(ThreadStore):
-    _not_found_error: type[BaseException] | None = None
 
     def __init__(
         self,
         *,
         table_client: _TableClientProtocol,
-        not_found_error: type[BaseException] | None = None,
+        not_found_error: type[BaseException],
     ) -> None:
-        resolved_not_found_error = not_found_error or self.__class__._not_found_error
-        if resolved_not_found_error is None:
+        if not_found_error is None:
             raise ValueError(
                 "not_found_error must be provided for protocol-based construction, "
                 "or create the store with from_connection_string()"
             )
 
         self._table_client = table_client
-        self._not_found_error = resolved_not_found_error
+        self._not_found_error: type[BaseException] = not_found_error
 
     @classmethod
     def from_connection_string(
@@ -82,7 +80,6 @@ class AzureTableThreadStore(ThreadStore):
             )
 
         resolved_not_found_error = cast(type[BaseException], resource_not_found_error)
-        cls._not_found_error = resolved_not_found_error
 
         table_client = table_client_class.from_connection_string(
             conn_str=connection_string,
@@ -196,10 +193,11 @@ class AzureTableThreadStore(ThreadStore):
         )
 
     def _query_entities(self, *, status: ThreadStatus | None) -> list[Thread]:
-        query_filter: str | None = None
+        pk = self._partition_key().replace("'", "''")
+        query_filter = f"PartitionKey eq '{pk}'"
         if status is not None:
             escaped_status = status.replace("'", "''")
-            query_filter = f"status eq '{escaped_status}'"
+            query_filter += f" and status eq '{escaped_status}'"
 
         entities = self._table_client.query_entities(query_filter=query_filter)
         return [self._entity_to_thread(entity) for entity in entities]
@@ -251,33 +249,35 @@ class AzureTableThreadStore(ThreadStore):
         assistant_id: str | None = None,
     ) -> Thread:
         not_found_error = self._not_found_exception()
+        patch: dict[str, Any] = {
+            "PartitionKey": self._partition_key(),
+            "RowKey": thread_id,
+            "updated_at": self._now(),
+        }
+
+        if metadata is not None:
+            patch["metadata_json"] = json.dumps(dict(metadata), default=self._json_default)
+        if status is not None:
+            patch["status"] = status
+        if values is not None:
+            patch["values_json"] = json.dumps(values, default=self._json_default)
+        if interrupts is not None:
+            patch["interrupts_json"] = json.dumps(interrupts, default=self._json_default)
+        if assistant_id is not None:
+            patch["assistant_id"] = assistant_id
+
+        self._warn_entity_size(patch, thread_id)
         try:
-            existing = self._table_client.get_entity(
-                partition_key=self._partition_key(),
-                row_key=thread_id,
-            )
+            self._table_client.update_entity(patch, mode="merge")
         except not_found_error as exc:
             raise KeyError(thread_id) from exc
 
-        updated = dict(existing)
-        updated["PartitionKey"] = self._partition_key()
-        updated["RowKey"] = thread_id
-        updated["updated_at"] = self._now()
-
-        if metadata is not None:
-            updated["metadata_json"] = json.dumps(dict(metadata), default=self._json_default)
-        if status is not None:
-            updated["status"] = status
-        if values is not None:
-            updated["values_json"] = json.dumps(values, default=self._json_default)
-        if interrupts is not None:
-            updated["interrupts_json"] = json.dumps(interrupts, default=self._json_default)
-        if assistant_id is not None:
-            updated["assistant_id"] = assistant_id
-
-        self._warn_entity_size(updated, thread_id)
-        self._table_client.update_entity(updated, mode="merge")
-        return self._entity_to_thread(updated)
+        # Re-read the merged entity to return accurate state
+        merged = self._table_client.get_entity(
+            partition_key=self._partition_key(),
+            row_key=thread_id,
+        )
+        return self._entity_to_thread(merged)
 
     def delete(self, thread_id: str) -> None:
         not_found_error = self._not_found_exception()
