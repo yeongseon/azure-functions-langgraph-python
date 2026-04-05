@@ -113,7 +113,7 @@ sequenceDiagram
     Routes->>Graph: graph.invoke(input, config)
     Graph-->>Routes: result dict
     Routes->>Store: update thread status → idle (or error on failure)
-    Routes-->>AzureFunctions: HttpResponse (200, JSON Run)
+    Routes-->>AzureFunctions: HttpResponse (200, final values JSON + Content-Location header)
     AzureFunctions-->>SDK: JSON response
 ```
 
@@ -173,7 +173,7 @@ The core module. Contains:
 - `_GraphRegistration` — internal record for a registered graph.
 - Route wiring — delegates to `_handlers.py` for native routes and `platform/routes.py` for SDK-compatible routes.
 - `_build_openapi()` — generates OpenAPI 3.0 spec from registered graphs.
-- `_error_response()` — consistent error response builder.
+- `health()` — health check handler returning registered graph list.
 
 ### `_handlers.py`
 
@@ -182,6 +182,7 @@ Standalone request handlers extracted from `LangGraphApp`:
 - `handle_invoke()` — parses request, validates, calls `graph.invoke()`, returns JSON.
 - `handle_stream()` — parses request, validates, calls `graph.stream()`, collects chunks into buffered SSE.
 - `handle_state()` — retrieves thread state via `graph.get_state()` for `StatefulGraph` instances.
+- `_error_response()` — consistent error response builder for native routes.
 
 ### `_validation.py`
 
@@ -279,7 +280,7 @@ When `platform_compat=True`, the library registers routes that mirror the LangGr
 
 ### Threadless runs (v0.4)
 
-`POST /runs/wait` and `POST /runs/stream` clone the graph with `checkpointer=None` for truly ephemeral executions. Client-supplied `thread_id` is stripped to prevent state pollution.
+`POST /runs/wait` and `POST /runs/stream` clone the graph with `checkpointer=None` for truly ephemeral executions. Client-supplied `thread_id` in config is rejected with 422 to prevent semantic confusion.
 
 ### Per-graph auth override (v0.2)
 

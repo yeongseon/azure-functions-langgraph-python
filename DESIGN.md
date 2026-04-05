@@ -44,11 +44,8 @@ flowchart TB
 
 ## Key Decisions
 
-### 1. Accept `CompiledStateGraph` only (not `StateGraph`)
-Users must call `.compile()` themselves. This ensures:
-- Checkpointer is configured before registration
-- Graph validation happens at user code level
-- We don't need to know about graph compilation options
+### 1. Compiled graphs as intended input
+Registration enforces only the `InvocableGraph` protocol (requiring `invoke()`), so any object satisfying the protocol works. In practice, users call `.compile()` before registering because compiled graphs carry configured checkpointers and validated graph structure. The library does not import or check for `CompiledStateGraph` directly.
 
 ### 2. SSE streaming as buffered response (v0.1)
 Azure Functions doesn't natively support true SSE streaming (no chunked transfer encoding in the Python worker). In v0.1, we buffer all stream events and return them as a single SSE-formatted response. This is functional but not truly streaming.
@@ -91,7 +88,7 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 
 **Context**: The LangGraph SDK supports `runs.wait(None, ...)` and `runs.stream(None, ...)` for fire-and-forget executions that don't need a persistent thread.
 
-**Decision**: Add `POST /runs/wait` and `POST /runs/stream` endpoints. These clone the registered graph with `checkpointer=None`, producing a stateless execution. Client-supplied `thread_id` in config is stripped to prevent accidental state pollution.
+**Decision**: Add `POST /runs/wait` and `POST /runs/stream` endpoints. These clone the registered graph with `checkpointer=None`, producing a stateless execution. Client-supplied `thread_id` in config is rejected with 422 to prevent semantic confusion.
 
 **Consequences**: SDK clients can run graphs without pre-creating threads. No checkpoint is saved, so the execution is truly ephemeral. The thread store is not modified by threadless runs.
 
@@ -111,7 +108,7 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 src/azure_functions_langgraph/
 ├── __init__.py              # Package init, lazy imports, __version__
 ├── app.py                   # LangGraphApp class, route registration
-├── _handlers.py             # Native route handlers (invoke, stream, state, health)
+├── _handlers.py             # Native route handlers (invoke, stream, state)
 ├── _validation.py           # Transport-agnostic request validators
 ├── contracts.py             # Pydantic request/response models
 ├── protocols.py             # Protocol interfaces (LangGraphLike, StatefulGraph, etc.)
