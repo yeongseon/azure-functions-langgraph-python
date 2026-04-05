@@ -89,6 +89,18 @@ _ROUTE_TABLE: list[tuple[str, re.Pattern[str], str, list[str]]] = [
         [],
     ),
     (
+        "POST",
+        re.compile(r"^/threads/search$"),
+        "aflg_platform_threads_search",
+        [],
+    ),
+    (
+        "POST",
+        re.compile(r"^/threads/count$"),
+        "aflg_platform_threads_count",
+        [],
+    ),
+    (
         "GET",
         re.compile(r"^/threads/(?P<thread_id>[^/]+)$"),
         "aflg_platform_threads_get",
@@ -383,6 +395,59 @@ class TestSdkThreads:
         updated = client.threads.update(thread["thread_id"], metadata={"a": {"y": 2}})
         # Entire 'a' replaced, not deep-merged
         assert updated["metadata"] == {"a": {"y": 2}}
+
+    def test_search(self) -> None:
+        """threads.search() returns matching threads."""
+        _, client = _make_app()
+        client.threads.create(metadata={"env": "prod"})
+        client.threads.create(metadata={"env": "dev"})
+        results = client.threads.search()
+        assert isinstance(results, list)
+        assert len(results) == 2
+
+    def test_search_with_metadata(self) -> None:
+        _, client = _make_app()
+        client.threads.create(metadata={"env": "prod"})
+        client.threads.create(metadata={"env": "dev"})
+        results = client.threads.search(metadata={"env": "prod"})
+        assert len(results) == 1
+        assert results[0]["metadata"] is not None
+        assert results[0]["metadata"]["env"] == "prod"
+
+    def test_search_with_status(self) -> None:
+        _, client = _make_app()
+        client.threads.create()
+        client.threads.create()
+        results = client.threads.search(status="idle")
+        assert len(results) == 2
+
+    def test_search_with_limit(self) -> None:
+        _, client = _make_app()
+        for _ in range(5):
+            client.threads.create()
+        results = client.threads.search(limit=2)
+        assert len(results) == 2
+
+    def test_count(self) -> None:
+        """threads.count() returns total count."""
+        _, client = _make_app()
+        client.threads.create()
+        client.threads.create()
+        result = client.threads.count()
+        assert result == 2
+
+    def test_count_with_status(self) -> None:
+        _, client = _make_app()
+        client.threads.create()
+        client.threads.create()
+        result = client.threads.count(status="idle")
+        assert result == 2
+
+    def test_count_with_metadata(self) -> None:
+        _, client = _make_app()
+        client.threads.create(metadata={"env": "prod"})
+        client.threads.create(metadata={"env": "dev"})
+        assert client.threads.count(metadata={"env": "prod"}) == 1
 # ---------------------------------------------------------------------------
 # Tests — Runs
 # ---------------------------------------------------------------------------

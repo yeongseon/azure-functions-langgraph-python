@@ -509,3 +509,67 @@ class TestOracleGapTests:
         store = InMemoryThreadStore()
         thread = store.create(metadata={})
         assert thread.metadata == {}  # not None
+
+
+# ---------------------------------------------------------------------------
+# Count
+# ---------------------------------------------------------------------------
+
+
+class TestCount:
+    def test_count_all(self) -> None:
+        store = InMemoryThreadStore()
+        for _ in range(5):
+            store.create()
+        assert store.count() == 5
+
+    def test_count_empty_store(self) -> None:
+        store = InMemoryThreadStore()
+        assert store.count() == 0
+
+    def test_count_by_status(self) -> None:
+        store = InMemoryThreadStore()
+        t1 = store.create()
+        t2 = store.create()
+        store.create()
+        store.update(t1.thread_id, status="busy")
+        store.update(t2.thread_id, status="busy")
+        assert store.count(status="busy") == 2
+        assert store.count(status="idle") == 1
+
+    def test_count_by_metadata(self) -> None:
+        store = InMemoryThreadStore()
+        store.create(metadata={"env": "prod"})
+        store.create(metadata={"env": "prod"})
+        store.create(metadata={"env": "dev"})
+        assert store.count(metadata={"env": "prod"}) == 2
+        assert store.count(metadata={"env": "dev"}) == 1
+
+    def test_count_combined_filters(self) -> None:
+        store = InMemoryThreadStore()
+        t1 = store.create(metadata={"env": "prod"})
+        store.update(t1.thread_id, status="busy")
+        store.create(metadata={"env": "prod"})
+        store.create(metadata={"env": "dev"})
+        assert store.count(metadata={"env": "prod"}, status="busy") == 1
+        assert store.count(metadata={"env": "prod"}, status="idle") == 1
+
+    def test_count_no_match(self) -> None:
+        store = InMemoryThreadStore()
+        store.create(metadata={"env": "prod"})
+        assert store.count(metadata={"env": "staging"}) == 0
+
+    def test_count_metadata_none_threads(self) -> None:
+        store = InMemoryThreadStore()
+        store.create()  # metadata=None
+        store.create(metadata={"k": "v"})
+        assert store.count(metadata={"k": "v"}) == 1
+
+    def test_count_consistent_with_search(self) -> None:
+        store = InMemoryThreadStore()
+        store.create(metadata={"env": "prod"})
+        store.create(metadata={"env": "prod"})
+        store.create(metadata={"env": "dev"})
+        count = store.count(metadata={"env": "prod"})
+        search_results = store.search(metadata={"env": "prod"}, limit=100)
+        assert count == len(search_results)

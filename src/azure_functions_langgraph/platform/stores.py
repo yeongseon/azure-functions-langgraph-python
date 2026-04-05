@@ -91,6 +91,18 @@ class ThreadStore(Protocol):
         """
         ...
 
+    def count(
+        self,
+        *,
+        metadata: Mapping[str, Any] | None = None,
+        status: ThreadStatus | None = None,
+    ) -> int:
+        """Count threads matching filters.
+
+        Uses the same filter semantics as ``search``.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # In-memory implementation
@@ -199,6 +211,30 @@ class InMemoryThreadStore:
                 raise KeyError(thread_id)
             del self._threads[thread_id]
 
+    def _filtered_threads(
+        self,
+        *,
+        metadata: Mapping[str, Any] | None = None,
+        status: ThreadStatus | None = None,
+    ) -> list[Thread]:
+        """Return threads matching filters (unsorted, caller holds lock)."""
+        results: list[Thread] = []
+        for thread in self._threads.values():
+            # Status filter
+            if status is not None and thread.status != status:
+                continue
+            # Metadata subset match
+            if metadata is not None:
+                if thread.metadata is None:
+                    continue
+                if not all(
+                    k in thread.metadata and thread.metadata[k] == v
+                    for k, v in metadata.items()
+                ):
+                    continue
+            results.append(thread)
+        return results
+
     def search(
         self,
         *,
@@ -213,21 +249,7 @@ class InMemoryThreadStore:
         if offset < 0:
             raise ValueError(f"offset must be non-negative, got {offset}")
         with self._lock:
-            results: list[Thread] = []
-            for thread in self._threads.values():
-                # Status filter
-                if status is not None and thread.status != status:
-                    continue
-                # Metadata subset match
-                if metadata is not None:
-                    if thread.metadata is None:
-                        continue
-                    if not all(
-                        k in thread.metadata and thread.metadata[k] == v
-                        for k, v in metadata.items()
-                    ):
-                        continue
-                results.append(thread)
+            results = self._filtered_threads(metadata=metadata, status=status)
 
             # Sort by created_at descending (newest first)
             results.sort(key=lambda t: t.created_at, reverse=True)
@@ -235,6 +257,19 @@ class InMemoryThreadStore:
             # Apply offset/limit
             page = results[offset : offset + limit]
             return [self._deep_copy(t) for t in page]
+
+    def count(
+        self,
+        *,
+        metadata: Mapping[str, Any] | None = None,
+        status: ThreadStatus | None = None,
+    ) -> int:
+        """Count threads matching filters.
+
+        Uses the same filter semantics as ``search``.
+        """
+        with self._lock:
+            return len(self._filtered_threads(metadata=metadata, status=status))
 
 
 # ---------------------------------------------------------------------------

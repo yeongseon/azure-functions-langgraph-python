@@ -128,13 +128,15 @@ class TestPlatformCompatFlag:
         fa.functions_bindings = {}
         fn_names = [f.get_function_name() for f in fa.get_functions()]
 
-        # All 9 platform route names must be present
+        # All 12 platform route names must be present
         expected = {
             "aflg_platform_assistants_search",
             "aflg_platform_assistants_count",
             "aflg_platform_assistants_get",
             "aflg_platform_threads_create",
             "aflg_platform_threads_get",
+            "aflg_platform_threads_search",
+            "aflg_platform_threads_count",
             "aflg_platform_threads_update",
             "aflg_platform_threads_delete",
             "aflg_platform_threads_state_get",
@@ -795,6 +797,270 @@ class TestThreadsDelete:
         assert resp.status_code == 404
 
 
+class TestThreadsSearch:
+    def test_search_all(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        store.create(metadata={"env": "prod"})
+        store.create(metadata={"env": "dev"})
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = _post_request("/api/threads/search")
+        resp = fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert len(data) == 2
+
+    def test_search_by_status(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        t1 = store.create()
+        store.create()
+        store.update(t1.thread_id, status="busy")
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = _post_request("/api/threads/search", {"status": "busy"})
+        resp = fn(req)
+        data = json.loads(resp.get_body())
+        assert len(data) == 1
+        assert data[0]["status"] == "busy"
+
+    def test_search_by_metadata(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        store.create(metadata={"env": "prod"})
+        store.create(metadata={"env": "dev"})
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = _post_request("/api/threads/search", {"metadata": {"env": "prod"}})
+        resp = fn(req)
+        data = json.loads(resp.get_body())
+        assert len(data) == 1
+        assert data[0]["metadata"]["env"] == "prod"
+
+    def test_search_with_limit_offset(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        for _ in range(5):
+            store.create()
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = _post_request("/api/threads/search", {"limit": 2, "offset": 1})
+        resp = fn(req)
+        data = json.loads(resp.get_body())
+        assert len(data) == 2
+
+    def test_search_empty_body(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        store.create()
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = func.HttpRequest(method="POST", url="/api/threads/search", body=b"", headers={})
+        resp = fn(req)
+        assert resp.status_code == 200
+
+    def test_search_invalid_json(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/threads/search",
+            body=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+
+    def test_search_unsupported_field_501(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = _post_request("/api/threads/search", {"values": [1, 2]})
+        resp = fn(req)
+        assert resp.status_code == 501
+        data = json.loads(resp.get_body())
+        assert "Unsupported" in data["detail"]
+
+    def test_search_unsupported_sort_by_501(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = _post_request("/api/threads/search", {"sort_by": "created_at"})
+        resp = fn(req)
+        assert resp.status_code == 501
+
+    @pytest.mark.parametrize("body_bytes,desc", [
+        (b"null", "null"),
+        (b"[1,2]", "array"),
+        (b'"abc"', "string"),
+        (b"123", "integer"),
+    ])
+    def test_search_non_object_json_400(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        body_bytes: bytes, desc: str,
+    ) -> None:
+        """Valid JSON that is not an object must return 400."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/threads/search",
+            body=body_bytes,
+            headers={"Content-Type": "application/json"},
+        )
+        resp = fn(req)
+        assert resp.status_code == 400, f"Expected 400 for {desc}"
+        assert "JSON object" in json.loads(resp.get_body())["detail"]
+
+    def test_search_invalid_status_422(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = _post_request("/api/threads/search", {"status": "nonexistent"})
+        resp = fn(req)
+        assert resp.status_code == 422
+
+    def test_search_offset_past_end(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """Offset past all results returns empty list, not error."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        store.create()
+        fn = _get_fn(fa, "aflg_platform_threads_search")
+        req = _post_request("/api/threads/search", {"offset": 100})
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body()) == []
+
+class TestThreadsCount:
+    def test_count_all(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        store.create()
+        store.create()
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = _post_request("/api/threads/count")
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body()) == 2
+
+    def test_count_by_status(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        t1 = store.create()
+        store.create()
+        store.update(t1.thread_id, status="busy")
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = _post_request("/api/threads/count", {"status": "busy"})
+        resp = fn(req)
+        assert json.loads(resp.get_body()) == 1
+
+    def test_count_by_metadata(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        store.create(metadata={"env": "prod"})
+        store.create(metadata={"env": "dev"})
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = _post_request("/api/threads/count", {"metadata": {"env": "prod"}})
+        resp = fn(req)
+        assert json.loads(resp.get_body()) == 1
+
+    def test_count_empty_store(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = _post_request("/api/threads/count")
+        resp = fn(req)
+        assert json.loads(resp.get_body()) == 0
+
+    def test_count_empty_body(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        store.create()
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = func.HttpRequest(method="POST", url="/api/threads/count", body=b"", headers={})
+        resp = fn(req)
+        assert resp.status_code == 200
+
+    def test_count_invalid_json(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/threads/count",
+            body=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+
+    def test_count_unsupported_field_501(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = _post_request("/api/threads/count", {"values": [1]})
+        resp = fn(req)
+        assert resp.status_code == 501
+
+    def test_count_returns_raw_int(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        """Count endpoint returns raw integer, not {"count": N}."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        store.create()
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = _post_request("/api/threads/count")
+        resp = fn(req)
+        body = resp.get_body()
+        assert json.loads(body) == 1
+        assert body == b"1"  # Raw integer, not wrapped
+
+    @pytest.mark.parametrize("body_bytes,desc", [
+        (b"null", "null"),
+        (b"[1,2]", "array"),
+        (b'"abc"', "string"),
+        (b"123", "integer"),
+    ])
+    def test_count_non_object_json_400(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        body_bytes: bytes, desc: str,
+    ) -> None:
+        """Valid JSON that is not an object must return 400."""
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/threads/count",
+            body=body_bytes,
+            headers={"Content-Type": "application/json"},
+        )
+        resp = fn(req)
+        assert resp.status_code == 400, f"Expected 400 for {desc}"
+        assert "JSON object" in json.loads(resp.get_body())["detail"]
+
+    def test_count_invalid_status_422(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_threads_count")
+        req = _post_request("/api/threads/count", {"status": "nonexistent"})
+        resp = fn(req)
+        assert resp.status_code == 422
 # ---------------------------------------------------------------------------
 # Thread state endpoint
 # ---------------------------------------------------------------------------

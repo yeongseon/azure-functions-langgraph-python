@@ -14,10 +14,11 @@ Routes registered (under ``/api/`` prefix, managed by Azure Functions):
 * ``GET  /api/threads/{thread_id}``
 * ``PATCH /api/threads/{thread_id}``
 * ``DELETE /api/threads/{thread_id}``
+* ``POST /api/threads/search``
+* ``POST /api/threads/count``
 * ``GET  /api/threads/{thread_id}/state``
 * ``POST /api/threads/{thread_id}/runs/wait``
 * ``POST /api/threads/{thread_id}/runs/stream``
-
 .. versionadded:: 0.3.0
 """
 
@@ -48,7 +49,9 @@ from azure_functions_langgraph.platform.contracts import (
     AssistantCount,
     AssistantSearch,
     RunCreate,
+    ThreadCount,
     ThreadCreate,
+    ThreadSearch,
     ThreadState,
     ThreadUpdate,
 )
@@ -87,6 +90,10 @@ _UNSUPPORTED_FIELDS: dict[str, str] = {
     "checkpoint_id": "Checkpoint resumption is not supported in this release.",
     "command": "Command-based resumption is not supported in this release.",
     "feedback_keys": "Feedback keys are not supported in this release.",
+}
+
+_UNSUPPORTED_THREAD_FILTER_FIELDS: set[str] = {
+    "values", "ids", "sort_by", "sort_order", "select", "extract",
 }
 
 
@@ -410,6 +417,96 @@ def register_platform_routes(
             status_code=204,
         )
 
+    # ── POST /threads/search ─────────────────────────────────────
+
+    @app.function_name(name="aflg_platform_threads_search")
+    @app.route(route="threads/search", methods=["POST"], auth_level=auth)
+    def threads_search(req: func.HttpRequest) -> func.HttpResponse:
+        # Body size check
+        raw = req.get_body()
+        size_err = validate_body_size(raw, deps.max_request_body_bytes)
+        if size_err:
+            return _platform_error(400, size_err)
+        if raw and raw.strip() != b"":
+            try:
+                body = req.get_json()
+            except ValueError:
+                return _platform_error(400, "Invalid JSON body")
+        else:
+            body = {}
+
+        # Reject non-object JSON (e.g. [], "abc", 123, null)
+        if not isinstance(body, dict):
+            return _platform_error(400, "Request body must be a JSON object")
+
+        # Reject unsupported fields BEFORE model validation strips them
+        unsupported = set(body.keys()) & _UNSUPPORTED_THREAD_FILTER_FIELDS
+        if unsupported:
+            return _platform_error(
+                501,
+                f"Unsupported filter(s): {', '.join(sorted(unsupported))}",
+            )
+
+        try:
+            search_req = ThreadSearch.model_validate(body)
+        except Exception as exc:
+            return _platform_error(422, f"Validation error: {exc}")
+
+        results = deps.thread_store.search(
+            metadata=search_req.metadata,
+            status=search_req.status,
+            limit=search_req.limit,
+            offset=search_req.offset,
+        )
+        return func.HttpResponse(
+            body=json.dumps([t.model_dump(mode="json") for t in results], default=str),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    # ── POST /threads/count ──────────────────────────────────────
+
+    @app.function_name(name="aflg_platform_threads_count")
+    @app.route(route="threads/count", methods=["POST"], auth_level=auth)
+    def threads_count(req: func.HttpRequest) -> func.HttpResponse:
+        raw = req.get_body()
+        size_err = validate_body_size(raw, deps.max_request_body_bytes)
+        if size_err:
+            return _platform_error(400, size_err)
+        if raw and raw.strip() != b"":
+            try:
+                body = req.get_json()
+            except ValueError:
+                return _platform_error(400, "Invalid JSON body")
+        else:
+            body = {}
+
+        # Reject non-object JSON (e.g. [], "abc", 123, null)
+        if not isinstance(body, dict):
+            return _platform_error(400, "Request body must be a JSON object")
+
+        # Reject unsupported fields
+        unsupported = set(body.keys()) & _UNSUPPORTED_THREAD_FILTER_FIELDS
+        if unsupported:
+            return _platform_error(
+                501,
+                f"Unsupported filter(s): {', '.join(sorted(unsupported))}",
+            )
+
+        try:
+            count_req = ThreadCount.model_validate(body)
+        except Exception as exc:
+            return _platform_error(422, f"Validation error: {exc}")
+
+        total = deps.thread_store.count(
+            metadata=count_req.metadata,
+            status=count_req.status,
+        )
+        return func.HttpResponse(
+            body=json.dumps(total),
+            mimetype="application/json",
+            status_code=200,
+        )
     # ── GET /threads/{thread_id}/state ───────────────────────────────
 
     @app.function_name(name="aflg_platform_threads_state_get")

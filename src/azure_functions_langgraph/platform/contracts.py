@@ -223,6 +223,32 @@ class ThreadUpdate(BaseModel):
 
     metadata: Optional[dict[str, Any]] = None
 
+
+class ThreadSearch(BaseModel):
+    """Request body to search Threads.
+
+    Covers ``POST /threads/search``.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    metadata: Optional[dict[str, Any]] = None
+    status: Optional[ThreadStatus] = None
+    limit: int = Field(default=10, ge=1)
+    offset: int = Field(default=0, ge=0)
+
+
+class ThreadCount(BaseModel):
+    """Request body to count Threads.
+
+    Covers ``POST /threads/count``.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    metadata: Optional[dict[str, Any]] = None
+    status: Optional[ThreadStatus] = None
+
 # ---------------------------------------------------------------------------
 # Public surface
 # ---------------------------------------------------------------------------
@@ -247,4 +273,6 @@ __all__ = [
     "AssistantSearch",
     "AssistantCount",
     "ThreadUpdate",
+    "ThreadSearch",
+    "ThreadCount",
 ]

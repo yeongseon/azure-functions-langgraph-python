@@ -22,7 +22,9 @@ from azure_functions_langgraph.platform.contracts import (
     RunCreate,
     RunStatus,
     Thread,
+    ThreadCount,
     ThreadCreate,
+    ThreadSearch,
     ThreadState,
     ThreadStatus,
     ThreadTask,
@@ -593,6 +595,62 @@ class TestThreadUpdate:
         """Empty dict means 'no new keys', not 'clear metadata'."""
         tu = ThreadUpdate(metadata={})
         assert tu.metadata == {}
+
+
+class TestThreadSearch:
+    def test_defaults(self) -> None:
+        s = ThreadSearch()
+        assert s.metadata is None
+        assert s.status is None
+        assert s.limit == 10
+        assert s.offset == 0
+
+    def test_with_filters(self) -> None:
+        s = ThreadSearch(metadata={"env": "prod"}, status="idle", limit=5, offset=20)
+        assert s.metadata == {"env": "prod"}
+        assert s.status == "idle"
+        assert s.limit == 5
+        assert s.offset == 20
+
+    def test_limit_must_be_positive(self) -> None:
+        with pytest.raises(ValidationError):
+            ThreadSearch(limit=0)
+
+    def test_offset_must_be_non_negative(self) -> None:
+        with pytest.raises(ValidationError):
+            ThreadSearch(offset=-1)
+
+    def test_extra_fields_ignored(self) -> None:
+        s = ThreadSearch.model_validate({"status": "idle", "values": [1], "sort_by": "created_at"})
+        assert s.status == "idle"
+        assert not hasattr(s, "values")
+        assert not hasattr(s, "sort_by")
+
+    def test_invalid_status_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ThreadSearch(status="unknown")  # type: ignore[arg-type]
+
+
+class TestThreadCount:
+    def test_defaults(self) -> None:
+        c = ThreadCount()
+        assert c.metadata is None
+        assert c.status is None
+
+    def test_with_filters(self) -> None:
+        c = ThreadCount(metadata={"env": "prod"}, status="busy")
+        assert c.metadata == {"env": "prod"}
+        assert c.status == "busy"
+
+    def test_extra_fields_ignored(self) -> None:
+        c = ThreadCount.model_validate({"status": "idle", "values": [1]})
+        assert c.status == "idle"
+        assert not hasattr(c, "values")
+
+    def test_invalid_status_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ThreadCount(status="unknown")  # type: ignore[arg-type]
+
 # ---------------------------------------------------------------------------
 # Type alias sanity checks
 # ---------------------------------------------------------------------------
