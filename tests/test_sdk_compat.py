@@ -126,6 +126,18 @@ _ROUTE_TABLE: list[tuple[str, re.Pattern[str], str, list[str]]] = [
     ),
     (
         "POST",
+        re.compile(r"^/runs/wait$"),
+        "aflg_platform_runs_wait_threadless",
+        [],
+    ),
+    (
+        "POST",
+        re.compile(r"^/runs/stream$"),
+        "aflg_platform_runs_stream_threadless",
+        [],
+    ),
+    (
+        "POST",
         re.compile(r"^/threads/(?P<thread_id>[^/]+)/runs/wait$"),
         "aflg_platform_runs_wait",
         ["thread_id"],
@@ -567,6 +579,88 @@ class TestSdkRuns:
         assert final["turn_count"] == 2
         assert final["history"] == ["Hello, Turn1!", "Hello, Turn2!"]
 
+
+
+
+class TestSdkThreadlessRuns:
+    """Verify SDK RunsClient threadless calls (thread_id=None)."""
+
+    def test_wait_threadless(self) -> None:
+        """runs.wait(None, ...) executes graph without a thread."""
+        _, client = _make_app()
+        result = client.runs.wait(
+            None,
+            "agent",
+            input={"user_text": "Threadless", "history": [], "turn_count": 0},
+        )
+        assert isinstance(result, dict)
+        assert result["last_reply"] == "Hello, Threadless!"
+        assert result["turn_count"] == 1
+
+    def test_stream_threadless(self) -> None:
+        """runs.stream(None, ...) streams SSE without a thread."""
+        _, client = _make_app()
+        events = list(
+            client.runs.stream(
+                None,
+                "agent",
+                input={"user_text": "Stream", "history": [], "turn_count": 0},
+                stream_mode="values",
+            )
+        )
+
+        assert events[0].event == "metadata"
+        assert events[-1].event == "end"
+
+        # Metadata has run_id
+        assert events[0].data is not None
+        assert "run_id" in events[0].data
+
+        # Verify values events
+        values_events = [e for e in events if e.event == "values"]
+        assert len(values_events) >= 1
+        final = values_events[-1].data
+        assert final["turn_count"] == 1
+        assert final["history"] == ["Hello, Stream!"]
+
+    def test_two_threadless_waits_no_state_accumulation(self) -> None:
+        """Two consecutive threadless runs don't accumulate state."""
+        _, client = _make_app()
+
+        # Run 1
+        out1 = client.runs.wait(
+            None,
+            "agent",
+            input={"user_text": "Alice", "history": [], "turn_count": 0},
+        )
+        assert isinstance(out1, dict)
+        assert out1["turn_count"] == 1
+        assert out1["history"] == ["Hello, Alice!"]
+
+        # Run 2 — must NOT accumulate from run 1
+        out2 = client.runs.wait(
+            None,
+            "agent",
+            input={"user_text": "Bob", "history": [], "turn_count": 0},
+        )
+        assert isinstance(out2, dict)
+        assert out2["turn_count"] == 1  # NOT 2
+        assert out2["history"] == ["Hello, Bob!"]  # NOT ["Hello, Alice!", "Hello, Bob!"]
+
+    def test_thread_store_unchanged_after_threadless(self) -> None:
+        """Threadless runs must not create or modify threads."""
+        store = InMemoryThreadStore()
+        app_inst, client = _make_app(store=store)
+
+        # Run threadless
+        client.runs.wait(
+            None,
+            "agent",
+            input={"user_text": "X", "history": [], "turn_count": 0},
+        )
+
+        # Store must be empty
+        assert store.count() == 0
 
 # ---------------------------------------------------------------------------
 # Tests — Unsupported features (501)

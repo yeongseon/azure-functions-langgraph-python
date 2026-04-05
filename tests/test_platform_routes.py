@@ -128,7 +128,7 @@ class TestPlatformCompatFlag:
         fa.functions_bindings = {}
         fn_names = [f.get_function_name() for f in fa.get_functions()]
 
-        # All 12 platform route names must be present
+        # All 14 platform route names must be present
         expected = {
             "aflg_platform_assistants_search",
             "aflg_platform_assistants_count",
@@ -142,6 +142,8 @@ class TestPlatformCompatFlag:
             "aflg_platform_threads_state_get",
             "aflg_platform_runs_wait",
             "aflg_platform_runs_stream",
+            "aflg_platform_runs_wait_threadless",
+            "aflg_platform_runs_stream_threadless",
         }
         assert expected.issubset(set(fn_names))
 
@@ -1875,6 +1877,540 @@ class TestStableAssistantTimestamps:
 
         assert data1["created_at"] == data2["created_at"]
         assert data1["updated_at"] == data2["updated_at"]
+
+
+# ---------------------------------------------------------------------------
+# Threadless runs (issue #53)
+# ---------------------------------------------------------------------------
+
+
+class _FakeCopyableCheckpointerGraph:
+    """Graph with checkpointer + copy() — simulates disabling checkpointer."""
+
+    def __init__(self) -> None:
+        self.checkpointer = "memory"
+        self._invoke_result: dict[str, Any] = {
+            "messages": [{"role": "assistant", "content": "threadless!"}]
+        }
+        self._stream_results: list[dict[str, Any]] = [
+            {"messages": [{"role": "assistant", "content": "chunk1"}]},
+            {"messages": [{"role": "assistant", "content": "chunk2"}]},
+        ]
+
+    def copy(self, *, update: dict[str, Any] | None = None) -> "_FakeCopyableCheckpointerGraph":
+        clone = _FakeCopyableCheckpointerGraph()
+        if update and "checkpointer" in update:
+            clone.checkpointer = update["checkpointer"]
+        return clone
+
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._invoke_result
+
+    def stream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+    ) -> Iterator[dict[str, Any]]:
+        yield from self._stream_results
+
+
+class _FakeNonCopyableCheckpointerGraph:
+    """Graph with checkpointer but NO copy() — threadless should return 501."""
+
+    checkpointer = "memory"
+
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {"result": "ok"}
+
+    def stream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+    ) -> Iterator[dict[str, Any]]:
+        yield {"data": "chunk"}
+
+
+class _FakeCopyRaisingCheckpointerGraph:
+    """Graph with checkpointer + copy() that raises — threadless should return 501."""
+
+    checkpointer = "memory"
+
+    def copy(self, *, update: dict[str, Any] | None = None) -> "_FakeCopyRaisingCheckpointerGraph":
+        raise RuntimeError("copy failed")
+
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {"result": "ok"}
+
+    def stream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+    ) -> Iterator[dict[str, Any]]:
+        yield {"data": "chunk"}
+
+class TestRunsWaitThreadless:
+    """POST /runs/wait — threadless execution without a thread."""
+
+    def test_basic_invocation(self, store: InMemoryThreadStore) -> None:
+        """Threadless wait returns output dict with 200."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request("/api/runs/wait", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert isinstance(data, dict)
+        assert "messages" in data
+
+    def test_content_location_header(self, store: InMemoryThreadStore) -> None:
+        """Response includes Content-Location: /api/runs/{run_id}."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request("/api/runs/wait", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 200
+        headers = dict(resp.headers)
+        assert "Content-Location" in headers
+        assert headers["Content-Location"].startswith("/api/runs/")
+        # Threadless: no thread_id in URL
+        assert "/threads/" not in headers["Content-Location"]
+
+    def test_unknown_graph_returns_404(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request("/api/runs/wait", {"assistant_id": "nonexistent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 404
+        data = json.loads(resp.get_body())
+        assert "nonexistent" in data["detail"]
+
+    def test_invalid_json_returns_400(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/runs/wait",
+            body=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+        data = json.loads(resp.get_body())
+        assert "Invalid JSON" in data["detail"]
+
+    def test_non_dict_json_body_returns_400(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/runs/wait",
+            body=b'[1, 2, 3]',
+            headers={"Content-Type": "application/json"},
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+        data = json.loads(resp.get_body())
+        assert "JSON object" in data["detail"]
+
+    def test_graph_error_returns_500(self, store: InMemoryThreadStore) -> None:
+        class FailingGraph:
+            checkpointer = None
+
+            def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> Any:
+                raise RuntimeError("boom")
+
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Iterator[Any]:
+                yield {}
+
+        app = _build_platform_app(graphs={"agent": FailingGraph()}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request("/api/runs/wait", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 500
+        data = json.loads(resp.get_body())
+        assert "execution failed" in data["detail"]
+
+    def test_checkpointer_disabled_via_copy(self, store: InMemoryThreadStore) -> None:
+        """Graph with checkpointer uses copy(update={checkpointer: None})."""
+        g = _FakeCopyableCheckpointerGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request("/api/runs/wait", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert isinstance(data, dict)
+
+    def test_non_copyable_checkpointer_returns_501(self, store: InMemoryThreadStore) -> None:
+        """Graph with checkpointer but no copy() returns 501."""
+        g = _FakeNonCopyableCheckpointerGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request("/api/runs/wait", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 501
+        data = json.loads(resp.get_body())
+        assert "cannot be disabled" in data["detail"]
+
+    def test_validation_error_missing_assistant_id(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request("/api/runs/wait", {"input": {}})
+        resp = fn(req)
+        assert resp.status_code == 422
+
+    def test_unsupported_interrupt_before_returns_501(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request(
+            "/api/runs/wait",
+            {"assistant_id": "agent", "input": {}, "interrupt_before": ["*"]},
+        )
+        resp = fn(req)
+        assert resp.status_code == 501
+
+    def test_thread_store_unchanged(self, store: InMemoryThreadStore) -> None:
+        """Threadless runs must not create or modify any threads."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        # Snapshot thread store before
+        before = store.search()
+        assert len(before) == 0
+
+        req = _post_request("/api/runs/wait", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 200
+
+        # Store unchanged
+        after = store.search()
+        assert len(after) == 0
+
+    def test_with_user_config(self, store: InMemoryThreadStore) -> None:
+        """User-supplied config.configurable passes through to graph."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request(
+            "/api/runs/wait",
+            {
+                "assistant_id": "agent",
+                "input": {},
+                "config": {"configurable": {"my_key": "my_value"}},
+            },
+        )
+        resp = fn(req)
+        assert resp.status_code == 200
+
+    def test_copy_raising_returns_501(self, store: InMemoryThreadStore) -> None:
+        """Graph whose copy() raises returns 501."""
+        g = _FakeCopyRaisingCheckpointerGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request("/api/runs/wait", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 501
+        data = json.loads(resp.get_body())
+        assert "cannot be disabled" in data["detail"]
+
+    def test_clone_has_checkpointer_none(self, store: InMemoryThreadStore) -> None:
+        """Verify _get_threadless_graph actually sets checkpointer=None."""
+        from azure_functions_langgraph.platform.routes import _get_threadless_graph
+
+        g = _FakeCopyableCheckpointerGraph()
+        assert g.checkpointer == "memory"
+        clone = _get_threadless_graph(g)
+        assert clone is not None
+        assert clone.checkpointer is None
+
+    def test_thread_id_in_config_rejected(self, store: InMemoryThreadStore) -> None:
+        """Threadless wait rejects thread_id smuggled in config.configurable."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+
+        req = _post_request(
+            "/api/runs/wait",
+            {
+                "assistant_id": "agent",
+                "input": {},
+                "config": {"configurable": {"thread_id": "smuggled-id"}},
+            },
+        )
+        resp = fn(req)
+        assert resp.status_code == 422
+        data = json.loads(resp.get_body())
+        assert "thread_id" in data["detail"]
+
+
+class TestRunsStreamThreadless:
+    """POST /runs/stream — threadless SSE streaming without a thread."""
+
+    def test_basic_sse_stream(self, store: InMemoryThreadStore) -> None:
+        """Threadless stream returns SSE with metadata → data → end."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/event-stream"
+        body = resp.get_body().decode()
+        assert "event: metadata" in body
+        assert "event: values" in body
+        assert "event: end" in body
+
+    def test_content_location_header(self, store: InMemoryThreadStore) -> None:
+        """Response includes Content-Location: /api/runs/{run_id}."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 200
+        headers = dict(resp.headers)
+        assert "Content-Location" in headers
+        assert headers["Content-Location"].startswith("/api/runs/")
+        assert "/threads/" not in headers["Content-Location"]
+
+    def test_unknown_graph_returns_404(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "nonexistent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 404
+
+    def test_invalid_json_returns_400(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/runs/stream",
+            body=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+
+    def test_non_dict_json_body_returns_400(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = func.HttpRequest(
+            method="POST",
+            url="/api/runs/stream",
+            body=b'[1, 2, 3]',
+            headers={"Content-Type": "application/json"},
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+        data = json.loads(resp.get_body())
+        assert "JSON object" in data["detail"]
+
+    def test_not_streamable_returns_501(self, store: InMemoryThreadStore) -> None:
+        """Graph without stream() returns 501."""
+        g = FakeInvokeOnlyGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 501
+        data = json.loads(resp.get_body())
+        assert "does not support streaming" in data["detail"]
+
+    def test_graph_error_produces_sse_error_event(self, store: InMemoryThreadStore) -> None:
+        class FailingStreamGraph:
+            checkpointer = None
+
+            def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> Any:
+                return {}
+
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Iterator[Any]:
+                raise RuntimeError("stream boom")
+
+        app = _build_platform_app(graphs={"agent": FailingStreamGraph()}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 200  # SSE always 200
+        body = resp.get_body().decode()
+        assert "event: error" in body
+        assert "event: end" in body
+
+    def test_checkpointer_disabled_via_copy(self, store: InMemoryThreadStore) -> None:
+        g = _FakeCopyableCheckpointerGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 200
+        body = resp.get_body().decode()
+        assert "event: metadata" in body
+        assert "event: end" in body
+
+    def test_non_copyable_checkpointer_returns_501(self, store: InMemoryThreadStore) -> None:
+        g = _FakeNonCopyableCheckpointerGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 501
+        data = json.loads(resp.get_body())
+        assert "cannot be disabled" in data["detail"]
+
+    def test_thread_store_unchanged(self, store: InMemoryThreadStore) -> None:
+        """Threadless streaming must not create or modify any threads."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        before = store.search()
+        assert len(before) == 0
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 200
+
+        after = store.search()
+        assert len(after) == 0
+
+    def test_multi_stream_mode_returns_501(self, store: InMemoryThreadStore) -> None:
+        """Multiple stream modes not supported."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request(
+            "/api/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": ["values", "updates"]},
+        )
+        resp = fn(req)
+        assert resp.status_code == 501
+
+    def test_unsupported_interrupt_before_returns_501(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request(
+            "/api/runs/stream",
+            {"assistant_id": "agent", "input": {}, "interrupt_before": ["*"]},
+        )
+        resp = fn(req)
+        assert resp.status_code == 501
+
+    def test_copy_raising_returns_501(self, store: InMemoryThreadStore) -> None:
+        """Graph whose copy() raises returns 501."""
+        g = _FakeCopyRaisingCheckpointerGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+        assert resp.status_code == 501
+        data = json.loads(resp.get_body())
+        assert "cannot be disabled" in data["detail"]
+
+    def test_clone_has_checkpointer_none(self, store: InMemoryThreadStore) -> None:
+        """Verify _get_threadless_graph actually sets checkpointer=None."""
+        from azure_functions_langgraph.platform.routes import _get_threadless_graph
+
+        g = _FakeCopyableCheckpointerGraph()
+        assert g.checkpointer == "memory"
+        clone = _get_threadless_graph(g)
+        assert clone is not None
+        assert clone.checkpointer is None
+
+    def test_thread_id_in_config_rejected(self, store: InMemoryThreadStore) -> None:
+        """Threadless stream rejects thread_id smuggled in config.configurable."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request(
+            "/api/runs/stream",
+            {
+                "assistant_id": "agent",
+                "input": {},
+                "config": {"configurable": {"thread_id": "smuggled-id"}},
+            },
+        )
+        resp = fn(req)
+        assert resp.status_code == 422
+        data = json.loads(resp.get_body())
+        assert "thread_id" in data["detail"]
 
 
 # ---------------------------------------------------------------------------
