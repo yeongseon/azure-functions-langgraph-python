@@ -10,24 +10,36 @@
 
 ## Architecture
 
-```
-User Code                     azure-functions-langgraph           Azure Functions
-─────────────────────────────────────────────────────────────────────────────────
-StateGraph → compile()  →  LangGraphApp.register(graph)  →  FunctionApp with routes
-                            ├─ POST /graphs/{name}/invoke  →  graph.invoke(input, config)
-                            ├─ POST /graphs/{name}/stream  →  graph.stream(input, config)
-                            ├─ GET /graphs/{name}/threads/{id}/state → graph.get_state(config)
-                            ├─ GET /health                 →  list registered graphs
-                            ├─ GET /openapi.json           →  auto-generated spec
-                            │
-                            │  platform_compat=True adds:
-                            ├─ POST /assistants/search     →  list registered graphs as assistants
-                            ├─ POST /threads               →  thread lifecycle (CRUD, search)
-                            ├─ POST /threads/{id}/runs/wait →  graph.invoke via SDK client
-                            ├─ POST /runs/wait             →  threadless run (ephemeral thread)
-                            ├─ GET /threads/{id}/state     →  graph.get_state(config)
-                            ├─ POST /threads/{id}/state    →  graph.update_state(config, values)
-                            └─ POST /threads/{id}/history   →  graph.get_state_history(config)
+```mermaid
+flowchart TB
+    subgraph App ["App / Core"]
+        UC["User Code\nStateGraph → compile()"] --> REG["LangGraphApp.register(graph)"]
+        REG --> FA["Azure FunctionApp"]
+    end
+
+    subgraph Native ["Native Routes"]
+        FA --> INV["POST /graphs/{name}/invoke"]
+        FA --> STR["POST /graphs/{name}/stream"]
+        FA --> GST["GET /graphs/{name}/threads/{id}/state"]
+        FA --> HLT["GET /health"]
+        FA --> OAI["GET /openapi.json"]
+    end
+
+    subgraph Platform ["Platform-Compatible Routes (platform_compat=True, subset shown)"]
+        FA --> AST["POST /assistants/search"]
+        FA --> THR["POST /threads (CRUD, search)"]
+        FA --> RUN["POST /threads/{id}/runs/wait"]
+        FA --> RUNS["POST /threads/{id}/runs/stream"]
+        FA --> TLR["POST /runs/wait (threadless)"]
+        FA --> TLS["POST /runs/stream (threadless)"]
+        FA --> UST["POST /threads/{id}/state"]
+        FA --> HST["POST /threads/{id}/history"]
+    end
+
+    subgraph Storage ["Persistent Storage (optional)"]
+        CKP["Checkpoint Store\n(AzureBlobCheckpointSaver)"]
+        THS["Thread Store\n(AzureTableThreadStore)"]
+    end
 ```
 
 ## Key Decisions
@@ -43,8 +55,8 @@ Azure Functions doesn't natively support true SSE streaming (no chunked transfer
 
 Future versions may use Durable Functions fan-out or WebSocket support to enable true streaming.
 
-### 3. Thread ID in request body config (not URL path)
-Following LangGraph conventions, `thread_id` is passed in `config.configurable.thread_id`, not as a URL path parameter. This keeps the API surface minimal and compatible with LangGraph's native client patterns.
+### 3. Thread ID in request body config (native routes)
+For native routes (`/graphs/{name}/invoke`, etc.), `thread_id` is passed in `config.configurable.thread_id`, not as a URL path parameter. This keeps the native API surface minimal and compatible with LangGraph's client patterns. Platform-compatible routes use path parameters (`/threads/{thread_id}/...`) to match the LangGraph Platform REST API.
 
 ### 4. No Durable Functions dependency (v0.1)
 The v0.1 release is HTTP-only. This keeps the dependency footprint small and the mental model simple. Durable Functions can be added later for timeout extension and fan-out patterns.
@@ -127,3 +139,21 @@ src/azure_functions_langgraph/
 - No real LLM calls in any tests
 - 645 tests, 91%+ coverage as of v0.4.0
 - Coverage threshold enforced at 90% (`fail_under = 90`)
+
+
+## Sources
+
+- [Azure Functions Python developer reference](https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python)
+- [Azure Functions HTTP trigger](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger)
+- [Supported languages in Azure Functions](https://learn.microsoft.com/en-us/azure/azure-functions/supported-languages)
+- [Azure Blob Storage documentation](https://learn.microsoft.com/en-us/azure/storage/blobs/)
+- [Azure Table Storage documentation](https://learn.microsoft.com/en-us/azure/storage/tables/)
+- [LangGraph documentation](https://langchain-ai.github.io/langgraph/)
+
+## See Also
+
+- [azure-functions-validation — Architecture](https://github.com/yeongseon/azure-functions-validation) — Request/response validation pipeline
+- [azure-functions-openapi — Architecture](https://github.com/yeongseon/azure-functions-openapi) — OpenAPI spec generation
+- [azure-functions-logging — Architecture](https://github.com/yeongseon/azure-functions-logging) — Structured logging with contextvars
+- [azure-functions-doctor — Architecture](https://github.com/yeongseon/azure-functions-doctor) — Pre-deploy diagnostic CLI
+- [azure-functions-scaffold — Architecture](https://github.com/yeongseon/azure-functions-scaffold) — Project scaffolding CLI
