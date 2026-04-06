@@ -11,7 +11,7 @@ When you register a graph named `my_agent`, the following endpoints are created:
 | `POST` | `/api/graphs/my_agent/invoke` | Synchronous graph invocation |
 | `POST` | `/api/graphs/my_agent/stream` | Buffered SSE streaming |
 | `GET` | `/api/graphs/my_agent/threads/{thread_id}/state` | Thread state inspection |
-| `GET` | `/api/openapi.json` | OpenAPI specification |
+| `GET` | `/api/openapi.json` | OpenAPI specification *(deprecated in v0.5.0 — use [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi))* |
 | `GET` | `/api/health` | Health check with registered graph list |
 
 ## Invoke endpoint
@@ -174,7 +174,12 @@ Returns the current state of a thread for graphs compiled with a checkpointer (g
 | 404 | Thread not found or graph is not stateful |
 | 500 | Internal error |
 
-## OpenAPI endpoint
+## OpenAPI endpoint *(deprecated)*
+
+!!! warning "Deprecated in v0.5.0"
+    The built-in `GET /api/openapi.json` endpoint is **deprecated** and will be removed in v1.0.
+    Use the dedicated [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) package instead.
+    See [Migrating to azure-functions-openapi](#migrating-to-azure-functions-openapi) below.
 
 ### Request
 
@@ -183,19 +188,44 @@ GET /api/openapi.json
 ```
 
 Returns an auto-generated OpenAPI 3.0 specification for all registered graphs.
+A `DeprecationWarning` is emitted at call time and the response includes an `X-Deprecation` header.
 
 ### Response
 
 ```json
 {
     "openapi": "3.0.3",
-    "info": {"title": "LangGraph API", "version": "0.2.0"},
+    "info": {"title": "azure-functions-langgraph", "version": "0.5.0"},
     "paths": {
         "/api/graphs/my_agent/invoke": {...},
         "/api/graphs/my_agent/stream": {...}
     }
 }
 ```
+
+## Migrating to azure-functions-openapi
+
+Starting with v0.5.0, OpenAPI spec generation is moving to the dedicated
+[`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) package.
+The built-in endpoint remains functional but deprecated.
+
+### Using the bridge
+
+```python
+from azure_functions_langgraph import LangGraphApp
+from azure_functions_langgraph.openapi import register_with_openapi
+
+app = LangGraphApp()
+app.register(graph=graph, name="agent", request_model=MyRequest)
+
+# Forward route metadata to azure-functions-openapi
+count = register_with_openapi(app)
+print(f"Registered {count} routes with azure-functions-openapi")
+```
+
+The bridge reads route metadata from `LangGraphApp.get_app_metadata()` and forwards it
+to `azure-functions-openapi`'s `register_openapi_metadata()` programmatic API.
+Requires `azure-functions-openapi >= 0.16.0`.
 
 ## Error responses
 

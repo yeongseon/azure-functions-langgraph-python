@@ -219,6 +219,20 @@ class TestGetAppMetadata:
         with pytest.raises(TypeError):
             meta.graphs["rogue"] = None  # type: ignore[index]
 
+    def test_nested_parameters_are_immutable(self) -> None:
+        """RouteMetadata.parameters dicts must be MappingProxyType (deep immutability)."""
+        app = LangGraphApp()
+        app.register(graph=FakeStatefulGraph(), name="stateful_graph")
+        meta = app.get_app_metadata()
+        state_routes = [
+            r for r in meta.graphs["stateful_graph"].routes
+            if "/threads/" in r.path
+        ]
+        assert len(state_routes) == 1
+        param = state_routes[0].parameters[0]
+        assert isinstance(param, MappingProxyType)
+        with pytest.raises(TypeError):
+            param["rogue"] = "value"  # type: ignore[index]
 
 # ------------------------------------------------------------------
 # register() keyword-only params tests
@@ -266,6 +280,27 @@ class TestRegisterKeywordOnlyParams:
         assert reg.request_model is None
         assert reg.response_model is None
 
+    def test_legacy_positional_register_call(self) -> None:
+        """All pre-v0.5 positional args must still work without keyword-only params.
+
+        Regression test: register(graph, name, description, stream, auth_level)
+        was the full positional signature before ``*`` was added.
+        """
+        app = LangGraphApp()
+        app.register(
+            FakeCompiledGraph(),  # graph
+            "agent",  # name
+            "A description",  # description
+            False,  # stream
+            func.AuthLevel.FUNCTION,  # auth_level
+        )
+        reg = app._registrations["agent"]
+        assert reg.name == "agent"
+        assert reg.description == "A description"
+        assert reg.stream_enabled is False
+        assert reg.auth_level == func.AuthLevel.FUNCTION
+        assert reg.request_model is None
+        assert reg.response_model is None
 
 # ------------------------------------------------------------------
 # Deprecation warning tests

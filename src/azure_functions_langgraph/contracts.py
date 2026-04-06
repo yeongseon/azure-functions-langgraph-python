@@ -84,7 +84,7 @@ class RouteMetadata:
     method: str
     summary: str = ""
     description: str = ""
-    parameters: tuple[dict[str, Any], ...] = ()
+    parameters: tuple[Mapping[str, Any], ...] = ()
     request_model: Optional[type[Any]] = None
     response_model: Optional[type[Any]] = None
 
@@ -107,6 +107,8 @@ class AppMetadata:
 
     All collections are read-only.  ``graphs`` is exposed as a
     :class:`~types.MappingProxyType` so consumers cannot mutate it.
+    Nested parameter dicts inside :class:`RouteMetadata` are also
+    wrapped in :class:`~types.MappingProxyType` for deep immutability.
     """
 
     graphs: Mapping[str, RegisteredGraphMetadata] = field(

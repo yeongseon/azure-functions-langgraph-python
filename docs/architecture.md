@@ -20,7 +20,8 @@ flowchart TB
         FA --> STR["POST /graphs/{name}/stream"]
         FA --> GST["GET /graphs/{name}/threads/{id}/state"]
         FA --> HLT["GET /health"]
-        FA --> OAI["GET /openapi.json"]
+        FA --> OAI["GET /openapi.json
+(deprecated)"]
     end
 
     subgraph Platform ["Platform-Compatible Routes"]
@@ -125,9 +126,10 @@ Successful run responses include `Content-Location: /api/threads/{thread_id}/run
 flowchart TD
     INIT["__init__.py\nLazy re-exports + __version__"]
     APP["app.py\nLangGraphApp + route wiring"]
+    OBR["openapi.py\nBridge to azure-functions-openapi"]
     HDL["_handlers.py\nNative route handlers"]
     VAL["_validation.py\nTransport-agnostic validators"]
-    CON["contracts.py\nPydantic request/response models"]
+    CON["contracts.py\nPydantic + metadata dataclasses"]
     PRO["protocols.py\nProtocol interfaces"]
 
     subgraph platform ["platform/"]
@@ -154,6 +156,8 @@ flowchart TD
     APP --> PRO
     APP --> PRTE
     APP --> PSTR
+    OBR --> APP
+    OBR --> CON
     HDL --> VAL
     HDL --> CON
     HDL --> PRO
@@ -172,11 +176,22 @@ flowchart TD
 The core module. Contains:
 
 - `LangGraphApp` — main class (dataclass) that holds graph registrations and builds an `azure.functions.FunctionApp`.
-- `_GraphRegistration` — internal record for a registered graph.
+- `_GraphRegistration` — internal record for a registered graph (includes `request_model`/`response_model` since v0.5).
 - Route wiring — delegates to `_handlers.py` for native routes and `platform/routes.py` for SDK-compatible routes.
-- `_build_openapi()` — generates OpenAPI 3.0 spec from registered graphs.
+- `get_app_metadata()` — returns an immutable `AppMetadata` snapshot with per-graph route metadata (v0.5+).
+- `_build_openapi()` — generates OpenAPI 3.0 spec from registered graphs *(deprecated in v0.5; use `azure-functions-openapi` via bridge)*.
 - `health()` — health check handler returning registered graph list.
 
+
+### `openapi.py` *(v0.5+)*
+
+Bridge module between `azure-functions-langgraph` and `azure-functions-openapi`:
+
+- `register_with_openapi(app)` — reads `app.get_app_metadata()` and calls `register_openapi_metadata()` for each route.
+- `_validate_model()` — ensures model arguments are Pydantic `BaseModel` subclasses.
+- `_build_request_body()` — converts a Pydantic model to an OpenAPI request body dict via `model_json_schema()`.
+
+This module lazily imports `azure-functions-openapi` and raises `ImportError` if the package is not installed. It is the recommended replacement for the deprecated built-in `_build_openapi()` method.
 ### `_handlers.py`
 
 Standalone request handlers extracted from `LangGraphApp`:
@@ -201,6 +216,12 @@ Pydantic v2 models for request/response validation:
 - `HealthResponse`, `GraphInfo` — health endpoint models.
 - `ErrorResponse` — consistent error format.
 - `StateResponse` — thread state values, next steps, metadata, config, timestamps.
+
+Stdlib metadata dataclasses (v0.5+):
+
+- `RouteMetadata` — frozen dataclass describing a single HTTP route (path, method, parameters, models).
+- `RegisteredGraphMetadata` — frozen dataclass grouping routes for a registered graph.
+- `AppMetadata` — top-level snapshot; `graphs` is `MappingProxyType`, nested parameter dicts are also immutable.
 
 ### `protocols.py`
 
@@ -244,6 +265,7 @@ Exported symbols (via `__all__`, all lazy-loaded via `__getattr__`):
 - `__version__` — package version string
 - `InvokeRequest`, `InvokeResponse`, `StreamRequest` — request/response contracts
 - `HealthResponse`, `GraphInfo`, `ErrorResponse`, `StateResponse` — endpoint models
+- `RouteMetadata`, `RegisteredGraphMetadata`, `AppMetadata` — metadata dataclasses (v0.5+)
 - `InvocableGraph`, `StreamableGraph`, `LangGraphLike`, `StatefulGraph` — protocol interfaces
 
 Lazy imports via `__getattr__` are a deliberate design choice: importing the package does not require `azure-functions` or `langgraph` to be installed, enabling use in environments where only contracts or protocols are needed.
@@ -283,6 +305,10 @@ When `platform_compat=True`, the library registers routes that mirror the LangGr
 ### Threadless runs (v0.4)
 
 `POST /runs/wait` and `POST /runs/stream` clone the graph with `checkpointer=None` for truly ephemeral executions. Client-supplied `thread_id` in config is rejected with 422 to prevent semantic confusion.
+
+### Metadata API and OpenAPI bridge (v0.5)
+
+`LangGraphApp.get_app_metadata()` returns a frozen `AppMetadata` snapshot describing all registered routes. External consumers (e.g. `azure-functions-openapi`) read this instead of reaching into internal state. The bridge module `openapi.py` forwards metadata to `azure-functions-openapi`'s `register_openapi_metadata()` for spec generation. The built-in `_build_openapi()` method and `/api/openapi.json` endpoint are deprecated and will be removed in v1.0. All metadata objects are deeply immutable: `AppMetadata.graphs` is `MappingProxyType`, route parameter dicts are also `MappingProxyType`, and all dataclasses are frozen.
 
 ### Per-graph auth override (v0.2)
 

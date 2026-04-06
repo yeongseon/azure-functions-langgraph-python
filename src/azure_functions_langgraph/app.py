@@ -430,12 +430,12 @@ class LangGraphApp:
                     method="GET",
                     summary=f"Get thread state for '{reg.name}'",
                     parameters=(
-                        {
+                        MappingProxyType({
                             "name": "thread_id",
                             "in": "path",
                             "required": True,
                             "schema": {"type": "string"},
-                        },
+                        }),
                     ),
                 ))
             graphs[reg.name] = RegisteredGraphMetadata(

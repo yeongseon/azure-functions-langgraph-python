@@ -75,7 +75,7 @@ This package does not own:
 - Request/response validation beyond LangGraph contracts — use [`azure-functions-validation`](https://github.com/yeongseon/azure-functions-validation)
 - Generic graph-serving abstractions beyond LangGraph
 
-> **Note (v0.4.x):** This package still exposes `GET /api/openapi.json` for backward compatibility. This endpoint is deprecated and will move to the dedicated `azure-functions-openapi` package in v0.5.0.
+> **Note (v0.5.0):** The built-in `GET /api/openapi.json` endpoint is **deprecated**. Use the dedicated [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) package with the bridge module (`azure_functions_langgraph.openapi.register_with_openapi`) for OpenAPI spec generation. The built-in endpoint will be removed in v1.0.
 
 ## Installation
 
@@ -182,7 +182,7 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 2. `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE)
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — inspect thread state
 4. `GET /api/health` — health check
-5. `GET /api/openapi.json` — OpenAPI specification *(deprecated; moving to azure-functions-openapi in v0.5.0)*
+5. `GET /api/openapi.json` — OpenAPI specification *(deprecated in v0.5.0; use azure-functions-openapi)*
 
 With `platform_compat=True`, you also get SDK-compatible endpoints:
 
