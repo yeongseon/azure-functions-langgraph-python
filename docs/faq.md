@@ -109,12 +109,8 @@ app.register(graph=private_graph, name="private", auth_level=func.AuthLevel.FUNC
 
 This overrides the app-level `auth_level` for that specific graph's endpoints.
 
-## What is the OpenAPI endpoint?
+## How do I generate OpenAPI specs?
 
-`GET /api/openapi.json` returns an auto-generated OpenAPI 3.0 specification for all registered graphs.
-
-!!! warning "Deprecated in v0.5.0"
-    The built-in OpenAPI endpoint is **deprecated** and will be removed in v1.0.
-    Use the dedicated [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) package instead.
+Use the dedicated [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) package.
 
 Starting with v0.5.0, `LangGraphApp` exposes a metadata API (`get_app_metadata()`) and a bridge module (`azure_functions_langgraph.openapi.register_with_openapi`) that forwards route metadata to `azure-functions-openapi` for spec generation. See the [Usage Guide](usage.md#migrating-to-azure-functions-openapi) for migration details.

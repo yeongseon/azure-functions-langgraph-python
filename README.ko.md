@@ -75,7 +75,7 @@ Azure Functions에서 LangGraph를 배포하는 것은 생각보다 어렵습니
 - LangGraph 계약 외의 요청/응답 검증 — [`azure-functions-validation`](https://github.com/yeongseon/azure-functions-validation) 사용
 - LangGraph 외의 범용 그래프 서빙 추상화
 
-> **참고 (v0.4.x):** 이 패키지는 하위 호환성을 위해 `GET /api/openapi.json`을 아직 제공합니다. 이 엔드포인트는 deprecated이며 v0.5.0에서 전용 `azure-functions-openapi` 패키지로 이관됩니다.
+> **참고:** OpenAPI 스펙 생성은 전용 [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) 패키지와 브리지 모듈(`azure_functions_langgraph.openapi.register_with_openapi`)을 사용하세요.
 
 ## 설치
 
@@ -182,7 +182,6 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 2. `POST /api/graphs/echo_agent/stream` — 에이전트 응답 스트리밍 (버퍼링된 SSE)
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — 스레드 상태 조회
 4. `GET /api/health` — 헬스 체크
-5. `GET /api/openapi.json` — OpenAPI 스펙 *(deprecated; v0.5.0에서 azure-functions-openapi로 이관)*
 
 `platform_compat=True` 설정 시 SDK 호환 엔드포인트도 생성됩니다:
 

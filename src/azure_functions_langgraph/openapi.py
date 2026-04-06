@@ -1,9 +1,7 @@
 """Bridge between azure-functions-langgraph and azure-functions-openapi.
 
 This module forwards route metadata from :class:`LangGraphApp` to the
-``azure-functions-openapi`` package for OpenAPI spec generation.  It is
-**not** the deprecated built-in ``_build_openapi()`` generator — that is
-a separate code path in ``app.py`` and will be removed in v1.0.
+``azure-functions-openapi`` package for OpenAPI spec generation.
 
 Usage::
 

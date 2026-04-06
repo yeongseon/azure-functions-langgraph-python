@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from types import MappingProxyType
-import warnings
 
 import azure.functions as func
 import pytest
@@ -301,56 +300,3 @@ class TestRegisterKeywordOnlyParams:
         assert reg.auth_level == func.AuthLevel.FUNCTION
         assert reg.request_model is None
         assert reg.response_model is None
-
-# ------------------------------------------------------------------
-# Deprecation warning tests
-# ------------------------------------------------------------------
-
-
-class TestDeprecation:
-    def test_build_openapi_emits_deprecation_warning(self) -> None:
-        app = LangGraphApp()
-        app.register(graph=FakeCompiledGraph(), name="agent")
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            app._build_openapi()
-
-        deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-        assert len(deprecation_warnings) == 1
-        assert "deprecated" in str(deprecation_warnings[0].message).lower()
-        assert "register_with_openapi" in str(deprecation_warnings[0].message)
-
-    def test_openapi_endpoint_has_deprecation_header(self) -> None:
-        app = LangGraphApp()
-        app.register(graph=FakeCompiledGraph(), name="agent")
-        fa = app.function_app
-
-        for fn in fa.get_functions():
-            if fn.get_function_name() == "aflg_openapi":
-                openapi_fn = fn.get_user_function()
-                req = func.HttpRequest(
-                    method="GET",
-                    url="http://localhost:7071/api/openapi.json",
-                    body=b"",
-                )
-                with warnings.catch_warnings(record=True):
-                    warnings.simplefilter("always")
-                    resp = openapi_fn(req)
-
-                assert resp.status_code == 200
-                assert "X-Deprecation" in resp.headers
-                assert "deprecated" in resp.headers["X-Deprecation"].lower()
-                break
-        else:
-            raise AssertionError("openapi function not found")
-
-    def test_openapi_spec_still_works_despite_deprecation(self) -> None:
-        """Deprecated code must still produce a valid spec."""
-        app = LangGraphApp()
-        app.register(graph=FakeCompiledGraph(), name="agent")
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            spec = app._build_openapi()
-
-        assert spec["openapi"] == "3.0.3"
-        assert "/graphs/agent/invoke" in spec["paths"]

@@ -181,7 +181,6 @@ class TestPerGraphAuth:
         app.register(graph=FakeCompiledGraph(), name="agent", auth_level=func.AuthLevel.ADMIN)
         fa = app.function_app
         assert self._get_trigger_auth(fa, "aflg_health") == func.AuthLevel.FUNCTION
-        assert self._get_trigger_auth(fa, "aflg_openapi") == func.AuthLevel.FUNCTION
 # ------------------------------------------------------------------
 # Function app creation tests
 # ------------------------------------------------------------------
@@ -236,19 +235,15 @@ class TestFunctionApp:
         assert la._registrations["alpha"].graph is graph_a
         assert la._registrations["beta"].graph is graph_b
 
-    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-    def test_openapi_paths_match_registered_routes_without_api_prefix(self) -> None:
+    def test_openapi_route_not_registered(self) -> None:
+        """Verify deprecated openapi.json route is no longer registered."""
         app = LangGraphApp()
         app.register(graph=FakeCompiledGraph(), name="agent")
 
-        openapi = app._build_openapi()
-        paths = openapi["paths"]
+        fa = app.function_app
+        function_names = [fn.get_function_name() for fn in fa.get_functions()]
 
-        assert "/graphs/agent/invoke" in paths
-        assert "/graphs/agent/stream" in paths
-        assert "/health" in paths
-        assert "/api/graphs/agent/invoke" not in paths
-        assert "/api/graphs/agent/stream" not in paths
+        assert "aflg_openapi" not in function_names
 
 
 # ------------------------------------------------------------------
@@ -583,26 +578,6 @@ class TestStateHandler:
         else:
             pytest.fail("State function not found")
 
-    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-    def test_state_openapi_includes_state_path_for_stateful_graph(self) -> None:
-        app = LangGraphApp()
-        app.register(graph=FakeStatefulGraph(), name="agent")
-        spec = app._build_openapi()
-        state_path = "/graphs/agent/threads/{thread_id}/state"
-        assert state_path in spec["paths"]
-        state_op = spec["paths"][state_path]["get"]
-        assert "parameters" in state_op
-        assert state_op["parameters"][0]["name"] == "thread_id"
-
-    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-    def test_state_openapi_excludes_state_path_for_non_stateful_graph(self) -> None:
-        app = LangGraphApp()
-        app.register(graph=FakeCompiledGraph(), name="agent")
-        spec = app._build_openapi()
-        state_paths = [p for p in spec["paths"] if "state" in p]
-        assert len(state_paths) == 0
-
-
 # ------------------------------------------------------------------
 # Helper tests
 # ------------------------------------------------------------------
@@ -622,102 +597,6 @@ class TestHelpers:
         graph = MagicMock()
         graph.checkpointer = None
         assert _has_checkpointer(graph) is False
-
-
-# ------------------------------------------------------------------
-# OpenAPI tests
-# ------------------------------------------------------------------
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-class TestOpenAPI:
-    def test_openapi_endpoint_returns_valid_spec(self, fake_graph: FakeCompiledGraph) -> None:
-        """OpenAPI endpoint returns a valid OpenAPI 3.0.3 spec."""
-        app = LangGraphApp()
-        app.register(graph=fake_graph, name="agent")
-        spec = app._build_openapi()
-
-        assert spec["openapi"] == "3.0.3"
-        assert spec["info"]["title"] == "azure-functions-langgraph"
-        assert "paths" in spec
-
-    def test_health_endpoint_has_responses(self, fake_graph: FakeCompiledGraph) -> None:
-        """Health endpoint in OpenAPI spec must have responses field."""
-        app = LangGraphApp()
-        app.register(graph=fake_graph, name="agent")
-        spec = app._build_openapi()
-
-        health_get = spec["paths"]["/health"]["get"]
-        assert "responses" in health_get
-        assert "200" in health_get["responses"]
-        assert health_get["responses"]["200"]["description"] == "Service is healthy"
-
-    def test_invoke_endpoint_has_responses_and_no_parameters(
-        self, fake_graph: FakeCompiledGraph
-    ) -> None:
-        """Invoke endpoint must have responses and no path parameters."""
-        app = LangGraphApp()
-        app.register(graph=fake_graph, name="agent")
-        spec = app._build_openapi()
-
-        invoke_post = spec["paths"]["/graphs/agent/invoke"]["post"]
-        assert "responses" in invoke_post
-        assert "200" in invoke_post["responses"]
-        assert "parameters" not in invoke_post
-
-    def test_stream_endpoint_has_responses_and_no_parameters(
-        self, fake_graph: FakeCompiledGraph
-    ) -> None:
-        """Stream endpoint must have responses and no path parameters."""
-        app = LangGraphApp()
-        app.register(graph=fake_graph, name="agent")
-        spec = app._build_openapi()
-
-        stream_post = spec["paths"]["/graphs/agent/stream"]["post"]
-        assert "responses" in stream_post
-        assert "200" in stream_post["responses"]
-        assert "parameters" not in stream_post
-
-    def test_invoke_only_registration_omits_stream_path(self) -> None:
-        app = LangGraphApp()
-        app.register(graph=FakeCompiledGraph(), name="invoke_only", stream=False)
-
-        spec = app._build_openapi()
-
-        assert "/graphs/invoke_only/invoke" in spec["paths"]
-        assert "/graphs/invoke_only/stream" not in spec["paths"]
-
-    def test_multiple_graphs_have_separate_paths(self) -> None:
-        """Each registered graph should have its own paths in OpenAPI spec."""
-        graph_a = FakeCompiledGraph()
-        graph_b = FakeCompiledGraph()
-        app = LangGraphApp()
-        app.register(graph=graph_a, name="alpha")
-        app.register(graph=graph_b, name="beta")
-        spec = app._build_openapi()
-
-        # Verify both graphs have invoke and stream paths
-        assert "/graphs/alpha/invoke" in spec["paths"]
-        assert "/graphs/alpha/stream" in spec["paths"]
-        assert "/graphs/beta/invoke" in spec["paths"]
-        assert "/graphs/beta/stream" in spec["paths"]
-
-    def test_all_operations_have_responses(self, fake_graph: FakeCompiledGraph) -> None:
-        """All operations in OpenAPI spec must have responses field (OpenAPI 3.0 requirement)."""
-        app = LangGraphApp()
-        app.register(graph=fake_graph, name="agent")
-        spec = app._build_openapi()
-
-        for path, path_item in spec["paths"].items():
-            for method, operation in path_item.items():
-                if method in ["get", "post", "put", "delete", "patch"]:
-                    assert "responses" in operation, (
-                        f"Path {path} method {method} missing responses"
-                    )
-                    assert isinstance(operation["responses"], dict)
-                    assert len(operation["responses"]) > 0
-
-
 
 # ------------------------------------------------------------------
 # HTTP Handler tests for uncovered lines
@@ -795,55 +674,6 @@ class TestHealthEndpointHTTPHandler:
                 assert len(body["graphs"]) == 1
                 assert body["graphs"][0]["name"] == "stateful_agent"
                 assert body["graphs"][0]["has_checkpointer"] is True
-                break
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-class TestOpenAPIEndpointHTTPHandler:
-    """Test OpenAPI endpoint via actual HTTP request dispatch."""
-
-    def test_openapi_endpoint_returns_spec(self) -> None:
-        """OpenAPI endpoint returns valid OpenAPI 3.0 spec."""
-        app = LangGraphApp()
-        app.register(graph=FakeCompiledGraph(), name="agent")
-        fa = app.function_app
-        
-        for fn in fa.get_functions():
-            if fn.get_function_name() == "aflg_openapi":
-                openapi_fn = fn.get_user_function()
-                req = func.HttpRequest(
-                    method="GET",
-                    url="http://localhost:7071/api/openapi.json",
-                    body=b"",
-                )
-                resp = openapi_fn(req)
-                assert resp.status_code == 200
-                spec = json.loads(resp.get_body())
-                assert spec["openapi"] == "3.0.3"
-                assert "paths" in spec
-                assert "info" in spec
-                break
-        else:
-            raise AssertionError("openapi function not found")
-
-    def test_openapi_spec_includes_version(self) -> None:
-        """OpenAPI spec info.version should include __version__."""
-        app = LangGraphApp()
-        app.register(graph=FakeCompiledGraph(), name="agent")
-        fa = app.function_app
-        
-        for fn in fa.get_functions():
-            if fn.get_function_name() == "aflg_openapi":
-                openapi_fn = fn.get_user_function()
-                req = func.HttpRequest(
-                    method="GET",
-                    url="http://localhost:7071/api/openapi.json",
-                    body=b"",
-                )
-                resp = openapi_fn(req)
-                spec = json.loads(resp.get_body())
-                from azure_functions_langgraph import __version__
-                assert spec["info"]["version"] == __version__
                 break
 
 

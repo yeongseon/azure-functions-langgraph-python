@@ -75,7 +75,7 @@
 - LangGraph 契约之外的请求/响应验证 — 请使用 [`azure-functions-validation`](https://github.com/yeongseon/azure-functions-validation)
 - LangGraph 之外的通用图服务抽象
 
-> **注意 (v0.4.x)：** 本软件包出于向后兼容仍提供 `GET /api/openapi.json`。此端点已 deprecated，将在 v0.5.0 中迁移至专用的 `azure-functions-openapi` 软件包。
+> **注意：** 生成 OpenAPI 规范请使用专用的 [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) 软件包与桥接模块（`azure_functions_langgraph.openapi.register_with_openapi`）。
 
 ## 安装
 
@@ -182,7 +182,6 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 2. `POST /api/graphs/echo_agent/stream` — 流式传输智能体响应（缓冲式 SSE）
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — 检查线程状态
 4. `GET /api/health` — 健康检查
-5. `GET /api/openapi.json` — OpenAPI 规范 *(deprecated；v0.5.0 中迁移至 azure-functions-openapi)*
 
 设置 `platform_compat=True` 时还会生成 SDK 兼容端点：
 

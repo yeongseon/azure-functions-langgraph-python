@@ -207,8 +207,6 @@ Syncing triggers...
 Functions in <YOUR_FUNCTION_APP_NAME>:
     aflg_health - [httpTrigger]
         Invoke url: https://<YOUR_FUNCTION_APP_NAME>.azurewebsites.net/api/health
-    aflg_openapi - [httpTrigger]
-        Invoke url: https://<YOUR_FUNCTION_APP_NAME>.azurewebsites.net/api/openapi.json
     aflg_simple_agent_invoke - [httpTrigger]
         Invoke url: https://<YOUR_FUNCTION_APP_NAME>.azurewebsites.net/api/graphs/simple_agent/invoke
     aflg_simple_agent_stream - [httpTrigger]
@@ -510,21 +508,15 @@ Representative response:
 [{"assistant_id":"simple_agent","graph_id":"simple_agent","config":{},"created_at":"2025-01-15T10:27:41Z","metadata":null,"version":1,"name":"simple_agent","description":"A simple two-node greeting agent","updated_at":"2025-01-15T10:27:41Z","context":{}}]
 ```
 
-#### `GET /api/openapi.json`
+#### OpenAPI generation
 
-```bash
-curl -s "$BASE_URL/api/openapi.json"
+Use [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) with the bridge module:
+
+```python
+from azure_functions_langgraph.openapi import register_with_openapi
+
+register_with_openapi(app)
 ```
-
-Representative response (truncated):
-
-```json
-{"openapi":"3.0.3","info":{"title":"azure-functions-langgraph","version":"0.5.0"},"paths":{"/health":{"get":{}},"/graphs/simple_agent/invoke":{"post":{}},"/graphs/simple_agent/stream":{"post":{}}}}
-```
-
-> ⚠️ The built-in OpenAPI endpoint is deprecated since v0.5.0 and will be removed in v1.0. Use [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) with `register_with_openapi()` instead. The response includes an `X-Deprecation` header.
-
-The built-in `openapi.json` includes native routes only (such as `invoke`/`stream`), not platform-compatible routes.
 
 For errors and recovery paths, use [`troubleshooting.md`](./troubleshooting.md).
 

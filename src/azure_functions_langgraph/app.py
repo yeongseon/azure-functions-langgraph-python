@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import json
 import logging
 import os
 from types import MappingProxyType
 from typing import Any, Optional
-import warnings
 
 import azure.functions as func
 
-from azure_functions_langgraph import __version__
 from azure_functions_langgraph._handlers import (
     handle_invoke,
     handle_state,
@@ -36,7 +33,6 @@ _ROUTE_HEALTH = "health"
 _ROUTE_INVOKE = "graphs/{name}/invoke"
 _ROUTE_STREAM = "graphs/{name}/stream"
 _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
-_ROUTE_OPENAPI = "openapi.json"
 
 logger = logging.getLogger(__name__)
 
@@ -212,22 +208,6 @@ class LangGraphApp:
                 status_code=200,
             )
 
-        # OpenAPI endpoint (deprecated — use azure-functions-openapi instead)
-        @app.function_name(name="aflg_openapi")
-        @app.route(route=_ROUTE_OPENAPI, methods=["GET"], auth_level=self.auth_level)
-        def openapi(req: func.HttpRequest) -> func.HttpResponse:
-            _ = req
-            resp = func.HttpResponse(
-                body=json.dumps(self._build_openapi(), default=str),
-                mimetype="application/json",
-                status_code=200,
-            )
-            resp.headers["X-Deprecation"] = (
-                "This endpoint is deprecated. "
-                "Use azure-functions-openapi for OpenAPI spec generation."
-            )
-            return resp
-
         # Per-graph endpoints
         for reg in self._registrations.values():
             self._register_invoke_route(app, reg)
@@ -328,74 +308,6 @@ class LangGraphApp:
             req,
             reg,
         )
-
-    # ------------------------------------------------------------------
-    # OpenAPI
-    # ------------------------------------------------------------------
-
-    def _build_openapi(self) -> dict[str, Any]:
-        """Build OpenAPI 3.0.3 specification from registered graphs.
-
-        .. deprecated:: 0.5.0
-            Use ``azure-functions-openapi`` with :func:`register_with_openapi` instead.
-        """
-        warnings.warn(
-            "Built-in OpenAPI generation is deprecated and will be removed in v1.0. "
-            "Use azure-functions-openapi with register_with_openapi() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        paths: dict[str, Any] = {
-            "/health": {
-                "get": {
-                    "summary": "Health check",
-                    "responses": {"200": {"description": "Service is healthy"}},
-                }
-            }
-        }
-
-        for reg in self._registrations.values():
-            paths[f"/graphs/{reg.name}/invoke"] = {
-                "post": {
-                    "summary": f"Invoke graph '{reg.name}'",
-                    "responses": {"200": {"description": "Invocation result"}},
-                }
-            }
-            if reg.stream_enabled:
-                paths[f"/graphs/{reg.name}/stream"] = {
-                    "post": {
-                        "summary": f"Stream graph '{reg.name}'",
-                        "responses": {"200": {"description": "SSE stream"}},
-                    }
-                }
-            if isinstance(reg.graph, StatefulGraph):
-                paths[f"/graphs/{reg.name}/threads/{{thread_id}}/state"] = {
-                    "get": {
-                        "summary": f"Get thread state for '{reg.name}'",
-                        "parameters": [
-                            {
-                                "name": "thread_id",
-                                "in": "path",
-                                "required": True,
-                                "schema": {"type": "string"},
-                            }
-                        ],
-                        "responses": {
-                            "200": {"description": "Thread state"},
-                            "404": {"description": "Thread not found"},
-                        },
-                    }
-                }
-
-
-        return {
-            "openapi": "3.0.3",
-            "info": {
-                "title": "azure-functions-langgraph",
-                "version": __version__,
-            },
-            "paths": paths,
-        }
 
     # ------------------------------------------------------------------
     # Metadata API
