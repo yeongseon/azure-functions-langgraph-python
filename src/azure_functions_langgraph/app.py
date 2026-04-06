@@ -6,7 +6,9 @@ from dataclasses import dataclass, field
 import json
 import logging
 import os
+from types import MappingProxyType
 from typing import Any, Optional
+import warnings
 
 import azure.functions as func
 
@@ -20,10 +22,21 @@ from azure_functions_langgraph._validation import (
     validate_graph_name,
 )
 from azure_functions_langgraph.contracts import (
+    AppMetadata,
     GraphInfo,
     HealthResponse,
+    RegisteredGraphMetadata,
+    RouteMetadata,
 )
 from azure_functions_langgraph.protocols import InvocableGraph, StatefulGraph
+
+# Route path templates (single source of truth for both function_app and metadata)
+_ROUTE_PREFIX = "/api"
+_ROUTE_HEALTH = "health"
+_ROUTE_INVOKE = "graphs/{name}/invoke"
+_ROUTE_STREAM = "graphs/{name}/stream"
+_ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
+_ROUTE_OPENAPI = "openapi.json"
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +50,8 @@ class _GraphRegistration:
     description: Optional[str] = None
     stream_enabled: bool = True
     auth_level: Optional[func.AuthLevel] = None
+    request_model: Optional[type[Any]] = None
+    response_model: Optional[type[Any]] = None
 
 @dataclass
 class LangGraphApp:
@@ -99,6 +114,9 @@ class LangGraphApp:
         description: Optional[str] = None,
         stream: bool = True,
         auth_level: Optional[func.AuthLevel] = None,
+        *,
+        request_model: Optional[type[Any]] = None,
+        response_model: Optional[type[Any]] = None,
     ) -> None:
         """Register a compiled LangGraph graph.
 
@@ -110,6 +128,10 @@ class LangGraphApp:
             stream: Whether to enable the stream endpoint for this graph.
             auth_level: Override app-level auth for this graph's endpoints.
                 When ``None`` (default), the app-level ``auth_level`` is used.
+            request_model: Optional Pydantic model class for request body
+                (used by the metadata / bridge API, not for runtime validation).
+            response_model: Optional Pydantic model class for response body
+                (used by the metadata / bridge API, not for runtime validation).
 
         Raises:
             TypeError: If *graph* does not satisfy the required protocol.
@@ -128,6 +150,8 @@ class LangGraphApp:
             description=description,
             stream_enabled=stream,
             auth_level=auth_level,
+            request_model=request_model,
+            response_model=response_model,
         )
         # Reset cached function app so routes are re-generated
         self._function_app = None
@@ -162,7 +186,7 @@ class LangGraphApp:
 
         # Health endpoint
         @app.function_name(name="aflg_health")
-        @app.route(route="health", methods=["GET"], auth_level=self.auth_level)
+        @app.route(route=_ROUTE_HEALTH, methods=["GET"], auth_level=self.auth_level)
         def health(req: func.HttpRequest) -> func.HttpResponse:
             graphs = [
                 GraphInfo(
@@ -179,16 +203,21 @@ class LangGraphApp:
                 status_code=200,
             )
 
-        # OpenAPI endpoint
+        # OpenAPI endpoint (deprecated — use azure-functions-openapi instead)
         @app.function_name(name="aflg_openapi")
-        @app.route(route="openapi.json", methods=["GET"], auth_level=self.auth_level)
+        @app.route(route=_ROUTE_OPENAPI, methods=["GET"], auth_level=self.auth_level)
         def openapi(req: func.HttpRequest) -> func.HttpResponse:
             _ = req
-            return func.HttpResponse(
+            resp = func.HttpResponse(
                 body=json.dumps(self._build_openapi(), default=str),
                 mimetype="application/json",
                 status_code=200,
             )
+            resp.headers["X-Deprecation"] = (
+                "This endpoint is deprecated. "
+                "Use azure-functions-openapi for OpenAPI spec generation."
+            )
+            return resp
 
         # Per-graph endpoints
         for reg in self._registrations.values():
@@ -218,7 +247,7 @@ class LangGraphApp:
         return app
 
     def _register_invoke_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
-        route = f"graphs/{reg.name}/invoke"
+        route = _ROUTE_INVOKE.format(name=reg.name)
         fn_name = f"aflg_{reg.name}_invoke"
         captured_reg = reg
         effective_auth = self._effective_auth_level(reg)
@@ -229,7 +258,7 @@ class LangGraphApp:
             return self._handle_invoke(req, captured_reg)
 
     def _register_stream_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
-        route = f"graphs/{reg.name}/stream"
+        route = _ROUTE_STREAM.format(name=reg.name)
         fn_name = f"aflg_{reg.name}_stream"
         captured_reg = reg
         effective_auth = self._effective_auth_level(reg)
@@ -241,7 +270,7 @@ class LangGraphApp:
 
 
     def _register_state_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
-        route = f"graphs/{reg.name}/threads/{{thread_id}}/state"
+        route = _ROUTE_STATE.format(name=reg.name)
         fn_name = f"aflg_{reg.name}_state"
         captured_reg = reg
         effective_auth = self._effective_auth_level(reg)
@@ -296,7 +325,17 @@ class LangGraphApp:
     # ------------------------------------------------------------------
 
     def _build_openapi(self) -> dict[str, Any]:
-        """Build OpenAPI 3.0.3 specification from registered graphs."""
+        """Build OpenAPI 3.0.3 specification from registered graphs.
+
+        .. deprecated:: 0.5.0
+            Use ``azure-functions-openapi`` with :func:`register_with_openapi` instead.
+        """
+        warnings.warn(
+            "Built-in OpenAPI generation is deprecated and will be removed in v1.0. "
+            "Use azure-functions-openapi with register_with_openapi() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         paths: dict[str, Any] = {
             "/health": {
                 "get": {
@@ -349,6 +388,72 @@ class LangGraphApp:
             "paths": paths,
         }
 
+    # ------------------------------------------------------------------
+    # Metadata API
+    # ------------------------------------------------------------------
+
+    def get_app_metadata(self) -> AppMetadata:
+        """Return an immutable metadata snapshot of all registered routes.
+
+        The returned :class:`~contracts.AppMetadata` contains per-graph routes
+        and app-level routes (e.g. ``/health``).  External consumers such as
+        the ``azure-functions-openapi`` bridge use this to generate specs.
+
+        Note:
+            Route paths use the default Azure Functions ``/api`` prefix.
+            Custom ``routePrefix`` values in ``host.json`` are not reflected.
+        """
+        graphs: dict[str, RegisteredGraphMetadata] = {}
+        for reg in self._registrations.values():
+            routes: list[RouteMetadata] = []
+            # invoke route
+            routes.append(RouteMetadata(
+                path=f"{_ROUTE_PREFIX}/{_ROUTE_INVOKE.format(name=reg.name)}",
+                method="POST",
+                summary=f"Invoke graph '{reg.name}'",
+                request_model=reg.request_model,
+                response_model=reg.response_model,
+            ))
+            # stream route (if enabled)
+            if reg.stream_enabled:
+                routes.append(RouteMetadata(
+                    path=f"{_ROUTE_PREFIX}/{_ROUTE_STREAM.format(name=reg.name)}",
+                    method="POST",
+                    summary=f"Stream graph '{reg.name}'",
+                    request_model=reg.request_model,
+                    # Stream responses are SSE, not a single JSON body
+                ))
+            # state route — use same capability test as _build_function_app
+            if isinstance(reg.graph, StatefulGraph):
+                routes.append(RouteMetadata(
+                    path=f"{_ROUTE_PREFIX}/{_ROUTE_STATE.format(name=reg.name)}",
+                    method="GET",
+                    summary=f"Get thread state for '{reg.name}'",
+                    parameters=(
+                        {
+                            "name": "thread_id",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        },
+                    ),
+                ))
+            graphs[reg.name] = RegisteredGraphMetadata(
+                name=reg.name,
+                description=reg.description,
+                routes=tuple(routes),
+            )
+
+        # App-level routes
+        app_routes: tuple[RouteMetadata, ...] = (
+            RouteMetadata(
+                path=f"{_ROUTE_PREFIX}/{_ROUTE_HEALTH}",
+                method="GET",
+                summary="Health check",
+            ),
+        )
+
+        return AppMetadata(graphs=MappingProxyType(graphs), app_routes=app_routes)
 
 # ------------------------------------------------------------------
 # Helpers

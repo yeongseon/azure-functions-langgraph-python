@@ -4,16 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 if TYPE_CHECKING:
     from azure_functions_langgraph.app import LangGraphApp
     from azure_functions_langgraph.contracts import (
+        AppMetadata,
         ErrorResponse,
         GraphInfo,
         HealthResponse,
         InvokeRequest,
         InvokeResponse,
+        RegisteredGraphMetadata,
+        RouteMetadata,
         StateResponse,
         StreamRequest,
     )
@@ -65,6 +68,19 @@ def __getattr__(name: str) -> object:
         from azure_functions_langgraph.contracts import StateResponse
 
         return StateResponse
+    # Metadata dataclasses
+    if name == "AppMetadata":
+        from azure_functions_langgraph.contracts import AppMetadata
+
+        return AppMetadata
+    if name == "RegisteredGraphMetadata":
+        from azure_functions_langgraph.contracts import RegisteredGraphMetadata
+
+        return RegisteredGraphMetadata
+    if name == "RouteMetadata":
+        from azure_functions_langgraph.contracts import RouteMetadata
+
+        return RouteMetadata
     # Protocols
     if name == "InvocableGraph":
         from azure_functions_langgraph.protocols import InvocableGraph
@@ -96,6 +112,10 @@ __all__ = [
     "GraphInfo",
     "ErrorResponse",
     "StateResponse",
+    # Metadata
+    "AppMetadata",
+    "RegisteredGraphMetadata",
+    "RouteMetadata",
     # Protocols
     "InvocableGraph",
     "StreamableGraph",

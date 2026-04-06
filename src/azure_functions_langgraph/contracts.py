@@ -1,8 +1,10 @@
-"""Pydantic contracts for request/response models."""
+"""Pydantic contracts and metadata dataclasses for request/response models."""
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Any, Mapping, Optional
 
 from pydantic import BaseModel, Field
 
@@ -67,3 +69,47 @@ class StateResponse(BaseModel):
     metadata: Optional[dict[str, Any]] = Field(
         default=None, description="State metadata"
     )
+
+
+# ------------------------------------------------------------------
+# Metadata dataclasses (stdlib only — no Pydantic dependency)
+# ------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RouteMetadata:
+    """Metadata for a single HTTP route."""
+
+    path: str
+    method: str
+    summary: str = ""
+    description: str = ""
+    parameters: tuple[dict[str, Any], ...] = ()
+    request_model: Optional[type[Any]] = None
+    response_model: Optional[type[Any]] = None
+
+
+@dataclass(frozen=True)
+class RegisteredGraphMetadata:
+    """Public metadata about a registered graph.
+
+    Used by external consumers like ``azure-functions-openapi``.
+    """
+
+    name: str
+    description: Optional[str] = None
+    routes: tuple[RouteMetadata, ...] = ()
+
+
+@dataclass(frozen=True)
+class AppMetadata:
+    """Top-level metadata snapshot for all registered routes.
+
+    All collections are read-only.  ``graphs`` is exposed as a
+    :class:`~types.MappingProxyType` so consumers cannot mutate it.
+    """
+
+    graphs: Mapping[str, RegisteredGraphMetadata] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    app_routes: tuple[RouteMetadata, ...] = ()
