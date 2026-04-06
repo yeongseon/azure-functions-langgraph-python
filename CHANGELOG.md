@@ -2,11 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.5.0] - 2026-04-07
 
 ### Breaking Changes
 
-- Removed deprecated `GET /api/openapi.json` endpoint and internal `_build_openapi()` method. Use `azure-functions-openapi` with `register_with_openapi()` bridge instead.
+- Removed deprecated `GET /api/openapi.json` endpoint and internal `_build_openapi()` method. Use `azure-functions-openapi` with `register_with_openapi()` bridge instead (#99, PR #113).
+
+### Added
+
+- **Metadata API**: Immutable dataclass-based metadata (`GraphMetadata`, `AppMetadata`) with deep-frozen snapshot semantics (#87)
+- **OpenAPI bridge module**: `azure_functions_langgraph.openapi` integration module for `azure-functions-openapi` ecosystem interop (#87)
+- **`CloneableGraph` protocol**: Explicit protocol for graphs supporting `clone()`, refactored `_get_threadless_graph` for cleaner threadless run support (#95, #96)
+- **SDK compatibility policy**: Formal version compatibility matrix and contract tests for `langgraph-sdk` (#91, PR #102)
+- **Production hardening guide**: Auth, observability, timeouts, concurrency, and storage configuration (#105)
+- **Deployment guide**: Step-by-step Azure deployment with real verified output for all plans (#73, PR #108)
+- **Choose-a-plan guide**: Hosting plan comparison for developers new to Azure Functions
+- **Azure deployment verification**: Real Azure deployment outputs verified and documented (#110, #111)
+- 695+ tests total, 91%+ coverage
+
+### Changed
+
+- **Auth level tightened**: Production warning when `auth_level=ANONYMOUS` in non-local environments (#97)
+- **Platform routes modularized**: Split monolithic `platform/routes.py` into `threads.py`, `runs.py`, `assistants.py` resource modules (#89, PR #101)
+- **Documentation rewrite**: All docs rewritten for general-developer friendliness with step-by-step instructions (#115)
+- Concurrency constraints, scale envelopes, and SSE buffering behavior documented (#90, #92, #93, #98, #100, PR #103)
+
+### Fixed
+
+- Mermaid fence format switched to `fence_div_format` for correct rendering (#81)
+- Bandit B311 false positive suppressed for non-security random usage (#88)
+- MkDocs strict-mode failures: nav entries, anchor slugs, and out-of-docs links (#116, PR #117)
+- Deep immutability enforced on metadata snapshots (Oracle review follow-up)
+
+### Documentation
+
+- README restructured for ecosystem positioning (#84, PR #85)
+- DESIGN.md updated with architecture accuracy fixes and new ADRs (#72, #75, #77)
+- MkDocs Mermaid rendering standardized with pinned JS version (#78, #79)
+- Deployment docs include real Azure CLI output and troubleshooting tables
+- Full i18n updates (ko/en) for OpenAPI removal and deployment guides
 
 ## [0.4.0] - 2026-04-05
 
