@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Removed deprecated `GET /api/openapi.json` endpoint and internal `_build_openapi()` method. Use `azure-functions-openapi` with `register_with_openapi()` bridge instead.
+
 ## [0.4.0] - 2026-04-05
 
 ### Added
