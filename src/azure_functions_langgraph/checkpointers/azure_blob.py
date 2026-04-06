@@ -115,7 +115,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         else:
             current_v = int(current.split(".")[0])
         next_v = current_v + 1
-        next_h = random.random()
+        next_h = random.random()  # nosec B311 - non-crypto ordering/uniqueness only
         return f"{next_v:032}.{next_h:016}"
 
     def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
