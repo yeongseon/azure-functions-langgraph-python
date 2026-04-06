@@ -290,6 +290,8 @@ Rather than importing `CompiledStateGraph` from `langgraph`, the library uses `t
 
 Azure Functions Python worker does not support true chunked HTTP streaming. All stream events are collected into memory and returned as a single SSE-formatted response. Functional for development but not suitable for long-running streams in production.
 
+**⚠️ User expectation**: The SSE endpoints use "stream" in their path names and return `text/event-stream` content type, but responses are **buffered end-to-end** by the Azure Functions Python worker. Users should expect complete SSE-formatted responses delivered at once, not incremental token-by-token delivery. This is a platform limitation, not a design choice. When Azure Functions Python HTTP streaming stabilises, true incremental delivery will be implemented.
+
 ### Platform compatibility layer (v0.3)
 
 When `platform_compat=True`, the library registers routes that mirror the LangGraph Platform REST API, enabling the official `langgraph-sdk` Python client to work with Azure Functions–hosted graphs. This adds thread lifecycle management, SDK-compatible run endpoints, assistant listing, and state operations.
@@ -298,13 +300,28 @@ When `platform_compat=True`, the library registers routes that mirror the LangGr
 
 `AzureBlobCheckpointSaver` provides durable checkpoint persistence across Azure Functions instances. Installed as optional extra (`[azure-blob]`). Synchronous I/O, single-writer assumed.
 
+**⚠️ Concurrency constraint**: The checkpointer assumes a single writer per thread. Concurrent writes to the same thread from multiple Azure Functions instances may corrupt checkpoint data. The write order (values -> metadata -> checkpoint commit marker -> latest hint) is designed for recoverability under single-writer semantics only. If multi-writer support is needed, add blob lease or ETag coordination. For production deployments with multiple instances, ensure serialized access to each thread (e.g., via queue-triggered processing or external locking).
+
 ### Azure Table Storage thread store (v0.4)
 
 `AzureTableThreadStore` provides persistent thread metadata across restarts. Installed as optional extra (`[azure-table]`). Single-partition design works well for <100K threads.
 
+**Scale envelope**: The single-partition design works well for up to ~100K threads. At that scale:
+- Azure Table Storage throughput limit of ~2,000 entities/sec per partition applies.
+- Client-side metadata filtering for `search()` and `count()` becomes progressively expensive as all entities must be scanned.
+- Consider migrating to a multi-partition design, Azure Cosmos DB, or a dedicated database when approaching these limits.
+
 ### Threadless runs (v0.4)
 
 `POST /runs/wait` and `POST /runs/stream` clone the graph with `checkpointer=None` for truly ephemeral executions. Client-supplied `thread_id` in config is rejected with 422 to prevent semantic confusion.
+
+### Single-writer constraint for thread operations
+
+Thread-assistant binding uses a read-then-write pattern: first run on a thread binds `assistant_id`, and the binding is immutable. This is not atomic; there is an inherent TOCTOU (time-of-check-time-of-use) race between reading and updating.
+
+`InMemoryThreadStore` (single-process) uses an `RLock`, which is sufficient in-process. Durable backends such as `AzureTableThreadStore` can see conflicting first-run bindings under concurrent writes across instances.
+
+Deployments on multi-instance Azure Functions should enforce single-writer-per-thread semantics (for example, queue-based serialization), or explicitly accept last-writer-wins behavior until atomic compare-and-set is added to `ThreadStore`.
 
 ### Metadata API and OpenAPI bridge (v0.5)
 
@@ -317,6 +334,18 @@ Each graph registration can override the app-level `auth_level`, enabling mixed-
 ### Thread ID in request body (native routes)
 
 For native routes, `thread_id` is passed in `config.configurable.thread_id`, not as a URL path parameter. This keeps the native API surface minimal and matches LangGraph's client expectations. Platform-compatible routes (`/threads/{thread_id}/...`) do use path parameters to match the LangGraph Platform REST API.
+
+## Non-Goals
+
+1. **No runtime orchestration** — This package exposes LangGraph graphs as Azure Functions HTTP endpoints. It does not orchestrate graph composition, tool management, or agent logic. Those concerns belong in LangGraph itself.
+
+2. **No validation framework** — Request/response validation beyond transport-level safety checks (body size, input depth/node count, graph name format) belongs in `azure-functions-validation`. This package validates only what is needed for safe HTTP handling.
+
+3. **No OpenAPI ownership** — API documentation and spec generation belong in `azure-functions-openapi`. This package provides metadata for the bridge module but never generates OpenAPI specs itself. The deprecated built-in `_build_openapi()` will be removed in v1.0.
+
+4. **No LangGraph Platform replacement** — This is a deployment adapter, not a competing platform. It mirrors SDK shapes for client compatibility, not to replicate LangGraph Platform functionality.
+
+5. **No custom storage engines** — Storage implementations (`AzureBlobCheckpointSaver`, `AzureTableThreadStore`) are adapters for Azure services. They are not a generic storage framework.
 
 ## Related Documents
 
