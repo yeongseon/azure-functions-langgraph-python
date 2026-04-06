@@ -20,8 +20,6 @@ flowchart TB
         FA --> STR["POST /graphs/{name}/stream"]
         FA --> GST["GET /graphs/{name}/threads/{id}/state"]
         FA --> HLT["GET /health"]
-        FA --> OAI["GET /openapi.json
-(deprecated)"]
     end
 
     subgraph Platform ["Platform-Compatible Routes"]
@@ -179,7 +177,6 @@ The core module. Contains:
 - `_GraphRegistration` — internal record for a registered graph (includes `request_model`/`response_model` since v0.5).
 - Route wiring — delegates to `_handlers.py` for native routes and `platform/routes.py` for SDK-compatible routes.
 - `get_app_metadata()` — returns an immutable `AppMetadata` snapshot with per-graph route metadata (v0.5+).
-- `_build_openapi()` — generates OpenAPI 3.0 spec from registered graphs *(deprecated in v0.5; use `azure-functions-openapi` via bridge)*.
 - `health()` — health check handler returning registered graph list.
 
 
@@ -191,7 +188,7 @@ Bridge module between `azure-functions-langgraph` and `azure-functions-openapi`:
 - `_validate_model()` — ensures model arguments are Pydantic `BaseModel` subclasses.
 - `_build_request_body()` — converts a Pydantic model to an OpenAPI request body dict via `model_json_schema()`.
 
-This module lazily imports `azure-functions-openapi` and raises `ImportError` if the package is not installed. It is the recommended replacement for the deprecated built-in `_build_openapi()` method.
+This module lazily imports `azure-functions-openapi` and raises `ImportError` if the package is not installed.
 ### `_handlers.py`
 
 Standalone request handlers extracted from `LangGraphApp`:
@@ -325,7 +322,7 @@ Deployments on multi-instance Azure Functions should enforce single-writer-per-t
 
 ### Metadata API and OpenAPI bridge (v0.5)
 
-`LangGraphApp.get_app_metadata()` returns a frozen `AppMetadata` snapshot describing all registered routes. External consumers (e.g. `azure-functions-openapi`) read this instead of reaching into internal state. The bridge module `openapi.py` forwards metadata to `azure-functions-openapi`'s `register_openapi_metadata()` for spec generation. The built-in `_build_openapi()` method and `/api/openapi.json` endpoint are deprecated and will be removed in v1.0. All metadata objects are deeply immutable: `AppMetadata.graphs` is `MappingProxyType`, route parameter dicts are also `MappingProxyType`, and all dataclasses are frozen.
+`LangGraphApp.get_app_metadata()` returns a frozen `AppMetadata` snapshot describing all registered routes. External consumers (e.g. `azure-functions-openapi`) read this instead of reaching into internal state. The bridge module `openapi.py` forwards metadata to `azure-functions-openapi`'s `register_openapi_metadata()` for spec generation. All metadata objects are deeply immutable: `AppMetadata.graphs` is `MappingProxyType`, route parameter dicts are also `MappingProxyType`, and all dataclasses are frozen.
 
 ### Per-graph auth override (v0.2)
 
@@ -341,7 +338,7 @@ For native routes, `thread_id` is passed in `config.configurable.thread_id`, not
 
 2. **No validation framework** — Request/response validation beyond transport-level safety checks (body size, input depth/node count, graph name format) belongs in `azure-functions-validation`. This package validates only what is needed for safe HTTP handling.
 
-3. **No OpenAPI ownership** — API documentation and spec generation belong in `azure-functions-openapi`. This package provides metadata for the bridge module but never generates OpenAPI specs itself. The deprecated built-in `_build_openapi()` will be removed in v1.0.
+3. **No OpenAPI ownership** — API documentation and spec generation belong in `azure-functions-openapi`. This package provides metadata for the bridge module but never generates OpenAPI specs itself.
 
 4. **No LangGraph Platform replacement** — This is a deployment adapter, not a competing platform. It mirrors SDK shapes for client compatibility, not to replicate LangGraph Platform functionality.
 
