@@ -55,7 +55,14 @@ logger = logging.getLogger(__name__)
 
 
 class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
-    """Persist LangGraph checkpoints in Azure Blob Storage."""
+    """Persist LangGraph checkpoints in Azure Blob Storage.
+
+    Note:
+        This checkpointer assumes single-writer-per-thread semantics.
+        Concurrent writes to the same thread from multiple processes or
+        Azure Functions instances may corrupt checkpoint data. See
+        DESIGN.md decision #7 for details.
+    """
 
     def __init__(
         self,

@@ -34,6 +34,14 @@ class _TableClientProtocol(Protocol):
 
 
 class AzureTableThreadStore(ThreadStore):
+    """Persist thread metadata in Azure Table Storage.
+
+    Note:
+        Single-partition design. Works well for up to ~100K threads. At
+        higher scale, the single partition may become a throughput
+        bottleneck and client-side filtering for search/count becomes
+        expensive. See DESIGN.md decision #8 for scale envelope details.
+    """
 
     def __init__(
         self,
