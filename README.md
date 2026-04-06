@@ -147,6 +147,39 @@ app.register(graph=graph, name="echo_agent")
 func_app = app.function_app  # ← use this as your Azure Functions app
 ```
 
+Start the Functions host locally:
+
+```bash
+func start
+```
+
+### Verify locally and on Azure
+
+After deploying (see [docs/deployment.md](docs/deployment.md)), the same request produces the same response in both environments. Azure requires a function key (`?code=<FUNCTION_KEY>`) when `auth_level` is set to `FUNCTION`.
+
+#### Local
+
+```bash
+curl -s http://localhost:7071/api/health
+```
+
+```json
+{"status": "ok", "graphs": [{"name": "echo_agent", "description": null, "has_checkpointer": false}]}
+```
+
+#### Azure
+
+```bash
+curl -s "https://<your-app>.azurewebsites.net/api/health?code=<FUNCTION_KEY>"
+```
+
+```json
+{"status": "ok", "graphs": [{"name": "echo_agent", "description": null, "has_checkpointer": false}]}
+```
+
+> Response captured from a deployed Azure Function; URL anonymized.
+
+
 ### Production authentication
 
 > **Important:** `LangGraphApp` defaults to `AuthLevel.ANONYMOUS` for local development
@@ -271,13 +304,25 @@ func_app = app.function_app
 
 Checkpoints and thread metadata survive Azure Functions restarts and scale across instances.
 
-### Upgrading from v0.3.0
+### Upgrading
 
-v0.4.0 is fully backward-compatible with v0.3.0. No breaking changes.
+#### v0.3.0 → v0.4.0
+
+Fully backward-compatible. No breaking changes.
 
 - **New optional extras**: `pip install azure-functions-langgraph[azure-blob,azure-table]` for persistent storage
 - **New platform endpoints**: thread CRUD, state update/history, threadless runs, assistants count
 - **New protocols**: `UpdatableStateGraph`, `StateHistoryGraph` (available from `azure_functions_langgraph.protocols`)
+
+#### v0.4.0 → v0.5.0
+
+Fully backward-compatible. No breaking changes.
+
+- **Metadata API**: `app.metadata()` returns an immutable snapshot of all registered routes and graph info
+- **OpenAPI bridge**: `azure_functions_langgraph.openapi.register_with_openapi` integrates with `azure-functions-openapi`
+- **OpenAPI endpoint deprecated**: built-in `GET /api/openapi.json` is deprecated — use `azure-functions-openapi` instead (removal in v1.0)
+- **CloneableGraph protocol**: thread-isolated graph cloning for safe concurrent execution
+
 ## When to use
 
 - You have LangGraph agents and want to deploy them on Azure Functions
