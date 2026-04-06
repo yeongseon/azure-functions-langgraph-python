@@ -234,6 +234,7 @@ class TestFunctionApp:
         assert la._registrations["alpha"].graph is graph_a
         assert la._registrations["beta"].graph is graph_b
 
+    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
     def test_openapi_paths_match_registered_routes_without_api_prefix(self) -> None:
         app = LangGraphApp()
         app.register(graph=FakeCompiledGraph(), name="agent")
@@ -580,6 +581,7 @@ class TestStateHandler:
         else:
             pytest.fail("State function not found")
 
+    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
     def test_state_openapi_includes_state_path_for_stateful_graph(self) -> None:
         app = LangGraphApp()
         app.register(graph=FakeStatefulGraph(), name="agent")
@@ -590,6 +592,7 @@ class TestStateHandler:
         assert "parameters" in state_op
         assert state_op["parameters"][0]["name"] == "thread_id"
 
+    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
     def test_state_openapi_excludes_state_path_for_non_stateful_graph(self) -> None:
         app = LangGraphApp()
         app.register(graph=FakeCompiledGraph(), name="agent")
@@ -624,6 +627,7 @@ class TestHelpers:
 # ------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestOpenAPI:
     def test_openapi_endpoint_returns_valid_spec(self, fake_graph: FakeCompiledGraph) -> None:
         """OpenAPI endpoint returns a valid OpenAPI 3.0.3 spec."""
@@ -792,6 +796,7 @@ class TestHealthEndpointHTTPHandler:
                 break
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestOpenAPIEndpointHTTPHandler:
     """Test OpenAPI endpoint via actual HTTP request dispatch."""
 
