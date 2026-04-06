@@ -118,6 +118,8 @@ pip install -e .[dev]
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+import azure.functions as func
+
 from azure_functions_langgraph import LangGraphApp
 
 
@@ -139,22 +141,24 @@ builder.add_edge(START, "chat")
 builder.add_edge("chat", END)
 graph = builder.compile()
 
-# 4. Deploy
-app = LangGraphApp()
+# 4. Deploy (ANONYMOUS for local dev; use FUNCTION in production — see below)
+app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 app.register(graph=graph, name="echo_agent")
 func_app = app.function_app  # ← use this as your Azure Functions app
 ```
 
 ### Production authentication
 
-`LangGraphApp` defaults to `AuthLevel.ANONYMOUS` for local development convenience.
-For production deployments, prefer `FUNCTION` or `ADMIN` auth and send the Azure Functions key.
+> **Important:** `LangGraphApp` defaults to `AuthLevel.ANONYMOUS` for local development
+> convenience. This default will change to `AuthLevel.FUNCTION` in v1.0.
+> For production deployments, **always** set `auth_level` explicitly:
 
 ```python
 import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
+# Production: require function key authentication
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 ```
 
@@ -221,6 +225,8 @@ With `platform_compat=True`, you also get SDK-compatible endpoints:
 Use Azure Blob Storage for checkpoint persistence and Azure Table Storage for thread metadata:
 
 ```python
+import azure.functions as func
+
 from azure.storage.blob import ContainerClient
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
@@ -256,7 +262,8 @@ thread_store = AzureTableThreadStore.from_connection_string(
     "DefaultEndpointsProtocol=https;AccountName=...", table_name="threads"
 )
 
-app = LangGraphApp(platform_compat=True)
+# Production: always set auth_level explicitly
+app = LangGraphApp(platform_compat=True, auth_level=func.AuthLevel.FUNCTION)
 app.thread_store = thread_store
 app.register(graph=graph, name="echo_agent")
 func_app = app.function_app

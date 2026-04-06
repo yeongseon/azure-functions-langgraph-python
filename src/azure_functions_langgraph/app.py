@@ -82,6 +82,11 @@ class LangGraphApp:
         in a single SSE-formatted HTTP response. True streaming (chunked
         transfer encoding) is planned for a future release once Azure Functions
         Python HTTP streaming stabilises.
+
+    Note:
+        The default ``auth_level`` is ``ANONYMOUS`` for local development
+        convenience. This will change to ``FUNCTION`` in v1.0. For production
+        deployments, always pass ``auth_level`` explicitly.
     """
 
     auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
@@ -99,8 +104,12 @@ class LangGraphApp:
             "AZURE_FUNCTIONS_ENVIRONMENT"
         ):
             logger.warning(
-                "LangGraphApp is configured with anonymous HTTP auth. "
-                "Use FUNCTION or ADMIN auth levels for production deployments."
+                "LangGraphApp is using ANONYMOUS auth in an Azure environment. "
+                "Endpoints are publicly accessible without authentication.\n"
+                "  Recommended: LangGraphApp(auth_level=func.AuthLevel.FUNCTION)\n"
+                "  Per-graph:   app.register(..., auth_level=func.AuthLevel.FUNCTION)\n"
+                "  See the 'Production authentication' section in README.md\n"
+                "Note: The default will change from ANONYMOUS to FUNCTION in v1.0."
             )
         if self.platform_compat and self._thread_store is None:
             from azure_functions_langgraph.platform.stores import InMemoryThreadStore

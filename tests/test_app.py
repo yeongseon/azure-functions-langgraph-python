@@ -35,7 +35,9 @@ class TestRegistration:
             monkeypatch.setenv("AZURE_FUNCTIONS_ENVIRONMENT", "Production")
             LangGraphApp()
 
-        assert "anonymous HTTP auth" in caplog.text
+        assert "ANONYMOUS auth" in caplog.text
+        assert "LangGraphApp(auth_level=func.AuthLevel.FUNCTION)" in caplog.text
+        assert "v1.0" in caplog.text
 
     def test_no_warning_for_function_auth_level(
         self,

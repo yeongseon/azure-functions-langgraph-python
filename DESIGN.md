@@ -124,27 +124,15 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 
 **Non-goals**: Absorbing validation or documentation concerns into this package.
 
-### 12. Single-writer constraint for thread operations
+### 13. Auth level default (v0.5)
 
-**Context**: Thread-assistant binding uses a read-then-write pattern: the first run on a thread binds it to an assistant, and this binding is immutable. However, the binding is not atomic — there is an inherent TOCTOU (time-of-check-time-of-use) race between reading the current binding and updating it.
+**Context**: Oracle design review flagged that `LangGraphApp` defaulting to `ANONYMOUS` creates a security risk - users copy example code into Azure without changing auth settings. The official Azure Functions Python `FunctionApp` class defaults to `FUNCTION`.
 
-**Decision**: Document single-writer-per-thread as a supported constraint. For `InMemoryThreadStore` (single-process), the existing `RLock` provides adequate protection. For durable backends (`AzureTableThreadStore`), concurrent first-run requests on the same thread could result in conflicting bindings.
+**Decision**: Keep `ANONYMOUS` as the default in v0.5.x-v0.6.x for backward compatibility. Strengthen the runtime warning when running in Azure to include exact remediation code. Update all examples to use explicit `auth_level`. Plan to change the default to `FUNCTION` in v1.0.
 
-**Consequences**: Users deploying to multi-instance Azure Functions must ensure that concurrent writes to the same thread are avoided (e.g., queue-based serialization, or accepting that the last-writer-wins). A future version may add atomic compare-and-set to the `ThreadStore` protocol.
+**Consequences**: No breaking change in the current release line. Users who deploy to Azure see a clear warning with copy-pasteable remediation. All examples show explicit auth_level, reducing copy-paste security issues. The v1.0 migration path is announced early.
 
-**Non-goals**: Lock-free concurrent thread mutation, distributed locking.
-
-## Non-Goals
-
-1. **No runtime orchestration** — This package exposes LangGraph graphs as Azure Functions HTTP endpoints. It does not orchestrate graph composition, tool management, or agent logic. Those concerns belong in LangGraph itself.
-
-2. **No validation framework** — Request/response validation beyond transport-level safety checks (body size, input depth/node count, graph name format) belongs in `azure-functions-validation`. This package validates only what is needed for safe HTTP handling.
-
-3. **No OpenAPI ownership** — API documentation and spec generation belong in `azure-functions-openapi`. This package provides metadata for the bridge module but never generates OpenAPI specs itself. The deprecated built-in `_build_openapi()` will be removed in v1.0.
-
-4. **No LangGraph Platform replacement** — This is a deployment adapter, not a competing platform. It mirrors SDK shapes for client compatibility, not to replicate LangGraph Platform functionality.
-
-5. **No custom storage engines** — Storage implementations (`AzureBlobCheckpointSaver`, `AzureTableThreadStore`) are adapters for Azure services. They are not a generic storage framework.
+**Non-goals**: Environment-dependent defaults (surprising behavior), `DeprecationWarning` emission (ignored by default, creates noise without protection).
 
 ## Module Structure
 
