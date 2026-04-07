@@ -1,0 +1,223 @@
+# azure-functions-langgraph — Full LLM Reference
+
+> Deploy LangGraph agents as Azure Functions with zero boilerplate.
+
+## Package Info
+
+- PyPI: `pip install azure-functions-langgraph`
+- Version: 0.5.0
+- Python: >=3.10, <3.15
+- License: MIT
+- Docs: https://yeongseon.github.io/azure-functions-langgraph/
+- Repository: https://github.com/yeongseon/azure-functions-langgraph
+- Azure Functions programming model: v2
+
+## Installation
+
+```bash
+pip install azure-functions-langgraph
+```
+
+Optional extras:
+```bash
+pip install azure-functions-langgraph[azure-blob]   # Azure Blob checkpointer
+pip install azure-functions-langgraph[azure-table]   # Azure Table thread store
+```
+
+## Public API
+
+### Main Class
+
+```python
+from azure_functions_langgraph import LangGraphApp
+
+class LangGraphApp:
+    def __init__(
+        self,
+        *,
+        auth_level: azure.functions.AuthLevel = AuthLevel.ANONYMOUS,
+        platform_compat: bool = False,
+        thread_store: ThreadStore | None = None,
+    ) -> None: ...
+
+    def register(
+        self,
+        name: str,
+        graph: InvocableGraph,
+        *,
+        auth_level: azure.functions.AuthLevel | None = None,
+    ) -> None: ...
+
+    @property
+    def function_app(self) -> azure.functions.FunctionApp: ...
+
+    def metadata(self) -> AppMetadata: ...
+```
+
+### Protocols
+
+```python
+from azure_functions_langgraph import InvocableGraph, StreamableGraph, StatefulGraph, CloneableGraph
+
+class InvocableGraph(Protocol):
+    def invoke(self, input: Any, config: dict | None = None) -> Any: ...
+
+class StreamableGraph(InvocableGraph, Protocol):
+    def stream(self, input: Any, config: dict | None = None, stream_mode: str = "values") -> Iterator: ...
+
+class StatefulGraph(InvocableGraph, Protocol):
+    def get_state(self, config: dict) -> Any: ...
+
+class CloneableGraph(Protocol):
+    def with_config(self, **kwargs: Any) -> InvocableGraph: ...
+```
+
+### Request/Response Contracts
+
+```python
+from azure_functions_langgraph import InvokeRequest, InvokeResponse, StreamRequest, HealthResponse, GraphInfo, ErrorResponse, StateResponse
+
+class InvokeRequest(BaseModel):
+    input: dict[str, Any]
+    config: dict[str, Any] | None = None
+
+class InvokeResponse(BaseModel):
+    output: Any
+    metadata: dict[str, Any] | None = None
+
+class StreamRequest(BaseModel):
+    input: dict[str, Any]
+    config: dict[str, Any] | None = None
+    stream_mode: str = "values"
+```
+
+### Checkpointers (Optional)
+
+```python
+from azure_functions_langgraph.checkpointers import AzureBlobCheckpointSaver
+
+saver = AzureBlobCheckpointSaver(
+    connection_string="...",
+    container_name="checkpoints",
+)
+graph = builder.compile(checkpointer=saver)
+```
+
+### Thread Stores (Optional)
+
+```python
+from azure_functions_langgraph.stores import AzureTableThreadStore
+
+store = AzureTableThreadStore(
+    connection_string="...",
+    table_name="threads",
+)
+gapp = LangGraphApp(thread_store=store, platform_compat=True)
+```
+
+## HTTP Routes (Auto-registered)
+
+### Native Routes
+- `POST /api/graphs/{name}/invoke` — Invoke graph
+- `POST /api/graphs/{name}/stream` — Stream graph (buffered SSE)
+- `GET /api/graphs/{name}/threads/{thread_id}/state` — Get thread state
+- `GET /api/health` — Health check with registered graph info
+
+### Platform-Compatible Routes (when `platform_compat=True`)
+- `POST /api/assistants/search` — List assistants
+- `POST /api/threads` — Create thread
+- `GET /api/threads/{thread_id}` — Get thread
+- `POST /api/threads/{thread_id}/runs/wait` — Run and wait
+- `POST /api/threads/{thread_id}/runs/stream` — Run and stream
+- `POST /api/runs/wait` — Threadless run
+- `POST /api/runs/stream` — Threadless stream
+- `POST /api/threads/{thread_id}/state` — Update state
+- `POST /api/threads/{thread_id}/history` — State history
+
+## Common Patterns
+
+### Basic Agent Deployment
+
+```python
+from langgraph.graph import StateGraph
+from azure_functions_langgraph import LangGraphApp
+
+builder = StateGraph(dict)
+builder.add_node("agent", my_agent_function)
+builder.set_entry_point("agent")
+graph = builder.compile()
+
+gapp = LangGraphApp()
+gapp.register("my_agent", graph)
+app = gapp.function_app
+```
+
+### With Persistent Checkpointer
+
+```python
+from azure_functions_langgraph import LangGraphApp
+from azure_functions_langgraph.checkpointers import AzureBlobCheckpointSaver
+
+saver = AzureBlobCheckpointSaver(
+    connection_string=os.environ["AZURE_STORAGE_CONNECTION_STRING"],
+    container_name="checkpoints",
+)
+graph = builder.compile(checkpointer=saver)
+
+gapp = LangGraphApp(auth_level=AuthLevel.FUNCTION)
+gapp.register("agent", graph)
+app = gapp.function_app
+```
+
+### With Thread Store and Platform SDK Compatibility
+
+```python
+from azure_functions_langgraph import LangGraphApp
+from azure_functions_langgraph.checkpointers import AzureBlobCheckpointSaver
+from azure_functions_langgraph.stores import AzureTableThreadStore
+
+saver = AzureBlobCheckpointSaver(connection_string=conn_str, container_name="checkpoints")
+store = AzureTableThreadStore(connection_string=conn_str, table_name="threads")
+
+graph = builder.compile(checkpointer=saver)
+
+gapp = LangGraphApp(
+    auth_level=AuthLevel.FUNCTION,
+    platform_compat=True,
+    thread_store=store,
+)
+gapp.register("agent", graph)
+app = gapp.function_app
+```
+
+### Per-Graph Auth Override
+
+```python
+gapp = LangGraphApp(auth_level=AuthLevel.FUNCTION)
+gapp.register("public_agent", graph, auth_level=AuthLevel.ANONYMOUS)
+gapp.register("admin_agent", admin_graph)  # inherits FUNCTION level
+app = gapp.function_app
+```
+
+## Design Principles
+
+1. Thin adapter — wraps LangGraph, doesn't replace it
+2. Zero boilerplate — `register()` + `function_app` is the entire API
+3. LangGraph conventions first — input/output follow LangGraph patterns
+4. Azure Functions native — v2 programming model, no intermediate framework
+5. Checkpointer-agnostic — users bring their own
+
+## Limitations
+
+- SSE streaming is buffered (Azure Functions Python worker limitation)
+- Azure Blob checkpointer is synchronous (single-writer assumed)
+- `MemorySaver` loses state on process restart (use Azure Blob for persistence)
+
+## Ecosystem
+
+Part of the Azure Functions Python DX Toolkit:
+- [azure-functions-validation](https://github.com/yeongseon/azure-functions-validation) — Request/response validation
+- [azure-functions-openapi](https://github.com/yeongseon/azure-functions-openapi) — OpenAPI spec and Swagger UI
+- [azure-functions-logging](https://github.com/yeongseon/azure-functions-logging) — Structured logging
+- [azure-functions-doctor](https://github.com/yeongseon/azure-functions-doctor) — Pre-deploy diagnostics CLI
+- [azure-functions-scaffold](https://github.com/yeongseon/azure-functions-scaffold) — Project scaffolding CLI

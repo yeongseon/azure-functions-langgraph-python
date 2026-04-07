@@ -1,0 +1,65 @@
+# azure-functions-langgraph
+
+> Deploy LangGraph agents as Azure Functions with zero boilerplate.
+
+## Package Info
+
+- PyPI: `pip install azure-functions-langgraph`
+- Version: 0.5.0
+- Python: >=3.10, <3.15
+- License: MIT
+- Docs: https://yeongseon.github.io/azure-functions-langgraph/
+- Repository: https://github.com/yeongseon/azure-functions-langgraph
+
+## What It Does
+
+Thin adapter that deploys LangGraph StateGraph agents as Azure Functions HTTP endpoints.
+Handles invoke, SSE streaming, thread/run management, and state persistence — all from
+a two-line registration API.
+
+## Core API
+
+- `LangGraphApp` — Main application class. Registers graphs and creates Azure Function routes.
+- `LangGraphApp.register(name, graph)` — Register a compiled LangGraph StateGraph.
+- `LangGraphApp.function_app` — The Azure FunctionApp instance to export.
+
+## Key Concepts
+
+- Protocol-based: any object with `invoke()` works (typically `StateGraph.compile()`)
+- Automatic HTTP routes: invoke, stream, threads, runs, state, health
+- Checkpointer-agnostic: bring your own (MemorySaver, AzureBlobCheckpointSaver, etc.)
+- Per-graph auth level override
+- LangGraph Platform SDK compatible routes (optional)
+
+## Quick Start
+
+```python
+from langgraph.graph import StateGraph
+from azure_functions_langgraph import LangGraphApp
+
+builder = StateGraph(dict)
+builder.add_node("greet", lambda s: {"message": "hello"})
+builder.set_entry_point("greet")
+graph = builder.compile()
+
+gapp = LangGraphApp()
+gapp.register("my_agent", graph)
+app = gapp.function_app  # export this
+```
+
+## Documentation
+
+- [Getting Started](https://yeongseon.github.io/azure-functions-langgraph/getting-started/)
+- [API Reference](https://yeongseon.github.io/azure-functions-langgraph/api/)
+- [Architecture](https://yeongseon.github.io/azure-functions-langgraph/architecture/)
+- [Deployment Guide](https://yeongseon.github.io/azure-functions-langgraph/deployment/)
+- [Troubleshooting](https://yeongseon.github.io/azure-functions-langgraph/troubleshooting/)
+
+## Ecosystem
+
+Part of the Azure Functions Python DX Toolkit:
+- azure-functions-validation — Request/response validation
+- azure-functions-openapi — OpenAPI spec and Swagger UI
+- azure-functions-logging — Structured logging
+- azure-functions-doctor — Pre-deploy diagnostics CLI
+- azure-functions-scaffold — Project scaffolding CLI
