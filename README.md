@@ -353,6 +353,13 @@ This package is part of the **Azure Functions Python DX Toolkit**.
 | [azure-functions-durable-graph](https://github.com/yeongseon/azure-functions-durable-graph) | Manifest-first graph runtime with Durable Functions |
 | [azure-functions-python-cookbook](https://github.com/yeongseon/azure-functions-python-cookbook) | Recipes and examples |
 
+## For AI Coding Assistants
+
+If you are an AI coding assistant (Copilot, Cursor, Claude, etc.), see:
+
+- [`llms.txt`](llms.txt) — Concise package summary and API overview
+- [`llms-full.txt`](llms-full.txt) — Complete API reference with signatures, patterns, and examples
+
 ## Disclaimer
 
 This project is an independent community project and is not affiliated with,
