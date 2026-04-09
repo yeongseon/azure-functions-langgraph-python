@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 __version__ = "0.5.0"
 
 if TYPE_CHECKING:
-    from azure_functions_langgraph.app import LangGraphApp
+    from azure_functions_langgraph.app import LangGraphApp, get_langgraph_metadata
     from azure_functions_langgraph.contracts import (
         AppMetadata,
         ErrorResponse,
@@ -103,6 +103,11 @@ def __getattr__(name: str) -> object:
         from azure_functions_langgraph.protocols import CloneableGraph
 
         return CloneableGraph
+    # Toolkit metadata getter
+    if name == "get_langgraph_metadata":
+        from azure_functions_langgraph.app import get_langgraph_metadata
+
+        return get_langgraph_metadata
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -117,7 +122,8 @@ __all__ = [
     "GraphInfo",
     "ErrorResponse",
     "StateResponse",
-    # Metadata
+    # Toolkit metadata
+    "get_langgraph_metadata",
     "AppMetadata",
     "RegisteredGraphMetadata",
     "RouteMetadata",

@@ -29,6 +29,7 @@ def test_all_exports() -> None:
     assert "ErrorResponse" in azure_functions_langgraph.__all__
     assert "StateResponse" in azure_functions_langgraph.__all__
     # Metadata
+    assert "get_langgraph_metadata" in azure_functions_langgraph.__all__
     assert "AppMetadata" in azure_functions_langgraph.__all__
     assert "RegisteredGraphMetadata" in azure_functions_langgraph.__all__
     assert "RouteMetadata" in azure_functions_langgraph.__all__

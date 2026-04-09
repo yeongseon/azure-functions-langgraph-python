@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 import logging
 import os
 from types import MappingProxyType
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import azure.functions as func
 
@@ -35,6 +35,19 @@ _ROUTE_STREAM = "graphs/{name}/stream"
 _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
 
 logger = logging.getLogger(__name__)
+
+_TOOLKIT_META_ATTR = "_azure_functions_toolkit_metadata"
+
+
+def _merge_toolkit_metadata(
+    fn: Callable[..., Any], namespace: str, payload: dict[str, Any],
+) -> None:
+    """Merge toolkit metadata into the convention attribute, preserving other namespaces."""
+    existing: dict[str, Any] = getattr(fn, _TOOLKIT_META_ATTR, {})
+    if not isinstance(existing, dict):
+        existing = {}
+    existing = {**existing, namespace: payload}
+    setattr(fn, _TOOLKIT_META_ATTR, existing)
 
 
 @dataclass
@@ -241,22 +254,40 @@ class LangGraphApp:
         captured_reg = reg
         effective_auth = self._effective_auth_level(reg)
 
-        @app.function_name(name=fn_name)
-        @app.route(route=route, methods=["POST"], auth_level=effective_auth)
         def invoke_handler(req: func.HttpRequest) -> func.HttpResponse:
             return self._handle_invoke(req, captured_reg)
 
+        _merge_toolkit_metadata(invoke_handler, "langgraph", {
+            "version": 1,
+            "graph_name": reg.name,
+            "endpoint": "invoke",
+        })
+
+        app.function_name(name=fn_name)(
+            app.route(route=route, methods=["POST"], auth_level=effective_auth)(
+                invoke_handler
+            )
+        )
     def _register_stream_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
         route = _ROUTE_STREAM.format(name=reg.name)
         fn_name = f"aflg_{reg.name}_stream"
         captured_reg = reg
         effective_auth = self._effective_auth_level(reg)
 
-        @app.function_name(name=fn_name)
-        @app.route(route=route, methods=["POST"], auth_level=effective_auth)
         def stream_handler(req: func.HttpRequest) -> func.HttpResponse:
             return self._handle_stream(req, captured_reg)
 
+        _merge_toolkit_metadata(stream_handler, "langgraph", {
+            "version": 1,
+            "graph_name": reg.name,
+            "endpoint": "stream",
+        })
+
+        app.function_name(name=fn_name)(
+            app.route(route=route, methods=["POST"], auth_level=effective_auth)(
+                stream_handler
+            )
+        )
 
     def _register_state_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
         route = _ROUTE_STATE.format(name=reg.name)
@@ -264,11 +295,25 @@ class LangGraphApp:
         captured_reg = reg
         effective_auth = self._effective_auth_level(reg)
 
-        @app.function_name(name=fn_name)
-        @app.route(route=route, methods=["GET"], auth_level=effective_auth)
         def state_handler(req: func.HttpRequest) -> func.HttpResponse:
             return self._handle_state(req, captured_reg)
 
+        _merge_toolkit_metadata(state_handler, "langgraph", {
+            "version": 1,
+            "graph_name": reg.name,
+            "endpoint": "state",
+        })
+
+        app.function_name(name=fn_name)(
+            app.route(route=route, methods=["GET"], auth_level=effective_auth)(
+                state_handler
+            )
+        )
+        _merge_toolkit_metadata(state_handler, "langgraph", {
+            "version": 1,
+            "graph_name": reg.name,
+            "endpoint": "state",
+        })
     def _effective_auth_level(self, reg: _GraphRegistration) -> func.AuthLevel:
         """Return per-graph auth if set, otherwise app-level auth."""
         if reg.auth_level is not None:
@@ -384,3 +429,16 @@ class LangGraphApp:
 def _has_checkpointer(graph: Any) -> bool:
     """Check whether a compiled graph has a checkpointer attached."""
     return getattr(graph, "checkpointer", None) is not None
+
+
+def get_langgraph_metadata(func: Any) -> dict[str, Any] | None:
+    """Return langgraph metadata if the function was created by ``LangGraphApp``.
+
+    Returns ``None`` if the function has no langgraph metadata attached.
+    """
+    toolkit_meta = getattr(func, _TOOLKIT_META_ATTR, None)
+    if isinstance(toolkit_meta, dict):
+        meta = toolkit_meta.get("langgraph")
+        if isinstance(meta, dict):
+            return meta
+    return None
