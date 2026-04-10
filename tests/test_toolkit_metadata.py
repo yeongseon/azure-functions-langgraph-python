@@ -20,7 +20,7 @@ class TestHandlerToolkitMetadata:
         invoke_fn = functions.get("aflg_agent_invoke")
         assert invoke_fn is not None
 
-        metadata = getattr(invoke_fn, "_azure_functions_toolkit_metadata", None)
+        metadata = getattr(invoke_fn, "_azure_functions_metadata", None)
         assert metadata is not None
         assert "langgraph" in metadata
         meta = metadata["langgraph"]
@@ -38,7 +38,7 @@ class TestHandlerToolkitMetadata:
         stream_fn = functions.get("aflg_agent_stream")
         assert stream_fn is not None
 
-        metadata = getattr(stream_fn, "_azure_functions_toolkit_metadata", None)
+        metadata = getattr(stream_fn, "_azure_functions_metadata", None)
         assert metadata is not None
         meta = metadata["langgraph"]
         assert meta["version"] == 1
@@ -55,7 +55,7 @@ class TestHandlerToolkitMetadata:
         state_fn = functions.get("aflg_stateful_state")
         assert state_fn is not None
 
-        metadata = getattr(state_fn, "_azure_functions_toolkit_metadata", None)
+        metadata = getattr(state_fn, "_azure_functions_metadata", None)
         assert metadata is not None
         meta = metadata["langgraph"]
         assert meta["version"] == 1
@@ -76,8 +76,8 @@ class TestHandlerToolkitMetadata:
         assert alpha_invoke is not None
         assert beta_invoke is not None
 
-        alpha_meta = getattr(alpha_invoke, "_azure_functions_toolkit_metadata")["langgraph"]
-        beta_meta = getattr(beta_invoke, "_azure_functions_toolkit_metadata")["langgraph"]
+        alpha_meta = getattr(alpha_invoke, "_azure_functions_metadata")["langgraph"]
+        beta_meta = getattr(beta_invoke, "_azure_functions_metadata")["langgraph"]
 
         assert alpha_meta["graph_name"] == "alpha"
         assert beta_meta["graph_name"] == "beta"
@@ -110,7 +110,7 @@ class TestGetLanggraphMetadata:
         def handler() -> None:
             pass
 
-        setattr(handler, "_azure_functions_toolkit_metadata", {"db": {"version": 1}})
+        setattr(handler, "_azure_functions_metadata", {"db": {"version": 1}})
         result = get_langgraph_metadata(handler)
         assert result is None
 
@@ -118,7 +118,7 @@ class TestGetLanggraphMetadata:
         def handler() -> None:
             pass
 
-        setattr(handler, "_azure_functions_toolkit_metadata", "not-a-dict")
+        setattr(handler, "_azure_functions_metadata", "not-a-dict")
         result = get_langgraph_metadata(handler)
         assert result is None
 
@@ -137,11 +137,11 @@ class TestMetadataPreservesNamespaces:
         assert invoke_fn is not None
 
         # Manually add another namespace before checking
-        existing = getattr(invoke_fn, "_azure_functions_toolkit_metadata", {})
+        existing = getattr(invoke_fn, "_azure_functions_metadata", {})
         existing["db"] = {"version": 1, "bindings": []}
-        setattr(invoke_fn, "_azure_functions_toolkit_metadata", existing)
+        setattr(invoke_fn, "_azure_functions_metadata", existing)
 
-        metadata = getattr(invoke_fn, "_azure_functions_toolkit_metadata")
+        metadata = getattr(invoke_fn, "_azure_functions_metadata")
         assert "db" in metadata
         assert "langgraph" in metadata
 

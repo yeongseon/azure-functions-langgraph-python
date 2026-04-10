@@ -36,7 +36,7 @@ _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
 
 logger = logging.getLogger(__name__)
 
-_TOOLKIT_META_ATTR = "_azure_functions_toolkit_metadata"
+_TOOLKIT_META_ATTR = "_azure_functions_metadata"
 
 
 def _merge_toolkit_metadata(
@@ -309,11 +309,6 @@ class LangGraphApp:
                 state_handler
             )
         )
-        _merge_toolkit_metadata(state_handler, "langgraph", {
-            "version": 1,
-            "graph_name": reg.name,
-            "endpoint": "state",
-        })
     def _effective_auth_level(self, reg: _GraphRegistration) -> func.AuthLevel:
         """Return per-graph auth if set, otherwise app-level auth."""
         if reg.auth_level is not None:
