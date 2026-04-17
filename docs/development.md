@@ -3,8 +3,8 @@
 ## Setup
 
 ```bash
-git clone https://github.com/yeongseon/azure-functions-langgraph.git
-cd azure-functions-langgraph
+git clone https://github.com/yeongseon/azure-functions-langgraph-python.git
+cd azure-functions-langgraph-python
 make install
 ```
 
@@ -18,7 +18,7 @@ This will:
 ## Project structure
 
 ```
-azure-functions-langgraph/
+azure-functions-langgraph-python/
 ├── src/azure_functions_langgraph/   # Source code
 │   ├── __init__.py                  # Package init, version, lazy import
 │   ├── app.py                       # LangGraphApp class

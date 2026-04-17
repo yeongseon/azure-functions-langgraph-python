@@ -2,7 +2,7 @@
 
 ## Overview
 
-`azure-functions-langgraph` is a thin deployment adapter. It bridges LangGraph compiled graphs and Azure Functions HTTP endpoints without adding intermediate abstractions.
+`azure-functions-langgraph-python` is a thin deployment adapter. It bridges LangGraph compiled graphs and Azure Functions HTTP endpoints without adding intermediate abstractions.
 
 ```mermaid
 flowchart TB
@@ -124,7 +124,7 @@ Successful run responses include `Content-Location: /api/threads/{thread_id}/run
 flowchart TD
     INIT["__init__.py\nLazy re-exports + __version__"]
     APP["app.py\nLangGraphApp + route wiring"]
-    OBR["openapi.py\nBridge to azure-functions-openapi"]
+    OBR["openapi.py\nBridge to azure-functions-openapi-python"]
     HDL["_handlers.py\nNative route handlers"]
     VAL["_validation.py\nTransport-agnostic validators"]
     CON["contracts.py\nPydantic + metadata dataclasses"]
@@ -182,13 +182,13 @@ The core module. Contains:
 
 ### `openapi.py` *(v0.5+)*
 
-Bridge module between `azure-functions-langgraph` and `azure-functions-openapi`:
+Bridge module between `azure-functions-langgraph-python` and `azure-functions-openapi-python`:
 
 - `register_with_openapi(app)` — reads `app.get_app_metadata()` and calls `register_openapi_metadata()` for each route.
 - `_validate_model()` — ensures model arguments are Pydantic `BaseModel` subclasses.
 - `_build_request_body()` — converts a Pydantic model to an OpenAPI request body dict via `model_json_schema()`.
 
-This module lazily imports `azure-functions-openapi` and raises `ImportError` if the package is not installed.
+This module lazily imports `azure-functions-openapi-python` and raises `ImportError` if the package is not installed.
 ### `_handlers.py`
 
 Standalone request handlers extracted from `LangGraphApp`:
@@ -246,13 +246,13 @@ LangGraph Platform API compatibility layer (v0.3+):
 
 Persistent checkpoint storage (v0.4+):
 
-- `azure_blob.py` — `AzureBlobCheckpointSaver` (optional extra: `azure-functions-langgraph[azure-blob]`). Stores checkpoints as blob hierarchies: `{thread_id}/{checkpoint_ns}/{checkpoint_id}/checkpoint.bin`.
+- `azure_blob.py` — `AzureBlobCheckpointSaver` (optional extra: `azure-functions-langgraph-python[azure-blob]`). Stores checkpoints as blob hierarchies: `{thread_id}/{checkpoint_ns}/{checkpoint_id}/checkpoint.bin`.
 
 ### `stores/`
 
 Persistent thread storage (v0.4+):
 
-- `azure_table.py` — `AzureTableThreadStore` (optional extra: `azure-functions-langgraph[azure-table]`). Single-partition design with client-side filtering.
+- `azure_table.py` — `AzureTableThreadStore` (optional extra: `azure-functions-langgraph-python[azure-table]`). Single-partition design with client-side filtering.
 
 ## Public API Boundary
 
@@ -322,7 +322,7 @@ Deployments on multi-instance Azure Functions should enforce single-writer-per-t
 
 ### Metadata API and OpenAPI bridge (v0.5)
 
-`LangGraphApp.get_app_metadata()` returns a frozen `AppMetadata` snapshot describing all registered routes. External consumers (e.g. `azure-functions-openapi`) read this instead of reaching into internal state. The bridge module `openapi.py` forwards metadata to `azure-functions-openapi`'s `register_openapi_metadata()` for spec generation. All metadata objects are deeply immutable: `AppMetadata.graphs` is `MappingProxyType`, route parameter dicts are also `MappingProxyType`, and all dataclasses are frozen.
+`LangGraphApp.get_app_metadata()` returns a frozen `AppMetadata` snapshot describing all registered routes. External consumers (e.g. `azure-functions-openapi-python`) read this instead of reaching into internal state. The bridge module `openapi.py` forwards metadata to `azure-functions-openapi-python`'s `register_openapi_metadata()` for spec generation. All metadata objects are deeply immutable: `AppMetadata.graphs` is `MappingProxyType`, route parameter dicts are also `MappingProxyType`, and all dataclasses are frozen.
 
 ### Per-graph auth override (v0.2)
 
@@ -336,9 +336,9 @@ For native routes, `thread_id` is passed in `config.configurable.thread_id`, not
 
 1. **No runtime orchestration** — This package exposes LangGraph graphs as Azure Functions HTTP endpoints. It does not orchestrate graph composition, tool management, or agent logic. Those concerns belong in LangGraph itself.
 
-2. **No validation framework** — Request/response validation beyond transport-level safety checks (body size, input depth/node count, graph name format) belongs in `azure-functions-validation`. This package validates only what is needed for safe HTTP handling.
+2. **No validation framework** — Request/response validation beyond transport-level safety checks (body size, input depth/node count, graph name format) belongs in `azure-functions-validation-python`. This package validates only what is needed for safe HTTP handling.
 
-3. **No OpenAPI ownership** — API documentation and spec generation belong in `azure-functions-openapi`. This package provides metadata for the bridge module but never generates OpenAPI specs itself.
+3. **No OpenAPI ownership** — API documentation and spec generation belong in `azure-functions-openapi-python`. This package provides metadata for the bridge module but never generates OpenAPI specs itself.
 
 4. **No LangGraph Platform replacement** — This is a deployment adapter, not a competing platform. It mirrors SDK shapes for client compatibility, not to replicate LangGraph Platform functionality.
 
@@ -364,8 +364,8 @@ For native routes, `thread_id` is passed in `config.configurable.thread_id`, not
 
 ## See Also
 
-- [azure-functions-validation — Architecture](https://github.com/yeongseon/azure-functions-validation) — Request/response validation pipeline
-- [azure-functions-openapi — Architecture](https://github.com/yeongseon/azure-functions-openapi) — OpenAPI spec generation
-- [azure-functions-logging — Architecture](https://github.com/yeongseon/azure-functions-logging) — Structured logging with contextvars
-- [azure-functions-doctor — Architecture](https://github.com/yeongseon/azure-functions-doctor) — Pre-deploy diagnostic CLI
-- [azure-functions-scaffold — Architecture](https://github.com/yeongseon/azure-functions-scaffold) — Project scaffolding CLI
+- [azure-functions-validation-python — Architecture](https://github.com/yeongseon/azure-functions-validation-python) — Request/response validation pipeline
+- [azure-functions-openapi-python — Architecture](https://github.com/yeongseon/azure-functions-openapi-python) — OpenAPI spec generation
+- [azure-functions-logging-python — Architecture](https://github.com/yeongseon/azure-functions-logging-python) — Structured logging with contextvars
+- [azure-functions-doctor-python — Architecture](https://github.com/yeongseon/azure-functions-doctor-python) — Pre-deploy diagnostic CLI
+- [azure-functions-scaffold-python — Architecture](https://github.com/yeongseon/azure-functions-scaffold-python) — Project scaffolding CLI

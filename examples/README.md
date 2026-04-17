@@ -1,6 +1,6 @@
 # Examples
 
-`azure-functions-langgraph` keeps a growing set of smoke-tested examples:
+`azure-functions-langgraph-python` keeps a growing set of smoke-tested examples:
 
 | Role | Path | Description |
 | --- | --- | --- |

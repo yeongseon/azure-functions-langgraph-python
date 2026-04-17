@@ -46,6 +46,6 @@ make security
 
 ## Reporting vulnerabilities
 
-If you discover a security vulnerability, please report it responsibly. See [SECURITY.md](https://github.com/yeongseon/azure-functions-langgraph/blob/main/SECURITY.md) for reporting instructions.
+If you discover a security vulnerability, please report it responsibly. See [SECURITY.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/SECURITY.md) for reporting instructions.
 
 Do not open a public GitHub issue for security vulnerabilities.

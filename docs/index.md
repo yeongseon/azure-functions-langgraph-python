@@ -1,9 +1,9 @@
 # Azure Functions LangGraph
 
-[![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph.svg)](https://pypi.org/project/azure-functions-langgraph/)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
-[![CI](https://github.com/yeongseon/azure-functions-langgraph/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph/actions/workflows/ci-test.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/yeongseon/azure-functions-langgraph/blob/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph-python.svg)](https://pypi.org/project/azure-functions-langgraph-python/)
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph-python/)
+[![CI](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/LICENSE)
 
 Deploy [LangGraph](https://github.com/langchain-ai/langgraph) agents as **Azure Functions** HTTP endpoints with zero boilerplate.
 
@@ -66,8 +66,8 @@ Part of the **Azure Functions Python DX Toolkit**:
 
 | Package | Role |
 |---------|------|
-| [azure-functions-validation](https://github.com/yeongseon/azure-functions-validation) | Request and response validation |
-| [azure-functions-openapi](https://github.com/yeongseon/azure-functions-openapi) | OpenAPI spec and Swagger UI |
-| [azure-functions-logging](https://github.com/yeongseon/azure-functions-logging) | Structured logging and observability |
-| **azure-functions-langgraph** | LangGraph agent deployment |
-| [azure-functions-durable-graph](https://github.com/yeongseon/azure-functions-durable-graph) | Manifest-first graph runtime with Durable Functions |
+| [azure-functions-validation-python](https://github.com/yeongseon/azure-functions-validation-python) | Request and response validation |
+| [azure-functions-openapi-python](https://github.com/yeongseon/azure-functions-openapi-python) | OpenAPI spec and Swagger UI |
+| [azure-functions-logging-python](https://github.com/yeongseon/azure-functions-logging-python) | Structured logging and observability |
+| **azure-functions-langgraph-python** | LangGraph agent deployment |
+| [azure-functions-durable-graph-python](https://github.com/yeongseon/azure-functions-durable-graph-python) | Manifest-first graph runtime with Durable Functions |

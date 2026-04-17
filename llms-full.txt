@@ -1,27 +1,27 @@
-# azure-functions-langgraph — Full LLM Reference
+# azure-functions-langgraph-python — Full LLM Reference
 
 > Deploy LangGraph agents as Azure Functions with zero boilerplate.
 
 ## Package Info
 
-- PyPI: `pip install azure-functions-langgraph`
+- PyPI: `pip install azure-functions-langgraph-python`
 - Version: 0.5.0
 - Python: >=3.10, <3.15
 - License: MIT
-- Docs: https://yeongseon.github.io/azure-functions-langgraph/
-- Repository: https://github.com/yeongseon/azure-functions-langgraph
+- Docs: https://yeongseon.github.io/azure-functions-langgraph-python/
+- Repository: https://github.com/yeongseon/azure-functions-langgraph-python
 - Azure Functions programming model: v2
 
 ## Installation
 
 ```bash
-pip install azure-functions-langgraph
+pip install azure-functions-langgraph-python
 ```
 
 Optional extras:
 ```bash
-pip install azure-functions-langgraph[azure-blob]   # Azure Blob checkpointer
-pip install azure-functions-langgraph[azure-table]   # Azure Table thread store
+pip install azure-functions-langgraph-python[azure-blob]   # Azure Blob checkpointer
+pip install azure-functions-langgraph-python[azure-table]   # Azure Table thread store
 ```
 
 ## Public API
@@ -216,8 +216,8 @@ app = gapp.function_app
 ## Ecosystem
 
 Part of the Azure Functions Python DX Toolkit:
-- [azure-functions-validation](https://github.com/yeongseon/azure-functions-validation) — Request/response validation
-- [azure-functions-openapi](https://github.com/yeongseon/azure-functions-openapi) — OpenAPI spec and Swagger UI
-- [azure-functions-logging](https://github.com/yeongseon/azure-functions-logging) — Structured logging
-- [azure-functions-doctor](https://github.com/yeongseon/azure-functions-doctor) — Pre-deploy diagnostics CLI
-- [azure-functions-scaffold](https://github.com/yeongseon/azure-functions-scaffold) — Project scaffolding CLI
+- [azure-functions-validation-python](https://github.com/yeongseon/azure-functions-validation-python) — Request/response validation
+- [azure-functions-openapi-python](https://github.com/yeongseon/azure-functions-openapi-python) — OpenAPI spec and Swagger UI
+- [azure-functions-logging-python](https://github.com/yeongseon/azure-functions-logging-python) — Structured logging
+- [azure-functions-doctor-python](https://github.com/yeongseon/azure-functions-doctor-python) — Pre-deploy diagnostics CLI
+- [azure-functions-scaffold-python](https://github.com/yeongseon/azure-functions-scaffold-python) — Project scaffolding CLI

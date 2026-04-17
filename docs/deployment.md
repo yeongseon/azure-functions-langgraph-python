@@ -10,7 +10,7 @@ Now you want to deploy it to Azure so it runs in the cloud. This guide assumes y
 
 ## What you are deploying
 
-`azure-functions-langgraph` turns [LangGraph](https://langchain-ai.github.io/langgraph/) agents into Azure Functions HTTP endpoints.
+`azure-functions-langgraph-python` turns [LangGraph](https://langchain-ai.github.io/langgraph/) agents into Azure Functions HTTP endpoints.
 After deployment, your agent exposes:
 
 - **Native routes** — `/api/health`, `/api/graphs/{name}/invoke`, `/api/graphs/{name}/stream`
@@ -85,7 +85,7 @@ Replace the contents of `requirements.txt` with:
 ```bash
 cat > requirements.txt << 'EOF'
 azure-functions
-azure-functions-langgraph[azure-blob,azure-table]
+azure-functions-langgraph-python[azure-blob,azure-table]
 langgraph>=1.0,<2.0
 langchain-core>=1.0,<2.0
 EOF
@@ -681,10 +681,10 @@ az functionapp create \
 
 | Symptom | Usually means | How to fix |
 |---|---|---|
-| `ModuleNotFoundError` in build logs | Missing or wrong `requirements.txt` | Ensure `azure-functions-langgraph[azure-blob,azure-table]` is in `requirements.txt` |
+| `ModuleNotFoundError` in build logs | Missing or wrong `requirements.txt` | Ensure `azure-functions-langgraph-python[azure-blob,azure-table]` is in `requirements.txt` |
 | Build timeout (>10 minutes) | Large dependencies on slow plan | Use Premium (faster express build) or retry |
 | `Can't find app with name` | Function App not fully provisioned | Wait 30 seconds and retry |
-| `ImportError: azure.storage.blob` | Missing extras in requirements | Use `azure-functions-langgraph[azure-blob,azure-table]`, not just `azure-functions-langgraph` |
+| `ImportError: azure.storage.blob` | Missing extras in requirements | Use `azure-functions-langgraph-python[azure-blob,azure-table]`, not just `azure-functions-langgraph-python` |
 
 ### The app deployed but does not behave correctly
 
@@ -724,7 +724,7 @@ func --version
 python --version
 
 # 4. Package version
-pip show azure-functions-langgraph
+pip show azure-functions-langgraph-python
 
 # 5. Function App status
 az functionapp show \
@@ -780,8 +780,8 @@ az group list --query "[?starts_with(name, 'rg-langgraph')]" -o table
 - [`configuration.md`](./configuration.md) — Configuration reference
 - [`architecture.md`](./architecture.md) — Package architecture
 - [`troubleshooting.md`](./troubleshooting.md) — Extended troubleshooting guide
-- [`azure-functions-scaffold`](https://github.com/yeongseon/azure-functions-scaffold)
-- [`azure-functions-validation`](https://github.com/yeongseon/azure-functions-validation)
-- [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi)
-- [`azure-functions-logging`](https://github.com/yeongseon/azure-functions-logging)
-- [`azure-functions-doctor`](https://github.com/yeongseon/azure-functions-doctor)
+- [`azure-functions-scaffold-python`](https://github.com/yeongseon/azure-functions-scaffold-python)
+- [`azure-functions-validation-python`](https://github.com/yeongseon/azure-functions-validation-python)
+- [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python)
+- [`azure-functions-logging-python`](https://github.com/yeongseon/azure-functions-logging-python)
+- [`azure-functions-doctor-python`](https://github.com/yeongseon/azure-functions-doctor-python)

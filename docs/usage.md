@@ -175,14 +175,14 @@ Returns the current state of a thread for graphs compiled with a checkpointer (g
 
 ## OpenAPI generation
 
-Use [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) with
+Use [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python) with
 `azure_functions_langgraph.openapi.register_with_openapi`. See
-[Migrating to azure-functions-openapi](#migrating-to-azure-functions-openapi) below.
+[Migrating to azure-functions-openapi-python](#migrating-to-azure-functions-openapi-python) below.
 
-## Migrating to azure-functions-openapi
+## Migrating to azure-functions-openapi-python
 
 Starting with v0.5.0, OpenAPI spec generation is moving to the dedicated
-[`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) package.
+[`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python) package.
 
 ### Using the bridge
 
@@ -193,14 +193,14 @@ from azure_functions_langgraph.openapi import register_with_openapi
 app = LangGraphApp()
 app.register(graph=graph, name="agent", request_model=MyRequest)
 
-# Forward route metadata to azure-functions-openapi
+# Forward route metadata to azure-functions-openapi-python
 count = register_with_openapi(app)
-print(f"Registered {count} routes with azure-functions-openapi")
+print(f"Registered {count} routes with azure-functions-openapi-python")
 ```
 
 The bridge reads route metadata from `LangGraphApp.get_app_metadata()` and forwards it
-to `azure-functions-openapi`'s `register_openapi_metadata()` programmatic API.
-Requires `azure-functions-openapi >= 0.16.0`.
+to `azure-functions-openapi-python`'s `register_openapi_metadata()` programmatic API.
+Requires `azure-functions-openapi-python >= 0.16.0`.
 
 ## Error responses
 

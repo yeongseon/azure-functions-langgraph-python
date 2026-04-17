@@ -1,13 +1,13 @@
 # Azure Functions LangGraph
 
-[![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph.svg)](https://pypi.org/project/azure-functions-langgraph/)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
-[![CI](https://github.com/yeongseon/azure-functions-langgraph/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph/actions/workflows/ci-test.yml)
-[![Release](https://github.com/yeongseon/azure-functions-langgraph/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph/actions/workflows/publish-pypi.yml)
-[![Security Scans](https://github.com/yeongseon/azure-functions-langgraph/actions/workflows/security.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph/actions/workflows/security.yml)
-[![codecov](https://codecov.io/gh/yeongseon/azure-functions-langgraph/branch/main/graph/badge.svg)](https://codecov.io/gh/yeongseon/azure-functions-langgraph)
+[![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph-python.svg)](https://pypi.org/project/azure-functions-langgraph-python/)
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph-python/)
+[![CI](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml)
+[![Release](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml)
+[![Security Scans](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/security.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/security.yml)
+[![codecov](https://codecov.io/gh/yeongseon/azure-functions-langgraph-python/branch/main/graph/badge.svg)](https://codecov.io/gh/yeongseon/azure-functions-langgraph-python)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://pre-commit.com/)
-[![Docs](https://img.shields.io/badge/docs-gh--pages-blue)](https://yeongseon.github.io/azure-functions-langgraph/)
+[![Docs](https://img.shields.io/badge/docs-gh--pages-blue)](https://yeongseon.github.io/azure-functions-langgraph-python/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Read this in: [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
@@ -44,7 +44,7 @@ This package provides a focused adapter for serving LangGraph graphs on Azure Fu
 
 ## LangGraph Platform comparison
 
-| Feature | LangGraph Platform | azure-functions-langgraph |
+| Feature | LangGraph Platform | azure-functions-langgraph-python |
 |---------|-------------------|--------------------------|
 | Hosting | LangChain Cloud (paid) | Your Azure subscription |
 | Assistants | Built-in | SDK-compatible API (v0.3+) |
@@ -71,29 +71,29 @@ This package is a **deployment adapter** — it wraps LangGraph, it does not rep
 ## What this package does not do
 
 This package does not own:
-- OpenAPI document generation or Swagger UI — use [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi)
-- Request/response validation beyond LangGraph contracts — use [`azure-functions-validation`](https://github.com/yeongseon/azure-functions-validation)
+- OpenAPI document generation or Swagger UI — use [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python)
+- Request/response validation beyond LangGraph contracts — use [`azure-functions-validation-python`](https://github.com/yeongseon/azure-functions-validation-python)
 - Generic graph-serving abstractions beyond LangGraph
 
-> **Note:** For OpenAPI spec generation, use the [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) package with the bridge module (`azure_functions_langgraph.openapi.register_with_openapi`).
+> **Note:** For OpenAPI spec generation, use the [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python) package with the bridge module (`azure_functions_langgraph.openapi.register_with_openapi`).
 
 ## Installation
 
 ```bash
-pip install azure-functions-langgraph
+pip install azure-functions-langgraph-python
 ```
 
 For persistent storage with Azure services:
 
 ```bash
 # Azure Blob Storage checkpointer
-pip install azure-functions-langgraph[azure-blob]
+pip install azure-functions-langgraph-python[azure-blob]
 
 # Azure Table Storage thread store
-pip install azure-functions-langgraph[azure-table]
+pip install azure-functions-langgraph-python[azure-table]
 
 # Both
-pip install azure-functions-langgraph[azure-blob,azure-table]
+pip install azure-functions-langgraph-python[azure-blob,azure-table]
 ```
 
 Your Azure Functions app should also include:
@@ -101,14 +101,14 @@ Your Azure Functions app should also include:
 ```text
 azure-functions
 langgraph
-azure-functions-langgraph
+azure-functions-langgraph-python
 ```
 
 For local development:
 
 ```bash
-git clone https://github.com/yeongseon/azure-functions-langgraph.git
-cd azure-functions-langgraph
+git clone https://github.com/yeongseon/azure-functions-langgraph-python.git
+cd azure-functions-langgraph-python
 pip install -e .[dev]
 ```
 
@@ -309,7 +309,7 @@ Checkpoints and thread metadata survive Azure Functions restarts and scale acros
 
 Fully backward-compatible. No breaking changes.
 
-- **New optional extras**: `pip install azure-functions-langgraph[azure-blob,azure-table]` for persistent storage
+- **New optional extras**: `pip install azure-functions-langgraph-python[azure-blob,azure-table]` for persistent storage
 - **New platform endpoints**: thread CRUD, state update/history, threadless runs, assistants count
 - **New protocols**: `UpdatableStateGraph`, `StateHistoryGraph` (available from `azure_functions_langgraph.protocols`)
 
@@ -318,7 +318,7 @@ Fully backward-compatible. No breaking changes.
 Fully backward-compatible. No breaking changes.
 
 - **Metadata API**: `app.metadata()` returns an immutable snapshot of all registered routes and graph info
-- **OpenAPI bridge**: `azure_functions_langgraph.openapi.register_with_openapi` integrates with `azure-functions-openapi`
+- **OpenAPI bridge**: `azure_functions_langgraph.openapi.register_with_openapi` integrates with `azure-functions-openapi-python`
 - **CloneableGraph protocol**: thread-isolated graph cloning for safe concurrent execution
 
 ## When to use
@@ -340,19 +340,19 @@ Fully backward-compatible. No breaking changes.
 
 This package is part of the **Azure Functions Python DX Toolkit**.
 
-**Design principle:** `azure-functions-langgraph` owns LangGraph runtime exposure. `azure-functions-validation` owns validation. `azure-functions-openapi` owns API documentation.
+**Design principle:** `azure-functions-langgraph-python` owns LangGraph runtime exposure. `azure-functions-validation-python` owns validation. `azure-functions-openapi-python` owns API documentation.
 
 | Package | Role |
 |---------|------|
-| [azure-functions-openapi](https://github.com/yeongseon/azure-functions-openapi) | OpenAPI spec generation and Swagger UI |
-| [azure-functions-validation](https://github.com/yeongseon/azure-functions-validation) | Request/response validation and serialization |
-| [azure-functions-db](https://github.com/yeongseon/azure-functions-db) | Database bindings for SQL, PostgreSQL, MySQL, SQLite, and Cosmos DB |
-| **azure-functions-langgraph** | LangGraph deployment adapter for Azure Functions |
-| [azure-functions-scaffold](https://github.com/yeongseon/azure-functions-scaffold) | Project scaffolding CLI |
-| [azure-functions-logging](https://github.com/yeongseon/azure-functions-logging) | Structured logging and observability |
-| [azure-functions-doctor](https://github.com/yeongseon/azure-functions-doctor) | Pre-deploy diagnostic CLI |
-| [azure-functions-durable-graph](https://github.com/yeongseon/azure-functions-durable-graph) | Manifest-first graph runtime with Durable Functions *(experimental)* |
-| [azure-functions-python-cookbook](https://github.com/yeongseon/azure-functions-python-cookbook) | Recipes and examples |
+| [azure-functions-openapi-python](https://github.com/yeongseon/azure-functions-openapi-python) | OpenAPI spec generation and Swagger UI |
+| [azure-functions-validation-python](https://github.com/yeongseon/azure-functions-validation-python) | Request/response validation and serialization |
+| [azure-functions-db-python](https://github.com/yeongseon/azure-functions-db-python) | Database bindings for SQL, PostgreSQL, MySQL, SQLite, and Cosmos DB |
+| **azure-functions-langgraph-python** | LangGraph deployment adapter for Azure Functions |
+| [azure-functions-scaffold-python](https://github.com/yeongseon/azure-functions-scaffold-python) | Project scaffolding CLI |
+| [azure-functions-logging-python](https://github.com/yeongseon/azure-functions-logging-python) | Structured logging and observability |
+| [azure-functions-doctor-python](https://github.com/yeongseon/azure-functions-doctor-python) | Pre-deploy diagnostic CLI |
+| [azure-functions-durable-graph-python](https://github.com/yeongseon/azure-functions-durable-graph-python) | Manifest-first graph runtime with Durable Functions *(experimental)* |
+| [azure-functions-cookbook-python](https://github.com/yeongseon/azure-functions-cookbook-python) | Recipes and examples |
 
 ## For AI Coding Assistants
 

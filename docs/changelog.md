@@ -4,18 +4,18 @@ All notable changes to this project will be documented here.
 
 This project follows [Conventional Commits](https://www.conventionalcommits.org/) and [Keep a Changelog](https://keepachangelog.com/) conventions.
 
-For the full changelog, see [CHANGELOG.md](https://github.com/yeongseon/azure-functions-langgraph/blob/main/CHANGELOG.md) in the repository root.
+For the full changelog, see [CHANGELOG.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CHANGELOG.md) in the repository root.
 
 ## 0.5.0 (2026-04-07)
 
 ### Breaking Changes
 
-- Removed deprecated `GET /api/openapi.json` endpoint and internal `_build_openapi()` method. Use `azure-functions-openapi` with `register_with_openapi()` bridge instead.
+- Removed deprecated `GET /api/openapi.json` endpoint and internal `_build_openapi()` method. Use `azure-functions-openapi-python` with `register_with_openapi()` bridge instead.
 
 ### Added
 
 - Metadata API with immutable dataclass-based snapshots (`GraphMetadata`, `AppMetadata`)
-- OpenAPI bridge module for `azure-functions-openapi` ecosystem integration
+- OpenAPI bridge module for `azure-functions-openapi-python` ecosystem integration
 - `CloneableGraph` protocol for explicit clone support in threadless runs
 - SDK compatibility policy and contract tests
 - Production hardening guide (auth, observability, timeouts, concurrency, storage)

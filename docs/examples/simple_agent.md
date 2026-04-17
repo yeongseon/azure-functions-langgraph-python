@@ -2,7 +2,7 @@
 
 This example deploys a two-node LangGraph agent as Azure Functions HTTP endpoints.
 
-Source: [`examples/simple_agent/graph.py`](https://github.com/yeongseon/azure-functions-langgraph/blob/main/examples/simple_agent/graph.py)
+Source: [`examples/simple_agent/graph.py`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/examples/simple_agent/graph.py)
 
 ## Graph overview
 
@@ -133,4 +133,4 @@ curl http://localhost:7071/api/health
 
 ## Full source
 
-See [`examples/simple_agent/graph.py`](https://github.com/yeongseon/azure-functions-langgraph/blob/main/examples/simple_agent/graph.py) for the complete working example.
+See [`examples/simple_agent/graph.py`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/examples/simple_agent/graph.py) for the complete working example.

@@ -38,7 +38,7 @@ def __getattr__(name: str) -> object:
         except ImportError as exc:
             raise ImportError(
                 "LangGraphApp requires 'azure-functions' and 'langgraph'. "
-                "Install them with: pip install azure-functions-langgraph"
+                "Install them with: pip install azure-functions-langgraph-python"
             ) from exc
     # Contracts
     if name == "InvokeRequest":

@@ -1,7 +1,7 @@
-"""Bridge between azure-functions-langgraph and azure-functions-openapi.
+"""Bridge between azure-functions-langgraph-python and azure-functions-openapi-python.
 
 This module forwards route metadata from :class:`LangGraphApp` to the
-``azure-functions-openapi`` package for OpenAPI spec generation.
+``azure-functions-openapi-python`` package for OpenAPI spec generation.
 
 Usage::
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 def register_with_openapi(app: LangGraphApp) -> int:
-    """Register all graph and app-level endpoints with azure-functions-openapi.
+    """Register all graph and app-level endpoints with azure-functions-openapi-python.
 
     Reads the metadata exposed by :meth:`LangGraphApp.get_app_metadata` and
     calls :func:`azure_functions_openapi.register_openapi_metadata` for each
@@ -39,7 +39,7 @@ def register_with_openapi(app: LangGraphApp) -> int:
         Number of routes registered with the openapi package.
 
     Raises:
-        ImportError: If ``azure-functions-openapi`` is not installed.
+        ImportError: If ``azure-functions-openapi-python`` is not installed.
         TypeError: If a ``request_model`` or ``response_model`` is not a
             Pydantic ``BaseModel`` subclass.
     """
@@ -47,8 +47,8 @@ def register_with_openapi(app: LangGraphApp) -> int:
         from azure_functions_openapi import register_openapi_metadata
     except ImportError as exc:
         raise ImportError(
-            "azure-functions-openapi is required for OpenAPI integration. "
-            "Install it with: pip install azure-functions-openapi"
+            "azure-functions-openapi-python is required for OpenAPI integration. "
+            "Install it with: pip install azure-functions-openapi-python"
         ) from exc
 
     metadata = app.get_app_metadata()

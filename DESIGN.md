@@ -69,7 +69,7 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 
 **Context**: LangGraph's built-in `MemorySaver` loses state on process restart. Azure Functions are stateless — each invocation may run on a different instance. Users need durable checkpoint persistence.
 
-**Decision**: Implement `AzureBlobCheckpointSaver` as an optional extra (`azure-functions-langgraph[azure-blob]`). Each checkpoint is stored as a hierarchy of blobs: `{thread_id}/{checkpoint_ns}/{checkpoint_id}/checkpoint.bin`, with separate blobs for channel values and pending writes. A `latest.json` hint blob accelerates lookups.
+**Decision**: Implement `AzureBlobCheckpointSaver` as an optional extra (`azure-functions-langgraph-python[azure-blob]`). Each checkpoint is stored as a hierarchy of blobs: `{thread_id}/{checkpoint_ns}/{checkpoint_id}/checkpoint.bin`, with separate blobs for channel values and pending writes. A `latest.json` hint blob accelerates lookups.
 
 **Consequences**: Checkpoint data survives restarts and scales across instances. Blob Storage provides high throughput and automatic geo-replication. The `azure-storage-blob` dependency is optional — import fails with a helpful message if not installed.
 
@@ -81,7 +81,7 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 
 **Context**: `InMemoryThreadStore` loses thread metadata on restart. Thread lifecycle (create, search, count, delete) needs to persist across Azure Functions instances.
 
-**Decision**: Implement `AzureTableThreadStore` as an optional extra (`azure-functions-langgraph[azure-table]`). Single-partition design (`PartitionKey="thread"`) with client-side filtering for metadata subset matching and status filters.
+**Decision**: Implement `AzureTableThreadStore` as an optional extra (`azure-functions-langgraph-python[azure-table]`). Single-partition design (`PartitionKey="thread"`) with client-side filtering for metadata subset matching and status filters.
 
 **Consequences**: Thread records persist across restarts. Table Storage is low-cost and low-latency for key-value lookups. Client-side filtering works well for <100K threads; at scale, the single partition may become a bottleneck.
 
@@ -115,11 +115,11 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 **Context**: The Azure Functions Python DX Toolkit has grown to multiple packages with overlapping capabilities.
 
 **Decision**: Establish clear responsibility boundaries:
-- `azure-functions-langgraph` owns LangGraph runtime exposure (graph deployment, invoke, stream, threads, runs, state)
-- `azure-functions-validation` owns request/response validation and serialization
-- `azure-functions-openapi` owns API documentation (OpenAPI spec generation, Swagger UI)
+- `azure-functions-langgraph-python` owns LangGraph runtime exposure (graph deployment, invoke, stream, threads, runs, state)
+- `azure-functions-validation-python` owns request/response validation and serialization
+- `azure-functions-openapi-python` owns API documentation (OpenAPI spec generation, Swagger UI)
 
-**Consequences**: OpenAPI support is delegated to the dedicated `azure-functions-openapi` package. A bridge module (`azure_functions_langgraph.openapi`) allows users to register LangGraph endpoints with the external openapi package.
+**Consequences**: OpenAPI support is delegated to the dedicated `azure-functions-openapi-python` package. A bridge module (`azure_functions_langgraph.openapi`) allows users to register LangGraph endpoints with the external openapi package.
 
 **Non-goals**: Absorbing validation or documentation concerns into this package.
 
@@ -180,8 +180,8 @@ src/azure_functions_langgraph/
 
 ## See Also
 
-- [azure-functions-validation — Architecture](https://github.com/yeongseon/azure-functions-validation) — Request/response validation pipeline
-- [azure-functions-openapi — Architecture](https://github.com/yeongseon/azure-functions-openapi) — OpenAPI spec generation
-- [azure-functions-logging — Architecture](https://github.com/yeongseon/azure-functions-logging) — Structured logging with contextvars
-- [azure-functions-doctor — Architecture](https://github.com/yeongseon/azure-functions-doctor) — Pre-deploy diagnostic CLI
-- [azure-functions-scaffold — Architecture](https://github.com/yeongseon/azure-functions-scaffold) — Project scaffolding CLI
+- [azure-functions-validation-python — Architecture](https://github.com/yeongseon/azure-functions-validation-python) — Request/response validation pipeline
+- [azure-functions-openapi-python — Architecture](https://github.com/yeongseon/azure-functions-openapi-python) — OpenAPI spec generation
+- [azure-functions-logging-python — Architecture](https://github.com/yeongseon/azure-functions-logging-python) — Structured logging with contextvars
+- [azure-functions-doctor-python — Architecture](https://github.com/yeongseon/azure-functions-doctor-python) — Pre-deploy diagnostic CLI
+- [azure-functions-scaffold-python — Architecture](https://github.com/yeongseon/azure-functions-scaffold-python) — Project scaffolding CLI

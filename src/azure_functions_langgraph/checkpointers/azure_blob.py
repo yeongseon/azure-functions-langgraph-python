@@ -77,7 +77,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             raise ImportError(
                 "AzureBlobCheckpointSaver requires optional dependency "
                 "'azure-storage-blob'. Install with: "
-                "pip install azure-functions-langgraph[azure-blob]"
+                "pip install azure-functions-langgraph-python[azure-blob]"
             ) from exc
 
         azure_container_client = getattr(azure_blob_module, "ContainerClient", None)
@@ -107,7 +107,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         except ImportError as exc:
             raise ImportError(
                 "AzureBlobCheckpointSaver requires 'azure-core'. "
-                "Install with: pip install azure-functions-langgraph[azure-blob]"
+                "Install with: pip install azure-functions-langgraph-python[azure-blob]"
             ) from exc
         self._not_found_error: type[BaseException] = cast(
             type[BaseException],

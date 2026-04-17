@@ -36,7 +36,7 @@ The library passes `config` directly to `graph.invoke()` or `graph.stream()`. Th
 
 The `LangGraphApp` class uses a lazy import. You can `import azure_functions_langgraph` without `langgraph` installed — the `ImportError` only occurs when you access `LangGraphApp` without the required dependencies.
 
-However, `langgraph` is listed as a dependency and will be installed automatically with `pip install azure-functions-langgraph`.
+However, `langgraph` is listed as a dependency and will be installed automatically with `pip install azure-functions-langgraph-python`.
 
 ## Can I use this with any graph, not just LangGraph?
 
@@ -76,7 +76,7 @@ app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 
 ## How is this different from LangGraph Platform?
 
-| Feature | LangGraph Platform | azure-functions-langgraph |
+| Feature | LangGraph Platform | azure-functions-langgraph-python |
 |---------|-------------------|--------------------------|
 | Hosting | LangChain Cloud (paid) | Your Azure subscription |
 | Streaming | True SSE | Buffered SSE (v0.2) |
@@ -111,6 +111,6 @@ This overrides the app-level `auth_level` for that specific graph's endpoints.
 
 ## How do I generate OpenAPI specs?
 
-Use the dedicated [`azure-functions-openapi`](https://github.com/yeongseon/azure-functions-openapi) package.
+Use the dedicated [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python) package.
 
-Starting with v0.5.0, `LangGraphApp` exposes a metadata API (`get_app_metadata()`) and a bridge module (`azure_functions_langgraph.openapi.register_with_openapi`) that forwards route metadata to `azure-functions-openapi` for spec generation. See the [Usage Guide](usage.md#migrating-to-azure-functions-openapi) for migration details.
+Starting with v0.5.0, `LangGraphApp` exposes a metadata API (`get_app_metadata()`) and a bridge module (`azure_functions_langgraph.openapi.register_with_openapi`) that forwards route metadata to `azure-functions-openapi-python` for spec generation. See the [Usage Guide](usage.md#migrating-to-azure-functions-openapi-python) for migration details.

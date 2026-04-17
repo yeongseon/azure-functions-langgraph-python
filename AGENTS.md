@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Purpose
-`azure-functions-langgraph` deploys LangGraph compiled graphs as Azure Functions HTTP endpoints with zero boilerplate.
+`azure-functions-langgraph-python` deploys LangGraph compiled graphs as Azure Functions HTTP endpoints with zero boilerplate.
 
 ## Read First
 - `README.md`

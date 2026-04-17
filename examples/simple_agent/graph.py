@@ -5,7 +5,7 @@ The graph has two nodes: ``greet`` and ``farewell``, connected sequentially.
 
 Requirements::
 
-    pip install azure-functions-langgraph langgraph langchain-core
+    pip install azure-functions-langgraph-python langgraph langchain-core
 
 Usage::
 

@@ -6,7 +6,7 @@ This guide walks you through deploying a LangGraph agent as Azure Functions HTTP
 
 - Python 3.10+
 - Azure Functions Core Tools installed
-- `azure-functions-langgraph` installed (see [Installation](installation.md))
+- `azure-functions-langgraph-python` installed (see [Installation](installation.md))
 
 ## Step 1: Define your graph state
 

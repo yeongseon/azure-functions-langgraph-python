@@ -1,6 +1,6 @@
 # Contributing Guide
 
-We welcome contributions to the `azure-functions-langgraph` project.
+We welcome contributions to the `azure-functions-langgraph-python` project.
 
 ## Branch Strategy
 

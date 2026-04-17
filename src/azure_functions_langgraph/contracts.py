@@ -93,7 +93,7 @@ class RouteMetadata:
 class RegisteredGraphMetadata:
     """Public metadata about a registered graph.
 
-    Used by external consumers like ``azure-functions-openapi``.
+    Used by external consumers like ``azure-functions-openapi-python``.
     """
 
     name: str

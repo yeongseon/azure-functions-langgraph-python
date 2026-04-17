@@ -1,8 +1,8 @@
 site_name: Azure Functions LangGraph
 site_description: Deploy LangGraph agents as Azure Functions HTTP endpoints
 site_author: Yeongseon Choe
-site_url: https://yeongseon.github.io/azure-functions-langgraph/
-repo_url: https://github.com/yeongseon/azure-functions-langgraph
+site_url: https://yeongseon.github.io/azure-functions-langgraph-python/
+repo_url: https://github.com/yeongseon/azure-functions-langgraph-python
 edit_uri: edit/main/docs/
 
 theme:
@@ -71,7 +71,7 @@ plugins:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/yeongseon/azure-functions-langgraph
+      link: https://github.com/yeongseon/azure-functions-langgraph-python
   copyright: |
     © 2026 Yeongseon Choe – MIT Licensed
 

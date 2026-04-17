@@ -1,6 +1,6 @@
 # Production Guide
 
-This guide focuses on production hardening for `azure-functions-langgraph` deployments on Azure Functions.
+This guide focuses on production hardening for `azure-functions-langgraph-python` deployments on Azure Functions.
 
 ## Authentication & Authorization
 ### Default auth behavior
@@ -75,7 +75,7 @@ The following are recommended practices for production observability when buildi
 - Log explicit lifecycle markers: request received, graph started, graph completed/failed.
 - Include error categories (`validation_error`, `execution_error`, `storage_error`) to simplify alerting.
 
-[`azure-functions-logging`](https://github.com/yeongseon/azure-functions-logging) provides structured logging helpers that pair well with this package.
+[`azure-functions-logging-python`](https://github.com/yeongseon/azure-functions-logging-python) provides structured logging helpers that pair well with this package.
 
 ### Application Insights correlation
 
@@ -280,7 +280,7 @@ This removes most race windows and aligns with current storage assumptions.
 Install optional dependency:
 
 ```bash
-pip install azure-functions-langgraph[azure-blob]
+pip install azure-functions-langgraph-python[azure-blob]
 ```
 
 Configure with connection string from environment and construct a container client:
@@ -307,7 +307,7 @@ If you already manage Azure clients elsewhere, pass a prepared container client 
 Install optional dependency:
 
 ```bash
-pip install azure-functions-langgraph[azure-table]
+pip install azure-functions-langgraph-python[azure-table]
 ```
 
 Configure with connection string and table name:
@@ -349,9 +349,9 @@ Use one of these patterns:
 
 ## See Also
 
-- [DESIGN.md](https://github.com/yeongseon/azure-functions-langgraph/blob/main/DESIGN.md) — Key design decisions and constraints
+- [DESIGN.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/DESIGN.md) — Key design decisions and constraints
 - COMPATIBILITY.md — SDK version compatibility policy
-- [azure-functions-logging](https://github.com/yeongseon/azure-functions-logging) — Structured logging
-- [azure-functions-doctor](https://github.com/yeongseon/azure-functions-doctor) — Pre-deploy diagnostics
-- [azure-functions-openapi](https://github.com/yeongseon/azure-functions-openapi) — API documentation
-- [azure-functions-validation](https://github.com/yeongseon/azure-functions-validation) — Request/response validation
+- [azure-functions-logging-python](https://github.com/yeongseon/azure-functions-logging-python) — Structured logging
+- [azure-functions-doctor-python](https://github.com/yeongseon/azure-functions-doctor-python) — Pre-deploy diagnostics
+- [azure-functions-openapi-python](https://github.com/yeongseon/azure-functions-openapi-python) — API documentation
+- [azure-functions-validation-python](https://github.com/yeongseon/azure-functions-validation-python) — Request/response validation

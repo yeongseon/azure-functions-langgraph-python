@@ -358,7 +358,7 @@ class LangGraphApp:
 
         The returned :class:`~contracts.AppMetadata` contains per-graph routes
         and app-level routes (e.g. ``/health``).  External consumers such as
-        the ``azure-functions-openapi`` bridge use this to generate specs.
+        the ``azure-functions-openapi-python`` bridge use this to generate specs.
 
         Note:
             Route paths use the default Azure Functions ``/api`` prefix.
