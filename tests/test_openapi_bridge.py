@@ -18,7 +18,7 @@ from tests.conftest import FakeCompiledGraph, FakeStatefulGraph
 
 class TestImportGuard:
     def test_import_error_when_openapi_not_installed(self) -> None:
-        """register_with_openapi should raise ImportError if azure-functions-openapi-python is missing."""
+        """register_with_openapi raises ImportError if azure-functions-openapi is missing."""
         app = LangGraphApp()
         app.register(graph=FakeCompiledGraph(), name="agent")
 
