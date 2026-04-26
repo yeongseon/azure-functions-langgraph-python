@@ -12,7 +12,7 @@
 
 이 문서의 언어: **한국어** | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [English](README.md)
 
-> **베타 버전 안내** — 이 패키지는 활발히 개발 중(`0.4.0`)입니다. 핵심 API가 안정화되고 있으나 마이너 릴리스 간에 변경될 수 있습니다. GitHub에서 이슈를 보고해 주세요.
+> **베타 버전 안내** — 이 패키지는 활발히 개발 중입니다. 핵심 API는 안정화되어 가고 있으나 v1.0 이전에는 변경될 수 있습니다. GitHub에서 이슈를 보고해 주세요.
 
 [LangGraph](https://github.com/langchain-ai/langgraph) 그래프를 최소한의 보일러플레이트로 **Azure Functions** HTTP 엔드포인트로 배포하세요.
 

@@ -12,7 +12,7 @@
 
 本文档语言: [한국어](README.ko.md) | [日本語](README.ja.md) | **简体中文** | [English](README.md)
 
-> **Beta 版本说明** — 此软件包正在积极开发中（`0.4.0`）。核心 API 趋于稳定，但可能在小版本之间发生变更。请在 GitHub 上报告问题。
+> **Beta 版本说明** — 此软件包正在积极开发中。核心 API 趋于稳定，但在 v1.0 之前可能仍会发生变更。请在 GitHub 上报告问题。
 
 以最少的样板代码将 [LangGraph](https://github.com/langchain-ai/langgraph) 图部署为 **Azure Functions** HTTP 端点。
 

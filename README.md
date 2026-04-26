@@ -12,7 +12,7 @@
 
 Read this in: [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-> **Beta Notice** — This package is under active development (`0.4.0`). Core APIs are stabilizing but may still change between minor releases. Please report issues on GitHub.
+> **Beta Notice** — This package is under active development. Core APIs are stabilizing but may still change before v1.0. Please report issues on GitHub.
 
 Deploy [LangGraph](https://github.com/langchain-ai/langgraph) graphs as **Azure Functions** HTTP endpoints with minimal boilerplate.
 
@@ -317,7 +317,7 @@ Fully backward-compatible. No breaking changes.
 
 Fully backward-compatible. No breaking changes.
 
-- **Metadata API**: `app.metadata()` returns an immutable snapshot of all registered routes and graph info
+- **Metadata API**: `app.get_app_metadata()` returns an immutable snapshot of all registered routes and graph info
 - **OpenAPI bridge**: `azure_functions_langgraph.openapi.register_with_openapi` integrates with `azure-functions-openapi-python`
 - **CloneableGraph protocol**: thread-isolated graph cloning for safe concurrent execution
 
