@@ -1,8 +1,9 @@
 """Thread storage protocol and in-memory implementation.
 
 The ``ThreadStore`` protocol defines CRUD + search for Platform API
-thread metadata.  Threads are independent of LangGraph checkpoint state
-and can exist before any graph execution.
+thread metadata plus atomic run-lock transitions for threaded run
+execution. Threads are independent of LangGraph checkpoint state and can
+exist before any graph execution.
 
 ``InMemoryThreadStore`` is the default implementation for development and
 single-process deployments.  For production scale-out, implement
@@ -34,10 +35,14 @@ class ThreadStore(Protocol):
     """Protocol for thread metadata persistence.
 
     Implementations must be safe for concurrent use from multiple request
-    handlers.
+    handlers, including atomic run-lock acquisition and release.
 
     * ``get`` returns ``None`` when the thread does not exist.
     * ``update`` and ``delete`` raise ``KeyError`` for missing threads.
+    * ``try_acquire_run_lock`` atomically transitions runnable threads to
+      ``busy``.
+    * ``release_run_lock`` transitions a held run lock back to a
+      terminal thread status.
     * ``search`` filters by exact top-level metadata subset match.
     """
 
@@ -70,6 +75,49 @@ class ThreadStore(Protocol):
         """Delete a thread.
 
         Raises ``KeyError`` if the thread does not exist.
+        """
+        ...
+
+    def try_acquire_run_lock(
+        self,
+        thread_id: str,
+        *,
+        assistant_id: str | None = None,
+    ) -> Thread | None:
+        """Atomically transition status idle/interrupted/error → busy.
+
+        Behavior (in order):
+        1. If thread does not exist: raise ``KeyError(thread_id)``.
+        2. If thread.assistant_id is set AND assistant_id is provided AND
+           they differ: raise ``ValueError`` with a message containing
+           both ids.
+        3. If thread.status == ``"busy"``: return ``None``.
+        4. Otherwise atomically set status=``"busy"``, bind
+           assistant_id if the thread had none and one is provided,
+           update updated_at, and return the resulting ``Thread``.
+
+        Concurrent calls from multiple processes/instances must be safe:
+        exactly one call returns a ``Thread`` and all others return
+        ``None`` or raise.
+        """
+        ...
+
+    def release_run_lock(
+        self,
+        thread_id: str,
+        *,
+        status: ThreadStatus,
+        values: dict[str, Any] | None = None,
+    ) -> Thread:
+        """Release a held lock by transitioning to a terminal status.
+
+        ``status`` must be one of ``"idle"``, ``"interrupted"``, or
+        ``"error"``. If status == ``"busy"`` this method raises
+        ``ValueError``.
+
+        Raises ``KeyError(thread_id)`` if the thread does not exist.
+        Implementations may treat this as a best-effort release when used
+        by callers.
         """
         ...
 
@@ -113,7 +161,8 @@ class InMemoryThreadStore:
     """Thread store backed by an in-process dictionary.
 
     All public methods are thread-safe (guarded by ``threading.RLock``)
-    and return deep copies so callers cannot mutate persisted state.
+    and return deep copies so callers cannot mutate persisted state,
+    including atomic run-lock acquire/release operations.
 
     Parameters
     ----------
@@ -210,6 +259,60 @@ class InMemoryThreadStore:
             if thread_id not in self._threads:
                 raise KeyError(thread_id)
             del self._threads[thread_id]
+
+    def try_acquire_run_lock(
+        self,
+        thread_id: str,
+        *,
+        assistant_id: str | None = None,
+    ) -> Thread | None:
+        """Atomically acquire the per-thread run lock."""
+        with self._lock:
+            if thread_id not in self._threads:
+                raise KeyError(thread_id)
+            existing = self._threads[thread_id]
+            if (
+                existing.assistant_id is not None
+                and assistant_id is not None
+                and existing.assistant_id != assistant_id
+            ):
+                raise ValueError(
+                    f"Thread {thread_id!r} is bound to assistant "
+                    f"{existing.assistant_id!r}, cannot run with {assistant_id!r}"
+                )
+            if existing.status == "busy":
+                return None
+            data = existing.model_dump()
+            data["status"] = "busy"
+            data["updated_at"] = self._now()
+            if existing.assistant_id is None and assistant_id is not None:
+                data["assistant_id"] = assistant_id
+            updated = Thread.model_validate(data)
+            self._threads[thread_id] = updated
+            return self._deep_copy(updated)
+
+    def release_run_lock(
+        self,
+        thread_id: str,
+        *,
+        status: ThreadStatus,
+        values: dict[str, Any] | None = None,
+    ) -> Thread:
+        """Release the per-thread run lock to a terminal status."""
+        if status == "busy":
+            raise ValueError("release_run_lock cannot set status to 'busy'")
+        with self._lock:
+            if thread_id not in self._threads:
+                raise KeyError(thread_id)
+            existing = self._threads[thread_id]
+            data = existing.model_dump()
+            data["status"] = status
+            data["updated_at"] = self._now()
+            if values is not None:
+                data["values"] = values
+            updated = Thread.model_validate(data)
+            self._threads[thread_id] = updated
+            return self._deep_copy(updated)
 
     def _filtered_threads(
         self,

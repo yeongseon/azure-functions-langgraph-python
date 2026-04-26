@@ -196,6 +196,124 @@ class TestUpdate:
 
 
 # ---------------------------------------------------------------------------
+# Run lock
+# ---------------------------------------------------------------------------
+
+
+class TestRunLock:
+    def test_try_acquire_returns_busy_thread(self) -> None:
+        store = InMemoryThreadStore()
+        thread = store.create()
+
+        locked = store.try_acquire_run_lock(thread.thread_id)
+
+        assert locked is not None
+        assert locked.thread_id == thread.thread_id
+        assert locked.status == "busy"
+
+    def test_try_acquire_raises_key_error_for_missing_thread(self) -> None:
+        store = InMemoryThreadStore()
+
+        with pytest.raises(KeyError):
+            store.try_acquire_run_lock("missing")
+
+    def test_try_acquire_raises_value_error_for_assistant_mismatch(self) -> None:
+        store = InMemoryThreadStore()
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="assistant-a")
+
+        with pytest.raises(ValueError, match="assistant-a"):
+            store.try_acquire_run_lock(thread.thread_id, assistant_id="assistant-b")
+
+    def test_try_acquire_binds_assistant_when_unbound(self) -> None:
+        store = InMemoryThreadStore()
+        thread = store.create()
+
+        locked = store.try_acquire_run_lock(thread.thread_id, assistant_id="assistant-a")
+
+        assert locked is not None
+        assert locked.assistant_id == "assistant-a"
+        stored = store.get(thread.thread_id)
+        assert stored is not None
+        assert stored.assistant_id == "assistant-a"
+
+    def test_try_acquire_returns_none_when_busy(self) -> None:
+        store = InMemoryThreadStore()
+        thread = store.create()
+        first = store.try_acquire_run_lock(thread.thread_id)
+
+        second = store.try_acquire_run_lock(thread.thread_id)
+
+        assert first is not None
+        assert second is None
+
+    def test_try_acquire_only_one_winner_under_concurrency(self) -> None:
+        store = InMemoryThreadStore()
+        thread = store.create()
+        worker_count = 8
+        barrier = threading.Barrier(worker_count)
+        results: list[Thread | None] = [None] * worker_count
+        errors: list[BaseException] = []
+
+        def worker(index: int) -> None:
+            try:
+                barrier.wait()
+                results[index] = store.try_acquire_run_lock(thread.thread_id)
+            except BaseException as exc:  # pragma: no cover - defensive for threads
+                errors.append(exc)
+
+        workers = [threading.Thread(target=worker, args=(index,)) for index in range(worker_count)]
+        for worker_thread in workers:
+            worker_thread.start()
+        for worker_thread in workers:
+            worker_thread.join()
+
+        assert not errors
+        winners = [result for result in results if result is not None]
+        assert len(winners) == 1
+        assert sum(result is None for result in results) == worker_count - 1
+
+    def test_release_sets_status_and_values(self) -> None:
+        store = InMemoryThreadStore()
+        thread = store.create()
+        store.try_acquire_run_lock(thread.thread_id)
+
+        released = store.release_run_lock(
+            thread.thread_id,
+            status="idle",
+            values={"messages": [{"role": "assistant", "content": "done"}]},
+        )
+
+        assert released.status == "idle"
+        assert released.values == {"messages": [{"role": "assistant", "content": "done"}]}
+
+    def test_release_rejects_busy_status(self) -> None:
+        store = InMemoryThreadStore()
+        thread = store.create()
+
+        with pytest.raises(ValueError, match="cannot set status to 'busy'"):
+            store.release_run_lock(thread.thread_id, status="busy")
+
+    def test_release_raises_key_error_for_missing_thread(self) -> None:
+        store = InMemoryThreadStore()
+
+        with pytest.raises(KeyError):
+            store.release_run_lock("missing", status="idle")
+
+    def test_acquire_release_acquire_cycle(self) -> None:
+        store = InMemoryThreadStore()
+        thread = store.create()
+
+        first = store.try_acquire_run_lock(thread.thread_id)
+        store.release_run_lock(thread.thread_id, status="idle")
+        second = store.try_acquire_run_lock(thread.thread_id)
+
+        assert first is not None
+        assert second is not None
+        assert second.status == "busy"
+
+
+# ---------------------------------------------------------------------------
 # Delete
 # ---------------------------------------------------------------------------
 

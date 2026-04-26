@@ -245,6 +245,14 @@ class FakeResourceNotFoundError(Exception):
     """Raised when a mock blob or table entity is not present."""
 
 
+class FakeResourceModifiedError(Exception):
+    """Raised when an ETag-based update fails optimistic concurrency."""
+
+
+class FakeMatchConditions:
+    IfNotModified = "if-not-modified"
+
+
 @dataclass
 class _BlobRecord:
     data: bytes
@@ -330,7 +338,9 @@ class MockTableClient:
             key = (str(entity["PartitionKey"]), str(entity["RowKey"]))
             if key in self.entities:
                 raise ValueError(f"Entity already exists: {key}")
-            self.entities[key] = deepcopy(entity)
+            stored = deepcopy(entity)
+            stored["etag"] = f"W/\"{id(stored)}\""
+            self.entities[key] = stored
 
     def get_entity(self, partition_key: str, row_key: str) -> dict[str, Any]:
         with self.lock:
@@ -340,17 +350,34 @@ class MockTableClient:
                 raise FakeResourceNotFoundError(row_key)
             return deepcopy(entity)
 
-    def update_entity(self, entity: dict[str, Any], mode: str) -> None:
+    def update_entity(
+        self,
+        entity: dict[str, Any],
+        mode: str,
+        *,
+        etag: str | None = None,
+        match_condition: Any = None,
+    ) -> None:
         with self.lock:
             key = (str(entity["PartitionKey"]), str(entity["RowKey"]))
             if key not in self.entities:
                 raise FakeResourceNotFoundError(key[1])
+            stored = self.entities[key]
+            if (
+                match_condition == FakeMatchConditions.IfNotModified
+                and etag is not None
+                and etag != stored.get("etag")
+            ):
+                raise FakeResourceModifiedError(key[1])
             if mode == "merge":
-                merged = deepcopy(self.entities[key])
+                merged = deepcopy(stored)
                 merged.update(deepcopy(entity))
+                merged["etag"] = f"W/\"{id(merged)}\""
                 self.entities[key] = merged
                 return
-            self.entities[key] = deepcopy(entity)
+            replaced = deepcopy(entity)
+            replaced["etag"] = f"W/\"{id(replaced)}\""
+            self.entities[key] = replaced
 
     def delete_entity(self, partition_key: str, row_key: str) -> None:
         with self.lock:
@@ -478,6 +505,8 @@ class _BackendContext:
             return cls(
                 table_client=self._mock_table,
                 not_found_error=FakeResourceNotFoundError,
+                modified_error=FakeResourceModifiedError,
+                match_conditions=FakeMatchConditions,
             )
 
     def new_app_client(

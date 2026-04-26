@@ -20,36 +20,88 @@ class FakeResourceNotFoundError(Exception):
     pass
 
 
+class FakeResourceModifiedError(Exception):
+    pass
+
+
+class FakeMatchConditions:
+    IfNotModified = "if-not-modified"
+
+
+class MockEntity(dict[str, Any]):
+    def __init__(self, data: dict[str, Any]) -> None:
+        super().__init__(data)
+        etag = data.get("etag")
+        self.metadata = {} if etag is None else {"etag": etag}
+
+
 class MockTableClient:
     def __init__(self) -> None:
         self.entities: dict[tuple[str, str], dict[str, Any]] = {}
         self.last_query_filter: str | None = None
         self.last_update_mode: str | None = None
+        self.last_update_kwargs: dict[str, Any] = {}
+        self.update_attempts = 0
+        self.modified_errors_remaining = 0
+        self.always_modified_error = False
+        self.raise_not_found_on_update = False
+        self._etag_counter = 0
+
+    def _next_etag(self) -> str:
+        self._etag_counter += 1
+        return f'W/"{self._etag_counter}"'
 
     def create_entity(self, entity: dict[str, Any]) -> None:
         key = (str(entity["PartitionKey"]), str(entity["RowKey"]))
         if key in self.entities:
             raise ValueError(f"Entity already exists: {key}")
-        self.entities[key] = deepcopy(entity)
+        stored = deepcopy(entity)
+        stored["etag"] = self._next_etag()
+        self.entities[key] = stored
 
     def get_entity(self, partition_key: str, row_key: str) -> dict[str, Any]:
         key = (partition_key, row_key)
         entity = self.entities.get(key)
         if entity is None:
             raise FakeResourceNotFoundError(row_key)
-        return deepcopy(entity)
+        return MockEntity(deepcopy(entity))
 
-    def update_entity(self, entity: dict[str, Any], mode: str) -> None:
+    def update_entity(
+        self,
+        entity: dict[str, Any],
+        mode: str,
+        *,
+        etag: str | None = None,
+        match_condition: Any = None,
+    ) -> None:
         self.last_update_mode = mode
+        self.last_update_kwargs = {
+            "etag": etag,
+            "match_condition": match_condition,
+        }
+        self.update_attempts += 1
         key = (str(entity["PartitionKey"]), str(entity["RowKey"]))
+        if self.raise_not_found_on_update:
+            raise FakeResourceNotFoundError(key[1])
         if key not in self.entities:
             raise FakeResourceNotFoundError(key[1])
+        if self.always_modified_error:
+            raise FakeResourceModifiedError(key[1])
+        if self.modified_errors_remaining > 0:
+            self.modified_errors_remaining -= 1
+            raise FakeResourceModifiedError(key[1])
+        stored = self.entities[key]
+        if match_condition == FakeMatchConditions.IfNotModified and etag != stored.get("etag"):
+            raise FakeResourceModifiedError(key[1])
         if mode == "merge":
-            merged = deepcopy(self.entities[key])
+            merged = deepcopy(stored)
             merged.update(deepcopy(entity))
+            merged["etag"] = self._next_etag()
             self.entities[key] = merged
             return
-        self.entities[key] = deepcopy(entity)
+        replaced = deepcopy(entity)
+        replaced["etag"] = self._next_etag()
+        self.entities[key] = replaced
 
     def delete_entity(self, partition_key: str, row_key: str) -> None:
         key = (partition_key, row_key)
@@ -88,6 +140,8 @@ def _new_store() -> tuple[Any, MockTableClient]:
     store = AzureTableThreadStore(
         table_client=table_client,
         not_found_error=FakeResourceNotFoundError,
+        modified_error=FakeResourceModifiedError,
+        match_conditions=FakeMatchConditions,
     )
     return store, table_client
 
@@ -200,6 +254,97 @@ def test_update_supports_all_status_values() -> None:
         thread = store.create()
         updated = store.update(thread.thread_id, status=status)
         assert updated.status == status
+
+
+def test_try_acquire_success_consumes_etag() -> None:
+    store, _ = _new_store()
+
+    thread = store.create()
+    locked = store.try_acquire_run_lock(thread.thread_id)
+
+    assert locked is not None
+    assert locked.status == "busy"
+    assert store.try_acquire_run_lock(thread.thread_id) is None
+
+
+def test_try_acquire_retries_on_modified_error() -> None:
+    store, table_client = _new_store()
+
+    thread = store.create()
+    table_client.modified_errors_remaining = 1
+
+    locked = store.try_acquire_run_lock(thread.thread_id)
+
+    assert locked is not None
+    assert locked.status == "busy"
+    assert table_client.update_attempts == 2
+
+
+def test_try_acquire_returns_none_after_retries_exhausted() -> None:
+    store, table_client = _new_store()
+
+    thread = store.create()
+    table_client.always_modified_error = True
+
+    locked = store.try_acquire_run_lock(thread.thread_id)
+
+    assert locked is None
+    assert table_client.update_attempts == 3
+
+
+def test_try_acquire_raises_key_error_when_get_entity_404() -> None:
+    store, _ = _new_store()
+
+    with pytest.raises(KeyError):
+        store.try_acquire_run_lock("missing")
+
+
+def test_try_acquire_raises_key_error_when_update_404() -> None:
+    store, table_client = _new_store()
+
+    thread = store.create()
+    table_client.raise_not_found_on_update = True
+
+    with pytest.raises(KeyError):
+        store.try_acquire_run_lock(thread.thread_id)
+
+
+def test_try_acquire_assistant_mismatch_raises() -> None:
+    store, _ = _new_store()
+
+    thread = store.create()
+    store.update(thread.thread_id, assistant_id="a")
+
+    with pytest.raises(ValueError, match="cannot run with 'b'"):
+        store.try_acquire_run_lock(thread.thread_id, assistant_id="b")
+
+
+def test_release_lock_no_etag() -> None:
+    store, table_client = _new_store()
+
+    thread = store.create()
+    store.release_run_lock(thread.thread_id, status="idle")
+
+    assert table_client.last_update_mode == "merge"
+    assert table_client.last_update_kwargs["etag"] is None
+    assert table_client.last_update_kwargs["match_condition"] is None
+
+
+def test_release_lock_with_values_serializes_to_values_json() -> None:
+    store, table_client = _new_store()
+
+    thread = store.create()
+    released = store.release_run_lock(
+        thread.thread_id,
+        status="error",
+        values={"messages": [{"role": "assistant", "content": "done"}]},
+    )
+
+    assert released.status == "error"
+    entity = table_client.entities[("thread", thread.thread_id)]
+    assert entity["values_json"] == (
+        '{"messages": [{"role": "assistant", "content": "done"}]}'
+    )
 
 
 def test_delete_existing_and_missing() -> None:
@@ -346,9 +491,14 @@ def test_from_connection_string_success_sets_not_found_error(monkeypatch: Any) -
 
     azure_core_exceptions = types.ModuleType("azure.core.exceptions")
     setattr(azure_core_exceptions, "ResourceNotFoundError", FakeResourceNotFoundError)
+    setattr(azure_core_exceptions, "ResourceModifiedError", FakeResourceModifiedError)
+
+    azure_core = types.ModuleType("azure.core")
+    setattr(azure_core, "MatchConditions", FakeMatchConditions)
 
     monkeypatch.setitem(sys.modules, "azure.data.tables", azure_data_tables)
     monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions)
+    monkeypatch.setitem(sys.modules, "azure.core", azure_core)
 
     store = AzureTableThreadStore.from_connection_string(
         connection_string="UseDevelopmentStorage=true",
@@ -357,6 +507,8 @@ def test_from_connection_string_success_sets_not_found_error(monkeypatch: Any) -
 
     assert FakeTableClient.called_with == ("UseDevelopmentStorage=true", "threads")
     assert store._not_found_error is FakeResourceNotFoundError
+    assert store._modified_error is FakeResourceModifiedError
+    assert store._match_conditions is FakeMatchConditions
     assert store.get("missing") is None
 
 
@@ -364,9 +516,13 @@ def test_from_connection_string_missing_symbols_raise_helpful_errors(monkeypatch
     missing_table_client_module = types.ModuleType("azure.data.tables")
     azure_core_exceptions = types.ModuleType("azure.core.exceptions")
     setattr(azure_core_exceptions, "ResourceNotFoundError", FakeResourceNotFoundError)
+    setattr(azure_core_exceptions, "ResourceModifiedError", FakeResourceModifiedError)
+    azure_core = types.ModuleType("azure.core")
+    setattr(azure_core, "MatchConditions", FakeMatchConditions)
 
     monkeypatch.setitem(sys.modules, "azure.data.tables", missing_table_client_module)
     monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions)
+    monkeypatch.setitem(sys.modules, "azure.core", azure_core)
 
     with pytest.raises(ImportError, match="TableClient"):
         AzureTableThreadStore.from_connection_string(
@@ -390,8 +546,34 @@ def test_from_connection_string_missing_symbols_raise_helpful_errors(monkeypatch
 
     monkeypatch.setitem(sys.modules, "azure.data.tables", azure_data_tables)
     monkeypatch.setitem(sys.modules, "azure.core.exceptions", missing_not_found_module)
+    monkeypatch.setitem(sys.modules, "azure.core", azure_core)
 
     with pytest.raises(ImportError, match="ResourceNotFoundError"):
+        AzureTableThreadStore.from_connection_string(
+            connection_string="UseDevelopmentStorage=true",
+            table_name="threads",
+        )
+
+    missing_modified_module = types.ModuleType("azure.core.exceptions")
+    setattr(missing_modified_module, "ResourceNotFoundError", FakeResourceNotFoundError)
+
+    monkeypatch.setitem(sys.modules, "azure.core.exceptions", missing_modified_module)
+
+    with pytest.raises(ImportError, match="ResourceModifiedError"):
+        AzureTableThreadStore.from_connection_string(
+            connection_string="UseDevelopmentStorage=true",
+            table_name="threads",
+        )
+
+    azure_core_exceptions_with_both = types.ModuleType("azure.core.exceptions")
+    setattr(azure_core_exceptions_with_both, "ResourceNotFoundError", FakeResourceNotFoundError)
+    setattr(azure_core_exceptions_with_both, "ResourceModifiedError", FakeResourceModifiedError)
+    missing_match_conditions_module = types.ModuleType("azure.core")
+
+    monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions_with_both)
+    monkeypatch.setitem(sys.modules, "azure.core", missing_match_conditions_module)
+
+    with pytest.raises(ImportError, match="MatchConditions"):
         AzureTableThreadStore.from_connection_string(
             connection_string="UseDevelopmentStorage=true",
             table_name="threads",
@@ -478,14 +660,20 @@ def test_update_entity_race_raises_keyerror() -> None:
     # Monkey-patch update_entity to simulate race: entity disappears after get
     original_update = table_client.update_entity
 
-    def racing_update(entity: dict[str, Any], mode: str) -> None:
+    def racing_update(
+        entity: dict[str, Any],
+        mode: str,
+        *,
+        etag: str | None = None,
+        match_condition: Any = None,
+    ) -> None:
         # Delete the entity before the real update
         pk = str(entity["PartitionKey"])
         rk = str(entity["RowKey"])
         key = (pk, rk)
         if key in table_client.entities:
             del table_client.entities[key]
-        original_update(entity, mode)
+        original_update(entity, mode, etag=etag, match_condition=match_condition)
 
     table_client.update_entity = racing_update  # type: ignore[method-assign]
 
@@ -508,9 +696,14 @@ def test_from_connection_string_does_not_leak_class_state(monkeypatch: Any) -> N
 
     azure_core_exceptions = types.ModuleType("azure.core.exceptions")
     setattr(azure_core_exceptions, "ResourceNotFoundError", FakeResourceNotFoundError)
+    setattr(azure_core_exceptions, "ResourceModifiedError", FakeResourceModifiedError)
+
+    azure_core = types.ModuleType("azure.core")
+    setattr(azure_core, "MatchConditions", FakeMatchConditions)
 
     monkeypatch.setitem(sys.modules, "azure.data.tables", azure_data_tables)
     monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions)
+    monkeypatch.setitem(sys.modules, "azure.core", azure_core)
 
     # Create store via from_connection_string
     store = AzureTableThreadStore.from_connection_string(

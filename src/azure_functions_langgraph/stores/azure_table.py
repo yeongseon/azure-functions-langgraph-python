@@ -26,7 +26,14 @@ class _TableClientProtocol(Protocol):
 
     def get_entity(self, partition_key: str, row_key: str) -> dict[str, Any]: ...
 
-    def update_entity(self, entity: dict[str, Any], mode: str) -> None: ...
+    def update_entity(
+        self,
+        entity: dict[str, Any],
+        mode: str,
+        *,
+        etag: str | None = None,
+        match_condition: Any = None,
+    ) -> None: ...
 
     def delete_entity(self, partition_key: str, row_key: str) -> None: ...
 
@@ -41,6 +48,9 @@ class AzureTableThreadStore(ThreadStore):
         higher scale, the single partition may become a throughput
         bottleneck and client-side filtering for search/count becomes
         expensive. See DESIGN.md decision #8 for scale envelope details.
+
+    Also provides atomic run-lock acquisition via Azure Table ETag
+    compare-and-swap and best-effort lock release via merge updates.
     """
 
     def __init__(
@@ -48,15 +58,29 @@ class AzureTableThreadStore(ThreadStore):
         *,
         table_client: _TableClientProtocol,
         not_found_error: type[BaseException],
+        modified_error: type[BaseException],
+        match_conditions: Any,
     ) -> None:
         if not_found_error is None:
             raise ValueError(
                 "not_found_error must be provided for protocol-based construction, "
                 "or create the store with from_connection_string()"
             )
+        if modified_error is None:
+            raise ValueError(
+                "modified_error must be provided for protocol-based construction, "
+                "or create the store with from_connection_string()"
+            )
+        if match_conditions is None:
+            raise ValueError(
+                "match_conditions must be provided for protocol-based construction, "
+                "or create the store with from_connection_string()"
+            )
 
         self._table_client = table_client
         self._not_found_error: type[BaseException] = not_found_error
+        self._modified_error: type[BaseException] = modified_error
+        self._match_conditions = match_conditions
 
     @classmethod
     def from_connection_string(
@@ -86,8 +110,23 @@ class AzureTableThreadStore(ThreadStore):
                 "azure.core.exceptions.ResourceNotFoundError not found. "
                 "Install with: pip install azure-functions-langgraph-python[azure-table]"
             )
+        resource_modified_error = getattr(exceptions_module, "ResourceModifiedError", None)
+        if resource_modified_error is None:
+            raise ImportError(
+                "azure.core.exceptions.ResourceModifiedError not found. "
+                "Install with: pip install azure-functions-langgraph-python[azure-table]"
+            )
+
+        azure_core_module = importlib.import_module("azure.core")
+        match_conditions_cls = getattr(azure_core_module, "MatchConditions", None)
+        if match_conditions_cls is None:
+            raise ImportError(
+                "azure.core.MatchConditions not found. "
+                "Install with: pip install azure-functions-langgraph-python[azure-table]"
+            )
 
         resolved_not_found_error = cast(type[BaseException], resource_not_found_error)
+        resolved_modified_error = cast(type[BaseException], resource_modified_error)
 
         table_client = table_client_class.from_connection_string(
             conn_str=connection_string,
@@ -96,6 +135,8 @@ class AzureTableThreadStore(ThreadStore):
         return cls(
             table_client=cast(_TableClientProtocol, table_client),
             not_found_error=resolved_not_found_error,
+            modified_error=resolved_modified_error,
+            match_conditions=match_conditions_cls,
         )
 
     @staticmethod
@@ -296,6 +337,114 @@ class AzureTableThreadStore(ThreadStore):
             )
         except not_found_error as exc:
             raise KeyError(thread_id) from exc
+
+    def try_acquire_run_lock(
+        self,
+        thread_id: str,
+        *,
+        assistant_id: str | None = None,
+    ) -> Thread | None:
+        """Atomically acquire the per-thread run lock with ETag CAS."""
+        not_found_error = self._not_found_exception()
+        modified_error = self._modified_error
+        match_conditions = self._match_conditions
+
+        max_attempts = 3
+        last_exc: BaseException | None = None
+        for _attempt in range(max_attempts):
+            try:
+                entity = self._table_client.get_entity(
+                    partition_key=self._partition_key(),
+                    row_key=thread_id,
+                )
+            except not_found_error:
+                raise KeyError(thread_id)
+
+            thread = self._entity_to_thread(entity)
+            if (
+                thread.assistant_id is not None
+                and assistant_id is not None
+                and thread.assistant_id != assistant_id
+            ):
+                raise ValueError(
+                    f"Thread {thread_id!r} is bound to assistant "
+                    f"{thread.assistant_id!r}, cannot run with {assistant_id!r}"
+                )
+            if thread.status == "busy":
+                return None
+
+            entity_metadata = getattr(entity, "metadata", None)
+            etag = entity_metadata.get("etag") if isinstance(entity_metadata, Mapping) else None
+            if etag is None:
+                etag = entity.get("etag") if isinstance(entity, dict) else None
+
+            now = self._now()
+            patch: dict[str, Any] = {
+                "PartitionKey": self._partition_key(),
+                "RowKey": thread_id,
+                "status": "busy",
+                "updated_at": now,
+            }
+            if thread.assistant_id is None and assistant_id is not None:
+                patch["assistant_id"] = assistant_id
+
+            try:
+                self._table_client.update_entity(
+                    patch,
+                    mode="merge",
+                    etag=etag,
+                    match_condition=match_conditions.IfNotModified,
+                )
+            except modified_error as exc:
+                last_exc = exc
+                continue
+            except not_found_error:
+                raise KeyError(thread_id)
+
+            new_data = thread.model_dump()
+            new_data["status"] = "busy"
+            new_data["updated_at"] = now
+            if thread.assistant_id is None and assistant_id is not None:
+                new_data["assistant_id"] = assistant_id
+            return Thread.model_validate(new_data)
+
+        logger.warning(
+            "try_acquire_run_lock for thread %s exhausted %d retries (last: %s)",
+            thread_id,
+            max_attempts,
+            last_exc,
+        )
+        return None
+
+    def release_run_lock(
+        self,
+        thread_id: str,
+        *,
+        status: ThreadStatus,
+        values: dict[str, Any] | None = None,
+    ) -> Thread:
+        """Release the per-thread run lock without ETag concurrency."""
+        if status == "busy":
+            raise ValueError("release_run_lock cannot set status to 'busy'")
+        not_found_error = self._not_found_exception()
+        patch: dict[str, Any] = {
+            "PartitionKey": self._partition_key(),
+            "RowKey": thread_id,
+            "status": status,
+            "updated_at": self._now(),
+        }
+        if values is not None:
+            patch["values_json"] = json.dumps(values, default=self._json_default)
+        self._warn_entity_size(patch, thread_id)
+        try:
+            self._table_client.update_entity(patch, mode="merge")
+        except not_found_error as exc:
+            raise KeyError(thread_id) from exc
+        merged = self._table_client.get_entity(
+            partition_key=self._partition_key(),
+            row_key=thread_id,
+        )
+        return self._entity_to_thread(merged)
 
     def search(
         self,
