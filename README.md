@@ -195,6 +195,18 @@ from azure_functions_langgraph import LangGraphApp
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 ```
 
+### Streaming behavior
+
+> **Important:** All `/stream` endpoints (both the native `POST /api/graphs/{name}/stream`
+> and the Platform-compatible `POST /threads/{id}/runs/stream` and `POST /runs/stream`)
+> return **buffered SSE**. Chunks emitted by the graph are collected during execution
+> and flushed as SSE events **after the run completes** — this is **not** true
+> token-level streaming, and clients will not receive partial tokens incrementally.
+>
+> True chunked streaming is on the roadmap and depends on Azure Functions Python v2
+> streaming response support. If you need real-time token streaming today, run the
+> graph behind a long-running host (e.g. App Service or AKS) instead.
+
 ### Per-graph auth
 
 Override app-level auth settings per graph:
@@ -216,7 +228,7 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 ### What you get
 
 1. `POST /api/graphs/echo_agent/invoke` — invoke the agent
-2. `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE)
+2. `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE, not true token streaming)
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — inspect thread state
 4. `GET /api/health` — health check
 
@@ -232,9 +244,9 @@ With `platform_compat=True`, you also get SDK-compatible endpoints:
 13. `POST /threads/search` — search threads
 14. `POST /threads/count` — count threads
 15. `POST /threads/{id}/runs/wait` — run and wait for result
-16. `POST /threads/{id}/runs/stream` — run and stream result
+16. `POST /threads/{id}/runs/stream` — run and stream result (buffered SSE)
 17. `POST /runs/wait` — threadless run
-18. `POST /runs/stream` — threadless stream
+18. `POST /runs/stream` — threadless stream (buffered SSE)
 19. `GET /threads/{id}/state` — get thread state
 20. `POST /threads/{id}/state` — update thread state
 21. `POST /threads/{id}/history` — get state history

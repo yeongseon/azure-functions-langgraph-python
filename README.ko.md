@@ -158,6 +158,18 @@ from azure_functions_langgraph import LangGraphApp
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 ```
 
+### 스트리밍 동작 방식
+
+> **중요:** 모든 `/stream` 엔드포인트(네이티브 `POST /api/graphs/{name}/stream`,
+> Platform 호환 `POST /threads/{id}/runs/stream`, `POST /runs/stream`)는
+> **버퍼링된 SSE**를 반환합니다. 그래프가 emit하는 청크는 실행 중에 수집되어
+> 실행이 **완료된 후**에 한꺼번에 SSE 이벤트로 전송됩니다. 즉, 진정한 토큰 단위
+> 스트리밍이 아니며, 클라이언트는 부분 토큰을 점진적으로 받지 못합니다.
+>
+> 진정한 청크 스트리밍은 로드맵에 있으며 Azure Functions Python v2의 streaming
+> response 지원에 의존합니다. 실시간 토큰 스트리밍이 필요한 경우, 장시간 실행
+> 호스트(예: App Service 또는 AKS)에서 그래프를 실행하는 것을 권장합니다.
+
 ### 그래프별 인증
 
 앱 수준 인증 설정을 그래프별로 재정의할 수 있습니다:
@@ -179,7 +191,7 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 ### 생성되는 엔드포인트
 
 1. `POST /api/graphs/echo_agent/invoke` — 에이전트 호출
-2. `POST /api/graphs/echo_agent/stream` — 에이전트 응답 스트리밍 (버퍼링된 SSE)
+2. `POST /api/graphs/echo_agent/stream` — 에이전트 응답 스트리밍 (버퍼링된 SSE, 진정한 토큰 스트리밍 아님)
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — 스레드 상태 조회
 4. `GET /api/health` — 헬스 체크
 
@@ -195,9 +207,9 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 13. `POST /threads/search` — 스레드 검색
 14. `POST /threads/count` — 스레드 수
 15. `POST /threads/{id}/runs/wait` — 실행 후 결과 대기
-16. `POST /threads/{id}/runs/stream` — 실행 후 결과 스트리밍
+16. `POST /threads/{id}/runs/stream` — 실행 후 결과 스트리밍 (버퍼링된 SSE)
 17. `POST /runs/wait` — 스레드리스 실행
-18. `POST /runs/stream` — 스레드리스 스트리밍
+18. `POST /runs/stream` — 스레드리스 스트리밍 (버퍼링된 SSE)
 19. `GET /threads/{id}/state` — 스레드 상태 조회
 20. `POST /threads/{id}/state` — 스레드 상태 수정
 21. `POST /threads/{id}/history` — 상태 히스토리

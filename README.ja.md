@@ -158,6 +158,20 @@ from azure_functions_langgraph import LangGraphApp
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 ```
 
+### ストリーミングの挙動
+
+> **重要:** すべての `/stream` エンドポイント（ネイティブ `POST /api/graphs/{name}/stream`、
+> Platform互換の `POST /threads/{id}/runs/stream` および `POST /runs/stream`）は
+> **バッファリングされた SSE** を返します。グラフが emit したチャンクは実行中に
+> 収集され、実行が**完了した後**に SSE イベントとして一括送信されます。これは
+> トークン単位の真のストリーミングではなく、クライアントは部分トークンを逐次的には
+> 受け取れません。
+>
+> 真のチャンクストリーミングはロードマップにあり、Azure Functions Python v2 の
+> streaming response サポートに依存します。リアルタイムなトークンストリーミングが
+> 必要な場合は、長時間稼働するホスト（App Service や AKS など）でグラフを実行する
+> ことを検討してください。
+
 ### グラフごとの認証
 
 アプリレベルの認証設定をグラフごとにオーバーライドできます:
@@ -179,7 +193,7 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 ### 生成されるエンドポイント
 
 1. `POST /api/graphs/echo_agent/invoke` — エージェントの呼び出し
-2. `POST /api/graphs/echo_agent/stream` — エージェントレスポンスのストリーミング（バッファリングSSE）
+2. `POST /api/graphs/echo_agent/stream` — エージェントレスポンスのストリーミング（バッファリングSSE、真のトークンストリーミングではない）
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — スレッド状態の検査
 4. `GET /api/health` — ヘルスチェック
 
@@ -195,9 +209,9 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 13. `POST /threads/search` — スレッド検索
 14. `POST /threads/count` — スレッド数
 15. `POST /threads/{id}/runs/wait` — 実行して結果を待機
-16. `POST /threads/{id}/runs/stream` — 実行して結果をストリーミング
+16. `POST /threads/{id}/runs/stream` — 実行して結果をストリーミング（バッファリングSSE）
 17. `POST /runs/wait` — スレッドレス実行
-18. `POST /runs/stream` — スレッドレスストリーミング
+18. `POST /runs/stream` — スレッドレスストリーミング（バッファリングSSE）
 19. `GET /threads/{id}/state` — スレッド状態取得
 20. `POST /threads/{id}/state` — スレッド状態更新
 21. `POST /threads/{id}/history` — ステート履歴
