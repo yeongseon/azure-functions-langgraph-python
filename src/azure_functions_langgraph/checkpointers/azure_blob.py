@@ -324,6 +324,114 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         for blob in self._container_client.list_blobs(name_starts_with=thread_prefix):
             self._container_client.get_blob_client(blob.name).delete_blob()
 
+    def delete_checkpoints_before(
+        self,
+        thread_id: str,
+        *,
+        before_checkpoint_id: str,
+        checkpoint_ns: str | None = None,
+    ) -> int:
+        """Delete checkpoints older than ``before_checkpoint_id``.
+
+        Checkpoint IDs are lexicographically sortable timestamps, so "older"
+        means ``id < before_checkpoint_id``. The reference checkpoint itself
+        is preserved.
+
+        Channel value blobs (under ``values/``) and the ``latest.json``
+        pointer are intentionally left untouched: values may still be
+        referenced by retained checkpoints, and the latest pointer remains
+        valid as long as the latest checkpoint itself is retained.
+
+        Parameters
+        ----------
+        thread_id:
+            Target thread identifier.
+        before_checkpoint_id:
+            Cutoff checkpoint id (exclusive); checkpoints strictly older are
+            deleted.
+        checkpoint_ns:
+            Restrict deletion to a single checkpoint namespace. ``None``
+            (default) sweeps every namespace under the thread.
+
+        Returns
+        -------
+        int
+            Number of distinct checkpoint ids deleted across the targeted
+            namespaces.
+        """
+        namespaces = (
+            [checkpoint_ns]
+            if checkpoint_ns is not None
+            else self._list_checkpoint_namespaces(thread_id)
+        )
+
+        deleted = 0
+        for ns in namespaces:
+            for cid in self._list_checkpoint_ids(thread_id, ns):
+                if cid >= before_checkpoint_id:
+                    continue
+                self._delete_checkpoint_blobs(thread_id, ns, cid)
+                deleted += 1
+        return deleted
+
+    def delete_old_checkpoints(
+        self,
+        thread_id: str,
+        *,
+        keep_last: int = 20,
+        checkpoint_ns: str | None = None,
+    ) -> int:
+        """Retain only the ``keep_last`` newest checkpoints per namespace.
+
+        Channel value blobs and ``latest.json`` are preserved (see
+        :meth:`delete_checkpoints_before` for the rationale).
+
+        Parameters
+        ----------
+        thread_id:
+            Target thread identifier.
+        keep_last:
+            Number of newest checkpoints to keep per namespace. Must be
+            non-negative; ``0`` deletes every checkpoint in the namespace.
+        checkpoint_ns:
+            Restrict pruning to a single namespace. ``None`` (default)
+            prunes every namespace under the thread.
+
+        Returns
+        -------
+        int
+            Number of checkpoints deleted across the targeted namespaces.
+        """
+        if keep_last < 0:
+            raise ValueError("keep_last must be non-negative")
+
+        namespaces = (
+            [checkpoint_ns]
+            if checkpoint_ns is not None
+            else self._list_checkpoint_namespaces(thread_id)
+        )
+
+        deleted = 0
+        for ns in namespaces:
+            checkpoint_ids = self._list_checkpoint_ids(thread_id, ns)
+            for cid in checkpoint_ids[keep_last:]:
+                self._delete_checkpoint_blobs(thread_id, ns, cid)
+                deleted += 1
+        return deleted
+
+    def _delete_checkpoint_blobs(
+        self,
+        thread_id: str,
+        checkpoint_ns: str,
+        checkpoint_id: str,
+    ) -> None:
+        base_prefix = self._checkpoint_base_prefix(thread_id, checkpoint_ns, checkpoint_id)
+        for blob in self._container_client.list_blobs(name_starts_with=base_prefix):
+            try:
+                self._container_client.get_blob_client(blob.name).delete_blob()
+            except self._not_found_error:
+                continue
+
     def _build_tuple(
         self,
         *,

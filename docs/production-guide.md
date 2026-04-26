@@ -326,6 +326,48 @@ thread_store = AzureTableThreadStore.from_connection_string(
 
 Use `langgraphthreads` as the default production table name unless you need a custom naming scheme.
 
+### Checkpoint retention
+
+`AzureBlobCheckpointSaver` lists checkpoints via blob prefix scans, so per-thread cost grows with the number of stored checkpoints. For long-lived threads, schedule a Timer-triggered Function to prune old checkpoints:
+
+```python
+import os
+
+import azure.functions as func
+from azure.storage.blob import ContainerClient
+
+from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
+from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
+
+retention_app = func.FunctionApp()
+
+
+@retention_app.schedule(
+    schedule="0 0 3 * * *",
+    arg_name="timer",
+    run_on_startup=False,
+    use_monitor=True,
+)
+def prune_checkpoints(timer: func.TimerRequest) -> None:
+    del timer
+    container = ContainerClient.from_connection_string(
+        os.environ["AZURE_STORAGE_CONNECTION_STRING"],
+        "langgraph-checkpoints",
+    )
+    saver = AzureBlobCheckpointSaver(container_client=container)
+
+    threads = AzureTableThreadStore.from_connection_string(
+        os.environ["AZURE_STORAGE_CONNECTION_STRING"],
+        table_name="langgraphthreads",
+    )
+    for thread in threads.search(limit=10_000):
+        saver.delete_old_checkpoints(thread.thread_id, keep_last=50)
+```
+
+Both helpers preserve channel value blobs and the `latest.json` pointer, so retained checkpoints remain fully usable.
+
+If you want absolute cutoffs instead of "keep N", use `delete_checkpoints_before(thread_id, before_checkpoint_id=...)`. Checkpoint ids are lexicographically sortable, so `before_checkpoint_id` can be the id of any boundary checkpoint your application picks (e.g. the last successful production checkpoint of a previous day).
+
 ### Connection string security
 
 Do not hardcode storage secrets in source code or deployment artifacts.

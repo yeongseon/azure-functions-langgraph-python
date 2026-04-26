@@ -277,6 +277,38 @@ func_app = app.function_app
 
 체크포인트와 스레드 메타데이터는 Azure Functions 재시작 후에도 유지되며 인스턴스 간 확장됩니다.
 
+### 스케일 가이드
+
+번들된 영구 저장 백엔드는 개발 및 중소 규모 프로덕션 배포를 위한 것입니다. 다음 한계를 넘기 전에 계획을 세우세요:
+
+| 백엔드 | 권장 범위 | 주의 구간 | 백엔드 교체 권장 |
+|---|---|---|---|
+| `AzureBlobCheckpointSaver` | 스레드당 체크포인트 < 100개, 스레드 < 10K개 | 스레드당 체크포인트 100–1000개 | Cosmos DB 또는 Redis 기반 체크포인터 사용 |
+| `AzureTableThreadStore` | 스레드 < 100K개, 가벼운 검색 부하 | 스레드 100K–500K개 | 샤딩된 스레드 스토어 또는 Cosmos DB 사용 |
+
+참고 사항:
+
+- **단일 파티션** — `AzureTableThreadStore`는 모든 스레드를 단일 PartitionKey에 저장하며, Azure Table 파티션당 처리량(Standard 계정 기준 약 2000 엔티티/초)에 의해 제한됩니다. `status` 외의 검색 및 카운트 필터링은 **클라이언트 사이드**에서 수행됩니다. [COMPATIBILITY.md](COMPATIBILITY.md) 참고.
+- **Prefix 스캔** — `AzureBlobCheckpointSaver`는 blob prefix 스캔으로 체크포인트를 나열하므로 트랜잭션 수와 지연이 스레드당 체크포인트 수에 비례하여 증가합니다. 아래 보존 헬퍼로 이를 제한하세요.
+- **엔티티 크기** — Azure Table 엔티티는 1 MB로 제한되며, 임계값의 90%에서 경고가 기록됩니다.
+
+#### 보존 헬퍼
+
+`AzureBlobCheckpointSaver`는 정기 정리(예: Timer 트리거 Function)를 위한 두 가지 헬퍼를 제공합니다:
+
+```python
+# (스레드, 네임스페이스)별로 최근 50개의 체크포인트만 유지
+saver.delete_old_checkpoints(thread_id="conversation-1", keep_last=50)
+
+# 또는 특정 체크포인트 id 이전의 모든 체크포인트 삭제
+saver.delete_checkpoints_before(
+    thread_id="conversation-1",
+    before_checkpoint_id="01HXY...",
+)
+```
+
+두 헬퍼 모두 채널 값 blob과 `latest.json` 포인터를 보존하므로, 유지되는 체크포인트는 그대로 사용 가능합니다.
+
 ### v0.3.0에서 업그레이드
 
 v0.4.0은 v0.3.0과 완전히 하위 호환됩니다. 브레이킹 체인지가 없습니다.

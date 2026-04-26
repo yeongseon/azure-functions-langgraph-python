@@ -317,6 +317,38 @@ func_app = app.function_app
 
 Checkpoints and thread metadata survive Azure Functions restarts and scale across instances.
 
+### Scale envelope
+
+The bundled persistent backends are intended for development and small-to-medium production deployments. Plan ahead before pushing past these limits:
+
+| Backend | Comfortable | Caution zone | Switch backends |
+|---|---|---|---|
+| `AzureBlobCheckpointSaver` | < 100 checkpoints/thread, < 10K threads | 100–1000 checkpoints/thread | Use Cosmos DB or Redis-backed checkpointer |
+| `AzureTableThreadStore` | < 100K threads, light search load | 100K–500K threads | Use a sharded thread store or Cosmos DB |
+
+Notes:
+
+- **Single partition** — `AzureTableThreadStore` keys every thread under a single PartitionKey, capped by Azure Table per-partition throughput (~2000 entities/sec on Standard accounts). Search and count beyond `status` filtering are **client-side**; see [COMPATIBILITY.md](COMPATIBILITY.md).
+- **Prefix scans** — `AzureBlobCheckpointSaver` lists checkpoints via blob prefix scans; transaction count and latency grow with checkpoints-per-thread. Use the retention helpers below to keep that bounded.
+- **Entity size** — Azure Table entities are capped at 1 MB; the store logs a warning at 90% of the threshold.
+
+#### Retention helpers
+
+`AzureBlobCheckpointSaver` exposes two helpers for scheduled cleanup (e.g. from a Timer-triggered Function):
+
+```python
+# Keep only the most recent 50 checkpoints per (thread, namespace)
+saver.delete_old_checkpoints(thread_id="conversation-1", keep_last=50)
+
+# Or delete everything older than a known checkpoint id
+saver.delete_checkpoints_before(
+    thread_id="conversation-1",
+    before_checkpoint_id="01HXY...",
+)
+```
+
+Both helpers preserve channel value blobs and the `latest.json` pointer, so retained checkpoints remain fully usable.
+
 ### Upgrading
 
 #### v0.3.0 → v0.4.0

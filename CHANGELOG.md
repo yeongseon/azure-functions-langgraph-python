@@ -4,9 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### 🚀 Features
+
+- Add `delete_old_checkpoints` and `delete_checkpoints_before` retention helpers to `AzureBlobCheckpointSaver` (#143)
+
 ### 🐛 Bug Fixes
 
 - Add atomic ThreadStore run locks to close the threaded run TOCTOU race (#142)
+
+### 📚 Documentation
+
+- Document persistent storage scale envelope across all README locales (#143)
 
 ### ⚙️ Miscellaneous Tasks
 

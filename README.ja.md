@@ -279,6 +279,38 @@ func_app = app.function_app
 
 チェックポイントとスレッドメタデータはAzure Functions再起動後も維持され、インスタンス間で拡張されます。
 
+### スケール許容範囲
+
+同梱される永続化バックエンドは、開発および中小規模の本番デプロイを想定しています。以下の限界を超える前に計画を立ててください:
+
+| バックエンド | 推奨範囲 | 注意ゾーン | バックエンド変更を検討 |
+|---|---|---|---|
+| `AzureBlobCheckpointSaver` | スレッドあたりチェックポイント < 100、スレッド < 10K | スレッドあたりチェックポイント 100–1000 | Cosmos DB または Redis ベースのチェックポインターを使用 |
+| `AzureTableThreadStore` | スレッド < 100K、軽い検索負荷 | スレッド 100K–500K | シャーディングされたスレッドストアまたは Cosmos DB を使用 |
+
+注意事項:
+
+- **単一パーティション** — `AzureTableThreadStore` は全スレッドを単一の PartitionKey に格納し、Azure Table のパーティション単位スループット（Standard アカウントで約 2000 エンティティ/秒）が上限となります。`status` 以外の検索とカウントは**クライアントサイド**でフィルタリングされます。[COMPATIBILITY.md](COMPATIBILITY.md) を参照してください。
+- **プレフィックススキャン** — `AzureBlobCheckpointSaver` は blob プレフィックススキャンでチェックポイントを列挙するため、トランザクション数とレイテンシはスレッドあたりのチェックポイント数に比例して増加します。下記のリテンションヘルパーで境界を保ちましょう。
+- **エンティティサイズ** — Azure Table エンティティは 1 MB が上限で、しきい値の 90% で警告がログに記録されます。
+
+#### リテンションヘルパー
+
+`AzureBlobCheckpointSaver` は、定期クリーンアップ（例: Timer トリガーの Function）向けに 2 つのヘルパーを公開しています:
+
+```python
+# (thread, namespace) ごとに最新 50 件のチェックポイントだけ保持
+saver.delete_old_checkpoints(thread_id="conversation-1", keep_last=50)
+
+# あるいは特定のチェックポイント id より古いものをまとめて削除
+saver.delete_checkpoints_before(
+    thread_id="conversation-1",
+    before_checkpoint_id="01HXY...",
+)
+```
+
+どちらのヘルパーもチャンネル値 blob と `latest.json` ポインターを保持するため、残ったチェックポイントはそのまま利用できます。
+
 ### v0.3.0からのアップグレード
 
 v0.4.0はv0.3.0と完全に後方互換です。ブレイキングチェンジはありません。

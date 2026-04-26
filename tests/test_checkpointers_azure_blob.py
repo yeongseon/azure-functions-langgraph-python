@@ -49,6 +49,22 @@ class _CheckpointSaverProtocol(Protocol):
 
     def delete_thread(self, thread_id: str) -> None: ...
 
+    def delete_checkpoints_before(
+        self,
+        thread_id: str,
+        *,
+        before_checkpoint_id: str,
+        checkpoint_ns: str | None = None,
+    ) -> int: ...
+
+    def delete_old_checkpoints(
+        self,
+        thread_id: str,
+        *,
+        keep_last: int = 20,
+        checkpoint_ns: str | None = None,
+    ) -> int: ...
+
 
 class FakeResourceNotFoundError(Exception):
     """Raised when a mock blob is not present."""
@@ -437,6 +453,138 @@ def test_delete_thread(
     assert saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns")) is None
     assert saver.get_tuple(_config(thread_id="t-2", checkpoint_ns="ns")) is not None
     assert all(not name.startswith("threads/t-1/") for name in container.blobs)
+
+
+def _put_sequence(
+    saver: _CheckpointSaverProtocol,
+    *,
+    thread_id: str,
+    checkpoint_ns: str,
+    checkpoint_ids: Sequence[str],
+) -> None:
+    for step, cid in enumerate(checkpoint_ids, start=1):
+        saver.put(
+            _config(thread_id=thread_id, checkpoint_ns=checkpoint_ns),
+            _checkpoint(cid),
+            _metadata(step=step),
+            {},
+        )
+
+
+def test_delete_old_checkpoints_keeps_last_n(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    _put_sequence(
+        saver,
+        thread_id="t-1",
+        checkpoint_ns="ns",
+        checkpoint_ids=["cp-001", "cp-002", "cp-003", "cp-004", "cp-005"],
+    )
+
+    deleted = saver.delete_old_checkpoints("t-1", keep_last=2, checkpoint_ns="ns")
+
+    assert deleted == 3
+    remaining_checkpoint_blobs = sorted(
+        name
+        for name in container.blobs
+        if name.startswith("threads/t-1/ns/ns/checkpoints/")
+        and name.endswith("/checkpoint.bin")
+    )
+    assert remaining_checkpoint_blobs == [
+        "threads/t-1/ns/ns/checkpoints/cp-004/checkpoint.bin",
+        "threads/t-1/ns/ns/checkpoints/cp-005/checkpoint.bin",
+    ]
+    assert "threads/t-1/ns/ns/latest.json" in container.blobs
+
+
+def test_delete_old_checkpoints_preserves_values_and_latest_pointer(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+
+    deleted = saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+    assert deleted == 1
+
+    value_blobs = sorted(name for name in container.blobs if "/values/k/" in name)
+    assert value_blobs == [
+        "threads/t-1/ns/ns/values/k/v1.bin",
+        "threads/t-1/ns/ns/values/k/v2.bin",
+    ]
+    latest = saver.get_tuple(cfg)
+    assert latest is not None
+    assert latest.checkpoint["id"] == "cp-002"
+
+
+def test_delete_old_checkpoints_sweeps_all_namespaces(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, _ = saver_and_container
+    _put_sequence(
+        saver,
+        thread_id="t-1",
+        checkpoint_ns="ns-a",
+        checkpoint_ids=["cp-001", "cp-002", "cp-003"],
+    )
+    _put_sequence(
+        saver,
+        thread_id="t-1",
+        checkpoint_ns="ns-b",
+        checkpoint_ids=["cp-001", "cp-002"],
+    )
+
+    deleted = saver.delete_old_checkpoints("t-1", keep_last=1)
+
+    assert deleted == 3
+
+
+def test_delete_old_checkpoints_rejects_negative_keep_last(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, _ = saver_and_container
+    with pytest.raises(ValueError):
+        saver.delete_old_checkpoints("t-1", keep_last=-1)
+
+
+def test_delete_checkpoints_before_strict_cutoff(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    _put_sequence(
+        saver,
+        thread_id="t-1",
+        checkpoint_ns="ns",
+        checkpoint_ids=["cp-001", "cp-002", "cp-003"],
+    )
+
+    deleted = saver.delete_checkpoints_before(
+        "t-1", before_checkpoint_id="cp-002", checkpoint_ns="ns"
+    )
+
+    assert deleted == 1
+    remaining_checkpoint_blobs = sorted(
+        name
+        for name in container.blobs
+        if name.startswith("threads/t-1/ns/ns/checkpoints/")
+        and name.endswith("/checkpoint.bin")
+    )
+    assert remaining_checkpoint_blobs == [
+        "threads/t-1/ns/ns/checkpoints/cp-002/checkpoint.bin",
+        "threads/t-1/ns/ns/checkpoints/cp-003/checkpoint.bin",
+    ]
 
 
 def test_channel_value_dedup(

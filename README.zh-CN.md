@@ -277,6 +277,38 @@ func_app = app.function_app
 
 检查点和线程元数据在 Azure Functions 重启后仍然保留，并可跨实例扩展。
 
+### 规模适用范围
+
+随包提供的持久化后端面向开发与中小规模生产部署。在突破以下限制前请提前规划:
+
+| 后端 | 舒适区间 | 注意区间 | 建议更换后端 |
+|---|---|---|---|
+| `AzureBlobCheckpointSaver` | 每线程检查点 < 100，线程数 < 10K | 每线程检查点 100–1000 | 使用 Cosmos DB 或基于 Redis 的检查点器 |
+| `AzureTableThreadStore` | 线程数 < 100K，搜索负载较轻 | 线程数 100K–500K | 使用分片线程存储或 Cosmos DB |
+
+说明:
+
+- **单分区** — `AzureTableThreadStore` 将所有线程置于同一 PartitionKey 下，受 Azure Table 单分区吞吐量（Standard 账户约 2000 实体/秒）限制。除 `status` 以外的搜索与计数过滤均在**客户端**完成，详见 [COMPATIBILITY.md](COMPATIBILITY.md)。
+- **前缀扫描** — `AzureBlobCheckpointSaver` 通过 blob 前缀扫描列出检查点，事务数与延迟随每线程检查点数量增长。请使用下文的保留辅助函数加以约束。
+- **实体大小** — Azure Table 实体上限为 1 MB；当达到阈值的 90% 时会记录警告。
+
+#### 保留辅助函数
+
+`AzureBlobCheckpointSaver` 提供两个用于定期清理（例如 Timer 触发的 Function）的辅助方法:
+
+```python
+# 每个 (线程, 命名空间) 仅保留最新 50 个检查点
+saver.delete_old_checkpoints(thread_id="conversation-1", keep_last=50)
+
+# 或删除某个检查点 id 之前的所有检查点
+saver.delete_checkpoints_before(
+    thread_id="conversation-1",
+    before_checkpoint_id="01HXY...",
+)
+```
+
+两个辅助函数都会保留通道值 blob 和 `latest.json` 指针，因此保留下来的检查点仍可正常使用。
+
 ### 从 v0.3.0 升级
 
 v0.4.0 与 v0.3.0 完全向后兼容。无破坏性变更。
