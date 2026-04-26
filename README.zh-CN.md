@@ -57,6 +57,8 @@
 | 基础设施 | 托管服务 | Azure Functions（无服务器） |
 | 成本模型 | 按使用量/座位 | Azure Functions 定价 |
 
+> 关于按功能划分的 SDK 支持矩阵（包括返回 `501 Not Implemented` 的 `RunCreate` 字段、线程过滤器和 SDK 调用），请参阅 [COMPATIBILITY.md](COMPATIBILITY.md)。
+
 ## 适用范围
 
 - Azure Functions Python **v2 编程模型**

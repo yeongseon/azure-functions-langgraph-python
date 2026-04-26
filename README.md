@@ -57,6 +57,8 @@ This package provides a focused adapter for serving LangGraph graphs on Azure Fu
 | Infrastructure | Managed | Azure Functions (serverless) |
 | Cost model | Per-seat/usage | Azure Functions pricing |
 
+> See [COMPATIBILITY.md](COMPATIBILITY.md) for the per-feature SDK support matrix, including which `RunCreate` fields, thread filters, and SDK calls return `501 Not Implemented`.
+
 ## Scope
 
 - Azure Functions Python **v2 programming model**
