@@ -158,6 +158,18 @@ from azure_functions_langgraph import LangGraphApp
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 ```
 
+### 流式传输行为
+
+> **重要：** 所有 `/stream` 端点（包括原生的 `POST /api/graphs/{name}/stream`，
+> 以及 Platform 兼容的 `POST /threads/{id}/runs/stream` 和 `POST /runs/stream`）
+> 都返回**缓冲式 SSE**。图执行过程中产生的 chunk 会先被收集，待运行**完成后**
+> 一次性以 SSE 事件形式发送。这并非真正的逐 token 流式传输，客户端无法增量
+> 接收部分 token。
+>
+> 真正的分块流式传输已列入路线图，依赖于 Azure Functions Python v2 对
+> streaming response 的支持。如果当前确实需要实时 token 级流式传输，建议
+> 在长时间运行的宿主（如 App Service 或 AKS）中运行图。
+
 ### 按图认证
 
 可以按图覆盖应用级认证设置：
@@ -179,7 +191,7 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 ### 生成的端点
 
 1. `POST /api/graphs/echo_agent/invoke` — 调用智能体
-2. `POST /api/graphs/echo_agent/stream` — 流式传输智能体响应（缓冲式 SSE）
+2. `POST /api/graphs/echo_agent/stream` — 流式传输智能体响应（缓冲式 SSE，非真正逐 token 流式传输）
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — 检查线程状态
 4. `GET /api/health` — 健康检查
 
@@ -195,9 +207,9 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 13. `POST /threads/search` — 搜索线程
 14. `POST /threads/count` — 线程计数
 15. `POST /threads/{id}/runs/wait` — 运行并等待结果
-16. `POST /threads/{id}/runs/stream` — 运行并流式传输结果
+16. `POST /threads/{id}/runs/stream` — 运行并流式传输结果（缓冲式 SSE）
 17. `POST /runs/wait` — 无线程运行
-18. `POST /runs/stream` — 无线程流式传输
+18. `POST /runs/stream` — 无线程流式传输（缓冲式 SSE）
 19. `GET /threads/{id}/state` — 获取线程状态
 20. `POST /threads/{id}/state` — 更新线程状态
 21. `POST /threads/{id}/history` — 获取状态历史

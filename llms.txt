@@ -14,7 +14,7 @@
 ## What It Does
 
 Thin adapter that deploys LangGraph StateGraph agents as Azure Functions HTTP endpoints.
-Handles invoke, SSE streaming, thread/run management, and state persistence — all from
+Handles invoke, buffered SSE streaming, thread/run management, and state persistence — all from
 a two-line registration API.
 
 ## Core API

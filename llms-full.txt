@@ -128,9 +128,9 @@ gapp = LangGraphApp(thread_store=store, platform_compat=True)
 - `POST /api/threads` — Create thread
 - `GET /api/threads/{thread_id}` — Get thread
 - `POST /api/threads/{thread_id}/runs/wait` — Run and wait
-- `POST /api/threads/{thread_id}/runs/stream` — Run and stream
+- `POST /api/threads/{thread_id}/runs/stream` — Run and stream (buffered SSE)
 - `POST /api/runs/wait` — Threadless run
-- `POST /api/runs/stream` — Threadless stream
+- `POST /api/runs/stream` — Threadless stream (buffered SSE)
 - `POST /api/threads/{thread_id}/state` — Update state
 - `POST /api/threads/{thread_id}/history` — State history
 
