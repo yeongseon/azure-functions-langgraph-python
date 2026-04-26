@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- Add atomic ThreadStore run locks to close the threaded run TOCTOU race (#142)
+
 ### ⚙️ Miscellaneous Tasks
 
 - Align config and docs with canonical DX Toolkit template (#128) 

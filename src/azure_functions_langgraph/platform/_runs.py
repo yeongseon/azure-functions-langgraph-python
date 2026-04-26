@@ -25,8 +25,25 @@ from azure_functions_langgraph.platform._sse import (
     format_error_event,
     format_metadata_event,
 )
-from azure_functions_langgraph.platform.contracts import RunCreate
+from azure_functions_langgraph.platform.contracts import RunCreate, ThreadStatus
 from azure_functions_langgraph.protocols import StreamableGraph
+
+
+def _release_thread_run_lock(
+    deps: PlatformRouteDeps,
+    thread_id: str,
+    *,
+    status: ThreadStatus,
+    values: dict[str, Any] | None = None,
+) -> None:
+    try:
+        deps.thread_store.release_run_lock(thread_id, status=status, values=values)
+    except KeyError:
+        logger.warning(
+            "Thread %s disappeared before run lock release to %s",
+            thread_id,
+            status,
+        )
 
 
 def register_run_routes(
@@ -90,24 +107,21 @@ def register_run_routes(
             if config_err:
                 return _platform_error(400, config_err)
 
-        if thread.assistant_id is None:
-            deps.thread_store.update(thread_id, assistant_id=run_req.assistant_id)
-        elif thread.assistant_id != run_req.assistant_id:
-            return _platform_error(
-                409,
-                f"Thread {thread_id!r} is bound to assistant "
-                f"{thread.assistant_id!r}, cannot run with "
-                f"{run_req.assistant_id!r}",
+        try:
+            locked = deps.thread_store.try_acquire_run_lock(
+                thread_id,
+                assistant_id=run_req.assistant_id,
             )
-
-        if thread.status == "busy":
+        except KeyError:
+            return _platform_error(404, f"Thread {thread_id!r} not found")
+        except ValueError as exc:
+            return _platform_error(409, str(exc))
+        if locked is None:
             return _platform_error(
                 409,
                 f"Thread {thread_id!r} is already busy. "
                 f"Concurrent runs are not supported (multitask_strategy=reject).",
             )
-
-        deps.thread_store.update(thread_id, status="busy")
 
         config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
         if run_req.config:
@@ -126,11 +140,11 @@ def register_run_routes(
                 run_req.assistant_id,
                 thread_id,
             )
-            deps.thread_store.update(thread_id, status="error")
+            _release_thread_run_lock(deps, thread_id, status="error")
             return _platform_error(500, "Graph execution failed")
 
         output = result if isinstance(result, dict) else {"result": result}
-        deps.thread_store.update(thread_id, status="idle", values=output)
+        _release_thread_run_lock(deps, thread_id, status="idle", values=output)
 
         run_id = str(uuid.uuid4())
         return func.HttpResponse(
@@ -218,24 +232,21 @@ def register_run_routes(
                 f"Graph {run_req.assistant_id!r} does not support streaming",
             )
 
-        if thread.assistant_id is None:
-            deps.thread_store.update(thread_id, assistant_id=run_req.assistant_id)
-        elif thread.assistant_id != run_req.assistant_id:
-            return _platform_error(
-                409,
-                f"Thread {thread_id!r} is bound to assistant "
-                f"{thread.assistant_id!r}, cannot run with "
-                f"{run_req.assistant_id!r}",
+        try:
+            locked = deps.thread_store.try_acquire_run_lock(
+                thread_id,
+                assistant_id=run_req.assistant_id,
             )
-
-        if thread.status == "busy":
+        except KeyError:
+            return _platform_error(404, f"Thread {thread_id!r} not found")
+        except ValueError as exc:
+            return _platform_error(409, str(exc))
+        if locked is None:
             return _platform_error(
                 409,
                 f"Thread {thread_id!r} is already busy. "
                 f"Concurrent runs are not supported (multitask_strategy=reject).",
             )
-
-        deps.thread_store.update(thread_id, status="busy")
 
         config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
         if run_req.config:
@@ -264,7 +275,7 @@ def register_run_routes(
                 )
             )
             chunks.append(format_end_event())
-            deps.thread_store.update(thread_id, status="error")
+            _release_thread_run_lock(deps, thread_id, status="error")
             return func.HttpResponse(
                 body="".join(chunks),
                 mimetype="text/event-stream",
@@ -290,7 +301,7 @@ def register_run_routes(
                     )
                     chunks.append(err_chunk)
                     chunks.append(format_end_event())
-                    deps.thread_store.update(thread_id, status="error")
+                    _release_thread_run_lock(deps, thread_id, status="error")
                     return func.HttpResponse(
                         body="".join(chunks),
                         mimetype="text/event-stream",
@@ -309,7 +320,7 @@ def register_run_routes(
                 run_req.assistant_id,
                 thread_id,
             )
-            deps.thread_store.update(thread_id, status="error")
+            _release_thread_run_lock(deps, thread_id, status="error")
             chunks.append(format_error_event("stream processing failed"))
             chunks.append(format_end_event())
             return func.HttpResponse(
@@ -325,7 +336,7 @@ def register_run_routes(
 
         chunks.append(format_end_event())
 
-        deps.thread_store.update(thread_id, status="idle")
+        _release_thread_run_lock(deps, thread_id, status="idle")
 
         return func.HttpResponse(
             body="".join(chunks),
