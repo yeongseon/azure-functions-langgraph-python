@@ -57,6 +57,8 @@ Azure Functions에서 LangGraph를 배포하는 것은 생각보다 어렵습니
 | 인프라 | 관리형 | Azure Functions (서버리스) |
 | 비용 모델 | 사용량/좌석 기반 | Azure Functions 요금제 |
 
+> 기능별 SDK 지원 매트릭스(`501 Not Implemented`로 거부되는 `RunCreate` 필드, 스레드 필터, SDK 호출 포함)는 [COMPATIBILITY.md](COMPATIBILITY.md)를 참고하세요.
+
 ## 범위
 
 - Azure Functions Python **v2 프로그래밍 모델**
