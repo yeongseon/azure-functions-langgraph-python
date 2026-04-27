@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .azure_blob import (
         AzureBlobCheckpointSaver,
+        OrphanedValueCollectionResult,
     )
     from .cosmos import create_cosmos_checkpointer
     from .postgres import create_postgres_checkpointer
@@ -18,6 +19,10 @@ def __getattr__(name: str) -> object:
         from .azure_blob import AzureBlobCheckpointSaver
 
         return AzureBlobCheckpointSaver
+    if name == "OrphanedValueCollectionResult":
+        from .azure_blob import OrphanedValueCollectionResult
+
+        return OrphanedValueCollectionResult
     if name == "create_postgres_checkpointer":
         from .postgres import create_postgres_checkpointer
 
@@ -35,6 +40,7 @@ def __getattr__(name: str) -> object:
 
 __all__ = [
     "AzureBlobCheckpointSaver",
+    "OrphanedValueCollectionResult",
     "create_cosmos_checkpointer",
     "create_postgres_checkpointer",
     "create_sqlite_checkpointer",

@@ -66,6 +66,14 @@ class _CheckpointSaverProtocol(Protocol):
         checkpoint_ns: str | None = None,
     ) -> int: ...
 
+    def collect_orphaned_values(
+        self,
+        thread_id: str,
+        *,
+        checkpoint_ns: str | None = None,
+        dry_run: bool = True,
+    ) -> Any: ...
+
 
 class FakeResourceNotFoundError(Exception):
     """Raised when a mock blob is not present."""
@@ -715,3 +723,232 @@ def test_latest_json_monotonic_write(
     saver.put(cfg, _checkpoint("cp-001"), _metadata(step=1), {})
     latest_data = json.loads(container.blobs[latest_path].data.decode())
     assert latest_data["checkpoint_id"] == "cp-002"  # Still cp-002, not cp-001
+
+
+def _value_blob_paths(container: MockContainerClient) -> list[str]:
+    return sorted(name for name in container.blobs if "/values/" in name)
+
+
+def test_collect_orphaned_values_no_orphans_when_single_checkpoint(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+
+    before = _value_blob_paths(container)
+    result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+    after = _value_blob_paths(container)
+
+    assert result.dry_run is False
+    assert result.would_delete == []
+    assert result.deleted == []
+    assert result.skipped_namespaces == []
+    assert before == after
+
+
+def test_collect_orphaned_values_preserves_shared_versions(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=2),
+        {},
+    )
+
+    saver.delete_checkpoints_before(
+        "t-1", before_checkpoint_id="cp-002", checkpoint_ns="ns"
+    )
+
+    result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+
+    assert result.would_delete == []
+    assert result.deleted == []
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in container.blobs
+
+
+def test_collect_orphaned_values_collects_orphans(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+
+    deleted_count = saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+    assert deleted_count == 1
+
+    pre_paths = _value_blob_paths(container)
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in pre_paths
+    assert "threads/t-1/ns/ns/values/k/v2.bin" in pre_paths
+
+    result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+
+    assert result.would_delete == ["threads/t-1/ns/ns/values/k/v1.bin"]
+    assert result.deleted == ["threads/t-1/ns/ns/values/k/v1.bin"]
+    assert "threads/t-1/ns/ns/values/k/v1.bin" not in container.blobs
+    assert "threads/t-1/ns/ns/values/k/v2.bin" in container.blobs
+
+
+def test_collect_orphaned_values_dry_run_does_not_delete(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+    saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+
+    blobs_before = dict(container.blobs)
+
+    dry_result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=True)
+
+    assert dry_result.dry_run is True
+    assert dry_result.would_delete == ["threads/t-1/ns/ns/values/k/v1.bin"]
+    assert dry_result.deleted == []
+    assert container.blobs == blobs_before
+
+    real_result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+    assert real_result.deleted == dry_result.would_delete
+
+
+def test_collect_orphaned_values_skips_namespace_without_latest(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+    saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+
+    del container.blobs["threads/t-1/ns/ns/latest.json"]
+
+    blobs_before = dict(container.blobs)
+    result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+
+    assert result.skipped_namespaces == [("t-1", "ns")]
+    assert result.would_delete == []
+    assert result.deleted == []
+    assert container.blobs == blobs_before
+
+
+def test_collect_orphaned_values_concurrent_write_protects_blob(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    """Concurrent checkpoint write that references a candidate version
+    must protect the blob even after it appeared in the snapshot."""
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+    saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+
+    original_collect = saver._collect_retained_versions  # type: ignore[attr-defined]
+    call_count = {"n": 0}
+
+    def patched(thread_id: str, checkpoint_ns: str) -> set[tuple[str, str]]:
+        retained: set[tuple[str, str]] = original_collect(thread_id, checkpoint_ns)
+        if call_count["n"] == 1:
+            saver.put(
+                cfg,
+                _checkpoint(
+                    "cp-003",
+                    channel_values={"k": 1},
+                    channel_versions={"k": "v1"},
+                ),
+                _metadata(step=3),
+                {},
+            )
+            retained = original_collect(thread_id, checkpoint_ns)
+        call_count["n"] += 1
+        return retained
+
+    saver._collect_retained_versions = patched  # type: ignore[attr-defined]
+
+    result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in result.would_delete
+    assert result.deleted == []
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in container.blobs
+
+
+def test_collect_orphaned_values_sweeps_all_namespaces(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    for ns in ("ns-a", "ns-b"):
+        cfg = _config(thread_id="t-1", checkpoint_ns=ns)
+        saver.put(
+            cfg,
+            _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+            _metadata(step=1),
+            {"k": "v1"},
+        )
+        saver.put(
+            cfg,
+            _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+            _metadata(step=2),
+            {"k": "v2"},
+        )
+        saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns=ns)
+
+    result = saver.collect_orphaned_values("t-1", dry_run=False)
+
+    assert sorted(result.deleted) == [
+        "threads/t-1/ns/ns-a/values/k/v1.bin",
+        "threads/t-1/ns/ns-b/values/k/v1.bin",
+    ]

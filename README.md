@@ -409,7 +409,23 @@ saver.delete_checkpoints_before(
 
 Both helpers only delete checkpoint marker, metadata, and write blobs. They intentionally preserve channel value blobs (under `values/`) and the `latest.json` pointer so retained checkpoints remain fully usable.
 
-> **Note** — These helpers are safe but **not exhaustive**. Channel value blobs that were referenced *only* by the now-deleted checkpoints become orphaned and are not removed. For long-running threads with frequent checkpointing, those orphans can dominate the storage footprint over time. Full value-blob garbage collection is tracked in [#153](https://github.com/yeongseon/azure-functions-langgraph-python/issues/153) as a candidate opt-in helper.
+> **Note** — `delete_old_checkpoints` / `delete_checkpoints_before` are safe but **not exhaustive**. Channel value blobs that were referenced *only* by the now-deleted checkpoints become orphaned and are not removed. For long-running threads with frequent checkpointing, those orphans can dominate the storage footprint over time. Run `collect_orphaned_values()` (below) on a schedule as the second step.
+
+#### Garbage-collecting orphaned channel values
+
+After pruning checkpoints, `collect_orphaned_values()` walks the surviving checkpoints, builds the set of `(channel, version)` pairs they reference, and removes any `values/` blob outside that set. Default is **dry-run** so you can audit first:
+
+```python
+# Dry run — see what would be deleted, change nothing
+audit = saver.collect_orphaned_values(thread_id="conversation-1")
+print(audit.would_delete)
+
+# Real run — actually delete orphans
+result = saver.collect_orphaned_values(thread_id="conversation-1", dry_run=False)
+print(f"Deleted {len(result.deleted)} orphaned value blobs")
+```
+
+The helper is concurrency-safe: a fresh survivor scan is performed before each delete, so a checkpoint written mid-collection still protects its referenced values. Per namespace, if `latest.json` is missing the namespace is skipped entirely (recorded in `result.skipped_namespaces`) to avoid stomping a misconfigured store.
 
 #### DB checkpointer backends
 
