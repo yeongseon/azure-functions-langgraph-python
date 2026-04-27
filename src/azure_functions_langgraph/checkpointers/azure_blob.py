@@ -337,10 +337,19 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         means ``id < before_checkpoint_id``. The reference checkpoint itself
         is preserved.
 
-        Channel value blobs (under ``values/``) and the ``latest.json``
-        pointer are intentionally left untouched: values may still be
-        referenced by retained checkpoints, and the latest pointer remains
-        valid as long as the latest checkpoint itself is retained.
+        Only checkpoint marker, metadata, and write blobs under the
+        checkpoint base prefix are deleted. Channel value blobs (under
+        ``values/``) and the ``latest.json`` pointer are intentionally
+        left untouched: values may still be referenced by retained
+        checkpoints, and the latest pointer remains valid as long as the
+        latest checkpoint itself is retained.
+
+        .. note::
+           This is safe but not exhaustive. Channel value blobs that
+           were referenced *only* by the now-deleted checkpoints become
+           orphaned and are not removed. Full value-blob garbage
+           collection is tracked separately and will land as an opt-in
+           helper in a future release.
 
         Parameters
         ----------
@@ -383,8 +392,16 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
     ) -> int:
         """Retain only the ``keep_last`` newest checkpoints per namespace.
 
+        Only checkpoint marker, metadata, and write blobs are deleted.
         Channel value blobs and ``latest.json`` are preserved (see
         :meth:`delete_checkpoints_before` for the rationale).
+
+        .. note::
+           This is safe but not exhaustive. Channel value blobs that
+           were referenced *only* by the now-deleted checkpoints become
+           orphaned and are not removed. Full value-blob garbage
+           collection is tracked separately and will land as an opt-in
+           helper in a future release.
 
         Parameters
         ----------
