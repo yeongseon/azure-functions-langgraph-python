@@ -425,7 +425,14 @@ result = saver.collect_orphaned_values(thread_id="conversation-1", dry_run=False
 print(f"Deleted {len(result.deleted)} orphaned value blobs")
 ```
 
-The helper is concurrency-safe: a fresh survivor scan is performed before each delete, so a checkpoint written mid-collection still protects its referenced values. Per namespace, if `latest.json` is missing the namespace is skipped entirely (recorded in `result.skipped_namespaces`) to avoid stomping a misconfigured store.
+The helper is concurrency-safe by two complementary mechanisms:
+
+1. **Recent-write grace period** — value blobs whose `last_modified` is within `grace_period_seconds` (default **300s**) are deferred to a future GC pass and recorded in `result.skipped_recent`. This protects the window between a value blob being uploaded and its checkpoint commit marker (`latest.json`) being finalized.
+2. **Per-orphan re-scan** — immediately before each delete, the survivor set is recomputed; an *older* value blob that a newly finalized checkpoint started referencing after the snapshot is preserved (such blobs appear in `would_delete` but not `deleted`).
+
+Per namespace, the helper **fails closed** — if `latest.json` is missing **or** any surviving checkpoint blob is unreadable / fails deserialization, the namespace is skipped entirely (recorded in `result.skipped_namespaces`) so a misconfigured or transiently-unavailable store cannot trigger destructive deletion.
+
+Set `grace_period_seconds=0` to disable the recent-write guard during an offline maintenance window when no concurrent checkpoint writes are possible.
 
 #### DB checkpointer backends
 

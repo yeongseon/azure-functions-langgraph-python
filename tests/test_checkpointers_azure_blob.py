@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import importlib
 import json
 import re
@@ -72,6 +73,7 @@ class _CheckpointSaverProtocol(Protocol):
         *,
         checkpoint_ns: str | None = None,
         dry_run: bool = True,
+        grace_period_seconds: int = 300,
     ) -> Any: ...
 
 
@@ -79,15 +81,20 @@ class FakeResourceNotFoundError(Exception):
     """Raised when a mock blob is not present."""
 
 
+_DEFAULT_BLOB_LAST_MODIFIED = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+
 @dataclass
 class _BlobRecord:
     data: bytes
     metadata: dict[str, str]
+    last_modified: datetime = field(default=_DEFAULT_BLOB_LAST_MODIFIED)
 
 
 @dataclass
 class _BlobItem:
     name: str
+    last_modified: datetime | None = None
 
 
 class _MockDownloadStream:
@@ -111,7 +118,13 @@ class MockBlobClient:
     def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
         if not overwrite and self._blob_name in self._container.blobs:
             raise ValueError("Blob already exists")
-        self._container.blobs[self._blob_name] = _BlobRecord(data=data, metadata=dict(metadata))
+        existing = self._container.blobs.get(self._blob_name)
+        last_modified = (
+            existing.last_modified if existing is not None else _DEFAULT_BLOB_LAST_MODIFIED
+        )
+        self._container.blobs[self._blob_name] = _BlobRecord(
+            data=data, metadata=dict(metadata), last_modified=last_modified
+        )
 
     def download_blob(self) -> _MockDownloadStream:
         record = self._container.blobs.get(self._blob_name)
@@ -140,7 +153,9 @@ class MockContainerClient:
 
     def list_blobs(self, name_starts_with: str = "") -> list[_BlobItem]:
         return [
-            _BlobItem(name=name) for name in sorted(self.blobs) if name.startswith(name_starts_with)
+            _BlobItem(name=name, last_modified=record.last_modified)
+            for name, record in sorted(self.blobs.items())
+            if name.startswith(name_starts_with)
         ]
 
 
@@ -900,8 +915,8 @@ def test_collect_orphaned_values_concurrent_write_protects_blob(
     original_collect = saver._collect_retained_versions  # type: ignore[attr-defined]
     call_count = {"n": 0}
 
-    def patched(thread_id: str, checkpoint_ns: str) -> set[tuple[str, str]]:
-        retained: set[tuple[str, str]] = original_collect(thread_id, checkpoint_ns)
+    def patched(thread_id: str, checkpoint_ns: str) -> set[tuple[str, str]] | None:
+        retained: set[tuple[str, str]] | None = original_collect(thread_id, checkpoint_ns)
         if call_count["n"] == 1:
             saver.put(
                 cfg,
@@ -952,3 +967,201 @@ def test_collect_orphaned_values_sweeps_all_namespaces(
         "threads/t-1/ns/ns-a/values/k/v1.bin",
         "threads/t-1/ns/ns-b/values/k/v1.bin",
     ]
+
+
+def _backdate_value_blobs(container: MockContainerClient, when: datetime) -> None:
+    """Backdate every values/* blob so the grace-period filter does not skip them.
+
+    Tests that exercise the orphan-collection logic on freshly-written
+    blobs need to opt out of the recent-write grace period; bulk-setting
+    last_modified is the cleanest way to do that without plumbing a
+    clock through every test fixture.
+    """
+    for name, record in container.blobs.items():
+        if "/values/" in name:
+            record.last_modified = when
+
+
+def test_collect_orphaned_values_skips_recent_blobs_inside_grace_window(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+    saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+    now = datetime.now(timezone.utc)
+    for record in container.blobs.values():
+        record.last_modified = now
+
+    result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in result.skipped_recent
+    assert result.would_delete == []
+    assert result.deleted == []
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in container.blobs
+
+
+def test_collect_orphaned_values_grace_period_zero_disables_recent_guard(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+    saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+    now = datetime.now(timezone.utc)
+    for record in container.blobs.values():
+        record.last_modified = now
+
+    result = saver.collect_orphaned_values(
+        "t-1", checkpoint_ns="ns", dry_run=False, grace_period_seconds=0
+    )
+
+    assert result.skipped_recent == []
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in result.deleted
+    assert "threads/t-1/ns/ns/values/k/v1.bin" not in container.blobs
+
+
+def test_collect_orphaned_values_treats_missing_last_modified_as_recent(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    """A blob whose backend does not expose last_modified must not be
+    deleted at the default grace period — fail safe rather than guess."""
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+    saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+    original_list_blobs = container.list_blobs
+
+    def list_without_timestamp(name_starts_with: str = "") -> list[_BlobItem]:
+        return [
+            _BlobItem(name=item.name, last_modified=None)
+            for item in original_list_blobs(name_starts_with=name_starts_with)
+        ]
+
+    container.list_blobs = list_without_timestamp  # type: ignore[method-assign]
+
+    result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in result.skipped_recent
+    assert result.deleted == []
+
+
+def test_collect_orphaned_values_fails_closed_on_corrupt_survivor(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    """A surviving checkpoint blob whose payload cannot be deserialized
+    makes the survivor set untrustworthy — the entire namespace must be
+    skipped rather than risk deleting still-referenced value blobs."""
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+    saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+    _backdate_value_blobs(container, datetime(2020, 1, 1, tzinfo=timezone.utc))
+    surviving_checkpoint_blob = "threads/t-1/ns/ns/checkpoints/cp-002/checkpoint.bin"
+    assert surviving_checkpoint_blob in container.blobs
+    container.blobs[surviving_checkpoint_blob] = _BlobRecord(
+        data=b"not-a-valid-msgpack-payload",
+        metadata=dict(container.blobs[surviving_checkpoint_blob].metadata),
+        last_modified=container.blobs[surviving_checkpoint_blob].last_modified,
+    )
+
+    result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+
+    assert ("t-1", "ns") in result.skipped_namespaces
+    assert result.deleted == []
+    assert result.would_delete == []
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in container.blobs
+
+
+def test_collect_orphaned_values_fails_closed_on_missing_serde_metadata(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    """When _download_typed_blob returns None for a listed survivor
+    (e.g. serde_type metadata stripped by an out-of-band tool) the
+    namespace must be skipped, not silently treated as 'no references'."""
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"k": 1}, channel_versions={"k": "v1"}),
+        _metadata(step=1),
+        {"k": "v1"},
+    )
+    saver.put(
+        cfg,
+        _checkpoint("cp-002", channel_values={"k": 2}, channel_versions={"k": "v2"}),
+        _metadata(step=2),
+        {"k": "v2"},
+    )
+    saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
+    _backdate_value_blobs(container, datetime(2020, 1, 1, tzinfo=timezone.utc))
+    surviving_checkpoint_blob = "threads/t-1/ns/ns/checkpoints/cp-002/checkpoint.bin"
+    record = container.blobs[surviving_checkpoint_blob]
+    stripped_metadata = {k: v for k, v in record.metadata.items() if k != "serde_type"}
+    container.blobs[surviving_checkpoint_blob] = _BlobRecord(
+        data=record.data,
+        metadata=stripped_metadata,
+        last_modified=record.last_modified,
+    )
+
+    result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
+
+    assert ("t-1", "ns") in result.skipped_namespaces
+    assert result.deleted == []
+    assert "threads/t-1/ns/ns/values/k/v1.bin" in container.blobs
+
+
+def test_collect_orphaned_values_result_dataclass_has_skipped_recent_field() -> None:
+    """Public-API contract: callers depend on `skipped_recent` to audit
+    deferred deletions; verify the field is exported and defaults empty."""
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    result_cls = getattr(module, "OrphanedValueCollectionResult")
+    instance = result_cls(dry_run=True)
+    assert hasattr(instance, "skipped_recent")
+    assert instance.skipped_recent == []
+    package_module = importlib.import_module("azure_functions_langgraph.checkpointers")
+    assert getattr(package_module, "OrphanedValueCollectionResult") is result_cls

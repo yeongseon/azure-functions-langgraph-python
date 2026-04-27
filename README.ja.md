@@ -311,7 +311,23 @@ saver.delete_checkpoints_before(
 
 どちらのヘルパーもチェックポイントマーカー、メタデータ、write blob のみを削除します。チャンネル値 blob（`values/` 配下）と `latest.json` ポインターは意図的に保持するため、残ったチェックポイントはそのまま利用できます。
 
-> **注意** — これらのヘルパーは安全ですが**完全ではありません**。今回削除されたチェックポイントから**のみ**参照されていたチャンネル値 blob は orphan となり、削除されません。頻繁にチェックポイントを取る長時間実行スレッドでは、時間とともに orphan blob がストレージ使用量の大半を占める可能性があります。値 blob のフル GC は [#153](https://github.com/yeongseon/azure-functions-langgraph-python/issues/153) で opt-in ヘルパーの候補として追跡されています。
+> **注意** — `delete_old_checkpoints` / `delete_checkpoints_before` は安全ですが**完全ではありません**。今回削除されたチェックポイントから**のみ**参照されていたチャンネル値 blob は orphan となり、削除されません。頻繁にチェックポイントを取る長時間実行スレッドでは、時間とともに orphan blob がストレージ使用量の大半を占める可能性があります。第2段階として `collect_orphaned_values()`（以下）をスケジュール実行してください。
+
+#### orphan チャンネル値のガベージコレクション
+
+チェックポイントを削除した後、`collect_orphaned_values()` は生き残ったチェックポイントを走査し、参照される `(channel, version)` の集合を構築して、その集合外の `values/` blob を削除します。デフォルトは **dry-run** なので、まず監査できます:
+
+```python
+audit = saver.collect_orphaned_values(thread_id="conversation-1")
+print(audit.would_delete)
+
+result = saver.collect_orphaned_values(thread_id="conversation-1", dry_run=False)
+print(f"{len(result.deleted)} 個の orphan blob を削除")
+```
+
+このヘルパーは2つの補完的な仕組みで同時実行安全性を提供します: (1) 最近書き込みの grace period — `last_modified` が `grace_period_seconds`（デフォルト **300秒**）以内の値 blob は次回の GC パスに延期され、`result.skipped_recent` に記録されます（value blob のアップロードと `latest.json` の確定の間のギャップを保護）。(2) orphan ごとの再スキャン — 各削除の直前に survivor セットが再計算されるため、スナップショット後に新しく確定したチェックポイントが参照し始めた*古い* value blob も保護されます。
+
+名前空間単位で **fail-closed** に動作します: `latest.json` が存在しない、または生存しているチェックポイント blob のいずれかが読めない / デシリアライズに失敗した場合、その名前空間全体がスキップされ（`result.skipped_namespaces` に記録）、設定ミスや一時的に利用できないストレージが破壊的な削除を引き起こさないようにします。
 
 ### v0.3.0からのアップグレード
 

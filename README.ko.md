@@ -309,7 +309,23 @@ saver.delete_checkpoints_before(
 
 두 헬퍼 모두 체크포인트 마커, 메타데이터, write blob만 삭제합니다. 채널 값 blob(`values/` 아래)과 `latest.json` 포인터는 의도적으로 보존하므로, 유지되는 체크포인트는 그대로 사용 가능합니다.
 
-> **참고** — 이 헬퍼들은 안전하지만 **완전하지는 않습니다**. 방금 삭제된 체크포인트에서**만** 참조되던 채널 값 blob은 orphan 상태가 되며 제거되지 않습니다. 자주 체크포인트되는 장기 실행 스레드의 경우, 시간이 지나면 이러한 orphan blob이 스토리지 사용량의 대부분을 차지할 수 있습니다. 전체 값 blob 가비지 컬렉션은 [#153](https://github.com/yeongseon/azure-functions-langgraph-python/issues/153)에서 opt-in 헬퍼 후보로 추적되고 있습니다.
+> **참고** — `delete_old_checkpoints` / `delete_checkpoints_before`는 안전하지만 **완전하지는 않습니다**. 방금 삭제된 체크포인트에서**만** 참조되던 채널 값 blob은 orphan 상태가 되며 제거되지 않습니다. 자주 체크포인트되는 장기 실행 스레드의 경우, 시간이 지나면 이러한 orphan blob이 스토리지 사용량의 대부분을 차지할 수 있습니다. 두 번째 단계로 `collect_orphaned_values()`(아래)를 스케줄에 따라 실행하세요.
+
+#### 고아 채널 값 가비지 컬렉션
+
+체크포인트 정리 후 `collect_orphaned_values()`는 살아남은 체크포인트를 순회하며 참조되는 `(channel, version)` 집합을 만들고, 그 집합 밖의 `values/` blob을 삭제합니다. 기본값은 **dry-run**이므로 먼저 감사할 수 있습니다:
+
+```python
+audit = saver.collect_orphaned_values(thread_id="conversation-1")
+print(audit.would_delete)
+
+result = saver.collect_orphaned_values(thread_id="conversation-1", dry_run=False)
+print(f"고아 blob {len(result.deleted)}개 삭제됨")
+```
+
+이 헬퍼는 두 가지 보완적인 메커니즘으로 동시성 안전성을 제공합니다: (1) 최근 쓰기 grace period — `last_modified`가 `grace_period_seconds`(기본 **300초**) 이내인 값 blob은 다음 GC 패스로 연기되며 `result.skipped_recent`에 기록됩니다(value blob 업로드와 `latest.json` 확정 사이의 갭을 보호). (2) orphan별 재스캔 — 각 삭제 직전에 survivor 집합을 다시 계산하므로, 스냅샷 이후에 새로 확정된 체크포인트가 참조하기 시작한 *오래된* value blob도 보존됩니다.
+
+네임스페이스별로 **fail-closed** 동작합니다: `latest.json`이 없거나 살아남은 체크포인트 blob 중 하나라도 읽을 수 없거나 역직렬화에 실패하면, 해당 네임스페이스 전체가 건너뛰어지고(`result.skipped_namespaces`에 기록) 잘못 구성되었거나 일시적으로 사용할 수 없는 스토리지에서 파괴적인 삭제가 트리거되지 않도록 합니다.
 
 ### v0.3.0에서 업그레이드
 

@@ -309,7 +309,23 @@ saver.delete_checkpoints_before(
 
 两个辅助函数仅删除检查点标记、元数据和 write blob。通道值 blob（位于 `values/` 下）和 `latest.json` 指针被有意保留，因此保留下来的检查点仍可正常使用。
 
-> **注意** — 这些辅助函数是安全的，但**并不完整**。仅被刚刚删除的检查点引用的通道值 blob 会变为 orphan 且不会被删除。对于频繁创建检查点的长时间运行线程，这些 orphan blob 会随时间逐渐占据大部分存储空间。完整的值 blob 垃圾回收作为可选的 opt-in 辅助函数候选项在 [#153](https://github.com/yeongseon/azure-functions-langgraph-python/issues/153) 中跟踪。
+> **注意** — `delete_old_checkpoints` / `delete_checkpoints_before` 是安全的，但**并不完整**。仅被刚刚删除的检查点引用的通道值 blob 会变为 orphan 且不会被删除。对于频繁创建检查点的长时间运行线程，这些 orphan blob 会随时间逐渐占据大部分存储空间。请将 `collect_orphaned_values()`（见下文）作为第二步按计划运行。
+
+#### 收集孤立的通道值 blob
+
+清理检查点之后，`collect_orphaned_values()` 会遍历存活的检查点，构建它们引用的 `(channel, version)` 集合，并删除该集合之外的所有 `values/` blob。默认是 **dry-run**，您可以先审计：
+
+```python
+audit = saver.collect_orphaned_values(thread_id="conversation-1")
+print(audit.would_delete)
+
+result = saver.collect_orphaned_values(thread_id="conversation-1", dry_run=False)
+print(f"删除了 {len(result.deleted)} 个 orphan 值 blob")
+```
+
+该辅助函数通过两个互补机制保证并发安全：(1) 最近写入的宽限期 — `last_modified` 在 `grace_period_seconds`（默认 **300 秒**）窗口内的值 blob 将延后到下一轮 GC，并记录在 `result.skipped_recent` 中（保护值 blob 上传到 `latest.json` 最终确定之间的窗口）。(2) 每个 orphan 的重新扫描 — 在每次删除之前重新计算 survivor 集合，从而保护被快照之后新确定的检查点开始引用的*较旧*值 blob。
+
+每个命名空间都**失败关闭**：如果 `latest.json` 缺失，或任何存活的检查点 blob 不可读 / 反序列化失败，则跳过整个命名空间（记录在 `result.skipped_namespaces` 中），以防止配置错误或暂时不可用的存储触发破坏性删除。
 
 ### 从 v0.3.0 升级
 

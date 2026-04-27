@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 import importlib
 import json
 import logging
@@ -42,19 +43,32 @@ class OrphanedValueCollectionResult:
         captures the candidates *before* the per-blob re-check: a blob
         listed here may still be skipped (and absent from ``deleted``)
         if a concurrent writer references it mid-collection.
+        Blobs deferred by the recent-write grace window are **not**
+        listed here; they appear in ``skipped_recent`` instead.
     deleted:
         Channel value blob paths actually deleted. Only populated when
         ``dry_run`` is ``False``. Always a subset of ``would_delete``.
     skipped_namespaces:
-        ``(thread_id, checkpoint_ns)`` pairs whose ``latest.json`` could
-        not be loaded — the helper skipped them entirely to avoid
-        deleting live data on a misconfigured store.
+        ``(thread_id, checkpoint_ns)`` pairs whose survivor set could
+        not be trusted — either ``latest.json`` could not be loaded, or
+        at least one surviving checkpoint blob was unreadable / could
+        not be deserialized. The helper skips such namespaces entirely
+        to avoid deleting live data on a misconfigured or transiently
+        unavailable store. Failure reasons are logged at WARNING level.
+    skipped_recent:
+        Channel value blob paths that were recent enough to fall inside
+        the ``grace_period_seconds`` window (or that exposed no
+        ``last_modified`` timestamp). These are deferred to a future GC
+        pass so an in-flight checkpoint write that uploaded the value
+        blob *before* finalizing its checkpoint commit marker is not
+        deleted out from under it.
     """
 
     dry_run: bool
     would_delete: list[str] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
     skipped_namespaces: list[tuple[str, str]] = field(default_factory=list)
+    skipped_recent: list[str] = field(default_factory=list)
 
 
 class _BlobDownloadProtocol(Protocol):
@@ -77,6 +91,7 @@ class _BlobClientProtocol(Protocol):
 
 class _BlobItemProtocol(Protocol):
     name: str
+    last_modified: datetime | None
 
 
 class _ContainerClientProtocol(Protocol):
@@ -472,6 +487,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         *,
         checkpoint_ns: str | None = None,
         dry_run: bool = True,
+        grace_period_seconds: int = 300,
     ) -> OrphanedValueCollectionResult:
         """Garbage-collect channel value blobs orphaned by checkpoint deletion.
 
@@ -484,20 +500,31 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         Safety contract:
 
-        * Per-namespace: if ``latest.json`` cannot be loaded the
-          namespace is skipped entirely (recorded in
-          :attr:`OrphanedValueCollectionResult.skipped_namespaces`).
-          Without a known-good latest pointer the helper has no signal
-          that the survivor set is trustworthy and refuses to delete.
+        * Per-namespace fail-closed: the namespace is skipped (recorded
+          in :attr:`OrphanedValueCollectionResult.skipped_namespaces`)
+          if ``latest.json`` cannot be loaded **or** any surviving
+          checkpoint blob listed under the namespace is unreadable /
+          fails deserialization. Without a complete, trustworthy
+          survivor set the helper has no way to compute the retained
+          ``(channel, version)`` set, so it refuses to delete.
         * Set semantics: a blob is preserved if **any** surviving
           checkpoint references its ``(channel, version)``. Versions
           shared across checkpoints are never deleted as long as one
           owner survives.
-        * Concurrency: the survivor list is snapshotted before deletion,
-          but each delete is preceded by a fresh per-namespace survivor
-          re-scan so a checkpoint written after the snapshot still
-          protects its referenced values. A blob may therefore appear in
-          ``would_delete`` but not in ``deleted``.
+        * Recent-write grace period: any value blob whose
+          ``last_modified`` falls inside the ``grace_period_seconds``
+          window — or whose ``last_modified`` is unavailable — is
+          deferred to a future GC pass and recorded in
+          :attr:`OrphanedValueCollectionResult.skipped_recent`.
+          The checkpoint write order is values → metadata → checkpoint
+          → ``latest.json``, so a value blob that exists but is not yet
+          referenced by any checkpoint may simply be a write in flight.
+        * Concurrency re-check: even after the grace filter, the
+          survivor set is re-scanned per orphan immediately before
+          deletion. This protects an *older* value blob that a newly
+          finalized checkpoint started referencing after the initial
+          snapshot. Such blobs appear in ``would_delete`` but not in
+          ``deleted``.
 
         Parameters
         ----------
@@ -510,6 +537,12 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             When ``True`` (default), nothing is deleted; the returned
             ``would_delete`` list captures every blob a non-dry-run pass
             over the same snapshot would attempt to delete.
+        grace_period_seconds:
+            Defer deletion of any value blob whose ``last_modified`` is
+            within this many seconds of now (default 300). Set to ``0``
+            to disable the recent-write guard — only safe when the
+            caller can guarantee no concurrent checkpoint writes (e.g.
+            an offline maintenance window).
 
         Returns
         -------
@@ -524,17 +557,32 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             else self._list_checkpoint_namespaces(thread_id)
         )
 
+        cutoff = self._utcnow() - timedelta(seconds=grace_period_seconds)
+
         for ns in namespaces:
             if self._read_latest_checkpoint_id(thread_id, ns) is None:
+                logger.warning(
+                    "collect_orphaned_values: skipping namespace (thread=%s, ns=%s); "
+                    "latest.json missing or unreadable",
+                    thread_id,
+                    ns,
+                )
                 result.skipped_namespaces.append((thread_id, ns))
                 continue
 
             retained = self._collect_retained_versions(thread_id, ns)
-            value_blob_paths = self._list_value_blobs(thread_id, ns)
+            if retained is None:
+                result.skipped_namespaces.append((thread_id, ns))
+                continue
+
+            value_blobs = self._list_value_blobs(thread_id, ns)
 
             ns_orphans: list[str] = []
-            for blob_path, channel_version in value_blob_paths:
+            for blob_path, channel_version, last_modified in value_blobs:
                 if channel_version is None or channel_version in retained:
+                    continue
+                if last_modified is None or last_modified > cutoff:
+                    result.skipped_recent.append(blob_path)
                     continue
                 ns_orphans.append(blob_path)
                 result.would_delete.append(blob_path)
@@ -544,6 +592,15 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
             for blob_path in ns_orphans:
                 fresh_retained = self._collect_retained_versions(thread_id, ns)
+                if fresh_retained is None:
+                    logger.warning(
+                        "collect_orphaned_values: aborting deletes for namespace "
+                        "(thread=%s, ns=%s) mid-pass; survivor re-scan untrustworthy",
+                        thread_id,
+                        ns,
+                    )
+                    result.skipped_namespaces.append((thread_id, ns))
+                    break
                 channel_version = self._parse_value_blob_path(thread_id, ns, blob_path)
                 if channel_version is not None and channel_version in fresh_retained:
                     continue
@@ -555,38 +612,52 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         return result
 
+    def _utcnow(self) -> datetime:
+        return datetime.now(timezone.utc)
+
     def _collect_retained_versions(
         self, thread_id: str, checkpoint_ns: str
-    ) -> set[tuple[str, str]]:
+    ) -> set[tuple[str, str]] | None:
         retained: set[tuple[str, str]] = set()
         for cid in self._list_checkpoint_ids(thread_id, checkpoint_ns):
             blob_path = self._checkpoint_blob_path(thread_id, checkpoint_ns, cid)
             typed_blob = self._download_typed_blob(blob_path)
             if typed_blob is None:
-                continue
+                logger.warning(
+                    "collect_orphaned_values: surviving checkpoint blob %s missing or "
+                    "lacks serde_type metadata; treating namespace as untrustworthy",
+                    blob_path,
+                )
+                return None
             try:
                 checkpoint_data: Checkpoint = self.serde.loads_typed(
                     (typed_blob[0], typed_blob[1])
                 )
+                channel_versions = checkpoint_data["channel_versions"]
             except Exception:
                 logger.warning(
-                    "Failed to deserialize checkpoint blob %s; "
-                    "skipping its referenced channel versions",
+                    "collect_orphaned_values: failed to deserialize surviving "
+                    "checkpoint blob %s; treating namespace as untrustworthy",
                     blob_path,
                 )
-                continue
-            for channel, version in checkpoint_data["channel_versions"].items():
+                return None
+            for channel, version in channel_versions.items():
                 retained.add((channel, str(version)))
         return retained
 
     def _list_value_blobs(
         self, thread_id: str, checkpoint_ns: str
-    ) -> List[tuple[str, tuple[str, str] | None]]:
+    ) -> List[tuple[str, tuple[str, str] | None, datetime | None]]:
         values_prefix = f"{self._namespace_prefix(thread_id, checkpoint_ns)}values/"
-        items: List[tuple[str, tuple[str, str] | None]] = []
+        items: List[tuple[str, tuple[str, str] | None, datetime | None]] = []
         for blob in self._container_client.list_blobs(name_starts_with=values_prefix):
+            last_modified = getattr(blob, "last_modified", None)
             items.append(
-                (blob.name, self._parse_value_blob_path(thread_id, checkpoint_ns, blob.name))
+                (
+                    blob.name,
+                    self._parse_value_blob_path(thread_id, checkpoint_ns, blob.name),
+                    last_modified,
+                )
             )
         return items
 
