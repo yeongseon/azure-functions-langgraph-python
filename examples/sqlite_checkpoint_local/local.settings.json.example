@@ -1,0 +1,9 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "LANGGRAPH_SQLITE_PATH": "/tmp/langgraph_checkpoints.sqlite",
+    "LANGGRAPH_SQLITE_SETUP": "true"
+  }
+}

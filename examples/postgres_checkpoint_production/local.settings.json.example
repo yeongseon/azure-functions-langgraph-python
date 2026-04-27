@@ -1,0 +1,9 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "LANGGRAPH_POSTGRES_CONNECTION_STRING": "postgresql://postgres:postgres@localhost:5432/langgraph",
+    "LANGGRAPH_POSTGRES_SETUP": "true"
+  }
+}

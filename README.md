@@ -349,6 +349,35 @@ saver.delete_checkpoints_before(
 
 Both helpers preserve channel value blobs and the `latest.json` pointer, so retained checkpoints remain fully usable.
 
+#### DB checkpointer backends
+
+For workloads that already run a managed database (or need state shared across multiple Function instances), thin DX helpers wrap the official LangGraph DB checkpoint packages without reimplementing storage:
+
+| Backend | Helper | Extra | When to use |
+| --- | --- | --- | --- |
+| Postgres | `create_postgres_checkpointer` | `pip install azure-functions-langgraph[postgres]` | Production, multi-instance, existing Postgres infra |
+| SQLite | `create_sqlite_checkpointer` | `pip install azure-functions-langgraph[sqlite]` | Local dev and single-instance deployments |
+
+Each helper accepts a connection string, owns the connection lifetime, and (by default) calls upstream `setup()` on cold start so the checkpoint tables exist:
+
+```python
+import os
+from azure_functions_langgraph.checkpointers.postgres import create_postgres_checkpointer
+
+checkpointer = create_postgres_checkpointer(
+    os.environ["LANGGRAPH_POSTGRES_CONNECTION_STRING"],
+    setup=True,  # set False once your deployment pipeline owns migrations
+)
+graph = builder.compile(checkpointer=checkpointer)
+```
+
+The helpers do not hide `builder.compile(checkpointer=...)` and do not reimplement DB checkpoint storage — they only centralize the env-var convention, run `setup()` once, and emit clear ImportErrors pointing at the right extra. See [`examples/postgres_checkpoint_production/`](examples/postgres_checkpoint_production/) and [`examples/sqlite_checkpoint_local/`](examples/sqlite_checkpoint_local/) for full Azure-Functions wiring.
+
+| Backend | Comfortable | Caution zone | Switch backends |
+| --- | --- | --- | --- |
+| `create_sqlite_checkpointer` | local dev, single-instance prod | multi-process write contention | Use Postgres |
+| `create_postgres_checkpointer` | multi-instance Functions, existing Postgres infra | very high write QPS without read replicas | Add connection pooling / read replicas, or shard |
+
 ### Upgrading
 
 #### v0.3.0 → v0.4.0
