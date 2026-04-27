@@ -6,6 +6,6 @@
     "AZURE_STORAGE_CONNECTION_STRING": "UseDevelopmentStorage=true",
     "LANGGRAPH_BLOB_CONTAINER": "langgraph-checkpoints",
     "LANGGRAPH_THREADS_TABLE": "langgraphthreads",
-    "LANGGRAPH_AUTO_CREATE_CONTAINER": "true"
+    "LANGGRAPH_AUTO_CREATE_STORAGE": "true"
   }
 }

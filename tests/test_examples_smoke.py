@@ -14,6 +14,7 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("openapi_bridge", "compiled_graph"),
     ("production_auth", "private_graph"),
     ("production_auth", "public_graph"),
+    ("managed_identity_storage", "compiled_graph"),
 )
 
 
