@@ -56,8 +56,14 @@ def create_postgres_checkpointer(
             default and is required for ``setup()`` DDL to take effect
             without an explicit transaction.
         prepare_threshold: Forwarded to :meth:`psycopg.Connection.connect`.
-            Defaults to ``0`` to match upstream and avoid accidentally
-            preparing every statement.
+            Defaults to ``0`` to match upstream
+            :meth:`PostgresSaver.from_conn_string`. In psycopg, ``0`` means
+            **prepare every query on first execution** (eager preparation,
+            best for the LangGraph checkpoint workload of repeated identical
+            statements). Pass ``None`` to disable prepared statements
+            entirely (e.g. behind PgBouncer in transaction pooling mode,
+            which does not preserve prepared-statement state across
+            client connections).
 
     Returns:
         A :class:`PostgresSaver` ready to be passed to
@@ -88,7 +94,10 @@ def create_postgres_checkpointer(
     if Connection is None:
         raise ImportError("psycopg is missing Connection; upgrade psycopg to >=3.0,<4.")
 
-    rows_module = importlib.import_module("psycopg.rows")
+    try:
+        rows_module = importlib.import_module("psycopg.rows")
+    except ImportError as exc:
+        raise ImportError(_EXTRA_HINT) from exc
     dict_row = getattr(rows_module, "dict_row", None)
     if dict_row is None:
         raise ImportError("psycopg.rows is missing dict_row; upgrade psycopg to >=3.0,<4.")

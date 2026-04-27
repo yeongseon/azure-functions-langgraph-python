@@ -104,7 +104,9 @@ def test_postgres_helper_opens_connection_and_runs_setup(monkeypatch: Any) -> No
     assert connect_calls[0]["autocommit"] is True
     assert connect_calls[0]["prepare_threshold"] == 0
     assert "row_factory" in connect_calls[0]
+    assert type(saver).__name__ == "FakePostgresSaver"
     assert hasattr(saver, "conn")
+    assert saver.conn is not None
 
 
 def test_postgres_helper_setup_false_skips_setup(monkeypatch: Any) -> None:
@@ -158,6 +160,24 @@ def test_postgres_helper_missing_psycopg_raises_helpful_error(monkeypatch: Any) 
 
     def fake_import_module(name: str) -> Any:
         if name == "psycopg":
+            raise ImportError("missing")
+        return real_import_module(name)
+
+    monkeypatch.setattr(module.importlib, "import_module", fake_import_module)
+
+    with pytest.raises(ImportError, match=r"\[postgres\]"):
+        module.create_postgres_checkpointer("postgresql://u:p@h/db")
+
+
+def test_postgres_helper_missing_psycopg_rows_module_raises(monkeypatch: Any) -> None:
+    _install_fake_postgres(monkeypatch)
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.postgres")
+    importlib.reload(module)
+
+    real_import_module = importlib.import_module
+
+    def fake_import_module(name: str) -> Any:
+        if name == "psycopg.rows":
             raise ImportError("missing")
         return real_import_module(name)
 
