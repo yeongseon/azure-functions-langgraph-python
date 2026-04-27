@@ -26,9 +26,16 @@ The Table client is then handed to the new
 [`AzureTableThreadStore.from_table_client()`](../../README.md#persistent-storage-v04)
 factory so the credential flows through unchanged.
 
+> The **runnable example** branches on env vars to support both modes from
+> a single `function_app.py`. The standalone snippet in the README's
+> *Persistent storage with Managed Identity* section uses
+> `DefaultAzureCredential` directly — that wiring works in Azure Functions
+> and locally with `az login` without any conditional code.
+
 ## Run locally with Azurite
 
-Start Azurite (Docker):
+Start Azurite (Docker), exposing **all three** ports — port `10002` is
+required for the Table service:
 
 ```bash
 docker run -d --name azurite \
@@ -106,20 +113,37 @@ Do **not** set `AZURE_STORAGE_CONNECTION_STRING` in production — its presence
 would also work, but it puts a credential into App Settings and defeats the
 point of using Managed Identity.
 
-### 4. Pre-create the container (one-time)
+### 4. Pre-create the container and table (recommended)
 
-`function_app.py` calls `container.create_container()` if missing, which
-requires the role assignment above to be already in place. Alternatively,
-create it once via the portal or CLI:
+Pre-creating storage resources avoids cold-start side effects and avoids
+RBAC propagation timing issues:
 
 ```bash
 az storage container create \
   --account-name <storage-account> --name langgraph-checkpoints \
   --auth-mode login
+
+az storage table create \
+  --account-name <storage-account> --name langgraphthreads \
+  --auth-mode login
 ```
 
-The Table is created lazily by the store on first write, so no extra step is
-required for it.
+`AzureTableThreadStore` does **not** create the table on first write —
+calls will fail with `ResourceNotFoundError` if the table is missing,
+so the table must exist before the Function App handles its first
+request. The same applies to `AzureBlobCheckpointSaver` and the
+container.
+
+For local Azurite runs, the example sets
+`LANGGRAPH_AUTO_CREATE_CONTAINER=true` in `local.settings.json.example`
+so it bootstraps both resources at cold start. **Do not set this in
+production** — pre-create instead.
+
+### 5. Note on RBAC propagation
+
+Azure RBAC role assignments can take a few minutes to propagate. If you
+deploy and immediately see `403 Forbidden` from Blob or Table operations,
+wait 1–5 minutes and retry before debugging further.
 
 ## Local-dev fallback to Azure CLI credential
 
@@ -149,8 +173,13 @@ to your `az login` identity as it does to a Function App's Managed Identity.
 
 ## Verify persistence
 
+The example deploys with `auth_level=FUNCTION`, so a function key is
+required when hitting a deployed app. Local `func start` may also accept
+requests without a key depending on host version — supply one if you
+have it:
+
 ```bash
-KEY="<function-key-or-leave-blank-for-anonymous>"
+KEY="<function-key>"   # required for deployed apps; may be optional locally
 THREAD=$(curl -s -X POST "http://localhost:7071/api/threads?code=$KEY" \
   -H "Content-Type: application/json" -d '{}' \
   | python -c 'import json,sys; print(json.load(sys.stdin)["thread_id"])')

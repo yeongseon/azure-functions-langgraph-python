@@ -1,4 +1,4 @@
-"""Compiled graph for the persistent_agent_blob_table example."""
+"""Compiled graph for the managed_identity_storage example."""
 
 from __future__ import annotations
 

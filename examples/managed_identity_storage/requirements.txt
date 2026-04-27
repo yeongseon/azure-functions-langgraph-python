@@ -1,5 +1,13 @@
 # Do not include azure-functions-worker in this file
 # The Python Worker is managed by the Azure Functions platform
+#
+# This example uses APIs introduced in v0.6.0 (azure-identity extra,
+# AzureTableThreadStore.from_table_client). Until v0.6.0 is on PyPI,
+# install the package in editable mode from a local checkout:
+#
+#     pip install -e ../..[azure-blob,azure-table,azure-identity]
+#
+# After v0.6.0 is released, the pinned line below is sufficient.
 
 azure-functions
 azure-functions-langgraph[azure-blob,azure-table,azure-identity]>=0.6.0,<0.7.0

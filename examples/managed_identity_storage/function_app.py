@@ -50,8 +50,27 @@ def _build_storage_clients() -> tuple[ContainerClient, TableClient]:
 
 container_client, table_client = _build_storage_clients()
 
-if not container_client.exists():
-    container_client.create_container()
+_AUTO_CREATE_CONTAINER = (
+    os.environ.get("LANGGRAPH_AUTO_CREATE_CONTAINER", "false").lower() == "true"
+)
+
+if _AUTO_CREATE_CONTAINER:
+    try:
+        if not container_client.exists():
+            container_client.create_container()
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to verify or create the checkpoint container at cold start. "
+            "Pre-create the container and unset LANGGRAPH_AUTO_CREATE_CONTAINER, "
+            "or check Managed Identity RBAC propagation (Storage Blob Data Contributor)."
+        ) from exc
+
+    try:
+        table_client.create_table()
+    except Exception:
+        # Table already exists, or RBAC is still propagating — defer the error
+        # to the first real operation so RBAC delays do not block cold start.
+        pass
 
 checkpointer = AzureBlobCheckpointSaver(container_client=container_client)
 thread_store = AzureTableThreadStore.from_table_client(table_client=table_client)
