@@ -580,6 +580,71 @@ def test_from_connection_string_missing_symbols_raise_helpful_errors(monkeypatch
         )
 
 
+def _install_fake_azure_sdk(monkeypatch: Any) -> None:
+    azure_data_tables = types.ModuleType("azure.data.tables")
+    setattr(azure_data_tables, "TableClient", object)
+
+    azure_core_exceptions = types.ModuleType("azure.core.exceptions")
+    setattr(azure_core_exceptions, "ResourceNotFoundError", FakeResourceNotFoundError)
+    setattr(azure_core_exceptions, "ResourceModifiedError", FakeResourceModifiedError)
+
+    azure_core = types.ModuleType("azure.core")
+    setattr(azure_core, "MatchConditions", FakeMatchConditions)
+
+    monkeypatch.setitem(sys.modules, "azure.data.tables", azure_data_tables)
+    monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions)
+    monkeypatch.setitem(sys.modules, "azure.core", azure_core)
+
+
+def test_from_table_client_wires_sdk_symbols(monkeypatch: Any) -> None:
+    _install_fake_azure_sdk(monkeypatch)
+    table_client = MockTableClient()
+
+    store = AzureTableThreadStore.from_table_client(table_client)
+
+    assert store._table_client is table_client
+    assert store._not_found_error is FakeResourceNotFoundError
+    assert store._modified_error is FakeResourceModifiedError
+    assert store._match_conditions is FakeMatchConditions
+
+
+def test_from_table_client_supports_full_lifecycle(monkeypatch: Any) -> None:
+    _install_fake_azure_sdk(monkeypatch)
+    table_client = MockTableClient()
+
+    store = AzureTableThreadStore.from_table_client(table_client)
+
+    thread = store.create(metadata={"k": "v"})
+    fetched = store.get(thread.thread_id)
+    assert fetched is not None
+    assert fetched.metadata == {"k": "v"}
+
+    acquired = store.try_acquire_run_lock(thread.thread_id)
+    assert acquired is not None
+    store.release_run_lock(thread.thread_id, status="idle")
+
+    listed = store.search(limit=10, offset=0)
+    assert any(t.thread_id == thread.thread_id for t in listed)
+
+    store.delete(thread.thread_id)
+    assert store.get(thread.thread_id) is None
+
+
+def test_from_table_client_missing_dependency_raises_helpful_error(monkeypatch: Any) -> None:
+    module = importlib.import_module("azure_functions_langgraph.stores.azure_table")
+    real_import_module = importlib.import_module
+
+    def fake_import_module(name: str) -> Any:
+        if name == "azure.data.tables":
+            raise ImportError("missing")
+        return real_import_module(name)
+
+    monkeypatch.setattr(module.importlib, "import_module", fake_import_module)
+
+    with pytest.raises(ImportError, match="azure-data-tables"):
+        AzureTableThreadStore.from_table_client(MockTableClient())
+
+
 def test_internal_helper_branches(monkeypatch: Any, caplog: Any) -> None:
     store, _ = _new_store()
 

@@ -317,6 +317,22 @@ func_app = app.function_app
 
 Checkpoints and thread metadata survive Azure Functions restarts and scale across instances.
 
+To use Managed Identity (or any other credential), construct a `TableClient` directly and hand it to `AzureTableThreadStore.from_table_client(...)`:
+
+```python
+from azure.data.tables import TableClient
+from azure.identity import DefaultAzureCredential
+
+table_client = TableClient(
+    endpoint="https://<account>.table.core.windows.net",
+    table_name="threads",
+    credential=DefaultAzureCredential(),
+)
+thread_store = AzureTableThreadStore.from_table_client(table_client)
+```
+
+A full Managed Identity walkthrough (Blob + Table) is tracked in [#156](https://github.com/yeongseon/azure-functions-langgraph-python/issues/156).
+
 ### Scale envelope
 
 The bundled persistent backends are intended for development and small-to-medium production deployments. Plan ahead before pushing past these limits:
