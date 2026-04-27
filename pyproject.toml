@@ -51,7 +51,6 @@ postgres = [
 sqlite = [
     "langgraph-checkpoint-sqlite>=3.0,<4",
 ]
-]
 dev = [
     "bandit==1.9.4",
     "build",

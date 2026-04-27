@@ -34,3 +34,6 @@ def build_graph() -> StateGraph:
     builder.add_edge(START, "respond")
     builder.add_edge("respond", END)
     return builder
+
+
+compiled_graph = build_graph().compile()

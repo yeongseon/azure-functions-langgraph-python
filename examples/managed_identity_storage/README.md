@@ -135,7 +135,7 @@ request. The same applies to `AzureBlobCheckpointSaver` and the
 container.
 
 For local Azurite runs, the example sets
-`LANGGRAPH_AUTO_CREATE_CONTAINER=true` in `local.settings.json.example`
+`LANGGRAPH_AUTO_CREATE_STORAGE=true` in `local.settings.json.example`
 so it bootstraps both resources at cold start. **Do not set this in
 production** — pre-create instead.
 
