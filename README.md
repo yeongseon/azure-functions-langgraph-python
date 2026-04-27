@@ -317,21 +317,49 @@ func_app = app.function_app
 
 Checkpoints and thread metadata survive Azure Functions restarts and scale across instances.
 
-To use Managed Identity (or any other credential), construct a `TableClient` directly and hand it to `AzureTableThreadStore.from_table_client(...)`:
+#### Persistent storage with Managed Identity
+
+The recommended production wiring uses **Managed Identity** instead of connection strings, so no secrets land in App Settings. Install the `azure-identity` extra and pass `DefaultAzureCredential` to both clients:
+
+```bash
+pip install azure-functions-langgraph[azure-blob,azure-table,azure-identity]
+```
 
 ```python
 from azure.data.tables import TableClient
 from azure.identity import DefaultAzureCredential
+from azure.storage.blob import ContainerClient
 
+from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
+from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
+
+credential = DefaultAzureCredential()
+
+container_client = ContainerClient(
+    account_url="https://<account>.blob.core.windows.net",
+    container_name="langgraph-checkpoints",
+    credential=credential,
+)
 table_client = TableClient(
     endpoint="https://<account>.table.core.windows.net",
-    table_name="threads",
-    credential=DefaultAzureCredential(),
+    table_name="langgraphthreads",
+    credential=credential,
 )
-thread_store = AzureTableThreadStore.from_table_client(table_client)
+
+checkpointer = AzureBlobCheckpointSaver(container_client=container_client)
+thread_store = AzureTableThreadStore.from_table_client(table_client=table_client)
 ```
 
-A full Managed Identity walkthrough (Blob + Table) is tracked in [#156](https://github.com/yeongseon/azure-functions-langgraph-python/issues/156).
+Required role assignments on the storage account (or narrower scopes):
+
+| Role | Used by |
+| --- | --- |
+| `Storage Blob Data Contributor` | `AzureBlobCheckpointSaver` |
+| `Storage Table Data Contributor` | `AzureTableThreadStore` |
+
+`DefaultAzureCredential` walks a chain of credentials. In Azure Functions it picks up the Function App's Managed Identity; locally it falls back to `AzureCliCredential` (`az login`) — the same code path works in both environments without conditional wiring.
+
+For a complete runnable example (Managed Identity in prod, Azurite + connection string locally), see [`examples/managed_identity_storage/`](examples/managed_identity_storage/).
 
 ### Scale envelope
 

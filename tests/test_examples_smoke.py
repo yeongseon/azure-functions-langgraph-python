@@ -57,6 +57,7 @@ EXAMPLE_DIRS = (
     "simple_agent",
     "platform_compat_sdk",
     "persistent_agent_blob_table",
+    "managed_identity_storage",
     "openapi_bridge",
     "production_auth",
 )
