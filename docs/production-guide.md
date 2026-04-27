@@ -364,7 +364,9 @@ def prune_checkpoints(timer: func.TimerRequest) -> None:
         saver.delete_old_checkpoints(thread.thread_id, keep_last=50)
 ```
 
-Both helpers preserve channel value blobs and the `latest.json` pointer, so retained checkpoints remain fully usable.
+Both helpers only delete checkpoint marker, metadata, and write blobs. They intentionally preserve channel value blobs (under `values/`) and the `latest.json` pointer so retained checkpoints remain fully usable.
+
+> **Note** — These helpers are safe but **not exhaustive**. Channel value blobs that were referenced *only* by the now-deleted checkpoints become orphaned and are not removed. For long-running threads with frequent checkpointing, those orphans can dominate the storage footprint over time. Full value-blob garbage collection is tracked in [#153](https://github.com/yeongseon/azure-functions-langgraph-python/issues/153) as a candidate opt-in helper.
 
 If you want absolute cutoffs instead of "keep N", use `delete_checkpoints_before(thread_id, before_checkpoint_id=...)`. Checkpoint ids are lexicographically sortable, so `before_checkpoint_id` can be the id of any boundary checkpoint your application picks (e.g. the last successful production checkpoint of a previous day).
 

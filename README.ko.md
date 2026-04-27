@@ -307,7 +307,9 @@ saver.delete_checkpoints_before(
 )
 ```
 
-두 헬퍼 모두 채널 값 blob과 `latest.json` 포인터를 보존하므로, 유지되는 체크포인트는 그대로 사용 가능합니다.
+두 헬퍼 모두 체크포인트 마커, 메타데이터, write blob만 삭제합니다. 채널 값 blob(`values/` 아래)과 `latest.json` 포인터는 의도적으로 보존하므로, 유지되는 체크포인트는 그대로 사용 가능합니다.
+
+> **참고** — 이 헬퍼들은 안전하지만 **완전하지는 않습니다**. 방금 삭제된 체크포인트에서**만** 참조되던 채널 값 blob은 orphan 상태가 되며 제거되지 않습니다. 자주 체크포인트되는 장기 실행 스레드의 경우, 시간이 지나면 이러한 orphan blob이 스토리지 사용량의 대부분을 차지할 수 있습니다. 전체 값 blob 가비지 컬렉션은 [#153](https://github.com/yeongseon/azure-functions-langgraph-python/issues/153)에서 opt-in 헬퍼 후보로 추적되고 있습니다.
 
 ### v0.3.0에서 업그레이드
 

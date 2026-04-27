@@ -349,7 +349,7 @@ saver.delete_checkpoints_before(
 
 Both helpers only delete checkpoint marker, metadata, and write blobs. They intentionally preserve channel value blobs (under `values/`) and the `latest.json` pointer so retained checkpoints remain fully usable.
 
-> **Note** — These helpers are safe but **not exhaustive**. Channel value blobs that were referenced *only* by the now-deleted checkpoints become orphaned and are not removed. For long-running threads with frequent checkpointing, those orphans can dominate the storage footprint over time. Full value-blob garbage collection is tracked in [#153](https://github.com/yeongseon/azure-functions-langgraph-python/issues/153) and will land as an opt-in helper in a future release.
+> **Note** — These helpers are safe but **not exhaustive**. Channel value blobs that were referenced *only* by the now-deleted checkpoints become orphaned and are not removed. For long-running threads with frequent checkpointing, those orphans can dominate the storage footprint over time. Full value-blob garbage collection is tracked in [#153](https://github.com/yeongseon/azure-functions-langgraph-python/issues/153) as a candidate opt-in helper.
 
 ### Upgrading
 

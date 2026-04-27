@@ -307,7 +307,9 @@ saver.delete_checkpoints_before(
 )
 ```
 
-两个辅助函数都会保留通道值 blob 和 `latest.json` 指针，因此保留下来的检查点仍可正常使用。
+两个辅助函数仅删除检查点标记、元数据和 write blob。通道值 blob（位于 `values/` 下）和 `latest.json` 指针被有意保留，因此保留下来的检查点仍可正常使用。
+
+> **注意** — 这些辅助函数是安全的，但**并不完整**。仅被刚刚删除的检查点引用的通道值 blob 会变为 orphan 且不会被删除。对于频繁创建检查点的长时间运行线程，这些 orphan blob 会随时间逐渐占据大部分存储空间。完整的值 blob 垃圾回收作为可选的 opt-in 辅助函数候选项在 [#153](https://github.com/yeongseon/azure-functions-langgraph-python/issues/153) 中跟踪。
 
 ### 从 v0.3.0 升级
 
