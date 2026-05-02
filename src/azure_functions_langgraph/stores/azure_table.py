@@ -5,11 +5,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import importlib
 import json
 import logging
-from typing import Any, Mapping, Protocol, cast
+from typing import Any, Literal, Mapping, Protocol, cast
 import uuid
 
 from ..platform.contracts import Interrupt, Thread, ThreadStatus
@@ -414,7 +414,18 @@ class AzureTableThreadStore(ThreadStore):
         *,
         assistant_id: str | None = None,
     ) -> Thread | None:
-        """Atomically acquire the per-thread run lock with ETag CAS."""
+        """Atomically acquire the per-thread run lock with ETag CAS.
+
+        Lock acquisition is **atomic**: the update uses an ETag
+        compare-and-swap so that exactly one concurrent caller wins.
+        ``updated_at`` is set on success and serves as the lock-acquired
+        timestamp for staleness detection (see :meth:`reset_stale_locks`).
+
+        If the Function host is terminated during graph execution, the
+        thread may remain in ``busy`` status indefinitely.  Use
+        :meth:`reset_stale_locks` from a periodic Timer Trigger to
+        reclaim such threads.
+        """
         not_found_error = self._not_found_exception()
         modified_error = self._modified_error
         match_conditions = self._match_conditions
@@ -493,7 +504,15 @@ class AzureTableThreadStore(ThreadStore):
         status: ThreadStatus,
         values: dict[str, Any] | None = None,
     ) -> Thread:
-        """Release the per-thread run lock without ETag concurrency."""
+        """Release the per-thread run lock without ETag concurrency.
+
+        Lock release is **best-effort**: the merge update does *not*
+        use ETag concurrency because failing to release a lock is
+        operationally worse than a rare race.  If the Function host
+        is killed mid-execution, the lock is *not* released and the
+        thread remains ``busy`` until :meth:`reset_stale_locks` reclaims
+        it.
+        """
         if status == "busy":
             raise ValueError("release_run_lock cannot set status to 'busy'")
         not_found_error = self._not_found_exception()
@@ -515,6 +534,105 @@ class AzureTableThreadStore(ThreadStore):
             row_key=thread_id,
         )
         return self._entity_to_thread(merged)
+
+    def reset_stale_locks(
+        self,
+        older_than_seconds: int,
+        status: Literal["idle", "error"] = "error",
+    ) -> int:
+        """Reset busy threads whose lock is older than *older_than_seconds*.
+
+        Scans threads in ``busy`` status and conditionally resets those
+        whose ``updated_at`` (set by :meth:`try_acquire_run_lock`) is older
+        than the threshold.  Each reset uses **ETag CAS** so a thread that
+        has been legitimately re-acquired since the query is never stomped.
+
+        Args:
+            older_than_seconds: Minimum age in seconds for a busy thread
+                to be considered stale.
+            status: Terminal status to assign.  Must be ``"idle"`` or
+                ``"error"`` (default ``"error"``).
+
+        Returns:
+            Number of threads successfully reset.
+
+        Raises:
+            ValueError: If *older_than_seconds* is negative or *status*
+                is not ``"idle"`` or ``"error"``.
+        """
+        if older_than_seconds < 0:
+            raise ValueError(
+                f"older_than_seconds must be non-negative, got {older_than_seconds}"
+            )
+        if status not in ("idle", "error"):
+            raise ValueError(
+                f"status must be 'idle' or 'error', got {status!r}"
+            )
+
+        cutoff = self._now() - timedelta(seconds=older_than_seconds)
+        modified_error = self._modified_error
+        not_found_error = self._not_found_exception()
+        match_conditions = self._match_conditions
+
+        pk = self._partition_key().replace("'", "''")
+        query_filter = f"PartitionKey eq '{pk}' and status eq 'busy'"
+        entities = self._table_client.query_entities(query_filter=query_filter)
+
+        reset_count = 0
+        for entity in entities:
+            updated_at = entity.get("updated_at")
+            if updated_at is None:
+                continue
+            if isinstance(updated_at, datetime):
+                normalized = self._normalize_datetime(updated_at)
+            else:
+                continue
+            if normalized >= cutoff:
+                continue
+
+            # Extract ETag for CAS
+            entity_metadata = getattr(entity, "metadata", None)
+            etag = (
+                entity_metadata.get("etag")
+                if isinstance(entity_metadata, Mapping)
+                else None
+            )
+            if etag is None:
+                etag = entity.get("etag") if isinstance(entity, dict) else None
+
+            row_key = str(entity["RowKey"])
+            patch: dict[str, Any] = {
+                "PartitionKey": self._partition_key(),
+                "RowKey": row_key,
+                "status": status,
+                "updated_at": self._now(),
+            }
+
+            try:
+                self._table_client.update_entity(
+                    patch,
+                    mode="merge",
+                    etag=etag,
+                    match_condition=match_conditions.IfNotModified,
+                )
+                reset_count += 1
+            except modified_error:
+                # Thread was re-acquired or modified since our query —
+                # skip it rather than stomping a legitimate lock.
+                logger.debug(
+                    "Skipped stale lock reset for thread %s (ETag mismatch)",
+                    row_key,
+                )
+                continue
+            except not_found_error:
+                # Thread was deleted between query and update — skip.
+                logger.debug(
+                    "Skipped stale lock reset for thread %s (deleted)",
+                    row_key,
+                )
+                continue
+
+        return reset_count
 
     def search(
         self,

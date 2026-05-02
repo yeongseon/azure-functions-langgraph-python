@@ -854,3 +854,169 @@ def test_from_connection_string_does_not_leak_class_state(monkeypatch: Any) -> N
     # Constructing a new instance without not_found_error should still fail
     with pytest.raises(TypeError):
         AzureTableThreadStore(table_client=MockTableClient())
+
+
+# ── reset_stale_locks tests ──────────────────────────────────────────────
+
+
+def test_reset_stale_locks_resets_stale_skips_recent(monkeypatch: Any) -> None:
+    """Stale busy thread older than threshold is reset; recent busy thread is not."""
+    store, table_client = _new_store()
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamps = iter([
+        base,                            # create t1
+        base + timedelta(seconds=100),   # create t2
+        base + timedelta(seconds=10),    # acquire t1: sets updated_at=10
+        base + timedelta(seconds=500),   # acquire t2: sets updated_at=500
+        base + timedelta(seconds=700),   # reset_stale_locks: cutoff = 700 - 300 = 400
+        base + timedelta(seconds=700),   # reset_stale_locks: patch updated_at for t1
+    ])
+    monkeypatch.setattr(store, "_now", lambda: next(timestamps))
+
+    t1 = store.create()
+    t2 = store.create()
+    store.try_acquire_run_lock(t1.thread_id)
+    store.try_acquire_run_lock(t2.thread_id)
+
+    # cutoff = 700 - 300 = 400.  t1 updated_at=10 < 400 → stale.  t2 updated_at=500 >= 400 → recent.
+    count = store.reset_stale_locks(older_than_seconds=300)
+
+    assert count == 1
+    assert store.get(t1.thread_id).status == "error"
+    assert store.get(t2.thread_id).status == "busy"
+
+
+def test_reset_stale_locks_etag_mismatch_skips(monkeypatch: Any) -> None:
+    """Concurrent re-acquire during reset: ETag mismatch → skipped, not stomped."""
+    store, table_client = _new_store()
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamps = iter([
+        base,                            # create
+        base + timedelta(seconds=10),    # acquire lock
+        base + timedelta(seconds=700),   # reset_stale_locks cutoff calc
+        base + timedelta(seconds=700),   # reset_stale_locks: patch updated_at (before CAS fails)
+    ])
+    monkeypatch.setattr(store, "_now", lambda: next(timestamps))
+
+    t1 = store.create()
+    store.try_acquire_run_lock(t1.thread_id)
+
+    # Force all CAS updates to fail with ETag mismatch
+    table_client.always_modified_error = True
+
+    count = store.reset_stale_locks(older_than_seconds=300)
+
+    assert count == 0
+    # Thread status unchanged (still busy)
+    table_client.always_modified_error = False  # allow get_entity to work
+    assert store.get(t1.thread_id).status == "busy"
+
+
+def test_reset_stale_locks_empty_store_returns_zero() -> None:
+    """No threads at all → returns 0, no errors."""
+    store, _ = _new_store()
+
+    count = store.reset_stale_locks(older_than_seconds=600)
+
+    assert count == 0
+
+
+def test_reset_stale_locks_idle_threads_not_touched(monkeypatch: Any) -> None:
+    """Idle threads are not affected by reset_stale_locks."""
+    store, _ = _new_store()
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamps = iter([
+        base,                           # create
+        base + timedelta(seconds=700),  # reset cutoff
+    ])
+    monkeypatch.setattr(store, "_now", lambda: next(timestamps))
+
+    t1 = store.create()  # idle status, old timestamp
+
+    count = store.reset_stale_locks(older_than_seconds=300)
+
+    assert count == 0
+    assert store.get(t1.thread_id).status == "idle"
+
+
+def test_reset_stale_locks_negative_older_than_raises() -> None:
+    """Negative older_than_seconds → ValueError."""
+    store, _ = _new_store()
+
+    with pytest.raises(ValueError, match="non-negative"):
+        store.reset_stale_locks(older_than_seconds=-1)
+
+
+def test_reset_stale_locks_invalid_status_raises() -> None:
+    """Invalid status param → ValueError."""
+    store, _ = _new_store()
+
+    with pytest.raises(ValueError, match="must be 'idle' or 'error'"):
+        store.reset_stale_locks(older_than_seconds=600, status="busy")
+
+    with pytest.raises(ValueError, match="must be 'idle' or 'error'"):
+        store.reset_stale_locks(older_than_seconds=600, status="interrupted")
+
+
+def test_reset_stale_locks_status_idle(monkeypatch: Any) -> None:
+    """reset_stale_locks with status='idle' sets thread to idle."""
+    store, _ = _new_store()
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamps = iter([
+        base,                           # create
+        base + timedelta(seconds=10),   # acquire
+        base + timedelta(seconds=700),  # reset cutoff
+        base + timedelta(seconds=700),  # patch updated_at
+    ])
+    monkeypatch.setattr(store, "_now", lambda: next(timestamps))
+
+    t1 = store.create()
+    store.try_acquire_run_lock(t1.thread_id)
+
+    count = store.reset_stale_locks(older_than_seconds=300, status="idle")
+
+    assert count == 1
+    assert store.get(t1.thread_id).status == "idle"
+
+
+def test_reset_stale_locks_zero_threshold(monkeypatch: Any) -> None:
+    """older_than_seconds=0 resets any busy thread (cutoff == now)."""
+    store, _ = _new_store()
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamps = iter([
+        base,                           # create
+        base + timedelta(seconds=10),   # acquire: sets updated_at=10
+        base + timedelta(seconds=10),   # reset: cutoff=10-0=10, updated_at=10 >= 10
+    ])
+    monkeypatch.setattr(store, "_now", lambda: next(timestamps))
+
+    t1 = store.create()
+    store.try_acquire_run_lock(t1.thread_id)
+
+    # cutoff equals updated_at exactly → not stale (normalized >= cutoff)
+    count = store.reset_stale_locks(older_than_seconds=0)
+
+    assert count == 0
+
+
+def test_reset_stale_locks_deleted_thread_skipped(monkeypatch: Any) -> None:
+    """Thread deleted between query and update is skipped, not raised."""
+    store, table_client = _new_store()
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamps = iter([
+        base,                           # create
+        base + timedelta(seconds=10),   # acquire
+        base + timedelta(seconds=700),  # reset cutoff
+        base + timedelta(seconds=700),  # patch updated_at
+    ])
+    monkeypatch.setattr(store, "_now", lambda: next(timestamps))
+
+    t1 = store.create()
+    store.try_acquire_run_lock(t1.thread_id)
+
+    # Simulate deletion between query_entities and update_entity
+    table_client.raise_not_found_on_update = True
+
+    count = store.reset_stale_locks(older_than_seconds=300)
+
+    assert count == 0

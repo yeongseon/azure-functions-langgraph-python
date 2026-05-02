@@ -14,10 +14,11 @@
 | OpenAPI bridge | [`openapi_bridge`](openapi_bridge/) | Wires `register_with_openapi` into `azure-functions-openapi-python` for spec generation. |
 | Per-graph auth | [`production_auth`](production_auth/) | Public health + anonymous demo graph alongside a function-key-protected graph. |
 | Curl helpers | [`local_curl`](local_curl/) | Shell scripts for hitting every Quick Start endpoint locally. |
+| Maintenance timer | [`maintenance_timer`](maintenance_timer/) | Timer Trigger that resets stale run locks on `AzureTableThreadStore`. |
 
 ## Conventions
 
-Every example ships with:
+Every graph-hosting example ships with:
 
 - `README.md` — copy-pasteable `func start` + verification curl
 - `function_app.py` — the LangGraph wiring
@@ -25,6 +26,8 @@ Every example ships with:
 - `host.json` — the standard Azure Functions host config
 - `local.settings.json.example` — copy to `local.settings.json` before running
 - `requirements.txt` — pinned to a tested package version range
+
+Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` when they do not host a graph.
 
 ## Picking an example
 
@@ -36,3 +39,4 @@ Every example ships with:
 - **Want OpenAPI / Swagger UI for your endpoints?** → `openapi_bridge`
 - **Mixing public and private graphs?** → `production_auth`
 - **Verifying a deployed Function App from the terminal?** → `local_curl`
+- **Recovering orphaned run locks automatically?** → `maintenance_timer`

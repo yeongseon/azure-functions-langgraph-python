@@ -442,6 +442,27 @@ The helpers do not hide `builder.compile(checkpointer=...)` and do not reimpleme
 | `create_postgres_checkpointer` | multi-instance Functions, existing Postgres infra | very high write QPS without read replicas | Add connection pooling / read replicas, or shard |
 | `create_cosmos_checkpointer` | Azure-native serverless, global distribution | high RU cost with large checkpoints | Tune RU allocation, use provisioned throughput |
 
+
+#### Run lock semantics
+
+When using `AzureTableThreadStore` with Platform-compatible runs, each graph execution acquires an **atomic run lock** (ETag compare-and-swap) on the thread before invoking the graph. On completion — success or failure — the lock is released via a best-effort merge update.
+
+| Operation | Concurrency | Mechanism |
+| --- | --- | --- |
+| Lock acquisition (`try_acquire_run_lock`) | Atomic — exactly one caller wins | ETag CAS |
+| Lock release (`release_run_lock`) | Best-effort — no ETag | Merge update |
+
+**What can go wrong:** If a Function host instance is terminated during graph execution (scale-in, deployment, crash), the thread remains in `busy` status indefinitely because the release never fires.
+
+**Recovery:** Use `reset_stale_locks()` from a periodic Timer Trigger to reclaim orphaned locks:
+
+```python
+# Reset threads stuck in 'busy' for more than 10 minutes
+count = thread_store.reset_stale_locks(older_than_seconds=600)
+```
+
+Each reset uses ETag CAS so a thread that has been legitimately re-acquired since the scan is never stomped. Choose `older_than_seconds` comfortably above your longest expected graph execution time — ETag CAS protects against re-acquire races, but a still-running long job will not update its `updated_at` and could be reclaimed if the threshold is too short. See [`examples/maintenance_timer/`](examples/maintenance_timer/) for a complete Timer Trigger wiring.
+
 ### Upgrading
 
 #### v0.3.0 → v0.4.0

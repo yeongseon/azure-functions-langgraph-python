@@ -1,0 +1,5 @@
+# Do not include azure-functions-worker in this file
+# The Python Worker is managed by the Azure Functions platform
+
+azure-functions
+azure-functions-langgraph[azure-table,azure-identity]>=0.7.0,<0.8.0
