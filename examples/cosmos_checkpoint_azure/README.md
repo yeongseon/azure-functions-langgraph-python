@@ -25,7 +25,7 @@ Use this example when you want:
 
 ## Files
 
-- `function_app.py` — wires `create_cosmos_checkpointer` with `DefaultAzureCredential`
+- `function_app.py` — wires `create_cosmos_checkpointer` with default credential resolution (`DefaultAzureCredential`)
 - `graph.py` — turn-counting echo agent (storage-free, used by smoke tests)
 - `host.json`, `local.settings.json.example`, `requirements.txt`
 
@@ -67,7 +67,6 @@ Cosmos DB data-plane role:
 
 ```bash
 PRINCIPAL_ID=$(az functionapp identity show -n <function-app> -g <rg> --query principalId -o tsv)
-COSMOS_ID=$(az cosmosdb show -n <cosmos-account> -g <rg> --query id -o tsv)
 
 az cosmosdb sql role assignment create \
   --account-name <cosmos-account> \

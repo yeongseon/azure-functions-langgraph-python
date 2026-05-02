@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import sys
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _EXTRA_HINT = (
-    "Cosmos DB checkpointer requires the 'cosmos' extra: "
+    "Cosmos DB checkpointer requires the 'cosmos' extra (Python 3.11+): "
     "pip install azure-functions-langgraph[cosmos]"
 )
 
@@ -43,11 +44,11 @@ def create_cosmos_checkpointer(
     endpoint: str,
     database_name: str,
     container_name: str,
-    credential: Any = "default",
+    credential: object | None = None,
 ) -> CosmosDBSaver:
     """Create a long-lived :class:`CosmosDBSaver` from connection info.
 
-    Resolves credentials (``"default"`` → :class:`DefaultAzureCredential`)
+    Resolves credentials (``None`` → :class:`DefaultAzureCredential`)
     and calls :meth:`CosmosDBSaver.from_conn_info` to build the saver.
     The context manager is entered immediately so the returned object is
     ready for use at Azure Functions cold-start.
@@ -59,7 +60,7 @@ def create_cosmos_checkpointer(
         container_name: Cosmos DB container name.  The container **must**
             be created with partition key path ``/partition_key``.
         credential: A credential object accepted by the Azure Cosmos SDK,
-            or the string ``"default"`` (the default) to create a
+            or ``None`` (the default) to create a
             :class:`~azure.identity.DefaultAzureCredential`.
 
     Returns:
@@ -67,10 +68,16 @@ def create_cosmos_checkpointer(
         ``builder.compile(checkpointer=...)``.
 
     Raises:
+        RuntimeError: If running on Python < 3.11.
         ImportError: If ``langgraph-checkpoint-cosmos`` or
-            ``azure-identity`` (when ``credential="default"``) is not
+            ``azure-identity`` (when ``credential=None``) is not
             installed.  Install via the ``cosmos`` extra.
     """
+    if sys.version_info < (3, 11):
+        raise RuntimeError(
+            "Cosmos DB checkpointer requires Python 3.11+ "
+            "because langgraph-checkpoint-cosmos does not support Python 3.10."
+        )
     try:
         cosmos_module = importlib.import_module("langgraph_checkpoint_cosmos")
     except ImportError as exc:
@@ -84,14 +91,14 @@ def create_cosmos_checkpointer(
         )
 
     resolved_credential: Any
-    if credential == "default":
+    if credential is None:
         try:
             identity_module = importlib.import_module("azure.identity")
         except ImportError as exc:
             raise ImportError(
-                "credential='default' requires azure-identity. "
+                "credential=None requires azure-identity. "
                 "It is normally installed as a dependency of langgraph-checkpoint-cosmos; "
-                "if missing, run: pip install azure-identity>=1.15"
+                "if missing, run: pip install azure-identity>=1.16"
             ) from exc
         DefaultAzureCredential = getattr(identity_module, "DefaultAzureCredential", None)
         if DefaultAzureCredential is None:

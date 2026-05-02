@@ -12,7 +12,7 @@ checkpointer = create_cosmos_checkpointer(
     endpoint=os.environ["AZURE_COSMOS_ENDPOINT"],
     database_name=os.environ.get("LANGGRAPH_COSMOS_DATABASE", "langgraph"),
     container_name=os.environ.get("LANGGRAPH_COSMOS_CONTAINER", "checkpoints"),
-    credential="default",
+    # credential=None uses DefaultAzureCredential (Managed Identity in Azure, az login locally)
 )
 
 compiled_graph = build_graph().compile(checkpointer=checkpointer)

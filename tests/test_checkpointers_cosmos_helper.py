@@ -108,6 +108,11 @@ def _install_fake_azure_identity(
 # ---------------------------------------------------------------------------
 
 
+def _patch_python_311(monkeypatch: Any) -> None:
+    """Pretend we are on Python 3.11 so the runtime guard passes."""
+    cosmos_mod = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    monkeypatch.setattr(cosmos_mod.sys, "version_info", (3, 11, 0))
+
 def test_cosmos_helper_creates_saver_and_enters_context(monkeypatch: Any) -> None:
     conn_info_calls: list[dict[str, Any]] = []
     enter_calls: list[int] = []
@@ -120,6 +125,7 @@ def test_cosmos_helper_creates_saver_and_enters_context(monkeypatch: Any) -> Non
 
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
     saver = module.create_cosmos_checkpointer(
         endpoint="https://test.documents.azure.com:443/",
         database_name="testdb",
@@ -144,6 +150,7 @@ def test_cosmos_helper_returns_yielded_saver_not_cm(monkeypatch: Any) -> None:
 
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
     saver = module.create_cosmos_checkpointer(
         endpoint="https://test.documents.azure.com:443/",
         database_name="db",
@@ -162,6 +169,7 @@ def test_cosmos_helper_stashes_cm_on_saver(monkeypatch: Any) -> None:
 
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
     saver = module.create_cosmos_checkpointer(
         endpoint="https://test.documents.azure.com:443/",
         database_name="db",
@@ -182,11 +190,11 @@ def test_cosmos_helper_default_credential_creates_default_azure_credential(
 
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
     module.create_cosmos_checkpointer(
         endpoint="https://test.documents.azure.com:443/",
         database_name="db",
         container_name="ctr",
-        credential="default",
     )
 
     assert credential_calls == [1]
@@ -199,6 +207,7 @@ def test_cosmos_helper_explicit_credential_forwarded(monkeypatch: Any) -> None:
 
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
 
     my_cred = object()
     module.create_cosmos_checkpointer(
@@ -217,6 +226,7 @@ def test_cosmos_helper_endpoint_forwarded(monkeypatch: Any) -> None:
 
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
     module.create_cosmos_checkpointer(
         endpoint="https://custom.documents.azure.com:443/",
         database_name="db",
@@ -233,6 +243,7 @@ def test_cosmos_helper_database_name_forwarded(monkeypatch: Any) -> None:
 
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
     module.create_cosmos_checkpointer(
         endpoint="https://x.documents.azure.com:443/",
         database_name="my_database",
@@ -249,6 +260,7 @@ def test_cosmos_helper_container_name_forwarded(monkeypatch: Any) -> None:
 
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
     module.create_cosmos_checkpointer(
         endpoint="https://x.documents.azure.com:443/",
         database_name="db",
@@ -269,6 +281,7 @@ def test_cosmos_helper_missing_cosmos_package_raises_helpful_error(monkeypatch: 
         return real_import_module(name)
 
     monkeypatch.setattr(module.importlib, "import_module", fake_import_module)
+    _patch_python_311(monkeypatch)
 
     with pytest.raises(ImportError, match=r"\[cosmos\]"):
         module.create_cosmos_checkpointer(
@@ -282,6 +295,7 @@ def test_cosmos_helper_missing_cosmos_saver_symbol_raises(monkeypatch: Any) -> N
     _install_fake_cosmos(monkeypatch, omit_cosmos_saver=True)
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
 
     with pytest.raises(ImportError, match="CosmosDBSaver"):
         module.create_cosmos_checkpointer(
@@ -296,6 +310,7 @@ def test_cosmos_helper_missing_azure_identity_raises_helpful_error(monkeypatch: 
     _install_fake_cosmos(monkeypatch)
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
 
     real_import_module = importlib.import_module
 
@@ -311,7 +326,6 @@ def test_cosmos_helper_missing_azure_identity_raises_helpful_error(monkeypatch: 
             endpoint="https://x.documents.azure.com:443/",
             database_name="db",
             container_name="ctr",
-            credential="default",
         )
 
 
@@ -320,13 +334,13 @@ def test_cosmos_helper_missing_default_azure_credential_symbol_raises(monkeypatc
     _install_fake_azure_identity(monkeypatch, omit_default_credential=True)
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
+    _patch_python_311(monkeypatch)
 
     with pytest.raises(ImportError, match="DefaultAzureCredential"):
         module.create_cosmos_checkpointer(
             endpoint="https://x.documents.azure.com:443/",
             database_name="db",
             container_name="ctr",
-            credential="default",
         )
 
 
@@ -334,3 +348,19 @@ def test_checkpointers_package_exports_cosmos_helper() -> None:
     pkg = importlib.import_module("azure_functions_langgraph.checkpointers")
     assert "create_cosmos_checkpointer" in pkg.__all__
     assert callable(pkg.create_cosmos_checkpointer)
+
+
+def test_cosmos_helper_python_310_raises_runtime_error(monkeypatch: Any) -> None:
+    """On Python < 3.11 the helper must raise RuntimeError immediately."""
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    importlib.reload(module)
+
+    monkeypatch.setattr(module.sys, "version_info", (3, 10, 0))
+
+    with pytest.raises(RuntimeError, match="Python 3.11"):
+        module.create_cosmos_checkpointer(
+            endpoint="https://x.documents.azure.com:443/",
+            database_name="db",
+            container_name="ctr",
+            credential=object(),
+        )
