@@ -101,6 +101,19 @@ pip install azure-functions-langgraph[azure-table]
 pip install azure-functions-langgraph[azure-blob,azure-table]
 ```
 
+For database or Cosmos DB checkpointer backends:
+
+```bash
+# Postgres checkpointer
+pip install azure-functions-langgraph[postgres]
+
+# SQLite checkpointer (local dev)
+pip install azure-functions-langgraph[sqlite]
+
+# Cosmos DB checkpointer (requires Python 3.11+)
+pip install azure-functions-langgraph[cosmos]
+```
+
 Your Azure Functions app should also include:
 
 ```text
@@ -406,8 +419,9 @@ For workloads that already run a managed database (or need state shared across m
 | --- | --- | --- | --- |
 | Postgres | `create_postgres_checkpointer` | `pip install azure-functions-langgraph[postgres]` | Production, multi-instance, existing Postgres infra |
 | SQLite | `create_sqlite_checkpointer` | `pip install azure-functions-langgraph[sqlite]` | Local dev and single-instance deployments |
+| Cosmos DB | `create_cosmos_checkpointer` | `pip install azure-functions-langgraph[cosmos]` | Azure-native serverless/global production (Python 3.11+) |
 
-Each helper accepts a connection string, owns the connection lifetime, and (by default) calls upstream `setup()` on cold start so the checkpoint tables exist:
+Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist; the Cosmos DB helper accepts an endpoint and credential and enters the upstream context manager at cold start:
 
 ```python
 import os
@@ -420,12 +434,13 @@ checkpointer = create_postgres_checkpointer(
 graph = builder.compile(checkpointer=checkpointer)
 ```
 
-The helpers do not hide `builder.compile(checkpointer=...)` and do not reimplement DB checkpoint storage — they only centralize the env-var convention, run `setup()` once, and emit clear ImportErrors pointing at the right extra. See [`examples/postgres_checkpoint_production/`](examples/postgres_checkpoint_production/) and [`examples/sqlite_checkpoint_local/`](examples/sqlite_checkpoint_local/) for full Azure-Functions wiring.
+The helpers do not hide `builder.compile(checkpointer=...)` and do not reimplement DB checkpoint storage — they centralize connection conventions and emit clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers run `setup()` once at cold start; the Cosmos DB helper enters the upstream context manager instead (no `setup()` call). See [`examples/postgres_checkpoint_production/`](examples/postgres_checkpoint_production/), [`examples/sqlite_checkpoint_local/`](examples/sqlite_checkpoint_local/), and [`examples/cosmos_checkpoint_azure/`](examples/cosmos_checkpoint_azure/) for full Azure-Functions wiring.
 
 | Backend | Comfortable | Caution zone | Switch backends |
 | --- | --- | --- | --- |
 | `create_sqlite_checkpointer` | local dev, single-instance prod | multi-process write contention | Use Postgres |
 | `create_postgres_checkpointer` | multi-instance Functions, existing Postgres infra | very high write QPS without read replicas | Add connection pooling / read replicas, or shard |
+| `create_cosmos_checkpointer` | Azure-native serverless, global distribution | high RU cost with large checkpoints | Tune RU allocation, use provisioned throughput |
 
 ### Upgrading
 

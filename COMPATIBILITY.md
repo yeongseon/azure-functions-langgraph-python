@@ -139,3 +139,11 @@ CI tests include:
 - Unit tests with mock graphs (`tests/test_platform_routes.py`)
 - SDK integration tests with real `langgraph-sdk` client via `httpx.MockTransport` (`tests/test_sdk_compat.py`)
 - Contract shape tests (`tests/test_sdk_contracts.py`)
+
+## Optional checkpoint backends
+
+| Extra | Dependency | Python | Notes |
+|---|---|---|---|
+| `postgres` | `langgraph-checkpoint-postgres>=3.0,<4` | 3.10+ | Production DB checkpoint backend |
+| `sqlite` | `langgraph-checkpoint-sqlite>=3.0,<4` | 3.10+ | Local development |
+| `cosmos` | `langgraph-checkpoint-cosmos>=0.1.1,<0.2` | 3.11+ | Experimental Azure-native checkpoint backend |
