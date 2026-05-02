@@ -29,15 +29,17 @@ class _FakeContextManager:
     generator-based ``@contextmanager`` that *yields* the saver.
     """
 
-    def __init__(self, saver: FakeCosmosDBSaver) -> None:
+    def __init__(self, saver: FakeCosmosDBSaver, enter_calls: list[int] | None = None) -> None:
         self._saver = saver
+        self._enter_calls = enter_calls
 
     def __enter__(self) -> FakeCosmosDBSaver:
+        if self._enter_calls is not None:
+            self._enter_calls.append(1)
         return self._saver
 
     def __exit__(self, *args: Any) -> None:
         pass
-
 
 def _install_fake_cosmos(
     monkeypatch: Any,
@@ -71,8 +73,7 @@ def _install_fake_cosmos(
                 }
             )
             saver = FakeCosmosDBSaver()
-            captured_enter.append(1)
-            return _FakeContextManager(saver)
+            return _FakeContextManager(saver, captured_enter)
 
     cosmos_module = types.ModuleType("langgraph_checkpoint_cosmos")
     if not omit_cosmos_saver:
@@ -364,3 +365,32 @@ def test_cosmos_helper_python_310_raises_runtime_error(monkeypatch: Any) -> None
             container_name="ctr",
             credential=object(),
         )
+
+
+def test_cosmos_helper_explicit_credential_skips_azure_identity(monkeypatch: Any) -> None:
+    """When an explicit credential is provided, azure.identity must not be imported."""
+    _install_fake_cosmos(monkeypatch)
+    # Do NOT install azure.identity — it should never be touched
+
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    importlib.reload(module)
+    _patch_python_311(monkeypatch)
+
+    real_import_module = importlib.import_module
+
+    def spy_import_module(name: str) -> Any:
+        if name == "azure.identity":
+            raise AssertionError("azure.identity should not be imported with explicit credential")
+        return real_import_module(name)
+
+    monkeypatch.setattr(module.importlib, "import_module", spy_import_module)
+
+    my_cred = object()
+    saver = module.create_cosmos_checkpointer(
+        endpoint="https://x.documents.azure.com:443/",
+        database_name="db",
+        container_name="ctr",
+        credential=my_cred,
+    )
+
+    assert type(saver).__name__ == "FakeCosmosDBSaver"

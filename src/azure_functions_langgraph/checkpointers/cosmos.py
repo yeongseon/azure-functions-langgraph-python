@@ -24,14 +24,12 @@ the right extra when the upstream package is missing.
 from __future__ import annotations
 
 import importlib
-import logging
 import sys
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from langgraph_checkpoint_cosmos import CosmosDBSaver
 
-logger = logging.getLogger(__name__)
 
 _EXTRA_HINT = (
     "Cosmos DB checkpointer requires the 'cosmos' extra (Python 3.11+): "
