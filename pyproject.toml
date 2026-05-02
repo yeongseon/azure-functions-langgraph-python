@@ -51,6 +51,9 @@ postgres = [
 sqlite = [
     "langgraph-checkpoint-sqlite>=3.0,<4",
 ]
+cosmos = [
+    "langgraph-checkpoint-cosmos>=0.1.1,<0.2",
+]
 dev = [
     "bandit==1.9.4",
     "build",

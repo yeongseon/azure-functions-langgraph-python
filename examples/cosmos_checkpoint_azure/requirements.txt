@@ -1,0 +1,14 @@
+# Do not include azure-functions-worker in this file
+# The Python Worker is managed by the Azure Functions platform
+#
+# This example requires Python 3.11+ because the Cosmos DB checkpointer
+# extra depends on packages that require Python 3.11+.
+#
+# Until v0.7.0 is released, install from a local checkout:
+#
+#     pip install -e ../..[cosmos,azure-identity]
+
+azure-functions
+azure-functions-langgraph[cosmos,azure-identity]>=0.7.0,<0.8.0
+langgraph>=1.0,<2.0
+langchain-core>=1.0,<2.0

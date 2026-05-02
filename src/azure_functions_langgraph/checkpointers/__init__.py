@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from .azure_blob import (
         AzureBlobCheckpointSaver,
     )
+    from .cosmos import create_cosmos_checkpointer
     from .postgres import create_postgres_checkpointer
     from .sqlite import create_sqlite_checkpointer
 
@@ -25,11 +26,16 @@ def __getattr__(name: str) -> object:
         from .sqlite import create_sqlite_checkpointer
 
         return create_sqlite_checkpointer
+    if name == "create_cosmos_checkpointer":
+        from .cosmos import create_cosmos_checkpointer
+
+        return create_cosmos_checkpointer
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
     "AzureBlobCheckpointSaver",
+    "create_cosmos_checkpointer",
     "create_postgres_checkpointer",
     "create_sqlite_checkpointer",
 ]

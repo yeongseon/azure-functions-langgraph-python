@@ -15,6 +15,7 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("production_auth", "private_graph"),
     ("production_auth", "public_graph"),
     ("managed_identity_storage", "compiled_graph"),
+    ("cosmos_checkpoint_azure", "compiled_graph"),
 )
 
 
@@ -61,6 +62,7 @@ EXAMPLE_DIRS = (
     "managed_identity_storage",
     "openapi_bridge",
     "production_auth",
+    "cosmos_checkpoint_azure",
 )
 
 
