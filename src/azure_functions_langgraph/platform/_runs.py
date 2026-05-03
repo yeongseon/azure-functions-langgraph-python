@@ -53,9 +53,7 @@ def register_run_routes(
     auth = deps.auth_level
 
     @app.function_name(name="aflg_platform_runs_wait")
-    @app.route(
-        route="threads/{thread_id}/runs/wait", methods=["POST"], auth_level=auth
-    )
+    @app.route(route="threads/{thread_id}/runs/wait", methods=["POST"], auth_level=auth)
     def runs_wait(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
         tid_err = validate_thread_id(thread_id)
@@ -90,19 +88,21 @@ def register_run_routes(
 
         reg = deps.registrations.get(run_req.assistant_id)
         if reg is None:
-            return _platform_error(
-                404, f"Assistant {run_req.assistant_id!r} not found"
-            )
+            return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
 
         if run_req.input:
             input_err = validate_input_structure(
-                run_req.input, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+                run_req.input,
+                max_depth=deps.max_input_depth,
+                max_nodes=deps.max_input_nodes,
             )
             if input_err:
                 return _platform_error(400, input_err)
         if run_req.config:
             config_err = validate_input_structure(
-                run_req.config, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+                run_req.config,
+                max_depth=deps.max_input_depth,
+                max_nodes=deps.max_input_nodes,
             )
             if config_err:
                 return _platform_error(400, config_err)
@@ -209,19 +209,21 @@ def register_run_routes(
 
         reg = deps.registrations.get(run_req.assistant_id)
         if reg is None:
-            return _platform_error(
-                404, f"Assistant {run_req.assistant_id!r} not found"
-            )
+            return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
 
         if run_req.input:
             input_err = validate_input_structure(
-                run_req.input, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+                run_req.input,
+                max_depth=deps.max_input_depth,
+                max_nodes=deps.max_input_nodes,
             )
             if input_err:
                 return _platform_error(400, input_err)
         if run_req.config:
             config_err = validate_input_structure(
-                run_req.config, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+                run_req.config,
+                max_depth=deps.max_input_depth,
+                max_nodes=deps.max_input_nodes,
             )
             if config_err:
                 return _platform_error(400, config_err)
@@ -270,8 +272,7 @@ def register_run_routes(
         if buffered_bytes > max_bytes:
             chunks.append(
                 format_error_event(
-                    f"stream response exceeded max buffered size "
-                    f"({max_bytes} bytes)"
+                    f"stream response exceeded max buffered size ({max_bytes} bytes)"
                 )
             )
             chunks.append(format_end_event())
@@ -296,8 +297,7 @@ def register_run_routes(
                 chunk_bytes = len(chunk.encode())
                 if buffered_bytes + chunk_bytes > max_bytes:
                     err_chunk = format_error_event(
-                        f"stream response exceeded max buffered size "
-                        f"({max_bytes} bytes)"
+                        f"stream response exceeded max buffered size ({max_bytes} bytes)"
                     )
                     chunks.append(err_chunk)
                     chunks.append(format_end_event())
@@ -379,19 +379,21 @@ def register_run_routes(
 
         reg = deps.registrations.get(run_req.assistant_id)
         if reg is None:
-            return _platform_error(
-                404, f"Assistant {run_req.assistant_id!r} not found"
-            )
+            return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
 
         if run_req.input:
             input_err = validate_input_structure(
-                run_req.input, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+                run_req.input,
+                max_depth=deps.max_input_depth,
+                max_nodes=deps.max_input_nodes,
             )
             if input_err:
                 return _platform_error(400, input_err)
         if run_req.config:
             config_err = validate_input_structure(
-                run_req.config, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+                run_req.config,
+                max_depth=deps.max_input_depth,
+                max_nodes=deps.max_input_nodes,
             )
             if config_err:
                 return _platform_error(400, config_err)
@@ -412,9 +414,7 @@ def register_run_routes(
             config.update(user_config)
 
         if config.get("configurable", {}).get("thread_id") is not None:
-            return _platform_error(
-                422, "thread_id is not allowed on threadless runs"
-            )
+            return _platform_error(422, "thread_id is not allowed on threadless runs")
 
         graph_input = run_req.input or {}
         try:
@@ -481,19 +481,21 @@ def register_run_routes(
 
         reg = deps.registrations.get(run_req.assistant_id)
         if reg is None:
-            return _platform_error(
-                404, f"Assistant {run_req.assistant_id!r} not found"
-            )
+            return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
 
         if run_req.input:
             input_err = validate_input_structure(
-                run_req.input, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+                run_req.input,
+                max_depth=deps.max_input_depth,
+                max_nodes=deps.max_input_nodes,
             )
             if input_err:
                 return _platform_error(400, input_err)
         if run_req.config:
             config_err = validate_input_structure(
-                run_req.config, max_depth=deps.max_input_depth, max_nodes=deps.max_input_nodes,
+                run_req.config,
+                max_depth=deps.max_input_depth,
+                max_nodes=deps.max_input_nodes,
             )
             if config_err:
                 return _platform_error(400, config_err)
@@ -520,9 +522,7 @@ def register_run_routes(
             config.update(user_config)
 
         if config.get("configurable", {}).get("thread_id") is not None:
-            return _platform_error(
-                422, "thread_id is not allowed on threadless runs"
-            )
+            return _platform_error(422, "thread_id is not allowed on threadless runs")
 
         run_id = str(uuid.uuid4())
 
@@ -538,8 +538,7 @@ def register_run_routes(
         if buffered_bytes > max_bytes:
             chunks.append(
                 format_error_event(
-                    f"stream response exceeded max buffered size "
-                    f"({max_bytes} bytes)"
+                    f"stream response exceeded max buffered size ({max_bytes} bytes)"
                 )
             )
             chunks.append(format_end_event())
@@ -563,8 +562,7 @@ def register_run_routes(
                 chunk_bytes = len(chunk.encode())
                 if buffered_bytes + chunk_bytes > max_bytes:
                     err_chunk = format_error_event(
-                        f"stream response exceeded max buffered size "
-                        f"({max_bytes} bytes)"
+                        f"stream response exceeded max buffered size ({max_bytes} bytes)"
                     )
                     chunks.append(err_chunk)
                     chunks.append(format_end_event())

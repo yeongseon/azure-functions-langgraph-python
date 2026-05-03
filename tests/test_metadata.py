@@ -223,15 +223,13 @@ class TestGetAppMetadata:
         app = LangGraphApp()
         app.register(graph=FakeStatefulGraph(), name="stateful_graph")
         meta = app.get_app_metadata()
-        state_routes = [
-            r for r in meta.graphs["stateful_graph"].routes
-            if "/threads/" in r.path
-        ]
+        state_routes = [r for r in meta.graphs["stateful_graph"].routes if "/threads/" in r.path]
         assert len(state_routes) == 1
         param = state_routes[0].parameters[0]
         assert isinstance(param, MappingProxyType)
         with pytest.raises(TypeError):
             param["rogue"] = "value"  # type: ignore[index]
+
 
 # ------------------------------------------------------------------
 # register() keyword-only params tests

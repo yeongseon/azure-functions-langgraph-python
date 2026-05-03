@@ -79,7 +79,8 @@ class TestRegisterWithOpenapi:
 
         # Verify invoke route
         invoke_call = [
-            c for c in mock_register.call_args_list
+            c
+            for c in mock_register.call_args_list
             if c.kwargs.get("path") == "/api/graphs/agent/invoke"
             or (c.args and c.args[0] == "/api/graphs/agent/invoke")
         ]
@@ -87,7 +88,8 @@ class TestRegisterWithOpenapi:
 
         # Verify stream route
         stream_call = [
-            c for c in mock_register.call_args_list
+            c
+            for c in mock_register.call_args_list
             if c.kwargs.get("path") == "/api/graphs/agent/stream"
             or (c.args and c.args[0] == "/api/graphs/agent/stream")
         ]
@@ -95,9 +97,9 @@ class TestRegisterWithOpenapi:
 
         # Verify health route
         health_call = [
-            c for c in mock_register.call_args_list
-            if c.kwargs.get("path") == "/api/health"
-            or (c.args and c.args[0] == "/api/health")
+            c
+            for c in mock_register.call_args_list
+            if c.kwargs.get("path") == "/api/health" or (c.args and c.args[0] == "/api/health")
         ]
         assert len(health_call) == 1
 
@@ -119,8 +121,7 @@ class TestRegisterWithOpenapi:
 
         # Verify state route includes parameters
         state_calls = [
-            c for c in mock_register.call_args_list
-            if "/threads/" in str(c.kwargs.get("path", ""))
+            c for c in mock_register.call_args_list if "/threads/" in str(c.kwargs.get("path", ""))
         ]
         assert len(state_calls) == 1
 
@@ -147,7 +148,8 @@ class TestRegisterWithOpenapi:
 
         # Find invoke call and check request_body is set
         invoke_calls = [
-            c for c in mock_register.call_args_list
+            c
+            for c in mock_register.call_args_list
             if c.kwargs.get("path") == "/api/graphs/agent/invoke"
         ]
         assert len(invoke_calls) == 1
@@ -180,7 +182,8 @@ class TestRegisterWithOpenapi:
 
         # Find invoke call and check response_model is set
         invoke_calls = [
-            c for c in mock_register.call_args_list
+            c
+            for c in mock_register.call_args_list
             if c.kwargs.get("path") == "/api/graphs/agent/invoke"
         ]
         assert len(invoke_calls) == 1
@@ -234,15 +237,13 @@ class TestRegisterWithOpenapi:
 
         # Graph routes should have tags=[graph_name]
         graph_calls = [
-            c for c in mock_register.call_args_list
-            if c.kwargs.get("tags") == ["my_agent"]
+            c for c in mock_register.call_args_list if c.kwargs.get("tags") == ["my_agent"]
         ]
         assert len(graph_calls) == 2  # invoke + stream
 
         # Health route should have tags=["system"]
         system_calls = [
-            c for c in mock_register.call_args_list
-            if c.kwargs.get("tags") == ["system"]
+            c for c in mock_register.call_args_list if c.kwargs.get("tags") == ["system"]
         ]
         assert len(system_calls) == 1
 

@@ -484,9 +484,7 @@ class TestRunCreate:
 
     def test_extra_fields_ignored(self) -> None:
         """Unknown fields from newer SDK versions should be silently dropped."""
-        rc = RunCreate.model_validate(
-            {"assistant_id": "a-1", "future_field": True, "another": 42}
-        )
+        rc = RunCreate.model_validate({"assistant_id": "a-1", "future_field": True, "another": 42})
         assert rc.assistant_id == "a-1"
         assert not hasattr(rc, "future_field")
 
@@ -538,6 +536,7 @@ class TestAssistantSearch:
         assert s.name is None
         assert s.limit == 10
         assert s.offset == 0
+
     def test_with_filters(self) -> None:
         s = AssistantSearch(graph_id="chatbot", limit=5, offset=20)
         assert s.graph_id == "chatbot"
@@ -651,6 +650,7 @@ class TestThreadCount:
         with pytest.raises(ValidationError):
             ThreadCount(status="unknown")  # type: ignore[arg-type]
 
+
 # ---------------------------------------------------------------------------
 # Type alias sanity checks
 # ---------------------------------------------------------------------------
@@ -660,7 +660,12 @@ class TestTypeAliases:
     def test_run_status_values(self) -> None:
         """RunStatus should accept all valid literal values."""
         valid: list[RunStatus] = [
-            "pending", "running", "error", "success", "timeout", "interrupted",
+            "pending",
+            "running",
+            "error",
+            "success",
+            "timeout",
+            "interrupted",
         ]
         assert len(valid) == 6
 

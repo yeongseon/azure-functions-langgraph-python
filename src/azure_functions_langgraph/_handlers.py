@@ -77,13 +77,17 @@ def handle_invoke(
 
     # Structural validation on user-supplied fields
     structure_err = validate_input_structure(
-        request.input, max_depth=max_input_depth, max_nodes=max_input_nodes,
+        request.input,
+        max_depth=max_input_depth,
+        max_nodes=max_input_nodes,
     )
     if structure_err:
         return _error_response(400, structure_err)
     if request.config:
         config_err = validate_input_structure(
-            request.config, max_depth=max_input_depth, max_nodes=max_input_nodes,
+            request.config,
+            max_depth=max_input_depth,
+            max_nodes=max_input_nodes,
         )
         if config_err:
             return _error_response(400, config_err)
@@ -150,13 +154,17 @@ def handle_stream(
 
     # Structural validation on user-supplied fields
     structure_err = validate_input_structure(
-        request.input, max_depth=max_input_depth, max_nodes=max_input_nodes,
+        request.input,
+        max_depth=max_input_depth,
+        max_nodes=max_input_nodes,
     )
     if structure_err:
         return _error_response(400, structure_err)
     if request.config:
         config_err = validate_input_structure(
-            request.config, max_depth=max_input_depth, max_nodes=max_input_nodes,
+            request.config,
+            max_depth=max_input_depth,
+            max_nodes=max_input_nodes,
         )
         if config_err:
             return _error_response(400, config_err)
@@ -225,9 +233,7 @@ def handle_state(
 ) -> func.HttpResponse:
     """Handle a GET request for thread state."""
     if not isinstance(reg.graph, StatefulGraph):
-        return _error_response(
-            409, f"Graph {reg.name!r} does not support state retrieval"
-        )
+        return _error_response(409, f"Graph {reg.name!r} does not support state retrieval")
 
     thread_id = req.route_params.get("thread_id")
     if not thread_id:
@@ -241,17 +247,11 @@ def handle_state(
     try:
         snapshot = reg.graph.get_state(config)
     except (KeyError, ValueError):
-        logger.warning(
-            "Graph %s: thread %s not found", reg.name, thread_id
-        )
+        logger.warning("Graph %s: thread %s not found", reg.name, thread_id)
         return _error_response(404, f"Thread {thread_id!r} not found")
     except Exception:
-        logger.exception(
-            "Graph %s get_state failed for thread %s", reg.name, thread_id
-        )
-        return _error_response(
-            500, "Internal error while retrieving thread state"
-        )
+        logger.exception("Graph %s get_state failed for thread %s", reg.name, thread_id)
+        return _error_response(500, "Internal error while retrieving thread state")
 
     values = snapshot.values if isinstance(snapshot.values, dict) else {}
     next_nodes: list[str] = list(snapshot.next) if hasattr(snapshot, "next") else []

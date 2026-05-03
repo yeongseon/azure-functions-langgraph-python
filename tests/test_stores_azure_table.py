@@ -342,9 +342,7 @@ def test_release_lock_with_values_serializes_to_values_json() -> None:
 
     assert released.status == "error"
     entity = table_client.entities[("thread", thread.thread_id)]
-    assert entity["values_json"] == (
-        '{"messages": [{"role": "assistant", "content": "done"}]}'
-    )
+    assert entity["values_json"] == ('{"messages": [{"role": "assistant", "content": "done"}]}')
 
 
 def test_delete_existing_and_missing() -> None:
@@ -474,6 +472,7 @@ def test_from_connection_string_missing_dependency_raises_helpful_error(monkeypa
 def test_init_without_not_found_error_raises_typeerror() -> None:
     with pytest.raises(TypeError):
         AzureTableThreadStore(table_client=MockTableClient())
+
 
 def test_from_connection_string_success_sets_not_found_error(monkeypatch: Any) -> None:
     table_client = MockTableClient()
@@ -747,7 +746,7 @@ def test_internal_helper_branches(monkeypatch: Any, caplog: Any) -> None:
         assistant_id="assistant-1",
         interrupts={},
     )
-    assert with_values_and_assistant["values_json"] == "{\"a\": 1}"
+    assert with_values_and_assistant["values_json"] == '{"a": 1}'
     assert with_values_and_assistant["assistant_id"] == "assistant-1"
 
     entity_without_interrupts = {

@@ -260,7 +260,8 @@ class TestPlatformStream:
 
         # MUST-FIX: Assert payload content, not just event-type presence
         values_frames = [
-            f for f in frames
+            f
+            for f in frames
             if f["event"] == "values" and f["data"] and isinstance(f["data"], dict)
         ]
         assert len(values_frames) >= 1

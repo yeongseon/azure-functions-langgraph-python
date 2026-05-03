@@ -224,9 +224,7 @@ def register_thread_routes(
         )
 
     @app.function_name(name="aflg_platform_threads_state_get")
-    @app.route(
-        route="threads/{thread_id}/state", methods=["GET"], auth_level=auth
-    )
+    @app.route(route="threads/{thread_id}/state", methods=["GET"], auth_level=auth)
     def threads_state_get(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
         tid_err = validate_thread_id(thread_id)
@@ -288,9 +286,7 @@ def register_thread_routes(
         )
 
     @app.function_name(name="aflg_platform_threads_state_update")
-    @app.route(
-        route="threads/{thread_id}/state", methods=["POST"], auth_level=auth
-    )
+    @app.route(route="threads/{thread_id}/state", methods=["POST"], auth_level=auth)
     def threads_state_update(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
         tid_err = validate_thread_id(thread_id)
@@ -359,20 +355,14 @@ def register_thread_routes(
         config: dict[str, Any] = {"configurable": configurable}
 
         try:
-            result = graph.update_state(
-                config, update_req.values, as_node=update_req.as_node
-            )
+            result = graph.update_state(config, update_req.values, as_node=update_req.as_node)
         except (KeyError, ValueError) as exc:
-            return _platform_error(
-                404, f"Cannot update state for thread {thread_id!r}: {exc}"
-            )
+            return _platform_error(404, f"Cannot update state for thread {thread_id!r}: {exc}")
         except Exception:
             logger.exception("update_state failed for thread %s", thread_id)
             return _platform_error(500, "Internal error updating thread state")
 
-        result_configurable = (
-            result.get("configurable", {}) if isinstance(result, dict) else {}
-        )
+        result_configurable = result.get("configurable", {}) if isinstance(result, dict) else {}
         response_checkpoint = Checkpoint(
             thread_id=thread_id,
             checkpoint_ns=result_configurable.get("checkpoint_ns", ""),
@@ -386,9 +376,7 @@ def register_thread_routes(
         )
 
     @app.function_name(name="aflg_platform_threads_history")
-    @app.route(
-        route="threads/{thread_id}/history", methods=["POST"], auth_level=auth
-    )
+    @app.route(route="threads/{thread_id}/history", methods=["POST"], auth_level=auth)
     def threads_history(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
         tid_err = validate_thread_id(thread_id)
@@ -479,9 +467,7 @@ def register_thread_routes(
             for snapshot in history_iter:
                 snap_config = getattr(snapshot, "config", None) or {}
                 snap_configurable = (
-                    snap_config.get("configurable", {})
-                    if isinstance(snap_config, dict)
-                    else {}
+                    snap_config.get("configurable", {}) if isinstance(snap_config, dict) else {}
                 )
                 snap_cp_id = snap_configurable.get("checkpoint_id")
 
@@ -492,10 +478,7 @@ def register_thread_routes(
 
                 if hist_req.metadata is not None:
                     snap_metadata = getattr(snapshot, "metadata", None) or {}
-                    if not all(
-                        snap_metadata.get(k) == v
-                        for k, v in hist_req.metadata.items()
-                    ):
+                    if not all(snap_metadata.get(k) == v for k, v in hist_req.metadata.items()):
                         continue
 
                 results.append(_snapshot_to_thread_state(snapshot, thread_id))
@@ -512,9 +495,7 @@ def register_thread_routes(
             return _platform_error(500, "Internal error retrieving thread history")
 
         return func.HttpResponse(
-            body=json.dumps(
-                [s.model_dump(mode="json") for s in results], default=str
-            ),
+            body=json.dumps([s.model_dump(mode="json") for s in results], default=str),
             mimetype="application/json",
             status_code=200,
         )

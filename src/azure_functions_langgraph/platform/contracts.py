@@ -277,6 +277,8 @@ class ThreadHistoryRequest(BaseModel):
     before: Optional[Union[str, dict[str, Any]]] = None
     metadata: Optional[dict[str, Any]] = None
     checkpoint: Optional[dict[str, Any]] = None
+
+
 # ---------------------------------------------------------------------------
 # Public surface
 # ---------------------------------------------------------------------------

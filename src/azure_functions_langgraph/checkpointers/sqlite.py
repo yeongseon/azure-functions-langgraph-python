@@ -21,8 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _EXTRA_HINT = (
-    "SQLite checkpointer requires the 'sqlite' extra: "
-    "pip install azure-functions-langgraph[sqlite]"
+    "SQLite checkpointer requires the 'sqlite' extra: pip install azure-functions-langgraph[sqlite]"
 )
 
 

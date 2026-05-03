@@ -286,9 +286,7 @@ class MockBlobClient:
         with self._container.lock:
             if not overwrite and self._blob_name in self._container.blobs:
                 raise ValueError("Blob already exists")
-            self._container.blobs[self._blob_name] = _BlobRecord(
-                data=data, metadata=dict(metadata)
-            )
+            self._container.blobs[self._blob_name] = _BlobRecord(data=data, metadata=dict(metadata))
 
     def download_blob(self) -> _MockDownloadStream:
         with self._container.lock:
@@ -339,7 +337,7 @@ class MockTableClient:
             if key in self.entities:
                 raise ValueError(f"Entity already exists: {key}")
             stored = deepcopy(entity)
-            stored["etag"] = f"W/\"{id(stored)}\""
+            stored["etag"] = f'W/"{id(stored)}"'
             self.entities[key] = stored
 
     def get_entity(self, partition_key: str, row_key: str) -> dict[str, Any]:
@@ -372,11 +370,11 @@ class MockTableClient:
             if mode == "merge":
                 merged = deepcopy(stored)
                 merged.update(deepcopy(entity))
-                merged["etag"] = f"W/\"{id(merged)}\""
+                merged["etag"] = f'W/"{id(merged)}"'
                 self.entities[key] = merged
                 return
             replaced = deepcopy(entity)
-            replaced["etag"] = f"W/\"{id(replaced)}\""
+            replaced["etag"] = f'W/"{id(replaced)}"'
             self.entities[key] = replaced
 
     def delete_entity(self, partition_key: str, row_key: str) -> None:
@@ -487,9 +485,7 @@ class _BackendContext:
         if self.backend_name == "memory":
             return MemorySaver()
         else:
-            module = importlib.import_module(
-                "azure_functions_langgraph.checkpointers.azure_blob"
-            )
+            module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
             cls = getattr(module, "AzureBlobCheckpointSaver")
             return cls(container_client=self._mock_container)
 
@@ -498,9 +494,7 @@ class _BackendContext:
         if self.backend_name == "memory":
             return InMemoryThreadStore()
         else:
-            module = importlib.import_module(
-                "azure_functions_langgraph.stores.azure_table"
-            )
+            module = importlib.import_module("azure_functions_langgraph.stores.azure_table")
             cls = getattr(module, "AzureTableThreadStore")
             return cls(
                 table_client=self._mock_table,
@@ -509,9 +503,7 @@ class _BackendContext:
                 match_conditions=FakeMatchConditions,
             )
 
-    def new_app_client(
-        self, *, name: str = "agent"
-    ) -> tuple[LangGraphApp, SyncLangGraphClient]:
+    def new_app_client(self, *, name: str = "agent") -> tuple[LangGraphApp, SyncLangGraphClient]:
         """Build a LangGraphApp + SDK client pair with fresh saver/store."""
         saver = self.new_saver()
         store = self.new_store()
@@ -598,9 +590,7 @@ class TestPersistentStorageFlows:
         assert values["turn_count"] == 3
         assert len(values["history"]) == 3
 
-    def test_thread_lifecycle_crud_search_delete(
-        self, backend: _BackendContext
-    ) -> None:
+    def test_thread_lifecycle_crud_search_delete(self, backend: _BackendContext) -> None:
         """Full thread lifecycle: create → update → search → run → get_state → delete."""
         _, client = backend.new_app_client()
 
@@ -713,9 +703,7 @@ class TestPersistentStorageFlows:
 
         def create_and_run(index: int) -> None:
             try:
-                thread = client.threads.create(
-                    metadata={"worker": str(index)}
-                )
+                thread = client.threads.create(metadata={"worker": str(index)})
                 tid = thread["thread_id"]
                 with lock:
                     thread_ids.append(tid)
@@ -738,10 +726,7 @@ class TestPersistentStorageFlows:
                     errors.append(exc)
 
         # Launch 5 concurrent workers
-        threads = [
-            threading.Thread(target=create_and_run, args=(i,))
-            for i in range(5)
-        ]
+        threads = [threading.Thread(target=create_and_run, args=(i,)) for i in range(5)]
         for t in threads:
             t.start()
         for t in threads:
@@ -867,9 +852,7 @@ class TestPersistentRestart:
         assert out2["history"] == ["Hello, Before!", "Hello, After!"]
         assert out2["last_reply"] == "Hello, After!"
 
-    def test_restart_preserves_multiple_threads(
-        self, azure_backend: _BackendContext
-    ) -> None:
+    def test_restart_preserves_multiple_threads(self, azure_backend: _BackendContext) -> None:
         """Multiple threads survive restart and maintain independent state."""
         # Session 1: create and run on two threads
         _, client1 = azure_backend.new_app_client()
@@ -917,9 +900,7 @@ class TestPersistentRestart:
         assert isinstance(s2_after["values"], dict)
         assert s2_after["values"]["turn_count"] == 1
 
-    def test_restart_history_survives(
-        self, azure_backend: _BackendContext
-    ) -> None:
+    def test_restart_history_survives(self, azure_backend: _BackendContext) -> None:
         """State history is accessible after restart."""
         # Session 1
         _, client1 = azure_backend.new_app_client()

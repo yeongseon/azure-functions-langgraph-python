@@ -41,6 +41,7 @@ class _FakeContextManager:
     def __exit__(self, *args: Any) -> None:
         pass
 
+
 def _install_fake_cosmos(
     monkeypatch: Any,
     *,
@@ -113,6 +114,7 @@ def _patch_python_311(monkeypatch: Any) -> None:
     """Pretend we are on Python 3.11 so the runtime guard passes."""
     cosmos_mod = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     monkeypatch.setattr(cosmos_mod.sys, "version_info", (3, 11, 0))
+
 
 def test_cosmos_helper_creates_saver_and_enters_context(monkeypatch: Any) -> None:
     conn_info_calls: list[dict[str, Any]] = []

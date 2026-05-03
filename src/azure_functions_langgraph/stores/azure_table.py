@@ -104,9 +104,7 @@ class AzureTableThreadStore(ThreadStore):
         )
 
     @classmethod
-    def from_table_client(
-        cls, table_client: _TableClientProtocol
-    ) -> AzureTableThreadStore:
+    def from_table_client(cls, table_client: _TableClientProtocol) -> AzureTableThreadStore:
         """Wrap a pre-built ``azure.data.tables.TableClient``.
 
         Use this when you build the ``TableClient`` yourself — for
@@ -133,9 +131,7 @@ class AzureTableThreadStore(ThreadStore):
             )
             store = AzureTableThreadStore.from_table_client(client)
         """
-        not_found_error, modified_error, match_conditions_cls = (
-            cls._load_azure_core_symbols()
-        )
+        not_found_error, modified_error, match_conditions_cls = cls._load_azure_core_symbols()
         return cls(
             table_client=table_client,
             not_found_error=not_found_error,

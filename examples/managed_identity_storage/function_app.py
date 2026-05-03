@@ -114,9 +114,9 @@ langgraph_app.register(
     graph=compiled_graph,
     name="managed_identity_agent",
     description=(
-        "Echo agent persisted via Azure Storage using a connection string for "
-        "Azurite/local dev, or DefaultAzureCredential for Managed Identity in prod "
-        "and Azure CLI-backed credentials when running locally against Azure."
+        "Turn-counting echo agent with persistent state via Azure Blob "
+        "checkpointer and Azure Table thread store, wired with Managed Identity "
+        "in production or connection-string fallback for local Azurite dev."
     ),
 )
 

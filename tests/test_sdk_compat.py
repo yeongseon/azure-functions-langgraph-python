@@ -323,6 +323,7 @@ class TestSdkAssistants:
         assert client.assistants.count(name="age") == 1
         assert client.assistants.count(name="nonexistent") == 0
 
+
 # ---------------------------------------------------------------------------
 # Tests — Threads
 # ---------------------------------------------------------------------------
@@ -569,6 +570,8 @@ class TestSdkThreads:
 
         with pytest.raises(ConflictError):
             client.threads.get_history(thread["thread_id"])
+
+
 # ---------------------------------------------------------------------------
 # Tests — Runs
 # ---------------------------------------------------------------------------
@@ -689,8 +692,6 @@ class TestSdkRuns:
         assert final["history"] == ["Hello, Turn1!", "Hello, Turn2!"]
 
 
-
-
 class TestSdkThreadlessRuns:
     """Verify SDK RunsClient threadless calls (thread_id=None)."""
 
@@ -770,6 +771,7 @@ class TestSdkThreadlessRuns:
 
         # Store must be empty
         assert store.count() == 0
+
 
 # ---------------------------------------------------------------------------
 # Tests — Unsupported features (501)
@@ -874,8 +876,7 @@ class TestTransportBridge:
         platform_fn_names = {
             name
             for fn in fa.get_functions()
-            if (name := fn.get_function_name()) is not None
-            and name.startswith("aflg_platform_")
+            if (name := fn.get_function_name()) is not None and name.startswith("aflg_platform_")
         }
 
         # Collect all function names referenced in _ROUTE_TABLE
@@ -883,12 +884,8 @@ class TestTransportBridge:
 
         # Every platform function must appear in the route table
         missing = platform_fn_names - route_table_fn_names
-        assert not missing, (
-            f"Platform functions not covered by _ROUTE_TABLE: {missing}"
-        )
+        assert not missing, f"Platform functions not covered by _ROUTE_TABLE: {missing}"
 
         # Every route table entry must correspond to a real function
         extra = route_table_fn_names - platform_fn_names
-        assert not extra, (
-            f"_ROUTE_TABLE references non-existent functions: {extra}"
-        )
+        assert not extra, f"_ROUTE_TABLE references non-existent functions: {extra}"

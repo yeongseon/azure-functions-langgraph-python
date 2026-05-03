@@ -26,6 +26,8 @@ class _FakeStateSnapshot:
         self.config = config
         self.parent_config = parent_config
         self.created_at = created_at
+
+
 class FakeCompiledGraph:
     """Minimal mock of a LangGraph CompiledStateGraph for testing.
 
@@ -115,9 +117,7 @@ class FakeStatefulGraph:
             }
         }
 
-    def invoke(
-        self, input: dict[str, Any], config: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
         return self._invoke_result
 
     def stream(
@@ -140,19 +140,16 @@ class FakeStatefulGraph:
     ) -> dict[str, Any]:
         return self._update_state_result
 
-    def get_state_history(
-        self, config: dict[str, Any]
-    ) -> Iterator[_FakeStateSnapshot]:
+    def get_state_history(self, config: dict[str, Any]) -> Iterator[_FakeStateSnapshot]:
         yield from self._state_history
+
 
 class FakeFailingStatefulGraph:
     """StatefulGraph that raises on get_state for error path testing."""
 
     checkpointer = "memory"
 
-    def invoke(
-        self, input: dict[str, Any], config: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
         return {"result": "ok"}
 
     def stream(
@@ -166,14 +163,13 @@ class FakeFailingStatefulGraph:
     def get_state(self, config: dict[str, Any]) -> Any:
         raise RuntimeError("Checkpointer unavailable")
 
+
 class FakeNotFoundStatefulGraph:
     """StatefulGraph that raises KeyError on get_state (thread not found)."""
 
     checkpointer = "memory"
 
-    def invoke(
-        self, input: dict[str, Any], config: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
         return {"result": "ok"}
 
     def stream(
@@ -188,15 +184,12 @@ class FakeNotFoundStatefulGraph:
         raise KeyError("thread-xyz")
 
 
-
 class FakeFailingUpdateStateGraph:
     """StatefulGraph that raises on update_state for error path testing."""
 
     checkpointer = "memory"
 
-    def invoke(
-        self, input: dict[str, Any], config: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
         return {"result": "ok"}
 
     def stream(
@@ -219,12 +212,11 @@ class FakeFailingUpdateStateGraph:
     ) -> Any:
         raise RuntimeError("Update state failed")
 
-    def get_state_history(
-        self, config: dict[str, Any]
-    ) -> Iterator[_FakeStateSnapshot]:
+    def get_state_history(self, config: dict[str, Any]) -> Iterator[_FakeStateSnapshot]:
         # Simulate a generator that raises during iteration (real LangGraph behaviour)
         yield _FakeStateSnapshot()
         raise RuntimeError("History retrieval failed")
+
 
 @pytest.fixture
 def fake_graph() -> FakeCompiledGraph:

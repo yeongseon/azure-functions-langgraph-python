@@ -57,9 +57,7 @@ def validate_thread_id(thread_id: str) -> Optional[str]:
     if not thread_id:
         return "Thread ID must not be empty"
     if len(thread_id) > _MAX_THREAD_ID_LENGTH:
-        return (
-            f"Thread ID exceeds maximum length of {_MAX_THREAD_ID_LENGTH} characters"
-        )
+        return f"Thread ID exceeds maximum length of {_MAX_THREAD_ID_LENGTH} characters"
     if not _PRINTABLE_RE.match(thread_id):
         return "Thread ID must contain only printable ASCII characters"
     return None
@@ -77,10 +75,7 @@ def validate_body_size(body: bytes, max_bytes: int) -> Optional[str]:
     Must be called **before** JSON parsing to reject oversized payloads early.
     """
     if len(body) > max_bytes:
-        return (
-            f"Request body too large: {len(body)} bytes "
-            f"(max {max_bytes} bytes)"
-        )
+        return f"Request body too large: {len(body)} bytes (max {max_bytes} bytes)"
     return None
 
 
@@ -101,21 +96,15 @@ def _count_depth_and_nodes(
     Returns ``(updated_node_count, error_message_or_none)``.
     """
     if current_depth > max_depth:
-        return node_count, (
-            f"Input exceeds maximum nesting depth of {max_depth}"
-        )
+        return node_count, (f"Input exceeds maximum nesting depth of {max_depth}")
     if node_count > max_nodes:
-        return node_count, (
-            f"Input exceeds maximum node count of {max_nodes}"
-        )
+        return node_count, (f"Input exceeds maximum node count of {max_nodes}")
 
     if isinstance(data, dict):
         for value in data.values():
             node_count += 1
             if node_count > max_nodes:
-                return node_count, (
-                    f"Input exceeds maximum node count of {max_nodes}"
-                )
+                return node_count, (f"Input exceeds maximum node count of {max_nodes}")
             node_count, err = _count_depth_and_nodes(
                 value, current_depth + 1, max_depth, node_count, max_nodes
             )
@@ -125,9 +114,7 @@ def _count_depth_and_nodes(
         for item in data:
             node_count += 1
             if node_count > max_nodes:
-                return node_count, (
-                    f"Input exceeds maximum node count of {max_nodes}"
-                )
+                return node_count, (f"Input exceeds maximum node count of {max_nodes}")
             node_count, err = _count_depth_and_nodes(
                 item, current_depth + 1, max_depth, node_count, max_nodes
             )
