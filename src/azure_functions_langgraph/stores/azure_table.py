@@ -602,6 +602,13 @@ class AzureTableThreadStore(ThreadStore):
             )
             if etag is None:
                 etag = entity.get("etag") if isinstance(entity, dict) else None
+            if etag is None:
+                # Without ETag, CAS update cannot guarantee safety — skip.
+                logger.debug(
+                    "Skipping stale thread %s: no ETag available",
+                    entity.get("RowKey"),
+                )
+                continue
 
             row_key = str(entity["RowKey"])
             patch: dict[str, Any] = {
