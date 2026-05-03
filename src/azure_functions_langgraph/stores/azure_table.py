@@ -418,8 +418,8 @@ class AzureTableThreadStore(ThreadStore):
 
         Lock acquisition is **atomic**: the update uses an ETag
         compare-and-swap so that exactly one concurrent caller wins.
-        ``updated_at`` is set on success and serves as the lock-acquired
-        timestamp for staleness detection (see :meth:`reset_stale_locks`).
+        ``updated_at`` is updated on lock acquire and used for staleness
+        detection while status is ``busy`` (see :meth:`reset_stale_locks`).
 
         If the Function host is terminated during graph execution, the
         thread may remain in ``busy`` status indefinitely.  Use
@@ -576,7 +576,10 @@ class AzureTableThreadStore(ThreadStore):
 
         pk = self._partition_key().replace("'", "''")
         query_filter = f"PartitionKey eq '{pk}' and status eq 'busy'"
-        entities = self._table_client.query_entities(query_filter=query_filter)
+        entities = self._table_client.query_entities(
+            query_filter=query_filter,
+            select=["RowKey", "updated_at"],
+        )
 
         reset_count = 0
         for entity in entities:

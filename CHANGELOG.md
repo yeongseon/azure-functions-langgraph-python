@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 - *(docs)* Document best-effort lock release and run lock semantics in README
 - *(examples)* Add `maintenance_timer` example for periodic stale lock recovery
 
+
+## 0.6.0
 ### 🐛 Bug Fixes
 
 - *(packaging)* Rename PyPI distribution back to azure-functions-langgraph 
