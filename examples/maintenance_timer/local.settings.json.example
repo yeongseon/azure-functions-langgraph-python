@@ -1,0 +1,11 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AZURE_TABLE_CONNECTION_STRING": "UseDevelopmentStorage=true",
+    "LANGGRAPH_TABLE_NAME": "langgraphthreads",
+    "STALE_LOCK_THRESHOLD_SECONDS": "600",
+    "STALE_LOCK_RESET_STATUS": "error"
+  }
+}

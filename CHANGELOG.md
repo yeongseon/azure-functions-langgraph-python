@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### ✨ Features
+
+- *(stores)* Add `reset_stale_locks()` to `AzureTableThreadStore` for recovering orphaned run locks (#157)
+- *(docs)* Document best-effort lock release and run lock semantics in README
+- *(examples)* Add `maintenance_timer` example for periodic stale lock recovery
+
+
+## 0.6.0
 ### 🐛 Bug Fixes
 
 - *(packaging)* Rename PyPI distribution back to azure-functions-langgraph 
