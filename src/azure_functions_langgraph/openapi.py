@@ -94,9 +94,7 @@ def register_with_openapi(app: LangGraphApp) -> int:
 def _validate_model(model: object, label: str) -> None:
     """Raise :class:`TypeError` if *model* is not a Pydantic ``BaseModel`` subclass."""
     if not (isinstance(model, type) and issubclass(model, BaseModel)):
-        raise TypeError(
-            f"{label} must be a Pydantic BaseModel subclass, got {model!r}"
-        )
+        raise TypeError(f"{label} must be a Pydantic BaseModel subclass, got {model!r}")
 
 
 def _build_request_body(model: type[Any]) -> dict[str, Any]:
@@ -109,9 +107,5 @@ def _build_request_body(model: type[Any]) -> dict[str, Any]:
 
     return {
         "required": True,
-        "content": {
-            "application/json": {
-                "schema": model.model_json_schema()
-            }
-        },
+        "content": {"application/json": {"schema": model.model_json_schema()}},
     }

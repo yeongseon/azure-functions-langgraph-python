@@ -15,8 +15,7 @@ class _State(TypedDict):
 def _respond(state: _State, *, prefix: str) -> dict[str, Any]:
     user_msg = state["messages"][-1]["content"] if state["messages"] else ""
     return {
-        "messages": state["messages"]
-        + [{"role": "assistant", "content": f"{prefix}: {user_msg}"}]
+        "messages": state["messages"] + [{"role": "assistant", "content": f"{prefix}: {user_msg}"}]
     }
 
 

@@ -40,7 +40,9 @@ _TOOLKIT_META_ATTR = "_azure_functions_metadata"
 
 
 def _merge_toolkit_metadata(
-    fn: Callable[..., Any], namespace: str, payload: dict[str, Any],
+    fn: Callable[..., Any],
+    namespace: str,
+    payload: dict[str, Any],
 ) -> None:
     """Merge toolkit metadata into the convention attribute, preserving other namespaces."""
     existing: dict[str, Any] = getattr(fn, _TOOLKIT_META_ATTR, {})
@@ -61,6 +63,7 @@ class _GraphRegistration:
     auth_level: Optional[func.AuthLevel] = None
     request_model: Optional[type[Any]] = None
     response_model: Optional[type[Any]] = None
+
 
 @dataclass
 class LangGraphApp:
@@ -257,17 +260,20 @@ class LangGraphApp:
         def invoke_handler(req: func.HttpRequest) -> func.HttpResponse:
             return self._handle_invoke(req, captured_reg)
 
-        _merge_toolkit_metadata(invoke_handler, "langgraph", {
-            "version": 1,
-            "graph_name": reg.name,
-            "endpoint": "invoke",
-        })
+        _merge_toolkit_metadata(
+            invoke_handler,
+            "langgraph",
+            {
+                "version": 1,
+                "graph_name": reg.name,
+                "endpoint": "invoke",
+            },
+        )
 
         app.function_name(name=fn_name)(
-            app.route(route=route, methods=["POST"], auth_level=effective_auth)(
-                invoke_handler
-            )
+            app.route(route=route, methods=["POST"], auth_level=effective_auth)(invoke_handler)
         )
+
     def _register_stream_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
         route = _ROUTE_STREAM.format(name=reg.name)
         fn_name = f"aflg_{reg.name}_stream"
@@ -277,16 +283,18 @@ class LangGraphApp:
         def stream_handler(req: func.HttpRequest) -> func.HttpResponse:
             return self._handle_stream(req, captured_reg)
 
-        _merge_toolkit_metadata(stream_handler, "langgraph", {
-            "version": 1,
-            "graph_name": reg.name,
-            "endpoint": "stream",
-        })
+        _merge_toolkit_metadata(
+            stream_handler,
+            "langgraph",
+            {
+                "version": 1,
+                "graph_name": reg.name,
+                "endpoint": "stream",
+            },
+        )
 
         app.function_name(name=fn_name)(
-            app.route(route=route, methods=["POST"], auth_level=effective_auth)(
-                stream_handler
-            )
+            app.route(route=route, methods=["POST"], auth_level=effective_auth)(stream_handler)
         )
 
     def _register_state_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
@@ -298,17 +306,20 @@ class LangGraphApp:
         def state_handler(req: func.HttpRequest) -> func.HttpResponse:
             return self._handle_state(req, captured_reg)
 
-        _merge_toolkit_metadata(state_handler, "langgraph", {
-            "version": 1,
-            "graph_name": reg.name,
-            "endpoint": "state",
-        })
+        _merge_toolkit_metadata(
+            state_handler,
+            "langgraph",
+            {
+                "version": 1,
+                "graph_name": reg.name,
+                "endpoint": "state",
+            },
+        )
 
         app.function_name(name=fn_name)(
-            app.route(route=route, methods=["GET"], auth_level=effective_auth)(
-                state_handler
-            )
+            app.route(route=route, methods=["GET"], auth_level=effective_auth)(state_handler)
         )
+
     def _effective_auth_level(self, reg: _GraphRegistration) -> func.AuthLevel:
         """Return per-graph auth if set, otherwise app-level auth."""
         if reg.auth_level is not None:
@@ -340,9 +351,7 @@ class LangGraphApp:
             max_input_nodes=self.max_input_nodes,
         )
 
-    def _handle_state(
-        self, req: func.HttpRequest, reg: _GraphRegistration
-    ) -> func.HttpResponse:
+    def _handle_state(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a GET request for thread state."""
         return handle_state(
             req,
@@ -368,37 +377,45 @@ class LangGraphApp:
         for reg in self._registrations.values():
             routes: list[RouteMetadata] = []
             # invoke route
-            routes.append(RouteMetadata(
-                path=f"{_ROUTE_PREFIX}/{_ROUTE_INVOKE.format(name=reg.name)}",
-                method="POST",
-                summary=f"Invoke graph '{reg.name}'",
-                request_model=reg.request_model,
-                response_model=reg.response_model,
-            ))
+            routes.append(
+                RouteMetadata(
+                    path=f"{_ROUTE_PREFIX}/{_ROUTE_INVOKE.format(name=reg.name)}",
+                    method="POST",
+                    summary=f"Invoke graph '{reg.name}'",
+                    request_model=reg.request_model,
+                    response_model=reg.response_model,
+                )
+            )
             # stream route (if enabled)
             if reg.stream_enabled:
-                routes.append(RouteMetadata(
-                    path=f"{_ROUTE_PREFIX}/{_ROUTE_STREAM.format(name=reg.name)}",
-                    method="POST",
-                    summary=f"Stream graph '{reg.name}'",
-                    request_model=reg.request_model,
-                    # Stream responses are SSE, not a single JSON body
-                ))
+                routes.append(
+                    RouteMetadata(
+                        path=f"{_ROUTE_PREFIX}/{_ROUTE_STREAM.format(name=reg.name)}",
+                        method="POST",
+                        summary=f"Stream graph '{reg.name}'",
+                        request_model=reg.request_model,
+                        # Stream responses are SSE, not a single JSON body
+                    )
+                )
             # state route — use same capability test as _build_function_app
             if isinstance(reg.graph, StatefulGraph):
-                routes.append(RouteMetadata(
-                    path=f"{_ROUTE_PREFIX}/{_ROUTE_STATE.format(name=reg.name)}",
-                    method="GET",
-                    summary=f"Get thread state for '{reg.name}'",
-                    parameters=(
-                        MappingProxyType({
-                            "name": "thread_id",
-                            "in": "path",
-                            "required": True,
-                            "schema": {"type": "string"},
-                        }),
-                    ),
-                ))
+                routes.append(
+                    RouteMetadata(
+                        path=f"{_ROUTE_PREFIX}/{_ROUTE_STATE.format(name=reg.name)}",
+                        method="GET",
+                        summary=f"Get thread state for '{reg.name}'",
+                        parameters=(
+                            MappingProxyType(
+                                {
+                                    "name": "thread_id",
+                                    "in": "path",
+                                    "required": True,
+                                    "schema": {"type": "string"},
+                                }
+                            ),
+                        ),
+                    )
+                )
             graphs[reg.name] = RegisteredGraphMetadata(
                 name=reg.name,
                 description=reg.description,
@@ -415,6 +432,7 @@ class LangGraphApp:
         )
 
         return AppMetadata(graphs=MappingProxyType(graphs), app_routes=app_routes)
+
 
 # ------------------------------------------------------------------
 # Helpers

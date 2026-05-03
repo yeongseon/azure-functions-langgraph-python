@@ -39,6 +39,18 @@ func start
 | `LANGGRAPH_POSTGRES_CONNECTION_STRING` | yes | psycopg-compatible connection string. Example: `postgresql://user:pass@host:5432/db` (add `?sslmode=require` for Azure Database for PostgreSQL). |
 | `LANGGRAPH_POSTGRES_SETUP` | no (default `true`) | Run `setup()` on cold start to create / migrate the checkpoint tables. Set to `false` if migrations are managed out-of-band (e.g. by a deployment pipeline). |
 
+## Connection string format
+
+The helper expects a [psycopg](https://www.psycopg.org/) connection string:
+
+| Provider | Example |
+| --- | --- |
+| Local Docker | `postgresql://postgres:postgres@localhost:5432/langgraph` |
+| Azure Database for PostgreSQL | `postgresql://user@host:5432/langgraph?sslmode=require` |
+| Supabase | `postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres` |
+
+> **Tip:** For Azure Database for PostgreSQL, always append `?sslmode=require`
+> (or `verify-full` with a CA cert). Connections without TLS are rejected by default.
 ## Verify persistence
 
 ```bash

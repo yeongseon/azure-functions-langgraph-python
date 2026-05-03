@@ -4,6 +4,16 @@ Local-development example using `create_sqlite_checkpointer()` to persist
 LangGraph state in a single on-disk SQLite file. Zero external services
 required — just a writeable path.
 
+## ⚠️ Not for production
+
+SQLite is a **local-development and single-instance** backend. It does not
+support concurrent writes from multiple Azure Functions instances. For
+production deployments, use:
+
+- **Postgres** — `examples/postgres_checkpoint_production/`
+- **Azure Blob** — `examples/persistent_agent_blob_table/`
+- **Cosmos DB** — `examples/cosmos_checkpoint_azure/`
+
 ## Files
 
 - `function_app.py` — wires `SqliteSaver` via the bundled DX helper

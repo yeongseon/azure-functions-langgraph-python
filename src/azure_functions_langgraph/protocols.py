@@ -54,6 +54,7 @@ class StateHistoryGraph(Protocol):
 
     def get_state_history(self, config: dict[str, Any]) -> Any: ...
 
+
 @runtime_checkable
 class CloneableGraph(Protocol):
     """Protocol for a graph that supports cloning with updated configuration.

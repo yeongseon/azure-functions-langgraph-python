@@ -17,6 +17,7 @@ from langgraph.checkpoint.serde.types import ERROR, INTERRUPT
 
 pytest = cast(Any, importlib.import_module("pytest"))
 
+
 class _CheckpointSaverProtocol(Protocol):
     def get_next_version(self, current: str | None, channel: None) -> str: ...
 
@@ -131,9 +132,7 @@ class MockContainerClient:
 
     def list_blobs(self, name_starts_with: str = "") -> list[_BlobItem]:
         return [
-            _BlobItem(name=name)
-            for name in sorted(self.blobs)
-            if name.startswith(name_starts_with)
+            _BlobItem(name=name) for name in sorted(self.blobs) if name.startswith(name_starts_with)
         ]
 
 
@@ -236,12 +235,10 @@ def test_path_escaping(
     escaped_task_id = quote("task/1", safe="")
 
     assert (
-        f"threads/{escaped_thread}/ns/{escaped_ns}/checkpoints/"
-        f"{escaped_checkpoint}/checkpoint.bin"
+        f"threads/{escaped_thread}/ns/{escaped_ns}/checkpoints/{escaped_checkpoint}/checkpoint.bin"
     ) in container.blobs
     assert (
-        f"threads/{escaped_thread}/ns/{escaped_ns}/values/"
-        f"{escaped_channel}/{escaped_version}.bin"
+        f"threads/{escaped_thread}/ns/{escaped_ns}/values/{escaped_channel}/{escaped_version}.bin"
     ) in container.blobs
     assert (
         f"threads/{escaped_thread}/ns/{escaped_ns}/checkpoints/{escaped_checkpoint}/"
@@ -307,6 +304,7 @@ def test_stale_latest_json_returns_actual_latest(
     assert result is not None
     # Must return cp-002 (actual latest), NOT cp-001 (stale hint)
     assert result.checkpoint["id"] == "cp-002"
+
 
 def test_get_tuple_no_checkpoint_returns_none(
     saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
@@ -488,8 +486,7 @@ def test_delete_old_checkpoints_keeps_last_n(
     remaining_checkpoint_blobs = sorted(
         name
         for name in container.blobs
-        if name.startswith("threads/t-1/ns/ns/checkpoints/")
-        and name.endswith("/checkpoint.bin")
+        if name.startswith("threads/t-1/ns/ns/checkpoints/") and name.endswith("/checkpoint.bin")
     )
     assert remaining_checkpoint_blobs == [
         "threads/t-1/ns/ns/checkpoints/cp-004/checkpoint.bin",
@@ -578,8 +575,7 @@ def test_delete_checkpoints_before_strict_cutoff(
     remaining_checkpoint_blobs = sorted(
         name
         for name in container.blobs
-        if name.startswith("threads/t-1/ns/ns/checkpoints/")
-        and name.endswith("/checkpoint.bin")
+        if name.startswith("threads/t-1/ns/ns/checkpoints/") and name.endswith("/checkpoint.bin")
     )
     assert remaining_checkpoint_blobs == [
         "threads/t-1/ns/ns/checkpoints/cp-002/checkpoint.bin",

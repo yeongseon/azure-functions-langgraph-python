@@ -14,10 +14,7 @@ class AgentState(TypedDict):
 
 def echo(state: AgentState) -> dict[str, Any]:
     user_msg = state["messages"][-1]["content"] if state["messages"] else ""
-    return {
-        "messages": state["messages"]
-        + [{"role": "assistant", "content": f"Echo: {user_msg}"}]
-    }
+    return {"messages": state["messages"] + [{"role": "assistant", "content": f"Echo: {user_msg}"}]}
 
 
 _builder = StateGraph(AgentState)

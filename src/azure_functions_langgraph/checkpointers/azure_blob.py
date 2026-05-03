@@ -51,6 +51,7 @@ class _ContainerClientProtocol(Protocol):
 
     def list_blobs(self, name_starts_with: str = "") -> Sequence[_BlobItemProtocol]: ...
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,8 +86,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             container_client, azure_container_client
         ):
             raise TypeError(
-                "container_client must be an instance of "
-                "azure.storage.blob.ContainerClient"
+                "container_client must be an instance of azure.storage.blob.ContainerClient"
             )
 
         super().__init__(serde=serde)
@@ -97,13 +97,9 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         try:
             azure_core_exceptions = importlib.import_module("azure.core.exceptions")
-            resource_not_found_error = getattr(
-                azure_core_exceptions, "ResourceNotFoundError", None
-            )
+            resource_not_found_error = getattr(azure_core_exceptions, "ResourceNotFoundError", None)
             if resource_not_found_error is None:
-                raise ImportError(
-                    "azure.core.exceptions.ResourceNotFoundError not found"
-                )
+                raise ImportError("azure.core.exceptions.ResourceNotFoundError not found")
         except ImportError as exc:
             raise ImportError(
                 "AzureBlobCheckpointSaver requires 'azure-core'. "
@@ -113,6 +109,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             type[BaseException],
             resource_not_found_error,
         )
+
     def get_next_version(self, current: str | None, channel: None) -> str:
         """Return the next monotonic channel version string."""
         if current is None:
@@ -525,7 +522,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             # Parse relative to writes_prefix: expect "{task_id}/{idx}.bin"
             if not blob.name.startswith(writes_prefix):
                 continue
-            relative = blob.name[len(writes_prefix):]
+            relative = blob.name[len(writes_prefix) :]
             rel_parts = relative.split("/")
             if len(rel_parts) != 2:
                 continue
@@ -630,9 +627,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             }
         }
 
-    def _download_typed_blob(
-        self, blob_path: str
-    ) -> tuple[str, bytes, dict[str, str]] | None:
+    def _download_typed_blob(self, blob_path: str) -> tuple[str, bytes, dict[str, str]] | None:
         """Download a blob and return ``(serde_type, payload, full_metadata)``."""
         payload = self._download_blob(blob_path)
         if payload is None:
@@ -689,21 +684,16 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_ns: str,
         checkpoint_id: str,
     ) -> str:
-        return (
-            f"{self._checkpoints_prefix(thread_id, checkpoint_ns)}"
-            f"{self._escape(checkpoint_id)}/"
-        )
+        return f"{self._checkpoints_prefix(thread_id, checkpoint_ns)}{self._escape(checkpoint_id)}/"
 
     def _checkpoint_blob_path(self, thread_id: str, checkpoint_ns: str, checkpoint_id: str) -> str:
         return (
-            f"{self._checkpoint_base_prefix(thread_id, checkpoint_ns, checkpoint_id)}"
-            "checkpoint.bin"
+            f"{self._checkpoint_base_prefix(thread_id, checkpoint_ns, checkpoint_id)}checkpoint.bin"
         )
 
     def _metadata_blob_path(self, thread_id: str, checkpoint_ns: str, checkpoint_id: str) -> str:
         return (
-            f"{self._checkpoint_base_prefix(thread_id, checkpoint_ns, checkpoint_id)}"
-            "metadata.bin"
+            f"{self._checkpoint_base_prefix(thread_id, checkpoint_ns, checkpoint_id)}metadata.bin"
         )
 
     def _writes_prefix(self, thread_id: str, checkpoint_ns: str, checkpoint_id: str) -> str:

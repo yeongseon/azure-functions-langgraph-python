@@ -198,9 +198,7 @@ class InMemoryThreadStore:
             now = self._now()
             thread_id = self._id_factory()
             if thread_id in self._threads:
-                raise ValueError(
-                    f"Duplicate thread ID generated: {thread_id!r}"
-                )
+                raise ValueError(f"Duplicate thread ID generated: {thread_id!r}")
             thread = Thread(
                 thread_id=thread_id,
                 created_at=now,
@@ -331,8 +329,7 @@ class InMemoryThreadStore:
                 if thread.metadata is None:
                     continue
                 if not all(
-                    k in thread.metadata and thread.metadata[k] == v
-                    for k, v in metadata.items()
+                    k in thread.metadata and thread.metadata[k] == v for k, v in metadata.items()
                 ):
                     continue
             results.append(thread)

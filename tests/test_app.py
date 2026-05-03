@@ -155,9 +155,7 @@ class TestPerGraphAuth:
     def test_anonymous_override_is_preserved(self) -> None:
         """AuthLevel.ANONYMOUS must not be swallowed by falsy check."""
         app = LangGraphApp(auth_level=func.AuthLevel.ADMIN)
-        app.register(
-            graph=FakeCompiledGraph(), name="public", auth_level=func.AuthLevel.ANONYMOUS
-        )
+        app.register(graph=FakeCompiledGraph(), name="public", auth_level=func.AuthLevel.ANONYMOUS)
         fa = app.function_app
         assert self._get_trigger_auth(fa, "aflg_public_invoke") == func.AuthLevel.ANONYMOUS
         assert self._get_trigger_auth(fa, "aflg_public_stream") == func.AuthLevel.ANONYMOUS
@@ -181,6 +179,8 @@ class TestPerGraphAuth:
         app.register(graph=FakeCompiledGraph(), name="agent", auth_level=func.AuthLevel.ADMIN)
         fa = app.function_app
         assert self._get_trigger_auth(fa, "aflg_health") == func.AuthLevel.FUNCTION
+
+
 # ------------------------------------------------------------------
 # Function app creation tests
 # ------------------------------------------------------------------
@@ -465,9 +465,7 @@ class TestStateHandler:
             route_params={"thread_id": thread_id},
         )
 
-    def test_state_success(
-        self, fake_stateful_graph: FakeStatefulGraph
-    ) -> None:
+    def test_state_success(self, fake_stateful_graph: FakeStatefulGraph) -> None:
         app = LangGraphApp()
         app.register(graph=fake_stateful_graph, name="agent")
         req = self._make_state_request("t1")
@@ -477,9 +475,7 @@ class TestStateHandler:
         assert "values" in data
         assert isinstance(data["next"], list)
 
-    def test_state_returns_values_and_next(
-        self, fake_stateful_graph: FakeStatefulGraph
-    ) -> None:
+    def test_state_returns_values_and_next(self, fake_stateful_graph: FakeStatefulGraph) -> None:
         from tests.conftest import _FakeStateSnapshot
 
         snapshot = _FakeStateSnapshot(
@@ -498,9 +494,7 @@ class TestStateHandler:
         assert data["next"] == ["agent", "tool"]
         assert data["metadata"] == {"step": 3}
 
-    def test_state_non_stateful_graph_returns_409(
-        self, fake_graph: FakeCompiledGraph
-    ) -> None:
+    def test_state_non_stateful_graph_returns_409(self, fake_graph: FakeCompiledGraph) -> None:
         app = LangGraphApp()
         app.register(graph=fake_graph, name="agent")
         req = self._make_state_request("t1")
@@ -509,9 +503,7 @@ class TestStateHandler:
         data = json.loads(resp.get_body())
         assert "does not support state" in data["detail"]
 
-    def test_state_missing_thread_id(
-        self, fake_stateful_graph: FakeStatefulGraph
-    ) -> None:
+    def test_state_missing_thread_id(self, fake_stateful_graph: FakeStatefulGraph) -> None:
         app = LangGraphApp()
         app.register(graph=fake_stateful_graph, name="agent")
         req = func.HttpRequest(
@@ -578,6 +570,7 @@ class TestStateHandler:
         else:
             pytest.fail("State function not found")
 
+
 # ------------------------------------------------------------------
 # Helper tests
 # ------------------------------------------------------------------
@@ -598,6 +591,7 @@ class TestHelpers:
         graph.checkpointer = None
         assert _has_checkpointer(graph) is False
 
+
 # ------------------------------------------------------------------
 # HTTP Handler tests for uncovered lines
 # ------------------------------------------------------------------
@@ -610,7 +604,7 @@ class TestHealthEndpointHTTPHandler:
         """Health endpoint should work even with no registered graphs."""
         app = LangGraphApp()
         fa = app.function_app
-        
+
         # Get the health function and call it
         for fn in fa.get_functions():
             if fn.get_function_name() == "aflg_health":
@@ -635,7 +629,7 @@ class TestHealthEndpointHTTPHandler:
         app.register(graph=FakeCompiledGraph(checkpointer=None), name="agent1")
         app.register(graph=FakeCompiledGraph(checkpointer=None), name="agent2")
         fa = app.function_app
-        
+
         for fn in fa.get_functions():
             if fn.get_function_name() == "aflg_health":
                 health_fn = fn.get_user_function()
@@ -656,11 +650,9 @@ class TestHealthEndpointHTTPHandler:
     def test_health_endpoint_with_graphs_with_checkpointer(self) -> None:
         """Health endpoint marks graphs with checkpointer."""
         app = LangGraphApp()
-        app.register(
-            graph=FakeCompiledGraph(checkpointer=MagicMock()), name="stateful_agent"
-        )
+        app.register(graph=FakeCompiledGraph(checkpointer=MagicMock()), name="stateful_agent")
         fa = app.function_app
-        
+
         for fn in fa.get_functions():
             if fn.get_function_name() == "aflg_health":
                 health_fn = fn.get_user_function()
@@ -684,7 +676,7 @@ class TestStreamValidationError:
         """Stream endpoint should return 422 on invalid request model."""
         app = LangGraphApp()
         app.register(graph=FakeCompiledGraph(), name="agent")
-        
+
         # Create request with missing required 'input' field
         req = func.HttpRequest(
             method="POST",
@@ -705,7 +697,7 @@ class TestInvokeWithEmptyInput:
         """Invoke should handle empty input dict."""
         app = LangGraphApp()
         app.register(graph=FakeCompiledGraph(), name="agent")
-        
+
         req = func.HttpRequest(
             method="POST",
             url="http://localhost:7071/api/graphs/agent/invoke",
@@ -724,7 +716,7 @@ class TestStreamWithEmptyInput:
         """Stream should handle empty input dict."""
         app = LangGraphApp()
         app.register(graph=FakeCompiledGraph(), name="agent")
-        
+
         req = func.HttpRequest(
             method="POST",
             url="http://localhost:7071/api/graphs/agent/stream",
@@ -745,10 +737,10 @@ class TestMultipleGraphsStatefulNonStateful:
         app.register(graph=FakeStatefulGraph(), name="stateful1")
         app.register(graph=FakeCompiledGraph(), name="simple2")
         app.register(graph=FakeStatefulGraph(), name="stateful2")
-        
+
         fa = app.function_app
         function_names = {fn.get_function_name() for fn in fa.get_functions()}
-        
+
         # Should have invoke/stream for all, plus state for stateful graphs
         assert "aflg_simple_invoke" in function_names
         assert "aflg_simple_stream" in function_names
@@ -764,19 +756,17 @@ class TestStateResponseEdgeCases:
     def test_state_response_with_empty_values(self) -> None:
         """StateResponse should handle empty values dict."""
         from azure_functions_langgraph.contracts import StateResponse
-        
+
         resp = StateResponse(values={})
         assert resp.values == {}
         assert resp.next == []
         assert resp.metadata is None
-        
+
     def test_state_response_model_dump_all_fields(self) -> None:
         """StateResponse model_dump should include all fields."""
         from azure_functions_langgraph.contracts import StateResponse
-        
-        resp = StateResponse(
-            values={"a": 1}, next=["node1"], metadata={"key": "value"}
-        )
+
+        resp = StateResponse(values={"a": 1}, next=["node1"], metadata={"key": "value"})
         dumped = resp.model_dump()
         assert "values" in dumped
         assert "next" in dumped
@@ -792,10 +782,8 @@ class TestRegisterWithFunctionAuth:
     def test_register_with_function_auth_level(self) -> None:
         """Register should accept and preserve auth_level=FUNCTION."""
         app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
-        app.register(
-            graph=FakeCompiledGraph(), name="secure", auth_level=func.AuthLevel.FUNCTION
-        )
-        
+        app.register(graph=FakeCompiledGraph(), name="secure", auth_level=func.AuthLevel.FUNCTION)
+
         reg = app._registrations["secure"]
         assert reg.auth_level == func.AuthLevel.FUNCTION
 
@@ -806,30 +794,30 @@ class TestHasCheckpointerEdgeCases:
     def test_has_checkpointer_with_string_checkpointer(self) -> None:
         """_has_checkpointer should return True for non-None checkpointer (e.g. string)."""
         from azure_functions_langgraph.app import _has_checkpointer
-        
+
         class GraphWithStringCheckpointer:
             checkpointer = "memory"
-        
+
         graph = GraphWithStringCheckpointer()
         assert _has_checkpointer(graph) is True
 
     def test_has_checkpointer_with_none(self) -> None:
         """_has_checkpointer should return False for None."""
         from azure_functions_langgraph.app import _has_checkpointer
-        
+
         class GraphWithoutCheckpointer:
             checkpointer = None
-        
+
         graph = GraphWithoutCheckpointer()
         assert _has_checkpointer(graph) is False
 
     def test_has_checkpointer_with_missing_attr(self) -> None:
         """_has_checkpointer should return False when checkpointer attr is missing."""
         from azure_functions_langgraph.app import _has_checkpointer
-        
+
         class GraphWithoutAttr:
             pass
-        
+
         graph = GraphWithoutAttr()
         assert _has_checkpointer(graph) is False
 
@@ -840,12 +828,10 @@ class TestStateEndpointEmptyMetadata:
     def test_state_endpoint_with_empty_metadata(self) -> None:
         """State endpoint should handle snapshot with empty metadata."""
         app = LangGraphApp()
-        snapshot_empty_metadata = conftest._FakeStateSnapshot(
-            values={"messages": []}, metadata={}
-        )
+        snapshot_empty_metadata = conftest._FakeStateSnapshot(values={"messages": []}, metadata={})
         graph = FakeStatefulGraph(state_snapshot=snapshot_empty_metadata)
         app.register(graph=graph, name="agent")
-        
+
         req = func.HttpRequest(
             method="GET",
             url="http://localhost:7071/api/graphs/agent/threads/t1/state",
@@ -859,15 +845,15 @@ class TestStateEndpointEmptyMetadata:
     def test_state_endpoint_with_no_metadata_attr(self) -> None:
         """State endpoint handles snapshot with no metadata attr gracefully."""
         app = LangGraphApp()
-        
+
         class FakeSnapshot:
             def __init__(self) -> None:
                 self.values = {"data": "value"}
                 self.next = ()
-        
+
         graph = FakeStatefulGraph(state_snapshot=FakeSnapshot())  # type: ignore[arg-type]
         app.register(graph=graph, name="agent")
-        
+
         req = func.HttpRequest(
             method="GET",
             url="http://localhost:7071/api/graphs/agent/threads/t1/state",
@@ -885,6 +871,6 @@ class TestVersionIsString:
     def test_version_is_string(self) -> None:
         """__version__ should be a string."""
         from azure_functions_langgraph import __version__
-        
+
         assert isinstance(__version__, str)
         assert len(__version__) > 0

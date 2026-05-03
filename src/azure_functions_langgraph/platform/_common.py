@@ -42,7 +42,12 @@ _UNSUPPORTED_FIELDS: dict[str, str] = {
 }
 
 _UNSUPPORTED_THREAD_FILTER_FIELDS: set[str] = {
-    "values", "ids", "sort_by", "sort_order", "select", "extract",
+    "values",
+    "ids",
+    "sort_by",
+    "sort_order",
+    "select",
+    "extract",
 }
 
 
@@ -99,9 +104,7 @@ def _snapshot_to_thread_state(snapshot: Any, thread_id: str) -> ThreadState:
     ``config["configurable"]`` when available, falling back to bare defaults.
     """
     values: dict[str, Any] | list[dict[str, Any]] = (
-        snapshot.values
-        if isinstance(snapshot.values, (dict, list))
-        else {}
+        snapshot.values if isinstance(snapshot.values, (dict, list)) else {}
     )
     next_nodes: list[str] = list(snapshot.next) if hasattr(snapshot, "next") else []
     metadata = (
@@ -119,9 +122,7 @@ def _snapshot_to_thread_state(snapshot: Any, thread_id: str) -> ThreadState:
     # Parent checkpoint from parent_config
     parent_config = getattr(snapshot, "parent_config", None) or {}
     parent_configurable = (
-        parent_config.get("configurable", {})
-        if isinstance(parent_config, dict)
-        else {}
+        parent_config.get("configurable", {}) if isinstance(parent_config, dict) else {}
     )
     parent_checkpoint_id = parent_configurable.get("checkpoint_id")
     parent_checkpoint: Checkpoint | None = None

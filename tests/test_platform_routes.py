@@ -115,6 +115,7 @@ def _delete_request(url: str, **route_params: str) -> func.HttpRequest:
         route_params=route_params,
     )
 
+
 # ---------------------------------------------------------------------------
 # LangGraphApp integration — platform_compat flag
 # ---------------------------------------------------------------------------
@@ -283,7 +284,6 @@ class TestAssistantsSearch:
         assert len(data) == 0
 
 
-
 class TestAssistantsCount:
     def test_count_all(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -330,7 +330,9 @@ class TestAssistantsCount:
         assert json.loads(resp.get_body()) == 0
 
     def test_count_filter_by_metadata_returns_zero(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """Assistants don't have user metadata, so any metadata filter yields 0."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -399,6 +401,8 @@ class TestAssistantsCount:
         )
         resp = fn(req)
         assert resp.status_code == 400
+
+
 class TestAssistantsGet:
     def test_get_existing(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -443,7 +447,9 @@ class TestThreadsCreate:
         assert data["status"] == "idle"
 
     def test_create_thread_with_metadata(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -456,7 +462,9 @@ class TestThreadsCreate:
         assert data["metadata"]["key"] == "value"
 
     def test_create_thread_empty_body(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -474,7 +482,9 @@ class TestThreadsCreate:
 
 class TestThreadsGet:
     def test_get_existing_thread(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -512,7 +522,9 @@ class TestThreadsGet:
 
 class TestThreadsUpdate:
     def test_update_metadata(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -538,7 +550,9 @@ class TestThreadsUpdate:
         assert data["metadata"] == {"key": "new", "extra": "val"}
 
     def test_update_merge_preserves_existing_keys(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -559,7 +573,9 @@ class TestThreadsUpdate:
         assert data["metadata"] == {"a": 1, "b": 99, "c": 3}
 
     def test_update_no_metadata_returns_unchanged(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """PATCH with no metadata field returns thread unchanged."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -569,7 +585,8 @@ class TestThreadsUpdate:
 
         update_fn = _get_fn(fa, "aflg_platform_threads_update")
         req = _patch_request(
-            f"/api/threads/{thread.thread_id}", {},
+            f"/api/threads/{thread.thread_id}",
+            {},
             thread_id=thread.thread_id,
         )
         resp = update_fn(req)
@@ -578,14 +595,17 @@ class TestThreadsUpdate:
         assert data["metadata"] == {"x": 1}
 
     def test_update_not_found(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
         fn = _get_fn(fa, "aflg_platform_threads_update")
 
         req = _patch_request(
-            "/api/threads/missing", {"metadata": {"x": 1}},
+            "/api/threads/missing",
+            {"metadata": {"x": 1}},
             thread_id="missing",
         )
         resp = fn(req)
@@ -594,7 +614,9 @@ class TestThreadsUpdate:
         assert "not found" in data["detail"]
 
     def test_update_empty_body(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """PATCH with empty body returns thread unchanged."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -614,7 +636,9 @@ class TestThreadsUpdate:
         assert resp.status_code == 200
 
     def test_update_invalid_json(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -633,7 +657,9 @@ class TestThreadsUpdate:
         assert resp.status_code == 400
 
     def test_update_ttl_field_ignored(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """SDK sends ttl field; it should be silently dropped."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -654,7 +680,9 @@ class TestThreadsUpdate:
         assert "ttl" not in data
 
     def test_update_empty_metadata_is_noop(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """PATCH with metadata={} means 'no new keys' — not 'clear'."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -674,7 +702,9 @@ class TestThreadsUpdate:
         assert data["metadata"] == {"keep": "me"}
 
     def test_update_metadata_on_thread_with_none_metadata(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """PATCH metadata on a thread that has no existing metadata."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -694,7 +724,9 @@ class TestThreadsUpdate:
         assert data["metadata"] == {"new_key": "new_val"}
 
     def test_update_nested_metadata_shallow_merge(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """Shallow merge replaces nested dicts, does not deep-merge."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -715,7 +747,9 @@ class TestThreadsUpdate:
         assert data["metadata"] == {"a": {"y": 2}}
 
     def test_update_metadata_wrong_type_422(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """metadata must be a dict; other types return 422."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -732,6 +766,7 @@ class TestThreadsUpdate:
         resp = update_fn(req)
         assert resp.status_code == 422
 
+
 # ---------------------------------------------------------------------------
 # Thread delete (DELETE) endpoint
 # ---------------------------------------------------------------------------
@@ -739,7 +774,9 @@ class TestThreadsUpdate:
 
 class TestThreadsDelete:
     def test_delete_thread(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -759,7 +796,9 @@ class TestThreadsDelete:
         assert store.get(thread.thread_id) is None
 
     def test_delete_not_found(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -772,7 +811,9 @@ class TestThreadsDelete:
         assert "not found" in data["detail"]
 
     def test_delete_then_get_returns_404(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """After delete, GET returns 404."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -838,7 +879,9 @@ class TestThreadsSearch:
         assert data[0]["metadata"]["env"] == "prod"
 
     def test_search_with_limit_offset(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -860,7 +903,9 @@ class TestThreadsSearch:
         assert resp.status_code == 200
 
     def test_search_invalid_json(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -875,7 +920,9 @@ class TestThreadsSearch:
         assert resp.status_code == 400
 
     def test_search_unsupported_field_501(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -887,7 +934,9 @@ class TestThreadsSearch:
         assert "Unsupported" in data["detail"]
 
     def test_search_unsupported_sort_by_501(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -896,15 +945,21 @@ class TestThreadsSearch:
         resp = fn(req)
         assert resp.status_code == 501
 
-    @pytest.mark.parametrize("body_bytes,desc", [
-        (b"null", "null"),
-        (b"[1,2]", "array"),
-        (b'"abc"', "string"),
-        (b"123", "integer"),
-    ])
+    @pytest.mark.parametrize(
+        "body_bytes,desc",
+        [
+            (b"null", "null"),
+            (b"[1,2]", "array"),
+            (b'"abc"', "string"),
+            (b"123", "integer"),
+        ],
+    )
     def test_search_non_object_json_400(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
-        body_bytes: bytes, desc: str,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
+        body_bytes: bytes,
+        desc: str,
     ) -> None:
         """Valid JSON that is not an object must return 400."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -921,7 +976,9 @@ class TestThreadsSearch:
         assert "JSON object" in json.loads(resp.get_body())["detail"]
 
     def test_search_invalid_status_422(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -931,7 +988,9 @@ class TestThreadsSearch:
         assert resp.status_code == 422
 
     def test_search_offset_past_end(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """Offset past all results returns empty list, not error."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -942,6 +1001,7 @@ class TestThreadsSearch:
         resp = fn(req)
         assert resp.status_code == 200
         assert json.loads(resp.get_body()) == []
+
 
 class TestThreadsCount:
     def test_count_all(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
@@ -1007,7 +1067,9 @@ class TestThreadsCount:
         assert resp.status_code == 400
 
     def test_count_unsupported_field_501(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -1017,7 +1079,9 @@ class TestThreadsCount:
         assert resp.status_code == 501
 
     def test_count_returns_raw_int(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         """Count endpoint returns raw integer, not {"count": N}."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -1030,15 +1094,21 @@ class TestThreadsCount:
         assert json.loads(body) == 1
         assert body == b"1"  # Raw integer, not wrapped
 
-    @pytest.mark.parametrize("body_bytes,desc", [
-        (b"null", "null"),
-        (b"[1,2]", "array"),
-        (b'"abc"', "string"),
-        (b"123", "integer"),
-    ])
+    @pytest.mark.parametrize(
+        "body_bytes,desc",
+        [
+            (b"null", "null"),
+            (b"[1,2]", "array"),
+            (b'"abc"', "string"),
+            (b"123", "integer"),
+        ],
+    )
     def test_count_non_object_json_400(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
-        body_bytes: bytes, desc: str,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
+        body_bytes: bytes,
+        desc: str,
     ) -> None:
         """Valid JSON that is not an object must return 400."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -1055,7 +1125,9 @@ class TestThreadsCount:
         assert "JSON object" in json.loads(resp.get_body())["detail"]
 
     def test_count_invalid_status_422(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -1063,6 +1135,8 @@ class TestThreadsCount:
         req = _post_request("/api/threads/count", {"status": "nonexistent"})
         resp = fn(req)
         assert resp.status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # Thread state endpoint
 # ---------------------------------------------------------------------------
@@ -1098,9 +1172,7 @@ class TestThreadsStateGet:
         data = json.loads(resp.get_body())
         assert "not bound" in data["detail"]
 
-    def test_state_with_stateful_graph(
-        self, store: InMemoryThreadStore
-    ) -> None:
+    def test_state_with_stateful_graph(self, store: InMemoryThreadStore) -> None:
         sg = FakeStatefulGraph()
         app = _build_platform_app(graphs={"agent": sg}, store=store)
         fa = app.function_app
@@ -1170,6 +1242,7 @@ class TestThreadsStateGet:
     def test_state_checkpoint_propagation(self, store: InMemoryThreadStore) -> None:
         """GET /state returns checkpoint_id from snapshot config (regression)."""
         from tests.conftest import _FakeStateSnapshot
+
         snapshot = _FakeStateSnapshot(
             values={"count": 42},
             config={
@@ -1205,6 +1278,7 @@ class TestThreadsStateGet:
         assert data["checkpoint"]["checkpoint_id"] == "cp-abc"
         assert data["parent_checkpoint"]["checkpoint_id"] == "cp-prev"
         assert data["created_at"] == "2025-01-01T00:00:00Z"
+
 
 # ---------------------------------------------------------------------------
 # Runs/wait endpoint
@@ -1805,7 +1879,9 @@ class TestAssistantsSearchInvalidJson:
     """Invalid JSON in assistants_search should return 400."""
 
     def test_invalid_json_returns_400(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -1899,7 +1975,9 @@ class TestStableAssistantTimestamps:
     """Assistant timestamps should be stable across calls."""
 
     def test_timestamps_are_stable(
-        self, graph: FakeCompiledGraph, store: InMemoryThreadStore,
+        self,
+        graph: FakeCompiledGraph,
+        store: InMemoryThreadStore,
     ) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
@@ -1989,6 +2067,7 @@ class _FakeCopyRaisingCheckpointerGraph:
     ) -> Iterator[dict[str, Any]]:
         yield {"data": "chunk"}
 
+
 class TestRunsWaitThreadless:
     """POST /runs/wait — threadless execution without a thread."""
 
@@ -2060,7 +2139,7 @@ class TestRunsWaitThreadless:
         req = func.HttpRequest(
             method="POST",
             url="/api/runs/wait",
-            body=b'[1, 2, 3]',
+            body=b"[1, 2, 3]",
             headers={"Content-Type": "application/json"},
         )
         resp = fn(req)
@@ -2291,7 +2370,7 @@ class TestRunsStreamThreadless:
         req = func.HttpRequest(
             method="POST",
             url="/api/runs/stream",
-            body=b'[1, 2, 3]',
+            body=b"[1, 2, 3]",
             headers={"Content-Type": "application/json"},
         )
         resp = fn(req)
@@ -2462,9 +2541,9 @@ def _decode_sse_frame(frame: str) -> dict[str, Any]:
     data_str: str | None = None
     for line in frame.strip().split("\n"):
         if line.startswith("event: "):
-            event_name = line[len("event: "):]
+            event_name = line[len("event: ") :]
         elif line.startswith("data: "):
-            data_str = line[len("data: "):]
+            data_str = line[len("data: ") :]
     assert event_name is not None, f"Missing event in frame: {frame!r}"
     parsed_data: Any = None
     if data_str is not None and data_str != "":
@@ -2534,6 +2613,7 @@ class TestStreamSSEWireFormat:
 
     def test_error_then_end_sequence(self, store: InMemoryThreadStore) -> None:
         """On failure: metadata → error → end."""
+
         class BoomGraph:
             def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> Any:
                 return {}
@@ -2747,9 +2827,7 @@ class TestMaxBytesMetadataOverflow:
 class TestMultiMode501AssistantId:
     """Multi-mode 501 must not bind assistant_id to thread."""
 
-    def test_multi_mode_501_does_not_bind_assistant_id(
-        self, store: InMemoryThreadStore
-    ) -> None:
+    def test_multi_mode_501_does_not_bind_assistant_id(self, store: InMemoryThreadStore) -> None:
         """Thread assistant_id should remain None after 501 rejection."""
         g = FakeCompiledGraph()
         app = _build_platform_app(graphs={"agent": g}, store=store)
@@ -2777,9 +2855,7 @@ class TestMultiMode501AssistantId:
 class TestNaNPayloadInStream:
     """Graph that yields NaN should produce error event, not crash."""
 
-    def test_nan_payload_produces_error_event(
-        self, store: InMemoryThreadStore
-    ) -> None:
+    def test_nan_payload_produces_error_event(self, store: InMemoryThreadStore) -> None:
         """NaN in graph output should be caught and returned as SSE error."""
 
         class NaNGraph:
@@ -2957,6 +3033,7 @@ class TestThreadsStateUpdate:
     def test_update_state_graph_not_updatable_409(self, store: InMemoryThreadStore) -> None:
         """Graph lacking update_state returns 409."""
         from tests.conftest import FakeCompiledGraph
+
         g = FakeCompiledGraph()  # No update_state method
         app = _build_platform_app(graphs={"agent": g}, store=store)
         fa = app.function_app
@@ -2976,6 +3053,7 @@ class TestThreadsStateUpdate:
     def test_update_state_graph_raises_500(self, store: InMemoryThreadStore) -> None:
         """Graph.update_state() raising RuntimeError returns 500."""
         from tests.conftest import FakeFailingUpdateStateGraph
+
         g = FakeFailingUpdateStateGraph()
         app = _build_platform_app(graphs={"agent": g}, store=store)
         fa = app.function_app
@@ -3098,6 +3176,7 @@ class TestThreadsStateUpdate:
         assert "checkpoint" in data
         assert data["checkpoint"]["thread_id"] == thread.thread_id
 
+
 # ---------------------------------------------------------------------------
 # POST /threads/{thread_id}/history — Issue #58
 # ---------------------------------------------------------------------------
@@ -3128,6 +3207,7 @@ class TestThreadsHistory:
     def test_history_returns_snapshots(self, store: InMemoryThreadStore) -> None:
         """History returns converted ThreadState objects."""
         from tests.conftest import _FakeStateSnapshot
+
         snapshots = [
             _FakeStateSnapshot(
                 values={"turn": 2},
@@ -3186,6 +3266,7 @@ class TestThreadsHistory:
     def test_history_limit(self, store: InMemoryThreadStore) -> None:
         """limit parameter caps returned results."""
         from tests.conftest import _FakeStateSnapshot
+
         snapshots = [
             _FakeStateSnapshot(
                 values={"turn": i},
@@ -3219,6 +3300,7 @@ class TestThreadsHistory:
     def test_history_before_filter(self, store: InMemoryThreadStore) -> None:
         """before parameter skips snapshots until the marker checkpoint."""
         from tests.conftest import _FakeStateSnapshot
+
         snapshots = [
             _FakeStateSnapshot(
                 values={"turn": 3},
@@ -3274,6 +3356,7 @@ class TestThreadsHistory:
     def test_history_before_dict_filter(self, store: InMemoryThreadStore) -> None:
         """before as dict with checkpoint_id works."""
         from tests.conftest import _FakeStateSnapshot
+
         snapshots = [
             _FakeStateSnapshot(
                 values={"turn": 3},
@@ -3317,6 +3400,7 @@ class TestThreadsHistory:
     def test_history_metadata_filter(self, store: InMemoryThreadStore) -> None:
         """metadata filter narrows results."""
         from tests.conftest import _FakeStateSnapshot
+
         snapshots = [
             _FakeStateSnapshot(
                 values={"turn": 2},
@@ -3411,6 +3495,7 @@ class TestThreadsHistory:
     def test_history_graph_raises_500(self, store: InMemoryThreadStore) -> None:
         """Graph.get_state_history() raising RuntimeError returns 500."""
         from tests.conftest import FakeFailingUpdateStateGraph
+
         g = FakeFailingUpdateStateGraph()
         app = _build_platform_app(graphs={"agent": g}, store=store)
         fa = app.function_app
@@ -3518,6 +3603,7 @@ class TestThreadsHistory:
     def test_history_nonexistent_before_returns_empty(self, store: InMemoryThreadStore) -> None:
         """before referencing a non-existent checkpoint returns empty list."""
         from tests.conftest import _FakeStateSnapshot
+
         snapshots = [
             _FakeStateSnapshot(
                 values={"turn": 2},

@@ -44,9 +44,9 @@ def _decode_sse_frame(frame: str) -> _StreamPart:
 
     for line in frame.strip().split("\n"):
         if line.startswith("event: "):
-            event_name = line[len("event: "):]
+            event_name = line[len("event: ") :]
         elif line.startswith("data: "):
-            data_str = line[len("data: "):]
+            data_str = line[len("data: ") :]
 
     if event_name is None:
         raise ValueError(f"Missing event field in frame: {frame!r}")
