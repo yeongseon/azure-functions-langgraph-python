@@ -128,4 +128,30 @@ def create_cosmos_checkpointer(
     return saver
 
 
-__all__ = ["create_cosmos_checkpointer"]
+def close_cosmos_checkpointer(saver: CosmosDBSaver) -> None:
+    """Close a :class:`CosmosDBSaver` created by :func:`create_cosmos_checkpointer`.
+
+    Calls ``__exit__`` on the stashed context manager to release the
+    underlying Cosmos DB client resources.  Safe to call multiple times;
+    the second and subsequent calls are no-ops.
+
+    Args:
+        saver: A saver returned by :func:`create_cosmos_checkpointer`.
+
+    Raises:
+        TypeError: If *saver* was not created by
+            :func:`create_cosmos_checkpointer` (missing ``_langgraph_cm``).
+    """
+    cm = getattr(saver, "_langgraph_cm", None)
+    if cm is None:
+        raise TypeError(
+            "saver was not created by create_cosmos_checkpointer "
+            "(missing _langgraph_cm attribute)"
+        )
+    cm.__exit__(None, None, None)
+    # Remove the reference so repeated calls are no-ops and the
+    # CM can be garbage-collected.
+    del saver._langgraph_cm  # noqa: SLF001
+
+
+__all__ = ["create_cosmos_checkpointer", "close_cosmos_checkpointer"]

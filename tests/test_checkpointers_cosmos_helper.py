@@ -396,3 +396,77 @@ def test_cosmos_helper_explicit_credential_skips_azure_identity(monkeypatch: Any
     )
 
     assert type(saver).__name__ == "FakeCosmosDBSaver"
+
+
+# ---------------------------------------------------------------------------
+# close_cosmos_checkpointer tests
+# ---------------------------------------------------------------------------
+
+
+def test_close_cosmos_checkpointer_calls_exit(monkeypatch: Any) -> None:
+    """close_cosmos_checkpointer must call __exit__ on the stashed CM."""
+    _install_fake_cosmos(monkeypatch)
+    _install_fake_azure_identity(monkeypatch)
+
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    importlib.reload(module)
+    _patch_python_311(monkeypatch)
+    saver = module.create_cosmos_checkpointer(
+        endpoint="https://test.documents.azure.com:443/",
+        database_name="db",
+        container_name="ctr",
+    )
+
+    # Verify CM is stashed
+    assert hasattr(saver, "_langgraph_cm")
+
+    exit_calls: list[tuple[Any, ...]] = []
+    original_exit = saver._langgraph_cm.__exit__
+
+    def tracking_exit(*args: Any) -> None:
+        exit_calls.append(args)
+        original_exit(*args)
+
+    saver._langgraph_cm.__exit__ = tracking_exit
+    module.close_cosmos_checkpointer(saver)
+
+    assert len(exit_calls) == 1
+    assert exit_calls[0] == (None, None, None)
+    # CM reference should be removed
+    assert not hasattr(saver, "_langgraph_cm")
+
+
+def test_close_cosmos_checkpointer_idempotent(monkeypatch: Any) -> None:
+    """Second call to close_cosmos_checkpointer is a no-op (raises TypeError)."""
+    _install_fake_cosmos(monkeypatch)
+    _install_fake_azure_identity(monkeypatch)
+
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    importlib.reload(module)
+    _patch_python_311(monkeypatch)
+    saver = module.create_cosmos_checkpointer(
+        endpoint="https://test.documents.azure.com:443/",
+        database_name="db",
+        container_name="ctr",
+    )
+
+    module.close_cosmos_checkpointer(saver)
+    # Second call should raise TypeError since _langgraph_cm is gone
+    with pytest.raises(TypeError, match="_langgraph_cm"):
+        module.close_cosmos_checkpointer(saver)
+
+
+def test_close_cosmos_checkpointer_rejects_non_helper_saver(monkeypatch: Any) -> None:
+    """close_cosmos_checkpointer rejects savers not created by create_cosmos_checkpointer."""
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    importlib.reload(module)
+
+    fake_saver = object()  # No _langgraph_cm attribute
+    with pytest.raises(TypeError, match="_langgraph_cm"):
+        module.close_cosmos_checkpointer(fake_saver)
+
+
+def test_checkpointers_package_exports_close_helper() -> None:
+    pkg = importlib.import_module("azure_functions_langgraph.checkpointers")
+    assert "close_cosmos_checkpointer" in pkg.__all__
+    assert callable(pkg.close_cosmos_checkpointer)
