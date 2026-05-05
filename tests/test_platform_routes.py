@@ -2557,6 +2557,225 @@ def _decode_sse_body(body: str) -> list[dict[str, Any]]:
     return [_decode_sse_frame(f) for f in frames]
 
 
+class TestAdditionalCoverageBranches:
+    def test_assistants_search_validation_error_422(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_assistants_search")
+
+        req = _post_request("/api/assistants/search", {"limit": "bad"})
+        resp = fn(req)
+
+        assert resp.status_code == 422
+
+    def test_assistants_count_validation_error_422(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_assistants_count")
+
+        req = _post_request("/api/assistants/count", {"metadata": ["bad"]})
+        resp = fn(req)
+
+        assert resp.status_code == 422
+
+    def test_runs_wait_invalid_thread_id_returns_400(self, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_wait")
+
+        req = _post_request(
+            "/api/threads//runs/wait",
+            {"assistant_id": "agent", "input": {}},
+            thread_id="",
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 400
+
+    def test_threads_update_race_keyerror_returns_404(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        thread = store.create(metadata={"k": "v"})
+
+        original_update = store.update
+
+        def race_update(thread_id: str, **kwargs: Any) -> Any:
+            del kwargs
+            raise KeyError(thread_id)
+
+        store.update = race_update  # type: ignore[method-assign]
+        try:
+            fn = _get_fn(app.function_app, "aflg_platform_threads_update")
+            req = _patch_request(
+                f"/api/threads/{thread.thread_id}",
+                {"metadata": {"k": "new"}},
+                thread_id=thread.thread_id,
+            )
+            resp = fn(req)
+            assert resp.status_code == 404
+        finally:
+            store.update = original_update  # type: ignore[method-assign]
+
+    def test_runs_stream_invalid_thread_id_returns_400(self, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream")
+
+        req = _post_request(
+            "/api/threads//runs/stream",
+            {"assistant_id": "agent", "input": {}},
+            thread_id="",
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 400
+
+    def test_runs_stream_config_depth_validation_error(self, store: InMemoryThreadStore) -> None:
+        app = LangGraphApp(platform_compat=True, max_input_depth=1)
+        app._thread_store = store
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream")
+
+        thread = store.create()
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {
+                "assistant_id": "agent",
+                "input": {},
+                "config": {"nested": {"too": "deep"}},
+            },
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 400
+
+    def test_runs_stream_with_user_configurable_merges_and_runs(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream")
+
+        thread = store.create()
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {
+                "assistant_id": "agent",
+                "input": {},
+                "config": {"configurable": {"user": "x"}, "tags": ["t"]},
+            },
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        assert "event: end" in resp.get_body().decode()
+
+    def test_runs_stream_threadless_metadata_overflow_returns_error_event(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        app = LangGraphApp(platform_compat=True, max_stream_response_bytes=1)
+        app._thread_store = store
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        body = resp.get_body().decode()
+        assert "event: error" in body
+        assert "event: end" in body
+
+    def test_runs_stream_threadless_config_validation_error(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        app = LangGraphApp(platform_compat=True, max_input_depth=1)
+        app._thread_store = store
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request(
+            "/api/runs/stream",
+            {
+                "assistant_id": "agent",
+                "input": {},
+                "config": {"nested": {"too": "deep"}},
+            },
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 400
+
+    def test_runs_stream_threadless_stream_mode_list_variants(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream_threadless")
+
+        req_single = _post_request(
+            "/api/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": ["values"]},
+        )
+        req_empty = _post_request(
+            "/api/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": []},
+        )
+
+        assert fn(req_single).status_code == 200
+        assert fn(req_empty).status_code == 200
+
+    def test_runs_stream_threadless_data_chunk_overflow_branch(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        class BigChunkGraph:
+            checkpointer = None
+
+            def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> Any:
+                del input, config
+                return {}
+
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Iterator[Any]:
+                del input, config, stream_mode
+                yield {"x": "z" * 2000}
+
+        app = LangGraphApp(platform_compat=True, max_stream_response_bytes=600)
+        app._thread_store = store
+        app.register(graph=BigChunkGraph(), name="agent")
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request("/api/runs/stream", {"assistant_id": "agent", "input": {}})
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        body = resp.get_body().decode()
+        assert "event: error" in body
+        assert "max buffered size" in body
+        assert "event: end" in body
+
+    def test_runs_stream_threadless_size_limit_returns_400(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        app = LangGraphApp(platform_compat=True, max_request_body_bytes=16)
+        app._thread_store = store
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream_threadless")
+
+        req = _post_request(
+            "/api/runs/stream",
+            {"assistant_id": "agent", "input": {"payload": "x" * 100}},
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 400
+
+
 class TestStreamSSEWireFormat:
     """Exact byte-level verification of SSE output for SDK compatibility."""
 

@@ -52,7 +52,7 @@ sqlite = [
     "langgraph-checkpoint-sqlite>=3.0,<4",
 ]
 cosmos = [
-    "langgraph-checkpoint-cosmos>=0.1.1,<0.2",
+    "langgraph-checkpoint-cosmosdb>=0.2.0,<0.3",
 ]
 dev = [
     "bandit==1.9.4",

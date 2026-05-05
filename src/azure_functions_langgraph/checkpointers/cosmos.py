@@ -2,39 +2,51 @@
 
 .. versionadded:: 0.7.0
 
-Thin wrapper around the upstream :pypi:`langgraph-checkpoint-cosmos`
-package that resolves credentials and builds a :class:`CosmosDBSaver`
-suitable for Azure Functions cold-start (module-level instantiation).
+Thin wrapper around the upstream :pypi:`langgraph-checkpoint-cosmosdb`
+package that builds a :class:`CosmosDBSaver` suitable for Azure Functions
+cold-start (module-level instantiation).
 
-The upstream saver is designed as a **context manager**.  This helper
-calls ``__enter__`` so the returned object is ready to use immediately
-and can be passed straight to ``builder.compile(checkpointer=...)``.
+The upstream ``__init__`` reads connection details from environment
+variables.  This helper temporarily sets those env vars, constructs the
+saver, then restores the original environment.
 
 This module deliberately does **not** reimplement Cosmos DB checkpoint
-storage.  It centralizes the credential convention, handles the
-context-manager lifecycle, and emits a clear ImportError pointing at
-the right extra when the upstream package is missing.
+storage.  It centralizes the connection convention and emits a clear
+ImportError pointing at the right extra when the upstream package is
+missing.
 
-.. note::
-
-   The ``cosmos`` extra requires **Python 3.11+**.  The base package
-   continues to support Python 3.10.
+Environment variables
+---------------------
+``COSMOS_KEY`` is a **wrapper-only** convention defined by this helper for
+convenience when no ``key`` argument is passed.  It is **not** read by the
+upstream ``langgraph-checkpoint-cosmosdb`` package itself.  The upstream
+package reads ``COSMOSDB_ENDPOINT`` and ``COSMOSDB_KEY`` from the process
+environment during its ``__init__``; this helper sets those transiently.
 """
 
 from __future__ import annotations
 
 import importlib
-import sys
-from typing import TYPE_CHECKING, Any
+import threading
+from typing import TYPE_CHECKING
+import warnings
+import weakref
 
 if TYPE_CHECKING:
-    from langgraph_checkpoint_cosmos import CosmosDBSaver
+    from langgraph_checkpoint_cosmosdb import CosmosDBSaver
 
 
 _EXTRA_HINT = (
-    "Cosmos DB checkpointer requires the 'cosmos' extra (Python 3.11+): "
+    "Cosmos DB checkpointer requires the 'cosmos' extra: "
     "pip install azure-functions-langgraph[cosmos]"
 )
+
+# Lock to protect env var manipulation during construction.
+_env_lock = threading.Lock()
+
+# Track savers created by this helper so close_cosmos_checkpointer can
+# reject non-helper savers with a clear TypeError.
+_managed_savers: weakref.WeakSet[object] = weakref.WeakSet()
 
 
 def create_cosmos_checkpointer(
@@ -42,14 +54,25 @@ def create_cosmos_checkpointer(
     endpoint: str,
     database_name: str,
     container_name: str,
+    key: str | None = None,
     credential: object | None = None,
 ) -> CosmosDBSaver:
-    """Create a long-lived :class:`CosmosDBSaver` from connection info.
+    """Create a :class:`CosmosDBSaver` from connection info.
 
-    Resolves credentials (``None`` → :class:`DefaultAzureCredential`)
-    and calls :meth:`CosmosDBSaver.from_conn_info` to build the saver.
-    The context manager is entered immediately so the returned object is
-    ready for use at Azure Functions cold-start.
+    Instantiates the upstream saver directly, temporarily setting the
+    ``COSMOSDB_ENDPOINT`` and ``COSMOSDB_KEY`` environment variables that
+    the upstream constructor reads.
+
+    Provide **one** of ``key`` or ``credential``:
+
+    - ``key``: A Cosmos DB master key (string).  Preferred parameter.
+    - ``credential``: **Deprecated** — if a string is provided it is
+      treated as ``key``.  Non-string credential objects are not supported
+      by the upstream package.
+
+    If neither is supplied, the ``COSMOS_KEY`` environment variable is
+    read as a fallback.  Note that ``COSMOS_KEY`` is a convention of this
+    wrapper only — the upstream package does not read it.
 
     Args:
         endpoint: Cosmos DB account endpoint
@@ -57,107 +80,128 @@ def create_cosmos_checkpointer(
         database_name: Cosmos DB database name.
         container_name: Cosmos DB container name.  The container **must**
             be created with partition key path ``/partition_key``.
-        credential: A credential object accepted by the Azure Cosmos SDK,
-            or ``None`` (the default) to create a
-            :class:`~azure.identity.DefaultAzureCredential`.
+        key: Cosmos DB master key (preferred).
+        credential: Deprecated — use ``key`` instead.  If a string is
+            passed it is treated as the master key.
 
     Returns:
         A :class:`CosmosDBSaver` ready to be passed to
         ``builder.compile(checkpointer=...)``.
 
     Raises:
-        RuntimeError: If running on Python < 3.11.
-        ImportError: If ``langgraph-checkpoint-cosmos`` or
-            ``azure-identity`` (when ``credential=None``) is not
-            installed.  Install via the ``cosmos`` extra.
+        ImportError: If ``langgraph-checkpoint-cosmosdb`` is not installed.
+            Install via the ``cosmos`` extra.
+        TypeError: If both ``key`` and ``credential`` are provided, or if
+            ``credential`` is a non-string object.
+        ValueError: If no key is provided and ``COSMOS_KEY`` env var is unset.
     """
-    if sys.version_info < (3, 11):
-        raise RuntimeError(
-            "Cosmos DB checkpointer requires Python 3.11+ "
-            "because langgraph-checkpoint-cosmos does not support Python 3.10."
-        )
     try:
-        cosmos_module = importlib.import_module("langgraph_checkpoint_cosmos")
+        cosmos_module = importlib.import_module("langgraph_checkpoint_cosmosdb")
     except ImportError as exc:
         raise ImportError(_EXTRA_HINT) from exc
 
     CosmosDBSaver = getattr(cosmos_module, "CosmosDBSaver", None)
     if CosmosDBSaver is None:
         raise ImportError(
-            "langgraph_checkpoint_cosmos is missing CosmosDBSaver; "
-            "upgrade langgraph-checkpoint-cosmos to >=0.1.1,<0.2."
+            "langgraph_checkpoint_cosmosdb is missing CosmosDBSaver; "
+            "upgrade langgraph-checkpoint-cosmosdb to >=0.2.0,<0.3."
         )
 
-    resolved_credential: Any
-    if credential is None:
-        try:
-            identity_module = importlib.import_module("azure.identity")
-        except ImportError as exc:
-            raise ImportError(
-                "credential=None requires azure-identity. "
-                "It is normally installed as a dependency of langgraph-checkpoint-cosmos; "
-                "if missing, run: pip install azure-identity>=1.16"
-            ) from exc
-        DefaultAzureCredential = getattr(identity_module, "DefaultAzureCredential", None)
-        if DefaultAzureCredential is None:
-            raise ImportError(
-                "azure.identity is missing DefaultAzureCredential; "
-                "upgrade azure-identity to >=1.16,<2."
+    # Reject ambiguous calls where both key and credential are provided.
+    if key is not None and credential is not None:
+        raise TypeError(
+            "Cannot pass both 'key' and 'credential'. Use 'key' only; 'credential' is deprecated."
+        )
+
+    # Resolve the key from the various input options.
+    resolved_key: str
+    if key is not None:
+        resolved_key = key
+    elif credential is not None:
+        warnings.warn(
+            "The 'credential' parameter is deprecated and will be removed in "
+            "a future version. Use 'key' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Back-compat: treat string credential as key.
+        if isinstance(credential, str):
+            resolved_key = credential
+        else:
+            raise TypeError(
+                "langgraph-checkpoint-cosmosdb requires a master key string, "
+                "not an Azure Identity credential object. "
+                "Pass key=<master-key> instead."
             )
-        resolved_credential = DefaultAzureCredential()
     else:
-        resolved_credential = credential
+        import os
 
-    cm = CosmosDBSaver.from_conn_info(
-        endpoint=endpoint,
-        credential=resolved_credential,
-        database_name=database_name,
-        container_name=container_name,
-    )
+        env_key = os.environ.get("COSMOS_KEY", "")
+        if not env_key:
+            raise ValueError(
+                "No Cosmos DB key provided. Pass key=... or set the "
+                "COSMOS_KEY environment variable."
+            )
+        resolved_key = env_key
 
-    # from_conn_info is a @contextmanager that yields the actual
-    # CosmosDBSaver instance.  We must capture the return value of
-    # __enter__ — it is the yielded saver, not the CM wrapper.
-    saver = cm.__enter__()
+    # The upstream from_conn_info has a bug (passes 4 positional args to
+    # __init__ which only accepts 2).  We instantiate directly by setting
+    # the env vars that __init__ reads, then construct the saver.
+    import os
 
-    # Stash the context manager so it is not garbage-collected (which
-    # would trigger __exit__ on a generator-based CM) and remains
-    # available for future cleanup if needed.
-    saver._langgraph_cm = cm  # noqa: SLF001
+    with _env_lock:
+        original_endpoint = os.environ.get("COSMOSDB_ENDPOINT")
+        original_key = os.environ.get("COSMOSDB_KEY")
+        try:
+            os.environ["COSMOSDB_ENDPOINT"] = endpoint
+            os.environ["COSMOSDB_KEY"] = resolved_key
+            saver = CosmosDBSaver(database_name=database_name, container_name=container_name)
+        finally:
+            # Restore original env vars
+            if original_endpoint is None:
+                os.environ.pop("COSMOSDB_ENDPOINT", None)
+            else:
+                os.environ["COSMOSDB_ENDPOINT"] = original_endpoint
+            if original_key is None:
+                os.environ.pop("COSMOSDB_KEY", None)
+            else:
+                os.environ["COSMOSDB_KEY"] = original_key
 
+    _managed_savers.add(saver)
     return saver
 
 
 def close_cosmos_checkpointer(saver: CosmosDBSaver) -> None:
     """Close a :class:`CosmosDBSaver` created by :func:`create_cosmos_checkpointer`.
 
-    Calls ``__exit__`` on the stashed context manager to release the
-    underlying Cosmos DB client resources.  Safe to call multiple times;
-    the second and subsequent calls are no-ops.
+    Marks the saver as closed.  If the underlying Cosmos client exposes a
+    ``close()`` method, it is called to release resources.  Safe to call
+    multiple times; the second and subsequent calls are no-ops.
 
     Args:
         saver: A saver returned by :func:`create_cosmos_checkpointer`.
 
     Raises:
-        TypeError: If *saver* was not created by
-            :func:`create_cosmos_checkpointer` (missing ``_langgraph_cm``
-            on the first call).
+        TypeError: If *saver* was not created by :func:`create_cosmos_checkpointer`.
     """
-    cm = getattr(saver, "_langgraph_cm", None)
-    if cm is None:
-        # Already closed or never created by create_cosmos_checkpointer.
-        # Distinguish: if the saver never had _langgraph_cm, it's a usage error.
-        # After a successful close, _langgraph_cm is deleted, so hasattr is False.
-        # We use a second sentinel to tell the two cases apart.
-        if not getattr(saver, "_langgraph_closed", False):
-            raise TypeError(
-                "saver was not created by create_cosmos_checkpointer "
-                "(missing _langgraph_cm attribute)"
-            )
+    if saver not in _managed_savers:
+        raise TypeError(
+            "close_cosmos_checkpointer() only accepts savers created by "
+            "create_cosmos_checkpointer(). Got an unmanaged saver instance."
+        )
+
+    if getattr(saver, "_langgraph_closed", False):
         return  # already closed — idempotent no-op
-    cm.__exit__(None, None, None)
-    # Remove the reference so the CM can be garbage-collected.
-    del saver._langgraph_cm  # noqa: SLF001
+
+    client = getattr(saver, "client", None)
+    if client is not None:
+        close_fn = getattr(client, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:  # noqa: BLE001
+                pass
+
     saver._langgraph_closed = True  # noqa: SLF001
 
 

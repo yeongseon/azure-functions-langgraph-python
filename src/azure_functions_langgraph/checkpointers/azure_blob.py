@@ -630,9 +630,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 )
                 return None
             try:
-                checkpoint_data: Checkpoint = self.serde.loads_typed(
-                    (typed_blob[0], typed_blob[1])
-                )
+                checkpoint_data: Checkpoint = self.serde.loads_typed((typed_blob[0], typed_blob[1]))
                 channel_versions = checkpoint_data["channel_versions"]
             except Exception:
                 logger.warning(
@@ -667,7 +665,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         values_prefix = f"{self._namespace_prefix(thread_id, checkpoint_ns)}values/"
         if not blob_path.startswith(values_prefix):
             return None
-        relative = blob_path[len(values_prefix):]
+        relative = blob_path[len(values_prefix) :]
         parts = relative.split("/")
         if len(parts) != 2 or not parts[1].endswith(".bin"):
             return None

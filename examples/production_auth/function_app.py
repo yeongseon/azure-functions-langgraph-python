@@ -1,6 +1,5 @@
-from graph import private_graph, public_graph
-
 import azure.functions as func
+from graph import private_graph, public_graph
 
 from azure_functions_langgraph import LangGraphApp
 

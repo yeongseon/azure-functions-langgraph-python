@@ -146,4 +146,4 @@ CI tests include:
 |---|---|---|---|
 | `postgres` | `langgraph-checkpoint-postgres>=3.0,<4` | 3.10+ | Production DB checkpoint backend |
 | `sqlite` | `langgraph-checkpoint-sqlite>=3.0,<4` | 3.10+ | Local development |
-| `cosmos` | `langgraph-checkpoint-cosmos>=0.1.1,<0.2` | 3.11+ | Experimental Azure-native checkpoint backend |
+| `cosmos` | `langgraph-checkpoint-cosmosdb>=0.2.0,<0.3` | 3.10+ | Experimental Azure-native checkpoint backend |

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import os
 
-from graph import build_graph
-
 import azure.functions as func
+from graph import build_graph
 
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.checkpointers.postgres import create_postgres_checkpointer
