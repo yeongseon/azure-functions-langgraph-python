@@ -9,7 +9,7 @@
 | Persistent storage | [`persistent_agent_blob_table`](persistent_agent_blob_table/) | End-to-end Azure Blob checkpointer + Azure Table thread store, runnable on Azurite. |
 | DB checkpoint (local) | [`sqlite_checkpoint_local`](sqlite_checkpoint_local/) | LangGraph SQLite checkpointer wired via `create_sqlite_checkpointer()` for local dev. |
 | DB checkpoint (production) | [`postgres_checkpoint_production`](postgres_checkpoint_production/) | LangGraph Postgres checkpointer wired via `create_postgres_checkpointer()` for multi-instance prod. |
-| Cosmos DB checkpoint | [`cosmos_checkpoint_azure`](cosmos_checkpoint_azure/) | LangGraph Cosmos DB checkpointer wired via `create_cosmos_checkpointer()` with `DefaultAzureCredential` (Python 3.11+). |
+| Cosmos DB checkpoint | [`cosmos_checkpoint_azure`](cosmos_checkpoint_azure/) | LangGraph Cosmos DB checkpointer wired via `create_cosmos_checkpointer()` with key-based auth (Python 3.10+). |
 | Managed Identity | [`managed_identity_storage`](managed_identity_storage/) | Same backends wired with `DefaultAzureCredential` for production, with Azurite fallback for local dev. |
 | OpenAPI bridge | [`openapi_bridge`](openapi_bridge/) | Wires `register_with_openapi` into `azure-functions-openapi-python` for spec generation. |
 | Per-graph auth | [`production_auth`](production_auth/) | Public health + anonymous demo graph alongside a function-key-protected graph. |

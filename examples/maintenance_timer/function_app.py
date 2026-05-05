@@ -62,9 +62,7 @@ def reset_stale_locks(timer: func.TimerRequest) -> None:
     try:
         older_than = int(os.environ.get("STALE_LOCK_THRESHOLD_SECONDS", "600"))
     except (ValueError, TypeError):
-        logger.error(
-            "Invalid STALE_LOCK_THRESHOLD_SECONDS, falling back to 600"
-        )
+        logger.error("Invalid STALE_LOCK_THRESHOLD_SECONDS, falling back to 600")
         older_than = 600
     reset_status: Literal["idle", "error"] = "error"
     raw_status = os.environ.get("STALE_LOCK_RESET_STATUS", "error")

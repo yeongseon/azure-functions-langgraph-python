@@ -5,10 +5,9 @@ import os
 
 from azure.core.exceptions import ResourceExistsError
 from azure.data.tables import TableClient
+import azure.functions as func
 from azure.storage.blob import ContainerClient
 from graph import build_graph
-
-import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
