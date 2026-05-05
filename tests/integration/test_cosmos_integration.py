@@ -133,4 +133,3 @@ def test_list_checkpoints_returns_expected_results(
     ids = {item.checkpoint["id"] for item in checkpoints}
     assert {"cp-001", "cp-002"}.issubset(ids)
     close_cosmos_checkpointer(saver)
-

@@ -863,14 +863,16 @@ def test_reset_stale_locks_resets_stale_skips_recent(monkeypatch: Any) -> None:
     """Stale busy thread older than threshold is reset; recent busy thread is not."""
     store, table_client = _new_store()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    timestamps = iter([
-        base,                            # create t1
-        base + timedelta(seconds=100),   # create t2
-        base + timedelta(seconds=10),    # acquire t1: sets updated_at=10
-        base + timedelta(seconds=500),   # acquire t2: sets updated_at=500
-        base + timedelta(seconds=700),   # reset_stale_locks: cutoff = 700 - 300 = 400
-        base + timedelta(seconds=700),   # reset_stale_locks: patch updated_at for t1
-    ])
+    timestamps = iter(
+        [
+            base,  # create t1
+            base + timedelta(seconds=100),  # create t2
+            base + timedelta(seconds=10),  # acquire t1: sets updated_at=10
+            base + timedelta(seconds=500),  # acquire t2: sets updated_at=500
+            base + timedelta(seconds=700),  # reset_stale_locks: cutoff = 700 - 300 = 400
+            base + timedelta(seconds=700),  # reset_stale_locks: patch updated_at for t1
+        ]
+    )
     monkeypatch.setattr(store, "_now", lambda: next(timestamps))
 
     t1 = store.create()
@@ -890,12 +892,14 @@ def test_reset_stale_locks_etag_mismatch_skips(monkeypatch: Any) -> None:
     """Concurrent re-acquire during reset: ETag mismatch → skipped, not stomped."""
     store, table_client = _new_store()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    timestamps = iter([
-        base,                            # create
-        base + timedelta(seconds=10),    # acquire lock
-        base + timedelta(seconds=700),   # reset_stale_locks cutoff calc
-        base + timedelta(seconds=700),   # reset_stale_locks: patch updated_at (before CAS fails)
-    ])
+    timestamps = iter(
+        [
+            base,  # create
+            base + timedelta(seconds=10),  # acquire lock
+            base + timedelta(seconds=700),  # reset_stale_locks cutoff calc
+            base + timedelta(seconds=700),  # reset_stale_locks: patch updated_at (before CAS fails)
+        ]
+    )
     monkeypatch.setattr(store, "_now", lambda: next(timestamps))
 
     t1 = store.create()
@@ -925,10 +929,12 @@ def test_reset_stale_locks_idle_threads_not_touched(monkeypatch: Any) -> None:
     """Idle threads are not affected by reset_stale_locks."""
     store, _ = _new_store()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    timestamps = iter([
-        base,                           # create
-        base + timedelta(seconds=700),  # reset cutoff
-    ])
+    timestamps = iter(
+        [
+            base,  # create
+            base + timedelta(seconds=700),  # reset cutoff
+        ]
+    )
     monkeypatch.setattr(store, "_now", lambda: next(timestamps))
 
     t1 = store.create()  # idle status, old timestamp
@@ -962,12 +968,14 @@ def test_reset_stale_locks_status_idle(monkeypatch: Any) -> None:
     """reset_stale_locks with status='idle' sets thread to idle."""
     store, _ = _new_store()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    timestamps = iter([
-        base,                           # create
-        base + timedelta(seconds=10),   # acquire
-        base + timedelta(seconds=700),  # reset cutoff
-        base + timedelta(seconds=700),  # patch updated_at
-    ])
+    timestamps = iter(
+        [
+            base,  # create
+            base + timedelta(seconds=10),  # acquire
+            base + timedelta(seconds=700),  # reset cutoff
+            base + timedelta(seconds=700),  # patch updated_at
+        ]
+    )
     monkeypatch.setattr(store, "_now", lambda: next(timestamps))
 
     t1 = store.create()
@@ -983,11 +991,13 @@ def test_reset_stale_locks_zero_threshold(monkeypatch: Any) -> None:
     """older_than_seconds=0 resets any busy thread (cutoff == now)."""
     store, _ = _new_store()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    timestamps = iter([
-        base,                           # create
-        base + timedelta(seconds=10),   # acquire: sets updated_at=10
-        base + timedelta(seconds=10),   # reset: cutoff=10-0=10, updated_at=10 >= 10
-    ])
+    timestamps = iter(
+        [
+            base,  # create
+            base + timedelta(seconds=10),  # acquire: sets updated_at=10
+            base + timedelta(seconds=10),  # reset: cutoff=10-0=10, updated_at=10 >= 10
+        ]
+    )
     monkeypatch.setattr(store, "_now", lambda: next(timestamps))
 
     t1 = store.create()
@@ -1003,12 +1013,14 @@ def test_reset_stale_locks_deleted_thread_skipped(monkeypatch: Any) -> None:
     """Thread deleted between query and update is skipped, not raised."""
     store, table_client = _new_store()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    timestamps = iter([
-        base,                           # create
-        base + timedelta(seconds=10),   # acquire
-        base + timedelta(seconds=700),  # reset cutoff
-        base + timedelta(seconds=700),  # patch updated_at
-    ])
+    timestamps = iter(
+        [
+            base,  # create
+            base + timedelta(seconds=10),  # acquire
+            base + timedelta(seconds=700),  # reset cutoff
+            base + timedelta(seconds=700),  # patch updated_at
+        ]
+    )
     monkeypatch.setattr(store, "_now", lambda: next(timestamps))
 
     t1 = store.create()

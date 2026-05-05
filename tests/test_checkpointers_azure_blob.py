@@ -785,9 +785,7 @@ def test_collect_orphaned_values_preserves_shared_versions(
         {},
     )
 
-    saver.delete_checkpoints_before(
-        "t-1", before_checkpoint_id="cp-002", checkpoint_ns="ns"
-    )
+    saver.delete_checkpoints_before("t-1", before_checkpoint_id="cp-002", checkpoint_ns="ns")
 
     result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
 

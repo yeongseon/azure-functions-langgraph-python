@@ -6,6 +6,7 @@ import sys
 import types
 from typing import Any, cast
 from unittest.mock import MagicMock
+import warnings
 
 pytest = cast(Any, importlib.import_module("pytest"))
 
@@ -113,20 +114,26 @@ def test_cosmos_helper_restores_existing_env_vars(monkeypatch: Any) -> None:
 
 
 def test_cosmos_helper_credential_string_treated_as_key(monkeypatch: Any) -> None:
-    """Back-compat: passing credential=<string> is treated as key."""
+    """Back-compat: passing credential=<string> is treated as key with deprecation warning."""
     init_calls: list[dict[str, Any]] = []
     _install_fake_cosmos(monkeypatch, init_calls=init_calls)
 
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
-    module.create_cosmos_checkpointer(
-        endpoint="https://test.documents.azure.com:443/",
-        database_name="db",
-        container_name="ctr",
-        credential="my-string-key",
-    )
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        module.create_cosmos_checkpointer(
+            endpoint="https://test.documents.azure.com:443/",
+            database_name="db",
+            container_name="ctr",
+            credential="my-string-key",
+        )
 
     assert init_calls[0]["key_env"] == "my-string-key"
+    assert len(w) == 1
+    assert issubclass(w[0].category, DeprecationWarning)
+    assert "deprecated" in str(w[0].message).lower()
 
 
 def test_cosmos_helper_credential_non_string_raises_type_error(monkeypatch: Any) -> None:
@@ -136,12 +143,31 @@ def test_cosmos_helper_credential_non_string_raises_type_error(monkeypatch: Any)
     module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
     importlib.reload(module)
 
-    with pytest.raises(TypeError, match="master key string"):
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        with pytest.raises(TypeError, match="master key string"):
+            module.create_cosmos_checkpointer(
+                endpoint="https://test.documents.azure.com:443/",
+                database_name="db",
+                container_name="ctr",
+                credential=object(),
+            )
+
+
+def test_cosmos_helper_both_key_and_credential_raises_type_error(monkeypatch: Any) -> None:
+    """Passing both key and credential must raise TypeError."""
+    _install_fake_cosmos(monkeypatch)
+
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    importlib.reload(module)
+
+    with pytest.raises(TypeError, match="Cannot pass both"):
         module.create_cosmos_checkpointer(
             endpoint="https://test.documents.azure.com:443/",
             database_name="db",
             container_name="ctr",
-            credential=object(),
+            key="explicit-key",
+            credential="should-be-rejected",
         )
 
 
@@ -266,24 +292,6 @@ def test_checkpointers_package_exports_cosmos_helper() -> None:
     assert callable(pkg.create_cosmos_checkpointer)
 
 
-def test_cosmos_helper_key_takes_precedence_over_credential(monkeypatch: Any) -> None:
-    """When both key and credential are provided, key wins."""
-    init_calls: list[dict[str, Any]] = []
-    _install_fake_cosmos(monkeypatch, init_calls=init_calls)
-
-    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
-    importlib.reload(module)
-    module.create_cosmos_checkpointer(
-        endpoint="https://test.documents.azure.com:443/",
-        database_name="db",
-        container_name="ctr",
-        key="explicit-key",
-        credential="should-be-ignored",
-    )
-
-    assert init_calls[0]["key_env"] == "explicit-key"
-
-
 # ---------------------------------------------------------------------------
 # close_cosmos_checkpointer tests
 # ---------------------------------------------------------------------------
@@ -307,6 +315,23 @@ def test_close_cosmos_checkpointer_marks_closed(monkeypatch: Any) -> None:
     assert saver._langgraph_closed is True
 
 
+def test_close_cosmos_checkpointer_calls_client_close(monkeypatch: Any) -> None:
+    """close_cosmos_checkpointer calls client.close() if available."""
+    _install_fake_cosmos(monkeypatch)
+
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    importlib.reload(module)
+    saver = module.create_cosmos_checkpointer(
+        endpoint="https://test.documents.azure.com:443/",
+        database_name="db",
+        container_name="ctr",
+        key="k",
+    )
+
+    module.close_cosmos_checkpointer(saver)
+    saver.client.close.assert_called_once()
+
+
 def test_close_cosmos_checkpointer_idempotent(monkeypatch: Any) -> None:
     """Second call to close_cosmos_checkpointer is a silent no-op."""
     _install_fake_cosmos(monkeypatch)
@@ -323,9 +348,44 @@ def test_close_cosmos_checkpointer_idempotent(monkeypatch: Any) -> None:
     module.close_cosmos_checkpointer(saver)
     # Second call is a no-op — must not raise
     module.close_cosmos_checkpointer(saver)
+    # close only called once (first time)
+    saver.client.close.assert_called_once()
+
+
+def test_close_cosmos_checkpointer_rejects_unmanaged_saver(monkeypatch: Any) -> None:
+    """close_cosmos_checkpointer raises TypeError for non-helper savers."""
+    _install_fake_cosmos(monkeypatch)
+
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    importlib.reload(module)
+
+    fake_saver = MagicMock()
+    with pytest.raises(TypeError, match="only accepts savers created by"):
+        module.close_cosmos_checkpointer(fake_saver)
 
 
 def test_checkpointers_package_exports_close_helper() -> None:
     pkg = importlib.import_module("azure_functions_langgraph.checkpointers")
     assert "close_cosmos_checkpointer" in pkg.__all__
     assert callable(pkg.close_cosmos_checkpointer)
+
+
+def test_cosmos_helper_deprecation_warning_on_credential(monkeypatch: Any) -> None:
+    """Using credential= emits a DeprecationWarning."""
+    _install_fake_cosmos(monkeypatch)
+
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    importlib.reload(module)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        module.create_cosmos_checkpointer(
+            endpoint="https://test.documents.azure.com:443/",
+            database_name="db",
+            container_name="ctr",
+            credential="some-key",
+        )
+
+    deprecation_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
+    assert len(deprecation_warnings) == 1
+    assert "credential" in str(deprecation_warnings[0].message).lower()
