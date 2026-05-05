@@ -110,7 +110,7 @@ pip install azure-functions-langgraph[postgres]
 # SQLite checkpointer (local dev)
 pip install azure-functions-langgraph[sqlite]
 
-# Cosmos DB checkpointer (requires Python 3.11+)
+# Cosmos DB checkpointer
 pip install azure-functions-langgraph[cosmos]
 ```
 
@@ -442,9 +442,9 @@ For workloads that already run a managed database (or need state shared across m
 | --- | --- | --- | --- |
 | Postgres | `create_postgres_checkpointer` | `pip install azure-functions-langgraph[postgres]` | Production, multi-instance, existing Postgres infra |
 | SQLite | `create_sqlite_checkpointer` | `pip install azure-functions-langgraph[sqlite]` | Local dev and single-instance deployments |
-| Cosmos DB | `create_cosmos_checkpointer` | `pip install azure-functions-langgraph[cosmos]` | Azure-native serverless/global production (Python 3.11+) |
+| Cosmos DB | `create_cosmos_checkpointer` | `pip install azure-functions-langgraph[cosmos]` | Azure-native serverless/global production |
 
-Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist; the Cosmos DB helper accepts an endpoint and credential and enters the upstream context manager at cold start:
+Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist; the Cosmos DB helper accepts an endpoint and key and enters the upstream context manager at cold start:
 
 ```python
 import os

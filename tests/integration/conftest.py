@@ -69,3 +69,27 @@ def cosmos_emulator_target() -> Iterator[tuple[str, str, str, str]]:
             _ = client.delete_database(database_name)
         except Exception:
             pass
+
+
+@pytest.fixture(autouse=True)
+def _patch_cosmos_client_for_emulator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch CosmosClient in the upstream package to disable SSL verification.
+
+    The Cosmos emulator uses a self-signed certificate.  The upstream
+    ``CosmosDBSaver.__init__`` does not pass ``connection_verify=False``
+    to ``CosmosClient``, so we patch it at the module level.
+    """
+    try:
+        import azure.cosmos
+        import langgraph_checkpoint_cosmosdb.cosmosdbSaver as saver_mod
+    except ImportError:
+        return
+
+    _OriginalClient = azure.cosmos.CosmosClient
+
+    class _NoVerifyClient(_OriginalClient):  # type: ignore[misc,valid-type]
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            kwargs.setdefault("connection_verify", False)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(saver_mod, "CosmosClient", _NoVerifyClient)
