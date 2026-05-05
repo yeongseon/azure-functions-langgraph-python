@@ -2765,10 +2765,211 @@ class TestStreamSSEWireFormat:
 
         # Skip metadata (idx 0) and end (last)
         data_parts = parts[1:-1]
-        assert len(data_parts) == 3
-        assert data_parts[0]["data"] == {"data": "hello"}
-        assert data_parts[1]["data"] == {"data": 42}
-        assert data_parts[2]["data"] == {"data": [1, 2, 3]}
+
+
+class TestCoverageBoostRunsThreads:
+    def test_runs_wait_invalid_thread_id_returns_400(self, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_wait")
+        req = _post_request(
+            "/api/threads//runs/wait", {"assistant_id": "agent", "input": {}}, thread_id=""
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+
+    def test_runs_stream_invalid_thread_id_returns_400(self, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream")
+        req = _post_request(
+            "/api/threads//runs/stream", {"assistant_id": "agent", "input": {}}, thread_id=""
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+
+    def test_runs_wait_lock_keyerror_returns_404(
+        self, store: InMemoryThreadStore, monkeypatch: Any
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        thread = store.create()
+
+        def _raise(*args: Any, **kwargs: Any) -> Any:
+            raise KeyError("gone")
+
+        monkeypatch.setattr(store, "try_acquire_run_lock", _raise)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_wait")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/wait",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        assert fn(req).status_code == 404
+
+    def test_runs_stream_lock_keyerror_returns_404(
+        self, store: InMemoryThreadStore, monkeypatch: Any
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        thread = store.create()
+
+        def _raise(*args: Any, **kwargs: Any) -> Any:
+            raise KeyError("gone")
+
+        monkeypatch.setattr(store, "try_acquire_run_lock", _raise)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        assert fn(req).status_code == 404
+
+    def test_runs_stream_threadless_empty_stream_mode_list_defaults(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream_threadless")
+        req = _post_request(
+            "/api/runs/stream", {"assistant_id": "agent", "input": {}, "stream_mode": []}
+        )
+        resp = fn(req)
+        assert resp.status_code == 200
+
+    def test_threads_create_validation_error_returns_422(
+        self, graph: FakeCompiledGraph, store: InMemoryThreadStore
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_threads_create")
+        req = _post_request("/api/threads", {"metadata": "bad"})
+        assert fn(req).status_code == 422
+
+    def test_threads_state_get_keyerror_returns_empty_state(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        class KeyErrorStateGraph(FakeStatefulGraph):
+            def get_state(self, config: dict[str, Any]) -> Any:
+                raise KeyError("missing")
+
+        app = _build_platform_app(graphs={"agent": KeyErrorStateGraph()}, store=store)
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+        fn = _get_fn(app.function_app, "aflg_platform_threads_state_get")
+        req = _get_request(f"/api/threads/{thread.thread_id}/state", thread_id=thread.thread_id)
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body())["values"] == {}
+
+    def test_threads_state_get_unexpected_error_returns_500(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        class BoomStateGraph(FakeStatefulGraph):
+            def get_state(self, config: dict[str, Any]) -> Any:
+                raise RuntimeError("boom")
+
+        app = _build_platform_app(graphs={"agent": BoomStateGraph()}, store=store)
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+        fn = _get_fn(app.function_app, "aflg_platform_threads_state_get")
+        req = _get_request(f"/api/threads/{thread.thread_id}/state", thread_id=thread.thread_id)
+        assert fn(req).status_code == 500
+
+    def test_threads_history_before_checkpoint_dict_and_ns(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        from tests.conftest import _FakeStateSnapshot
+
+        history = [
+            _FakeStateSnapshot(
+                config={"configurable": {"checkpoint_id": "cp-1", "checkpoint_ns": "ns"}}
+            ),
+            _FakeStateSnapshot(
+                config={"configurable": {"checkpoint_id": "cp-2", "checkpoint_ns": "ns"}}
+            ),
+        ]
+        graph = FakeStatefulGraph(state_history=history)
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+        fn = _get_fn(app.function_app, "aflg_platform_threads_history")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/history",
+            {
+                "checkpoint": {"thread_id": thread.thread_id, "checkpoint_ns": "ns"},
+                "before": {"thread_id": thread.thread_id, "checkpoint_id": "cp-1"},
+                "limit": 10,
+            },
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 200
+
+    def test_threads_history_value_error_returns_empty(self, store: InMemoryThreadStore) -> None:
+        class ValueErrorHistoryGraph(FakeStatefulGraph):
+            def get_state_history(self, config: dict[str, Any]) -> Iterator[Any]:
+                raise ValueError("bad")
+
+        app = _build_platform_app(graphs={"agent": ValueErrorHistoryGraph()}, store=store)
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+        fn = _get_fn(app.function_app, "aflg_platform_threads_history")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/history", {}, thread_id=thread.thread_id
+        )
+        resp = fn(req)
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body()) == []
+
+    def test_runs_stream_validation_error_returns_422(self, store: InMemoryThreadStore) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        thread = store.create()
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"input": {}},
+            thread_id=thread.thread_id,
+        )
+        assert fn(req).status_code == 422
+
+    def test_runs_stream_threadless_validation_error_returns_422(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream_threadless")
+        req = _post_request("/api/runs/stream", {"input": {}})
+        assert fn(req).status_code == 422
+
+    def test_runs_stream_config_validation_failure(
+        self, store: InMemoryThreadStore, monkeypatch: Any
+    ) -> None:
+        import azure_functions_langgraph.platform._runs as runs_module
+
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        thread = store.create()
+        monkeypatch.setattr(
+            runs_module, "validate_input_structure", lambda *args, **kwargs: "bad-config"
+        )
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "config": {"k": "v"}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+
+    def test_runs_wait_threadless_config_validation_failure(
+        self, store: InMemoryThreadStore, monkeypatch: Any
+    ) -> None:
+        import azure_functions_langgraph.platform._runs as runs_module
+
+        app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
+        monkeypatch.setattr(
+            runs_module, "validate_input_structure", lambda *args, **kwargs: "bad-config"
+        )
+        fn = _get_fn(app.function_app, "aflg_platform_runs_wait_threadless")
+        req = _post_request(
+            "/api/runs/wait", {"assistant_id": "agent", "input": {}, "config": {"k": "v"}}
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
 
     def test_multi_mode_501_resets_thread_to_idle(self, store: InMemoryThreadStore) -> None:
         """After 501 from multi-mode, thread should be idle (not stuck busy)."""

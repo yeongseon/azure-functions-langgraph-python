@@ -785,9 +785,7 @@ def test_collect_orphaned_values_preserves_shared_versions(
         {},
     )
 
-    saver.delete_checkpoints_before(
-        "t-1", before_checkpoint_id="cp-002", checkpoint_ns="ns"
-    )
+    saver.delete_checkpoints_before("t-1", before_checkpoint_id="cp-002", checkpoint_ns="ns")
 
     result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
 
@@ -912,7 +910,7 @@ def test_collect_orphaned_values_concurrent_write_protects_blob(
     )
     saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
 
-    original_collect = saver._collect_retained_versions  # type: ignore[attr-defined]
+    original_collect = cast(Any, saver)._collect_retained_versions
     call_count = {"n": 0}
 
     def patched(thread_id: str, checkpoint_ns: str) -> set[tuple[str, str]] | None:
@@ -932,7 +930,7 @@ def test_collect_orphaned_values_concurrent_write_protects_blob(
         call_count["n"] += 1
         return retained
 
-    saver._collect_retained_versions = patched  # type: ignore[attr-defined]
+    cast(Any, saver)._collect_retained_versions = patched
 
     result = saver.collect_orphaned_values("t-1", checkpoint_ns="ns", dry_run=False)
 
@@ -1165,3 +1163,181 @@ def test_collect_orphaned_values_result_dataclass_has_skipped_recent_field() -> 
     assert instance.skipped_recent == []
     package_module = importlib.import_module("azure_functions_langgraph.checkpointers")
     assert getattr(package_module, "OrphanedValueCollectionResult") is result_cls
+
+
+def test_init_raises_when_blob_dependency_missing(monkeypatch: Any) -> None:
+    real_import = importlib.import_module
+
+    def _raising(name: str) -> Any:
+        if name == "azure.storage.blob":
+            raise ImportError("missing")
+        return real_import(name)
+
+    monkeypatch.setattr(importlib, "import_module", _raising)
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    saver_cls = getattr(module, "AzureBlobCheckpointSaver")
+    with pytest.raises(ImportError):
+        saver_cls(container_client=object())
+
+
+def test_init_raises_for_wrong_container_type() -> None:
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    saver_cls = getattr(module, "AzureBlobCheckpointSaver")
+    with pytest.raises(TypeError):
+        saver_cls(container_client=object())
+
+
+def test_put_writes_requires_checkpoint_id(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, _ = saver_and_container
+    with pytest.raises(ValueError):
+        saver.put_writes(_config(thread_id="t-1", checkpoint_ns="ns"), [("a", 1)], task_id="task-1")
+
+
+def test_get_tuple_returns_none_when_metadata_missing(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(cfg, _checkpoint("cp-001"), _metadata(), {})
+    del container.blobs["threads/t-1/ns/ns/checkpoints/cp-001/metadata.bin"]
+    assert (
+        saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns", checkpoint_id="cp-001"))
+        is None
+    )
+
+
+def test_get_tuple_skips_missing_and_empty_channel_values(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"a": 1}, channel_versions={"a": "v1", "b": "v2"}),
+        _metadata(),
+        {"a": "v1", "b": "v2"},
+    )
+    del container.blobs["threads/t-1/ns/ns/values/a/v1.bin"]
+    result = saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns", checkpoint_id="cp-001"))
+    assert result is not None
+    assert result.checkpoint["channel_values"] == {}
+
+
+def test_load_pending_writes_ignores_malformed_entries(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    cfg = _config(thread_id="t-1", checkpoint_ns="ns")
+    saver.put(cfg, _checkpoint("cp-001"), _metadata(), {})
+    write_cfg = _config(thread_id="t-1", checkpoint_ns="ns", checkpoint_id="cp-001")
+    saver.put_writes(write_cfg, [("ok", 1)], task_id="task-1")
+
+    container.get_blob_client("threads/t-1/ns/ns/checkpoints/cp-001/writes/task-only").upload_blob(
+        b"x", metadata={"serde_type": "json"}, overwrite=True
+    )
+    container.get_blob_client(
+        "threads/t-1/ns/ns/checkpoints/cp-001/writes/task-1/not-bin.txt"
+    ).upload_blob(
+        b"x", metadata={"serde_type": "json", "channel": quote("bad", safe="")}, overwrite=True
+    )
+    container.get_blob_client(
+        "threads/t-1/ns/ns/checkpoints/cp-001/writes/task-1/no-int.bin"
+    ).upload_blob(
+        b"x", metadata={"serde_type": "json", "channel": quote("bad", safe="")}, overwrite=True
+    )
+    container.get_blob_client(
+        "threads/t-1/ns/ns/checkpoints/cp-001/writes/task-2/2.bin"
+    ).upload_blob(b"x", metadata={"serde_type": "json"}, overwrite=True)
+
+    result = saver.get_tuple(write_cfg)
+    assert result is not None
+    assert result.pending_writes == [("task-1", "ok", 1)]
+
+
+def test_list_checkpoint_ids_ignores_non_checkpoint_shape(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    container.get_blob_client("threads/t-1/ns/ns/checkpoints/not-a-checkpoint.bin").upload_blob(
+        b"x", metadata={}, overwrite=True
+    )
+    assert list(saver.list(_config(thread_id="t-1", checkpoint_ns="ns"))) == []
+
+
+def test_read_latest_checkpoint_id_malformed_payload_returns_none(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    latest_path = "threads/t-1/ns/ns/latest.json"
+    container.get_blob_client(latest_path).upload_blob(b"not-json", metadata={}, overwrite=True)
+    assert saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns")) is None
+
+
+def test_config_helpers_require_configurable(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, _ = saver_and_container
+    with pytest.raises(ValueError):
+        saver.get_tuple({})
+
+
+def test_init_raises_when_azure_core_resource_not_found_missing(monkeypatch: Any) -> None:
+    real_import = importlib.import_module
+
+    def _patched(name: str) -> Any:
+        if name == "azure.core.exceptions":
+            return types.ModuleType("azure.core.exceptions")
+        return real_import(name)
+
+    monkeypatch.setattr(importlib, "import_module", _patched)
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    saver_cls = getattr(module, "AzureBlobCheckpointSaver")
+    with pytest.raises(ImportError):
+        saver_cls(container_client=MockContainerClient())
+
+
+def test_get_next_version_accepts_int_current(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, _ = saver_and_container
+    version = cast(Any, saver).get_next_version(5, None)
+    assert version.startswith("00000000000000000000000000000006.")
+
+
+def test_get_tuple_by_checkpoint_id_returns_none_when_checkpoint_missing(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, _ = saver_and_container
+    assert (
+        saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns", checkpoint_id="missing"))
+        is None
+    )
+
+
+def test_list_without_config_discovers_threads_and_namespaces(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, _ = saver_and_container
+    saver.put(
+        _config(thread_id="t-1", checkpoint_ns="ns-a"), _checkpoint("cp-001"), _metadata(), {}
+    )
+    saver.put(
+        _config(thread_id="t-2", checkpoint_ns="ns-b"), _checkpoint("cp-001"), _metadata(), {}
+    )
+    items = list(saver.list(None))
+    assert len(items) == 2
+
+
+def test_latest_json_non_dict_and_missing_id_return_none(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+) -> None:
+    saver, container = saver_and_container
+    latest_path = "threads/t-1/ns/ns/latest.json"
+    container.get_blob_client(latest_path).upload_blob(b"[]", metadata={}, overwrite=True)
+    assert saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns")) is None
+    container.get_blob_client(latest_path).upload_blob(
+        json.dumps({"checkpoint_id": 123}).encode(), metadata={}, overwrite=True
+    )
+    assert saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns")) is None
