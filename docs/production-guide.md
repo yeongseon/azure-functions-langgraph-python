@@ -386,6 +386,26 @@ The helper **fails closed** per namespace: if `latest.json` is missing or any su
 
 If you want absolute cutoffs instead of "keep N", use `delete_checkpoints_before(thread_id, before_checkpoint_id=...)`. Checkpoint ids are lexicographically sortable, so `before_checkpoint_id` can be the id of any boundary checkpoint your application picks (e.g. the last successful production checkpoint of a previous day).
 
+#### Operational guidance for orphan GC
+
+The per-orphan re-scan ensures correctness but has **O(orphans × surviving_checkpoints)** blob-list cost. For namespaces with thousands of orphans, this translates to significant Azure Storage transactions.
+
+**Recommended cadence:**
+
+| Thread profile | Retention + GC frequency | Notes |
+|---|---|---|
+| Short-lived (< 100 checkpoints) | Weekly or on-demand | Low orphan count; cost negligible |
+| Long-lived (1,000+ checkpoints) | Daily, off-peak hours | Prune first (`delete_old_checkpoints`), then GC |
+| High-throughput (many concurrent threads) | Nightly Timer trigger | Batch across threads; respect `grace_period_seconds` |
+
+**Best practices:**
+
+1. **Always dry-run first**: `collect_orphaned_values(thread_id, dry_run=True)` — inspect `result.candidates` count before committing.
+2. **Prune checkpoints before GC**: Fewer surviving checkpoints = cheaper re-scan per orphan.
+3. **Keep `grace_period_seconds` ≥ 300**: Protects against race with in-flight checkpoint writes.
+4. **Monitor `result.skipped_namespaces`**: Non-empty means something is wrong with checkpoint blobs — investigate before retrying.
+5. **Budget estimate**: Each orphan candidate triggers 1 list operation + 1 delete (if confirmed). At ~$0.004/10,000 transactions, a namespace with 10,000 orphans costs ~$0.008 per GC run.
+
 ### Connection string security
 
 Do not hardcode storage secrets in source code or deployment artifacts.
