@@ -992,3 +992,67 @@ class TestStreamDisabledNoRoute:
         fa = app.function_app
         fn_names = [fn.get_function_name() for fn in fa.get_functions()]
         assert "aflg_agent_stream" in fn_names
+
+
+class TestNativeEndpointThreadLock:
+    """Native endpoints acquire per-thread lock for checkpointed graphs."""
+
+    def _make_request(self, body: dict[str, Any]) -> func.HttpRequest:
+        return func.HttpRequest(
+            method="POST",
+            body=json.dumps(body).encode(),
+            url="/api/graphs/agent/invoke",
+            headers={"Content-Type": "application/json"},
+        )
+
+    def test_concurrent_invoke_returns_409(self) -> None:
+        """Second concurrent invoke on same thread returns 409."""
+        import threading
+
+        from azure_functions_langgraph._handlers import (
+            _acquire_thread_lock,
+            _release_thread_lock,
+        )
+
+        class CheckpointedGraph:
+            checkpointer = object()  # truthy = has checkpointer
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
+                return {"result": "ok"}
+
+            def stream(self, input: Any, config: Any = None, stream_mode: str = "values") -> list:
+                return []
+
+        app = LangGraphApp()
+        app.register(graph=CheckpointedGraph(), name="agent")
+        config = {"configurable": {"thread_id": "t1"}}
+
+        # Pre-acquire the lock to simulate concurrent request
+        assert _acquire_thread_lock("agent", "t1") is True
+
+        req = self._make_request({"input": {"msg": "hi"}, "config": config})
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 409
+        assert "currently in use" in json.loads(resp.get_body())["detail"]
+
+        # Cleanup
+        _release_thread_lock("agent", "t1")
+
+    def test_invoke_without_thread_id_no_lock(self) -> None:
+        """Without thread_id in config, no locking occurs."""
+
+        class CheckpointedGraph:
+            checkpointer = object()
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
+                return {"result": "ok"}
+
+            def stream(self, input: Any, config: Any = None, stream_mode: str = "values") -> list:
+                return []
+
+        app = LangGraphApp()
+        app.register(graph=CheckpointedGraph(), name="agent")
+
+        req = self._make_request({"input": {"msg": "hi"}})
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 200
