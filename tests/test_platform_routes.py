@@ -3375,6 +3375,49 @@ class TestThreadsStateUpdate:
         assert "checkpoint" in data
         assert data["checkpoint"]["thread_id"] == thread.thread_id
 
+    def test_update_state_rejects_deeply_nested_values(self, store: InMemoryThreadStore) -> None:
+        """Values exceeding max_input_depth are rejected with 400."""
+        g = FakeStatefulGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+
+        # Build a dict that exceeds depth 32
+        nested: dict[str, Any] = {"leaf": True}
+        for _ in range(35):
+            nested = {"layer": nested}
+
+        fn = _get_fn(fa, "aflg_platform_threads_state_update")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/state",
+            {"values": nested},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+        assert "depth" in json.loads(resp.get_body())["detail"].lower()
+
+    def test_update_state_rejects_excessive_nodes(self, store: InMemoryThreadStore) -> None:
+        """Values exceeding max_input_nodes are rejected with 400."""
+        g = FakeStatefulGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+
+        # Build a dict with > 10_000 nodes
+        big = {f"k{i}": i for i in range(10_001)}
+
+        fn = _get_fn(fa, "aflg_platform_threads_state_update")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/state",
+            {"values": big},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+        assert "node" in json.loads(resp.get_body())["detail"].lower()
 
 # ---------------------------------------------------------------------------
 # POST /threads/{thread_id}/history — Issue #58
@@ -3859,3 +3902,25 @@ class TestThreadsHistory:
         resp = fn(req)
         assert resp.status_code == 422
         assert "does not match" in json.loads(resp.get_body())["detail"]
+
+    def test_history_rejects_deeply_nested_metadata(self, store: InMemoryThreadStore) -> None:
+        """Metadata exceeding max_input_depth is rejected with 400."""
+        g = FakeStatefulGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+
+        nested: dict[str, Any] = {"leaf": True}
+        for _ in range(35):
+            nested = {"layer": nested}
+
+        fn = _get_fn(fa, "aflg_platform_threads_history")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/history",
+            {"metadata": nested},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+        assert resp.status_code == 400
+        assert "depth" in json.loads(resp.get_body())["detail"].lower()
