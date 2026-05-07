@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from typing import Any
 from unittest.mock import MagicMock
@@ -354,6 +355,56 @@ class TestInvokeHandler:
         assert resp.status_code == 200
         data = json.loads(resp.get_body())
         assert data["output"]["result"] == "hello"
+
+    def test_invoke_pydantic_basemodel_result(self) -> None:
+        """Graph returning a Pydantic BaseModel is serialized via model_dump."""
+        from pydantic import BaseModel
+
+        class OutputModel(BaseModel):
+            answer: str = "42"
+            score: float = 0.99
+
+        class ModelGraph:
+            checkpointer = None
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> Any:
+                return OutputModel()
+
+            def stream(self, input: dict[str, Any], config: Any = None, stream_mode: str = "values") -> Any:
+                yield {"data": "chunk"}
+
+        app = LangGraphApp()
+        app.register(graph=ModelGraph(), name="agent")
+        req = self._make_request({"input": {"messages": []}})
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["output"] == {"answer": "42", "score": 0.99}
+
+    def test_invoke_dataclass_result(self) -> None:
+        """Graph returning a dataclass is serialized via dataclasses.asdict."""
+
+        @dataclasses.dataclass
+        class OutputDC:
+            answer: str = "42"
+            score: float = 0.99
+
+        class DCGraph:
+            checkpointer = None
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> Any:
+                return OutputDC()
+
+            def stream(self, input: dict[str, Any], config: Any = None, stream_mode: str = "values") -> Any:
+                yield {"data": "chunk"}
+
+        app = LangGraphApp()
+        app.register(graph=DCGraph(), name="agent")
+        req = self._make_request({"input": {"messages": []}})
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["output"] == {"answer": "42", "score": 0.99}
 
 
 # ------------------------------------------------------------------
@@ -885,3 +936,28 @@ class TestVersionIsString:
 
         assert isinstance(__version__, str)
         assert len(__version__) > 0
+
+
+
+class TestCustomRoutePrefix:
+    """Test that route_prefix is configurable."""
+
+    def test_metadata_uses_custom_route_prefix(self) -> None:
+        """get_app_metadata paths should reflect a custom route_prefix."""
+        app = LangGraphApp(route_prefix="/custom")
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        metadata = app.get_app_metadata()
+        assert metadata.app_routes
+        assert all(r.path.startswith("/custom/") for r in metadata.app_routes)
+        # Health endpoint also uses custom prefix
+        health = [r for r in metadata.app_routes if "health" in r.path]
+        assert health
+        assert health[0].path.startswith("/custom/")
+
+    def test_default_route_prefix(self) -> None:
+        """Default route_prefix should be /api."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        metadata = app.get_app_metadata()
+        assert metadata.app_routes
+        assert all(r.path.startswith("/api/") for r in metadata.app_routes)

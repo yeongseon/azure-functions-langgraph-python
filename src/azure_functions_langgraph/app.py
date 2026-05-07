@@ -110,6 +110,7 @@ class LangGraphApp:
     max_input_depth: int = 32
     max_input_nodes: int = 10_000
     platform_compat: bool = False
+    route_prefix: str = _ROUTE_PREFIX
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
     _thread_store: Any = field(default=None, init=False, repr=False)
@@ -374,7 +375,7 @@ class LangGraphApp:
 
         Note:
             Route paths use the default Azure Functions ``/api`` prefix.
-            Custom ``routePrefix`` values in ``host.json`` are not reflected.
+            Route paths use the configured ``route_prefix`` (default ``/api``).
         """
         graphs: dict[str, RegisteredGraphMetadata] = {}
         for reg in self._registrations.values():
@@ -382,7 +383,7 @@ class LangGraphApp:
             # invoke route
             routes.append(
                 RouteMetadata(
-                    path=f"{_ROUTE_PREFIX}/{_ROUTE_INVOKE.format(name=reg.name)}",
+                    path=f"{self.route_prefix}/{_ROUTE_INVOKE.format(name=reg.name)}",
                     method="POST",
                     summary=f"Invoke graph '{reg.name}'",
                     request_model=reg.request_model,
@@ -393,7 +394,7 @@ class LangGraphApp:
             if reg.stream_enabled:
                 routes.append(
                     RouteMetadata(
-                        path=f"{_ROUTE_PREFIX}/{_ROUTE_STREAM.format(name=reg.name)}",
+                        path=f"{self.route_prefix}/{_ROUTE_STREAM.format(name=reg.name)}",
                         method="POST",
                         summary=f"Stream graph '{reg.name}'",
                         request_model=reg.request_model,
@@ -404,7 +405,7 @@ class LangGraphApp:
             if isinstance(reg.graph, StatefulGraph):
                 routes.append(
                     RouteMetadata(
-                        path=f"{_ROUTE_PREFIX}/{_ROUTE_STATE.format(name=reg.name)}",
+                        path=f"{self.route_prefix}/{_ROUTE_STATE.format(name=reg.name)}",
                         method="GET",
                         summary=f"Get thread state for '{reg.name}'",
                         parameters=(
@@ -428,7 +429,7 @@ class LangGraphApp:
         # App-level routes
         app_routes: tuple[RouteMetadata, ...] = (
             RouteMetadata(
-                path=f"{_ROUTE_PREFIX}/{_ROUTE_HEALTH}",
+                path=f"{self.route_prefix}/{_ROUTE_HEALTH}",
                 method="GET",
                 summary="Health check",
             ),
