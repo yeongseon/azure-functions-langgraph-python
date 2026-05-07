@@ -3924,3 +3924,25 @@ class TestThreadsHistory:
         resp = fn(req)
         assert resp.status_code == 400
         assert "depth" in json.loads(resp.get_body())["detail"].lower()
+
+
+class TestReleaseThreadRunLockSuppression:
+    """_release_thread_run_lock suppresses unexpected exceptions."""
+
+    def test_unexpected_exception_is_suppressed(self, store: InMemoryThreadStore) -> None:
+        """Non-KeyError exceptions are logged but do not propagate."""
+        from unittest.mock import patch
+
+        from azure_functions_langgraph.platform._runs import _release_thread_run_lock
+
+        deps = PlatformRouteDeps(
+            registrations={},
+            thread_store=store,
+            auth_level=func.AuthLevel.ANONYMOUS,
+            max_stream_response_bytes=1024,
+        )
+        thread = store.create()
+
+        with patch.object(store, "release_run_lock", side_effect=RuntimeError("boom")):
+            # Should NOT raise
+            _release_thread_run_lock(deps, thread.thread_id, status="idle")
