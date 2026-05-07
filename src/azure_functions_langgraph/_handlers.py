@@ -235,6 +235,7 @@ def handle_stream(
             serialized = json.dumps(
                 event if isinstance(event, dict) else {"data": str(event)},
                 default=str,
+                allow_nan=False,
             )
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
                 break

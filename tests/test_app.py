@@ -511,6 +511,18 @@ class TestStreamHandler:
         payload = json.loads(resp.get_body())
         assert "invoke-only" in payload["detail"]
 
+    def test_stream_rejects_nan_in_output(self) -> None:
+        """Non-finite floats must not produce invalid JSON in SSE."""
+        nan_events = [{"value": float("nan")}]
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(stream_results=nan_events), name="agent")
+        req = self._make_request({"input": {"messages": []}})
+        resp = app._handle_stream(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        body = resp.get_body().decode()
+        # NaN chunk should trigger error event, not produce invalid JSON
+        assert "event: error" in body
+        assert "NaN" not in body.split("event: error")[0]  # no raw NaN before error
 
 # ------------------------------------------------------------------
 # State handler tests
