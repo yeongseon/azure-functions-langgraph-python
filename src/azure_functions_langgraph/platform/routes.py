@@ -1,7 +1,7 @@
 """Platform API–compatible route registration.
 
 Registers Azure Functions HTTP routes that mirror the LangGraph Platform
-REST API (``langgraph-sdk ~0.1``).  When enabled via
+REST API.  When enabled via
 ``LangGraphApp(platform_compat=True)``, the official ``langgraph-sdk``
 Python client can communicate with Azure Functions–hosted graphs.
 
