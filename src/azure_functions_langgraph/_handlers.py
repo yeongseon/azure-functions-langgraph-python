@@ -8,6 +8,7 @@ receives only the explicit dependencies it needs — no reference to
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from typing import Any
@@ -44,6 +45,40 @@ def _error_response(status_code: int, detail: str) -> func.HttpResponse:
         status_code=status_code,
     )
 
+
+def _serialize_graph_output(result: Any) -> dict[str, Any]:
+    """Convert a graph invoke result to a JSON-serializable dict.
+
+    Handles:
+    - dict → pass through
+    - Pydantic BaseModel → model_dump(mode="json")
+    - dataclass → dataclasses.asdict()
+    - other → {"result": str(result)} with warning
+    """
+    if isinstance(result, dict):
+        return result
+
+    # Pydantic BaseModel
+    model_dump = getattr(result, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return model_dump(mode="json")
+        except Exception:
+            pass
+
+    # dataclass
+    if dataclasses.is_dataclass(result) and not isinstance(result, type):
+        try:
+            return dataclasses.asdict(result)
+        except Exception:
+            pass
+
+    # Fallback
+    logger.warning(
+        "Graph returned non-dict result of type %s; wrapping as {'result': str(...)}",
+        type(result).__name__,
+    )
+    return {"result": str(result)}
 
 # ------------------------------------------------------------------
 # Invoke handler
@@ -100,7 +135,7 @@ def handle_invoke(
         _ = exc
         return _error_response(500, "Graph execution failed")
 
-    output = result if isinstance(result, dict) else {"result": result}
+    output = _serialize_graph_output(result)
     response = InvokeResponse(output=output)
     return func.HttpResponse(
         body=response.model_dump_json(),
