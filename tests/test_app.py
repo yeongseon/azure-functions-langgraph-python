@@ -973,3 +973,22 @@ class TestCustomRoutePrefix:
         metadata = app.get_app_metadata()
         assert metadata.app_routes
         assert all(r.path.startswith("/api/") for r in metadata.app_routes)
+
+
+class TestStreamDisabledNoRoute:
+    """When stream=False, no stream route is registered."""
+
+    def test_stream_false_no_stream_function(self) -> None:
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent", stream=False)
+        fa = app.function_app
+        fn_names = [fn.get_function_name() for fn in fa.get_functions()]
+        assert "aflg_agent_stream" not in fn_names
+        assert "aflg_agent_invoke" in fn_names
+
+    def test_stream_true_has_stream_function(self) -> None:
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent", stream=True)
+        fa = app.function_app
+        fn_names = [fn.get_function_name() for fn in fa.get_functions()]
+        assert "aflg_agent_stream" in fn_names

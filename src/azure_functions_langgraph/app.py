@@ -110,7 +110,7 @@ class LangGraphApp:
     max_input_depth: int = 32
     max_input_nodes: int = 10_000
     platform_compat: bool = False
-    route_prefix: str = _ROUTE_PREFIX
+    route_prefix: str = _ROUTE_PREFIX  # metadata-only; must match host.json routePrefix
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
     _thread_store: Any = field(default=None, init=False, repr=False)
@@ -231,7 +231,8 @@ class LangGraphApp:
         # Per-graph endpoints
         for reg in self._registrations.values():
             self._register_invoke_route(app, reg)
-            self._register_stream_route(app, reg)
+            if reg.stream_enabled:
+                self._register_stream_route(app, reg)
             if isinstance(reg.graph, StatefulGraph):
                 self._register_state_route(app, reg)
 
