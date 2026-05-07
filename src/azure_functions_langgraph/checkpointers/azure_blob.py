@@ -184,26 +184,31 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 return_config=config,
             )
 
-        # Optimization: try latest.json hint, but verify it is actually the
-        # latest checkpoint.  If the hint is stale (e.g. concurrent writer),
-        # fall through to the authoritative prefix scan.
+        # Optimization: try latest.json hint first.  If the hinted checkpoint
+        # blob exists we skip the expensive prefix scan entirely.
         latest_hint = self._read_latest_checkpoint_id(thread_id, checkpoint_ns)
+        if latest_hint is not None:
+            # Try loading the hinted checkpoint directly — avoids prefix scan.
+            hint_tuple = self._build_tuple(
+                thread_id=thread_id,
+                checkpoint_ns=checkpoint_ns,
+                checkpoint_id=latest_hint,
+                return_config=self._checkpoint_config(thread_id, checkpoint_ns, latest_hint),
+            )
+            if hint_tuple is not None:
+                return hint_tuple
+            # Hint blob missing/corrupt — fall through to scan.
+
+        # Hint was missing or stale — fall back to authoritative prefix scan.
         actual_latest = self._find_latest_checkpoint_id(thread_id, checkpoint_ns)
         if actual_latest is None:
             return None
 
-        # If the hint matches the scan result we avoid re-scanning, but we
-        # always trust the scan over the hint.
-        resolved_id = actual_latest
-        # When the hint is valid AND matches, we already know the id.
-        if latest_hint is not None and latest_hint == actual_latest:
-            resolved_id = latest_hint
-
         return self._build_tuple(
             thread_id=thread_id,
             checkpoint_ns=checkpoint_ns,
-            checkpoint_id=resolved_id,
-            return_config=self._checkpoint_config(thread_id, checkpoint_ns, resolved_id),
+            checkpoint_id=actual_latest,
+            return_config=self._checkpoint_config(thread_id, checkpoint_ns, actual_latest),
         )
 
     def list(

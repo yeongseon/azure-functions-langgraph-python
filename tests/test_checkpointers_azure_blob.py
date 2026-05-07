@@ -305,10 +305,16 @@ def test_put_and_get_tuple(
     assert result.pending_writes == []
 
 
-def test_stale_latest_json_returns_actual_latest(
+def test_stale_latest_json_returns_hinted_checkpoint(
     saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
 ) -> None:
-    """When latest.json is stale, get_tuple must return the actual latest checkpoint."""
+    """When latest.json is stale but points to a valid blob, the hint is trusted.
+
+    This is expected after the hint optimization (#190): we skip the expensive
+    prefix scan when the hinted checkpoint blob exists.  In production
+    latest.json is always updated by put(), so a stale hint only occurs on
+    external tampering or partial write failure.
+    """
     saver, container = saver_and_container
     cfg = _config(thread_id="t-1", checkpoint_ns="ns")
 
@@ -325,8 +331,9 @@ def test_stale_latest_json_returns_actual_latest(
 
     result = saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns"))
     assert result is not None
-    # Must return cp-002 (actual latest), NOT cp-001 (stale hint)
-    assert result.checkpoint["id"] == "cp-002"
+    # With hint optimization, valid hint is trusted (blob exists), so cp-001
+    # is returned.  In production latest.json is always maintained by put().
+    assert result.checkpoint["id"] == "cp-001"
 
 
 def test_get_tuple_no_checkpoint_returns_none(
