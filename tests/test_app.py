@@ -370,7 +370,12 @@ class TestInvokeHandler:
             def invoke(self, input: dict[str, Any], config: Any = None) -> Any:
                 return OutputModel()
 
-            def stream(self, input: dict[str, Any], config: Any = None, stream_mode: str = "values") -> Any:
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: Any = None,
+                stream_mode: str = "values",
+            ) -> Any:
                 yield {"data": "chunk"}
 
         app = LangGraphApp()
@@ -395,7 +400,12 @@ class TestInvokeHandler:
             def invoke(self, input: dict[str, Any], config: Any = None) -> Any:
                 return OutputDC()
 
-            def stream(self, input: dict[str, Any], config: Any = None, stream_mode: str = "values") -> Any:
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: Any = None,
+                stream_mode: str = "values",
+            ) -> Any:
                 yield {"data": "chunk"}
 
         app = LangGraphApp()
@@ -1007,8 +1017,6 @@ class TestNativeEndpointThreadLock:
 
     def test_concurrent_invoke_returns_409(self) -> None:
         """Second concurrent invoke on same thread returns 409."""
-        import threading
-
         from azure_functions_langgraph._handlers import (
             _acquire_thread_lock,
             _release_thread_lock,
@@ -1020,7 +1028,9 @@ class TestNativeEndpointThreadLock:
             def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
                 return {"result": "ok"}
 
-            def stream(self, input: Any, config: Any = None, stream_mode: str = "values") -> list:
+            def stream(
+                self, input: Any, config: Any = None, stream_mode: str = "values",
+            ) -> list[Any]:
                 return []
 
         app = LangGraphApp()
@@ -1047,7 +1057,9 @@ class TestNativeEndpointThreadLock:
             def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
                 return {"result": "ok"}
 
-            def stream(self, input: Any, config: Any = None, stream_mode: str = "values") -> list:
+            def stream(
+                self, input: Any, config: Any = None, stream_mode: str = "values",
+            ) -> list[Any]:
                 return []
 
         app = LangGraphApp()

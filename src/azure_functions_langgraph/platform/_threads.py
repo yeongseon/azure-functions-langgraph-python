@@ -5,7 +5,11 @@ from typing import Any
 
 import azure.functions as func
 
-from azure_functions_langgraph._validation import validate_body_size, validate_input_structure, validate_thread_id
+from azure_functions_langgraph._validation import (
+    validate_body_size,
+    validate_input_structure,
+    validate_thread_id,
+)
 from azure_functions_langgraph.platform._common import (
     _UNSUPPORTED_THREAD_FILTER_FIELDS,
     PlatformRouteDeps,

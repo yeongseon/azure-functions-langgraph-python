@@ -84,7 +84,7 @@ def _serialize_graph_output(result: Any) -> dict[str, Any]:
     model_dump = getattr(result, "model_dump", None)
     if callable(model_dump):
         try:
-            return model_dump(mode="json")
+            return model_dump(mode="json")  # type: ignore[no-any-return]
         except Exception:
             pass
 
@@ -167,7 +167,7 @@ def handle_invoke(
         return _error_response(500, "Graph execution failed")
     finally:
         if locked:
-            _release_thread_lock(reg.name, thread_id)  # type: ignore[arg-type]
+            _release_thread_lock(reg.name, thread_id)
 
     output = _serialize_graph_output(result)
     response = InvokeResponse(output=output)
@@ -290,7 +290,7 @@ def handle_stream(
         _append_chunk(f"event: error\ndata: {error_payload}\n\n")
     finally:
         if locked:
-            _release_thread_lock(reg.name, thread_id)  # type: ignore[arg-type]
+            _release_thread_lock(reg.name, thread_id)
 
     _append_chunk("event: end\ndata: {}\n\n")
 
