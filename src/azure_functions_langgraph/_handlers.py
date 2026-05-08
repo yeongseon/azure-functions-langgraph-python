@@ -37,6 +37,24 @@ logger = logging.getLogger(__name__)
 # Shared helper
 # ------------------------------------------------------------------
 
+def _extract_thread_id(config: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Extract thread_id from config, returning (thread_id, error_message).
+
+    Returns ``(None, None)`` when configurable is absent or has no thread_id.
+    Returns ``(None, error_msg)`` when configurable or thread_id has a wrong type.
+    """
+    configurable = config.get("configurable")
+    if configurable is None:
+        return None, None
+    if not isinstance(configurable, dict):
+        return None, "config.configurable must be an object"
+    thread_id = configurable.get("thread_id")
+    if thread_id is None:
+        return None, None
+    if not isinstance(thread_id, str):
+        return None, "config.configurable.thread_id must be a string"
+    return thread_id, None
+
 
 def _error_response(status_code: int, detail: str) -> func.HttpResponse:
     body = ErrorResponse(error="error", detail=detail)
@@ -48,7 +66,12 @@ def _error_response(status_code: int, detail: str) -> func.HttpResponse:
 
 
 # Per-thread in-memory locks for native endpoints with checkpointed graphs.
-# Keyed by (graph_name, thread_id). Protects single-writer checkpointers.
+# Keyed by (graph_name, thread_id). Protects single-writer checkpointers
+# (e.g. AzureBlobCheckpointSaver) from concurrent writes within the SAME
+# Python worker process only.  This is NOT a distributed lock — multiple
+# Function App instances or worker processes are not coordinated.
+# For distributed run locking, use Platform-compatible runs with
+# AzureTableThreadStore (ETag CAS).
 _thread_locks: dict[tuple[str, str], threading.Lock] = {}
 _thread_locks_guard = threading.Lock()
 
@@ -61,11 +84,20 @@ def _acquire_thread_lock(graph_name: str, thread_id: str) -> bool:
 
 
 def _release_thread_lock(graph_name: str, thread_id: str) -> None:
-    """Release a per-thread lock."""
+    """Release a per-thread lock and remove it from the dict if unused."""
+    key = (graph_name, thread_id)
     with _thread_locks_guard:
-        lock = _thread_locks.get((graph_name, thread_id))
-    if lock is not None:
-        lock.release()
+        lock = _thread_locks.get(key)
+    if lock is None:
+        return
+    lock.release()
+    # Clean up to prevent unbounded growth in long-lived workers.
+    # Re-check under guard: only remove if the lock is not currently held
+    # (another request may have acquired it between release and this check).
+    with _thread_locks_guard:
+        current = _thread_locks.get(key)
+        if current is lock and not lock.locked():
+            _thread_locks.pop(key, None)
 
 
 def _serialize_graph_output(result: Any) -> dict[str, Any]:
@@ -150,7 +182,9 @@ def handle_invoke(
             return _error_response(400, config_err)
 
     config = request.config or {}
-    thread_id = config.get("configurable", {}).get("thread_id")
+    thread_id, cfg_err = _extract_thread_id(config)
+    if cfg_err:
+        return _error_response(400, cfg_err)
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
     locked = False
     if has_cp and thread_id:
@@ -166,7 +200,7 @@ def handle_invoke(
         _ = exc
         return _error_response(500, "Graph execution failed")
     finally:
-        if locked:
+        if locked and thread_id is not None:
             _release_thread_lock(reg.name, thread_id)
 
     output = _serialize_graph_output(result)
@@ -239,7 +273,9 @@ def handle_stream(
             return _error_response(400, config_err)
 
     config = request.config or {}
-    thread_id = config.get("configurable", {}).get("thread_id")
+    thread_id, cfg_err = _extract_thread_id(config)
+    if cfg_err:
+        return _error_response(400, cfg_err)
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
     locked = False
     if has_cp and thread_id:
@@ -289,7 +325,7 @@ def handle_stream(
         error_payload = json.dumps({"error": "stream processing failed"})
         _append_chunk(f"event: error\ndata: {error_payload}\n\n")
     finally:
-        if locked:
+        if locked and thread_id is not None:
             _release_thread_lock(reg.name, thread_id)
 
     _append_chunk("event: end\ndata: {}\n\n")

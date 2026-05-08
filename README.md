@@ -213,6 +213,11 @@ from azure_functions_langgraph import LangGraphApp
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 ```
 
+> **Note:** `health_auth_level` defaults to `ANONYMOUS` independently of `auth_level`.
+> This means the health endpoint remains publicly accessible even when `auth_level=FUNCTION`.
+> Set `health_auth_level=func.AuthLevel.FUNCTION` explicitly if the health endpoint should
+> also require a function key.
+
 ### Streaming behavior
 
 > **Important:** All `/stream` endpoints (both the native `POST /api/graphs/{name}/stream`
@@ -503,6 +508,13 @@ count = thread_store.reset_stale_locks(older_than_seconds=600)
 ```
 
 Each reset uses ETag CAS so a thread that has been legitimately re-acquired since the scan is never stomped. Choose `older_than_seconds` comfortably above your longest expected graph execution time — ETag CAS protects against re-acquire races, but a still-running long job will not update its `updated_at` and could be reclaimed if the threshold is too short. See [`examples/maintenance_timer/`](examples/maintenance_timer/) for a complete Timer Trigger wiring.
+
+#### Native endpoint thread locking
+
+Native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) use an **in-process per-thread lock** when the graph has a checkpointer and the request includes `config.configurable.thread_id`. This prevents concurrent writes to single-writer checkpointers (e.g. `AzureBlobCheckpointSaver`) within the same Python worker process.
+
+> **Important:** This is **not** a distributed lock. It does not coordinate across multiple Function App instances, worker processes, or hosts. For distributed run locking, use Platform-compatible runs (`platform_compat=True`) with `AzureTableThreadStore`, which provides ETag-based atomic locking.
+
 
 ### Upgrading
 

@@ -127,6 +127,10 @@ class LangGraphApp:
                 "  See the 'Production authentication' section in README.md\n"
                 "Note: The default will change from ANONYMOUS to FUNCTION in v1.0."
             )
+        # Normalize route_prefix: ensure leading slash, strip trailing slashes
+        if not self.route_prefix.startswith("/"):
+            self.route_prefix = "/" + self.route_prefix
+        self.route_prefix = self.route_prefix.rstrip("/") or "/"
         if self.platform_compat and self._thread_store is None:
             from azure_functions_langgraph.platform.stores import InMemoryThreadStore
 
