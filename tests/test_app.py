@@ -1069,6 +1069,31 @@ class TestNativeEndpointThreadLock:
         resp = app._handle_invoke(req, app._registrations["agent"])
         assert resp.status_code == 200
 
+    def test_lock_cleanup_after_release(self) -> None:
+        """Lock entry is removed from dict after release."""
+        from azure_functions_langgraph._handlers import (
+            _acquire_thread_lock,
+            _release_thread_lock,
+            _thread_locks,
+        )
+
+        key = ("cleanup_test", "t-cleanup")
+        assert _acquire_thread_lock(*key) is True
+        assert key in _thread_locks
+        _release_thread_lock(*key)
+        assert key not in _thread_locks
+
+    def test_lock_reacquire_after_release(self) -> None:
+        """Lock can be reacquired after release."""
+        from azure_functions_langgraph._handlers import (
+            _acquire_thread_lock,
+            _release_thread_lock,
+        )
+
+        assert _acquire_thread_lock("reacq", "t1") is True
+        _release_thread_lock("reacq", "t1")
+        assert _acquire_thread_lock("reacq", "t1") is True
+        _release_thread_lock("reacq", "t1")
 
 class TestExtractThreadId:
     """Tests for _extract_thread_id helper."""
@@ -1180,3 +1205,14 @@ class TestRouteNormalization:
     def test_root_prefix(self) -> None:
         app = LangGraphApp(route_prefix="/")
         assert app.route_prefix == "/"
+
+    def test_root_prefix_metadata_no_double_slash(self) -> None:
+        """route_prefix='/' should produce /graphs/... not //graphs/..."""
+        app = LangGraphApp(route_prefix="/")
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        metadata = app.get_app_metadata()
+        invoke_path = metadata.graphs["agent"].routes[0].path
+        assert invoke_path == "/graphs/agent/invoke"
+        assert not invoke_path.startswith("//")
+        health_path = metadata.app_routes[0].path
+        assert health_path == "/health"

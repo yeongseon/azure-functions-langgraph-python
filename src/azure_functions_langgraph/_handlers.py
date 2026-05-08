@@ -80,7 +80,7 @@ def _acquire_thread_lock(graph_name: str, thread_id: str) -> bool:
     """Try to acquire a per-thread lock. Returns False if already held."""
     with _thread_locks_guard:
         lock = _thread_locks.setdefault((graph_name, thread_id), threading.Lock())
-    return lock.acquire(blocking=False)
+        return lock.acquire(blocking=False)
 
 
 def _release_thread_lock(graph_name: str, thread_id: str) -> None:
