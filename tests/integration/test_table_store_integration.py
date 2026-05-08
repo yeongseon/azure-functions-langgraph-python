@@ -188,3 +188,58 @@ def test_reset_stale_locks_etag_cas_conflict_does_not_stomp(
     assert reset_count == 0
     assert locked_after is not None
     assert locked_after.status == "busy"
+
+
+def test_reset_stale_locks_delete_race_is_skipped(
+    azurite_table_client: _TableClientProtocol,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If a thread is deleted between query and CAS update, skip gracefully."""
+    store = _new_store(azurite_table_client.table_name)
+    thread = store.create()
+    _ = store.try_acquire_run_lock(thread.thread_id)
+    _set_updated_at(
+        azurite_table_client,
+        thread.thread_id,
+        datetime.now(timezone.utc) - timedelta(seconds=900),
+    )
+
+    original_update_entity = azurite_table_client.update_entity
+    delete_injected = {"done": False}
+
+    def wrapped_update_entity(*args: object, **kwargs: object) -> object:
+        entity = args[0] if args else kwargs.get("entity")
+        if (
+            isinstance(entity, dict)
+            and entity.get("PartitionKey") == "thread"
+            and entity.get("RowKey") == thread.thread_id
+            and entity.get("status") in {"idle", "error"}
+            and not delete_injected["done"]
+        ):
+            delete_injected["done"] = True
+            # Delete the entity before the CAS update lands
+            azurite_table_client.update_entity(
+                {"PartitionKey": "thread", "RowKey": thread.thread_id},
+                mode="replace",
+            )
+            # Now delete it
+            tables_module = importlib.import_module("azure.data.tables")
+            table_client = cast(
+                Any,
+                getattr(tables_module, "TableServiceClient")
+                .from_connection_string(conn_str=AZURITE_TABLE_CONNECTION_STRING)
+                .get_table_client(azurite_table_client.table_name),
+            )
+            table_client.delete_entity(
+                partition_key="thread", row_key=thread.thread_id
+            )
+        return cast(Any, original_update_entity)(*args, **kwargs)
+
+    monkeypatch.setattr(azurite_table_client, "update_entity", wrapped_update_entity)
+
+    reset_count = store.reset_stale_locks(older_than_seconds=300)
+
+    assert delete_injected["done"] is True
+    assert reset_count == 0
+    # Thread no longer exists
+    assert store.get(thread.thread_id) is None

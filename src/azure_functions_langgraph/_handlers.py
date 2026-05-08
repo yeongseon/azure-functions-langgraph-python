@@ -8,8 +8,10 @@ receives only the explicit dependencies it needs — no reference to
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
+import threading
 from typing import Any
 
 import azure.functions as func
@@ -44,6 +46,61 @@ def _error_response(status_code: int, detail: str) -> func.HttpResponse:
         status_code=status_code,
     )
 
+
+# Per-thread in-memory locks for native endpoints with checkpointed graphs.
+# Keyed by (graph_name, thread_id). Protects single-writer checkpointers.
+_thread_locks: dict[tuple[str, str], threading.Lock] = {}
+_thread_locks_guard = threading.Lock()
+
+
+def _acquire_thread_lock(graph_name: str, thread_id: str) -> bool:
+    """Try to acquire a per-thread lock. Returns False if already held."""
+    with _thread_locks_guard:
+        lock = _thread_locks.setdefault((graph_name, thread_id), threading.Lock())
+    return lock.acquire(blocking=False)
+
+
+def _release_thread_lock(graph_name: str, thread_id: str) -> None:
+    """Release a per-thread lock."""
+    with _thread_locks_guard:
+        lock = _thread_locks.get((graph_name, thread_id))
+    if lock is not None:
+        lock.release()
+
+
+def _serialize_graph_output(result: Any) -> dict[str, Any]:
+    """Convert a graph invoke result to a JSON-serializable dict.
+
+    Handles:
+    - dict → pass through
+    - Pydantic BaseModel → model_dump(mode="json")
+    - dataclass → dataclasses.asdict()
+    - other → {"result": str(result)} with warning
+    """
+    if isinstance(result, dict):
+        return result
+
+    # Pydantic BaseModel
+    model_dump = getattr(result, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return model_dump(mode="json")  # type: ignore[no-any-return]
+        except Exception:
+            pass
+
+    # dataclass
+    if dataclasses.is_dataclass(result) and not isinstance(result, type):
+        try:
+            return dataclasses.asdict(result)
+        except Exception:
+            pass
+
+    # Fallback
+    logger.warning(
+        "Graph returned non-dict result of type %s; wrapping as {'result': str(...)}",
+        type(result).__name__,
+    )
+    return {"result": str(result)}
 
 # ------------------------------------------------------------------
 # Invoke handler
@@ -93,14 +150,26 @@ def handle_invoke(
             return _error_response(400, config_err)
 
     config = request.config or {}
+    thread_id = config.get("configurable", {}).get("thread_id")
+    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    locked = False
+    if has_cp and thread_id:
+        locked = _acquire_thread_lock(reg.name, thread_id)
+        if not locked:
+            return _error_response(
+                409, f"Thread {thread_id!r} is currently in use by another request"
+            )
     try:
         result = reg.graph.invoke(request.input, config=config)
     except Exception as exc:
         logger.exception("Graph %s invoke failed", reg.name)
         _ = exc
         return _error_response(500, "Graph execution failed")
+    finally:
+        if locked:
+            _release_thread_lock(reg.name, thread_id)
 
-    output = result if isinstance(result, dict) else {"result": result}
+    output = _serialize_graph_output(result)
     response = InvokeResponse(output=output)
     return func.HttpResponse(
         body=response.model_dump_json(),
@@ -170,6 +239,16 @@ def handle_stream(
             return _error_response(400, config_err)
 
     config = request.config or {}
+    thread_id = config.get("configurable", {}).get("thread_id")
+    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    locked = False
+    if has_cp and thread_id:
+        locked = _acquire_thread_lock(reg.name, thread_id)
+        if not locked:
+            return _error_response(
+                409, f"Thread {thread_id!r} is currently in use by another request"
+            )
+
     chunks: list[str] = []
     buffered_bytes = 0
 
@@ -200,6 +279,7 @@ def handle_stream(
             serialized = json.dumps(
                 event if isinstance(event, dict) else {"data": str(event)},
                 default=str,
+                allow_nan=False,
             )
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
                 break
@@ -208,6 +288,9 @@ def handle_stream(
         _ = exc
         error_payload = json.dumps({"error": "stream processing failed"})
         _append_chunk(f"event: error\ndata: {error_payload}\n\n")
+    finally:
+        if locked:
+            _release_thread_lock(reg.name, thread_id)
 
     _append_chunk("event: end\ndata: {}\n\n")
 

@@ -44,6 +44,12 @@ def _release_thread_run_lock(
             thread_id,
             status,
         )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Unexpected error releasing run lock for thread %s (target status: %s)",
+            thread_id,
+            status,
+        )
 
 
 def register_run_routes(

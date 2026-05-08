@@ -8,7 +8,7 @@ Request models use ``model_config = ConfigDict(extra="ignore")`` so
 that unknown fields sent by newer SDK versions are silently dropped
 instead of causing 422 errors.
 
-The shapes target **langgraph-sdk ~0.1** (``langgraph_sdk.schema``
+The shapes target the **langgraph-sdk** wire format (``langgraph_sdk.schema``
 as of 2025-06).  Fields added in later SDK versions will be silently
 dropped on request models and absent on response models until this
 module is updated.

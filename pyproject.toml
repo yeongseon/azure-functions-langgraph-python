@@ -115,6 +115,13 @@ precommit = "pre-commit run --all-files"
 precommit-install = "pre-commit install"
 security = "python -m bandit -r src"
 
+[tool.hatch.envs.cosmos]
+python = "3.10"
+features = ["dev", "cosmos"]
+
+[tool.hatch.envs.cosmos.scripts]
+test = "pytest -v -m integration tests/integration/ --no-cov"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from typing import Any
 from unittest.mock import MagicMock
@@ -355,6 +356,66 @@ class TestInvokeHandler:
         data = json.loads(resp.get_body())
         assert data["output"]["result"] == "hello"
 
+    def test_invoke_pydantic_basemodel_result(self) -> None:
+        """Graph returning a Pydantic BaseModel is serialized via model_dump."""
+        from pydantic import BaseModel
+
+        class OutputModel(BaseModel):
+            answer: str = "42"
+            score: float = 0.99
+
+        class ModelGraph:
+            checkpointer = None
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> Any:
+                return OutputModel()
+
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: Any = None,
+                stream_mode: str = "values",
+            ) -> Any:
+                yield {"data": "chunk"}
+
+        app = LangGraphApp()
+        app.register(graph=ModelGraph(), name="agent")
+        req = self._make_request({"input": {"messages": []}})
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["output"] == {"answer": "42", "score": 0.99}
+
+    def test_invoke_dataclass_result(self) -> None:
+        """Graph returning a dataclass is serialized via dataclasses.asdict."""
+
+        @dataclasses.dataclass
+        class OutputDC:
+            answer: str = "42"
+            score: float = 0.99
+
+        class DCGraph:
+            checkpointer = None
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> Any:
+                return OutputDC()
+
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: Any = None,
+                stream_mode: str = "values",
+            ) -> Any:
+                yield {"data": "chunk"}
+
+        app = LangGraphApp()
+        app.register(graph=DCGraph(), name="agent")
+        req = self._make_request({"input": {"messages": []}})
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        data = json.loads(resp.get_body())
+        assert data["output"] == {"answer": "42", "score": 0.99}
+
 
 # ------------------------------------------------------------------
 # Stream handler tests
@@ -460,6 +521,18 @@ class TestStreamHandler:
         payload = json.loads(resp.get_body())
         assert "invoke-only" in payload["detail"]
 
+    def test_stream_rejects_nan_in_output(self) -> None:
+        """Non-finite floats must not produce invalid JSON in SSE."""
+        nan_events = [{"value": float("nan")}]
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(stream_results=nan_events), name="agent")
+        req = self._make_request({"input": {"messages": []}})
+        resp = app._handle_stream(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        body = resp.get_body().decode()
+        # NaN chunk should trigger error event, not produce invalid JSON
+        assert "event: error" in body
+        assert "NaN" not in body.split("event: error")[0]  # no raw NaN before error
 
 # ------------------------------------------------------------------
 # State handler tests
@@ -885,3 +958,113 @@ class TestVersionIsString:
 
         assert isinstance(__version__, str)
         assert len(__version__) > 0
+
+
+
+class TestCustomRoutePrefix:
+    """Test that route_prefix is configurable."""
+
+    def test_metadata_uses_custom_route_prefix(self) -> None:
+        """get_app_metadata paths should reflect a custom route_prefix."""
+        app = LangGraphApp(route_prefix="/custom")
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        metadata = app.get_app_metadata()
+        assert metadata.app_routes
+        assert all(r.path.startswith("/custom/") for r in metadata.app_routes)
+        # Health endpoint also uses custom prefix
+        health = [r for r in metadata.app_routes if "health" in r.path]
+        assert health
+        assert health[0].path.startswith("/custom/")
+
+    def test_default_route_prefix(self) -> None:
+        """Default route_prefix should be /api."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        metadata = app.get_app_metadata()
+        assert metadata.app_routes
+        assert all(r.path.startswith("/api/") for r in metadata.app_routes)
+
+
+class TestStreamDisabledNoRoute:
+    """When stream=False, no stream route is registered."""
+
+    def test_stream_false_no_stream_function(self) -> None:
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent", stream=False)
+        fa = app.function_app
+        fn_names = [fn.get_function_name() for fn in fa.get_functions()]
+        assert "aflg_agent_stream" not in fn_names
+        assert "aflg_agent_invoke" in fn_names
+
+    def test_stream_true_has_stream_function(self) -> None:
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent", stream=True)
+        fa = app.function_app
+        fn_names = [fn.get_function_name() for fn in fa.get_functions()]
+        assert "aflg_agent_stream" in fn_names
+
+
+class TestNativeEndpointThreadLock:
+    """Native endpoints acquire per-thread lock for checkpointed graphs."""
+
+    def _make_request(self, body: dict[str, Any]) -> func.HttpRequest:
+        return func.HttpRequest(
+            method="POST",
+            body=json.dumps(body).encode(),
+            url="/api/graphs/agent/invoke",
+            headers={"Content-Type": "application/json"},
+        )
+
+    def test_concurrent_invoke_returns_409(self) -> None:
+        """Second concurrent invoke on same thread returns 409."""
+        from azure_functions_langgraph._handlers import (
+            _acquire_thread_lock,
+            _release_thread_lock,
+        )
+
+        class CheckpointedGraph:
+            checkpointer = object()  # truthy = has checkpointer
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
+                return {"result": "ok"}
+
+            def stream(
+                self, input: Any, config: Any = None, stream_mode: str = "values",
+            ) -> list[Any]:
+                return []
+
+        app = LangGraphApp()
+        app.register(graph=CheckpointedGraph(), name="agent")
+        config = {"configurable": {"thread_id": "t1"}}
+
+        # Pre-acquire the lock to simulate concurrent request
+        assert _acquire_thread_lock("agent", "t1") is True
+
+        req = self._make_request({"input": {"msg": "hi"}, "config": config})
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 409
+        assert "currently in use" in json.loads(resp.get_body())["detail"]
+
+        # Cleanup
+        _release_thread_lock("agent", "t1")
+
+    def test_invoke_without_thread_id_no_lock(self) -> None:
+        """Without thread_id in config, no locking occurs."""
+
+        class CheckpointedGraph:
+            checkpointer = object()
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
+                return {"result": "ok"}
+
+            def stream(
+                self, input: Any, config: Any = None, stream_mode: str = "values",
+            ) -> list[Any]:
+                return []
+
+        app = LangGraphApp()
+        app.register(graph=CheckpointedGraph(), name="agent")
+
+        req = self._make_request({"input": {"msg": "hi"}})
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 200

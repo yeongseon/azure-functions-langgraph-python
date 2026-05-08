@@ -5,7 +5,11 @@ from typing import Any
 
 import azure.functions as func
 
-from azure_functions_langgraph._validation import validate_body_size, validate_thread_id
+from azure_functions_langgraph._validation import (
+    validate_body_size,
+    validate_input_structure,
+    validate_thread_id,
+)
 from azure_functions_langgraph.platform._common import (
     _UNSUPPORTED_THREAD_FILTER_FIELDS,
     PlatformRouteDeps,
@@ -310,6 +314,20 @@ def register_thread_routes(
         except Exception as exc:
             return _platform_error(422, f"Validation error: {exc}")
 
+        # Validate input structure depth/size on values payload
+        values_to_check = (
+            update_req.values
+            if isinstance(update_req.values, dict)
+            else {"items": update_req.values}
+        )
+        val_err = validate_input_structure(
+            values_to_check,
+            max_depth=deps.max_input_depth,
+            max_nodes=deps.max_input_nodes,
+        )
+        if val_err:
+            return _platform_error(400, val_err)
+
         thread = deps.thread_store.get(thread_id)
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
@@ -402,6 +420,16 @@ def register_thread_routes(
             hist_req = ThreadHistoryRequest.model_validate(body)
         except Exception as exc:
             return _platform_error(422, f"Validation error: {exc}")
+
+        # Validate metadata structure if provided
+        if hist_req.metadata is not None:
+            val_err = validate_input_structure(
+                hist_req.metadata,
+                max_depth=deps.max_input_depth,
+                max_nodes=deps.max_input_nodes,
+            )
+            if val_err:
+                return _platform_error(400, val_err)
 
         thread = deps.thread_store.get(thread_id)
         if thread is None:

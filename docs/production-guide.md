@@ -386,6 +386,26 @@ The helper **fails closed** per namespace: if `latest.json` is missing or any su
 
 If you want absolute cutoffs instead of "keep N", use `delete_checkpoints_before(thread_id, before_checkpoint_id=...)`. Checkpoint ids are lexicographically sortable, so `before_checkpoint_id` can be the id of any boundary checkpoint your application picks (e.g. the last successful production checkpoint of a previous day).
 
+#### Operational guidance for orphan GC
+
+The per-orphan re-scan ensures correctness but has **O(orphans × surviving_checkpoints)** blob-list cost. For namespaces with thousands of orphans, this translates to significant Azure Storage transactions.
+
+**Recommended cadence:**
+
+| Thread profile | Retention + GC frequency | Notes |
+|---|---|---|
+| Short-lived (< 100 checkpoints) | Weekly or on-demand | Low orphan count; cost negligible |
+| Long-lived (1,000+ checkpoints) | Daily, off-peak hours | Prune first (`delete_old_checkpoints`), then GC |
+| High-throughput (many concurrent threads) | Nightly Timer trigger | Batch across threads; respect `grace_period_seconds` |
+
+**Best practices:**
+
+1. **Always dry-run first**: `collect_orphaned_values(thread_id, dry_run=True)` — inspect `result.candidates` count before committing.
+2. **Prune checkpoints before GC**: Fewer surviving checkpoints = cheaper re-scan per orphan.
+3. **Keep `grace_period_seconds` ≥ 300**: Protects against race with in-flight checkpoint writes.
+4. **Monitor `result.skipped_namespaces`**: Non-empty means something is wrong with checkpoint blobs — investigate before retrying.
+5. **Budget estimate**: Each orphan candidate triggers 1 list operation + 1 delete (if confirmed). At ~$0.004/10,000 transactions, a namespace with 10,000 orphans costs ~$0.008 per GC run.
+
 ### Connection string security
 
 Do not hardcode storage secrets in source code or deployment artifacts.
@@ -398,6 +418,89 @@ Use one of these patterns:
 
 ⚠️ Treat `AZURE_STORAGE_CONNECTION_STRING` as a high-value credential.
 
+### Postgres checkpointer
+
+The `create_postgres_checkpointer` helper opens a **single `psycopg` connection** for the lifetime of the worker process. This is intentional for Azure Functions' single-threaded, event-driven model, but production deployments must account for connection reliability and pooling at the infrastructure layer.
+
+#### PgBouncer (recommended)
+
+Azure Database for PostgreSQL Flexible Server exposes a built-in [PgBouncer](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-pgbouncer) on port 6432. Enable it in the Azure Portal under **Server parameters → pgbouncer.enabled**.
+
+When PgBouncer is in **transaction pooling** mode, disable prepared statements:
+
+```python
+from azure_functions_langgraph.checkpointers.postgres import create_postgres_checkpointer
+
+checkpointer = create_postgres_checkpointer(
+    conn_string=os.environ["POSTGRES_CONN_STRING"],
+    prepare_threshold=None,  # required for transaction-pooling PgBouncer
+)
+```
+
+| PgBouncer Mode | `prepare_threshold` | Notes |
+|---|---|---|
+| Transaction pooling | `None` | Prepared statements not preserved across server reassignment |
+| Session pooling | `0` (default) | Safe — connection affinity maintained |
+| Disabled (direct) | `0` (default) | No proxy overhead |
+
+#### Connection resilience
+
+psycopg does **not** auto-reconnect on transient failures (network blip, Azure maintenance, failover). The worker process will crash on the next checkpoint write, and Azure Functions will restart it — which triggers a cold start and a fresh connection.
+
+For most Consumption/Premium plan deployments this is acceptable because:
+
+1. Cold starts are infrequent (minutes apart).
+2. `create_postgres_checkpointer(setup=True)` re-runs migrations idempotently on restart.
+3. Azure Functions' built-in retry and scale-out mask brief unavailability.
+
+If you need **in-process reconnect** without a full cold start (e.g. Dedicated plan with long-lived workers), wrap with a retry at the application layer:
+
+```python
+import os
+import functools
+from azure_functions_langgraph.checkpointers.postgres import create_postgres_checkpointer
+
+_checkpointer = None
+
+
+def get_checkpointer():
+    global _checkpointer
+    if _checkpointer is None:
+        _checkpointer = create_postgres_checkpointer(
+            conn_string=os.environ["POSTGRES_CONN_STRING"],
+        )
+    return _checkpointer
+```
+
+If the connection is lost, the next invoke will fail, the Functions runtime logs the error, and a subsequent cold start re-establishes the connection. For tighter control, consider a health-check Timer trigger that validates the connection and forces a restart via `sys.exit(1)` when stale.
+
+#### Connection pool (when to consider)
+
+The built-in helper uses a single connection. This is sufficient when:
+
+- Each function invocation is short-lived (< 30 s).
+- The plan is Consumption or Premium (short worker lifetime, auto-scale handles throughput).
+- PgBouncer handles multiplexing at the infrastructure layer.
+
+A true application-side connection pool (`psycopg_pool.ConnectionPool`) is rarely needed because Azure Functions' concurrency model routes one invocation at a time per worker. If you are on a Dedicated (App Service) plan with `FUNCTIONS_WORKER_PROCESS_COUNT > 1`, consider a pool — but first verify PgBouncer alone isn't sufficient.
+
+#### Azure-specific timeouts
+
+Set these App Settings to avoid silent connection drops:
+
+| Setting | Recommended | Why |
+|---|---|---|
+| `PGCONNECT_TIMEOUT` | `10` | Fail fast on unreachable DB during cold start |
+| `PGOPTIONS` | `-c statement_timeout=30000` | Kill runaway queries (30 s) |
+| `WEBSITE_TCP_KEEPALIVE` | `1` | Enable TCP keepalive on Azure networking layer |
+
+For Azure Database for PostgreSQL Flexible Server, also ensure:
+
+- **SSL mode**: `require` (default; never disable in production).
+- **Firewall**: Allow the Function App's outbound IPs or use VNet integration + private endpoint.
+- **Connection limit**: Flexible Server defaults to `max_connections = 50-100` depending on SKU. With PgBouncer, a single Functions worker needs only 1 backend connection.
+
+
 ## Sources
 
 - [Azure Functions Python developer reference](https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python)
@@ -406,6 +509,8 @@ Use one of these patterns:
 - [Azure Blob Storage documentation](https://learn.microsoft.com/en-us/azure/storage/blobs/)
 - [Azure Table Storage documentation](https://learn.microsoft.com/en-us/azure/storage/tables/)
 - [Azure Functions scale and hosting](https://learn.microsoft.com/en-us/azure/azure-functions/functions-scale)
+- [Azure Database for PostgreSQL Flexible Server PgBouncer](https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-pgbouncer)
+- [psycopg 3 documentation](https://www.psycopg.org/psycopg3/docs/)
 
 ## See Also
 
