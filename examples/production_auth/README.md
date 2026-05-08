@@ -4,15 +4,15 @@ Demonstrates the per-graph `auth_level` override pattern: a public, anonymous he
 
 ## Auth model
 
-The app uses `auth_level=AuthLevel.ANONYMOUS` (so `GET /api/health` is reachable without a key), and **overrides per registration**:
+The app uses `auth_level=AuthLevel.FUNCTION` as the default (so all endpoints require a function key), with `health_auth_level=AuthLevel.FUNCTION` to also protect the health endpoint. Individual graphs **override** the default:
 
 | Endpoint | Auth | Why |
 | --- | --- | --- |
-| `GET /api/health` | ANONYMOUS | Liveness probe / public discovery |
+| `GET /api/health` | FUNCTION | Protected; set `health_auth_level=ANONYMOUS` to expose |
 | `POST /api/graphs/public_agent/{invoke,stream}` | ANONYMOUS | Demo / public surface |
 | `POST /api/graphs/private_agent/{invoke,stream}` | FUNCTION | Requires `?code=<FUNCTION_KEY>` |
 
-> **Production tip:** flip the defaults if your service is mostly private. Set `LangGraphApp(auth_level=FUNCTION)` and register only the explicitly public graphs with `auth_level=ANONYMOUS`. Note that the `/api/health` endpoint inherits the app-level auth — protect or expose it accordingly.
+> **Tip:** For a public health endpoint, omit `health_auth_level` (defaults to `ANONYMOUS`). For a mostly-public service, set `LangGraphApp(auth_level=ANONYMOUS)` and protect only specific graphs with `auth_level=FUNCTION`.
 
 ## Files
 
@@ -35,9 +35,10 @@ func start
 ## Verify
 
 ```bash
-# Anonymous: works without a key
-curl -s http://localhost:7071/api/health
+# Health: requires a key (health_auth_level=FUNCTION)
+curl -s "http://localhost:7071/api/health?code=$FUNCTION_KEY"
 
+# Public agent: works without a key (per-graph ANONYMOUS override)
 curl -s -X POST http://localhost:7071/api/graphs/public_agent/invoke \
   -H "Content-Type: application/json" \
   -d '{"input":{"messages":[{"role":"human","content":"hi"}]}}'

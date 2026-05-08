@@ -29,6 +29,7 @@ compiled_graph = build_graph().compile(checkpointer=checkpointer)
 
 langgraph_app = LangGraphApp(
     platform_compat=True,
+    # Local dev: ANONYMOUS; use FUNCTION + health_auth_level=FUNCTION in production
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 langgraph_app.thread_store = thread_store

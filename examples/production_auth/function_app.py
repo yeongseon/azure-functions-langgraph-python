@@ -4,7 +4,12 @@ import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-langgraph_app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
+# Production: default to FUNCTION; override per-graph as needed
+langgraph_app = LangGraphApp(
+    auth_level=func.AuthLevel.FUNCTION,
+    # Explicitly protect health endpoint in production; defaults to ANONYMOUS
+    health_auth_level=func.AuthLevel.FUNCTION,
+)
 
 langgraph_app.register(
     graph=private_graph,

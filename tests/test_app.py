@@ -1068,3 +1068,158 @@ class TestNativeEndpointThreadLock:
         req = self._make_request({"input": {"msg": "hi"}})
         resp = app._handle_invoke(req, app._registrations["agent"])
         assert resp.status_code == 200
+
+    def test_lock_cleanup_after_release(self) -> None:
+        """Lock entry is removed from dict after release."""
+        from azure_functions_langgraph._handlers import (
+            _acquire_thread_lock,
+            _release_thread_lock,
+            _thread_locks,
+        )
+
+        key = ("cleanup_test", "t-cleanup")
+        assert _acquire_thread_lock(*key) is True
+        assert key in _thread_locks
+        _release_thread_lock(*key)
+        assert key not in _thread_locks
+
+    def test_lock_reacquire_after_release(self) -> None:
+        """Lock can be reacquired after release."""
+        from azure_functions_langgraph._handlers import (
+            _acquire_thread_lock,
+            _release_thread_lock,
+        )
+
+        assert _acquire_thread_lock("reacq", "t1") is True
+        _release_thread_lock("reacq", "t1")
+        assert _acquire_thread_lock("reacq", "t1") is True
+        _release_thread_lock("reacq", "t1")
+
+class TestExtractThreadId:
+    """Tests for _extract_thread_id helper."""
+
+    def test_no_configurable(self) -> None:
+        from azure_functions_langgraph._handlers import _extract_thread_id
+        tid, err = _extract_thread_id({})
+        assert tid is None
+        assert err is None
+
+    def test_configurable_none(self) -> None:
+        from azure_functions_langgraph._handlers import _extract_thread_id
+        tid, err = _extract_thread_id({"configurable": None})
+        assert tid is None
+        assert err is None
+
+    def test_configurable_not_dict(self) -> None:
+        from azure_functions_langgraph._handlers import _extract_thread_id
+        tid, err = _extract_thread_id({"configurable": "bad-value"})
+        assert tid is None
+        assert err is not None
+        assert "must be an object" in err
+
+    def test_configurable_no_thread_id(self) -> None:
+        from azure_functions_langgraph._handlers import _extract_thread_id
+        tid, err = _extract_thread_id({"configurable": {"model": "gpt-4"}})
+        assert tid is None
+        assert err is None
+
+    def test_thread_id_not_string(self) -> None:
+        from azure_functions_langgraph._handlers import _extract_thread_id
+        tid, err = _extract_thread_id({"configurable": {"thread_id": 123}})
+        assert tid is None
+        assert err is not None
+        assert "must be a string" in err
+
+    def test_valid_thread_id(self) -> None:
+        from azure_functions_langgraph._handlers import _extract_thread_id
+        tid, err = _extract_thread_id({"configurable": {"thread_id": "t1"}})
+        assert tid == "t1"
+        assert err is None
+
+    def test_empty_thread_id(self) -> None:
+        from azure_functions_langgraph._handlers import _extract_thread_id
+        tid, err = _extract_thread_id({"configurable": {"thread_id": ""}})
+        assert tid is None
+        assert err is not None
+        assert "must not be empty" in err
+
+
+class TestMalformedConfigReturns400:
+    """Malformed config.configurable returns 400 on invoke/stream."""
+
+    def _make_request(self, body: dict[str, Any]) -> func.HttpRequest:
+        return func.HttpRequest(
+            method="POST",
+            body=json.dumps(body).encode(),
+            url="/api/graphs/agent/invoke",
+            headers={"Content-Type": "application/json"},
+        )
+
+    def _make_graph_and_app(self) -> LangGraphApp:
+        class CheckpointedGraph:
+            checkpointer = object()
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
+                return {"result": "ok"}
+
+            def stream(
+                self, input: Any, config: Any = None, stream_mode: str = "values",
+            ) -> list[Any]:
+                return []
+
+        app = LangGraphApp()
+        app.register(graph=CheckpointedGraph(), name="agent")
+        return app
+
+    def test_invoke_configurable_not_dict_returns_400(self) -> None:
+        app = self._make_graph_and_app()
+        req = self._make_request({"input": {"msg": "hi"}, "config": {"configurable": "bad"}})
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 400
+        assert "must be an object" in json.loads(resp.get_body())["detail"]
+
+    def test_invoke_thread_id_not_string_returns_400(self) -> None:
+        app = self._make_graph_and_app()
+        body = {"input": {"msg": "hi"}, "config": {"configurable": {"thread_id": 42}}}
+        req = self._make_request(body)
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 400
+        assert "must be a string" in json.loads(resp.get_body())["detail"]
+
+    def test_stream_configurable_not_dict_returns_400(self) -> None:
+        app = self._make_graph_and_app()
+        req = self._make_request({"input": {"msg": "hi"}, "config": {"configurable": "bad"}})
+        resp = app._handle_stream(req, app._registrations["agent"])
+        assert resp.status_code == 400
+        assert "must be an object" in json.loads(resp.get_body())["detail"]
+
+
+class TestRouteNormalization:
+    """route_prefix is normalized in __post_init__."""
+
+    def test_no_leading_slash(self) -> None:
+        app = LangGraphApp(route_prefix="api")
+        assert app.route_prefix == "/api"
+
+    def test_trailing_slash_stripped(self) -> None:
+        app = LangGraphApp(route_prefix="/api/")
+        assert app.route_prefix == "/api"
+
+    def test_double_slash_stripped(self) -> None:
+        app = LangGraphApp(route_prefix="/api//")
+        assert app.route_prefix == "/api"
+
+    def test_root_prefix(self) -> None:
+        app = LangGraphApp(route_prefix="/")
+        assert app.route_prefix == "/"
+
+    def test_root_prefix_metadata_no_double_slash(self) -> None:
+        """route_prefix='/' should produce /graphs/... not //graphs/..."""
+        app = LangGraphApp(route_prefix="/")
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        metadata = app.get_app_metadata()
+        invoke_path = metadata.graphs["agent"].routes[0].path
+        assert invoke_path == "/graphs/agent/invoke"
+        assert not invoke_path.startswith("//")
+        health_path = metadata.app_routes[0].path
+        assert health_path == "/health"

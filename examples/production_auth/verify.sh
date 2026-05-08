@@ -4,8 +4,13 @@ set -euo pipefail
 BASE="${BASE:-http://localhost:7071/api}"
 KEY="${FUNCTION_KEY:-}"
 
-echo "== anonymous health =="
-curl -fsS "$BASE/health" && echo
+echo "== health (requires key) =="
+if [[ -n "$KEY" ]]; then
+  curl -fsS "$BASE/health?code=$KEY" && echo
+else
+  status=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/health")
+  echo "  HTTP $status (set FUNCTION_KEY to get 200)"
+fi
 
 echo "== anonymous public_agent =="
 curl -fsS -X POST "$BASE/graphs/public_agent/invoke" \

@@ -127,6 +127,10 @@ class LangGraphApp:
                 "  See the 'Production authentication' section in README.md\n"
                 "Note: The default will change from ANONYMOUS to FUNCTION in v1.0."
             )
+        # Normalize route_prefix: ensure leading slash, strip trailing slashes
+        if not self.route_prefix.startswith("/"):
+            self.route_prefix = "/" + self.route_prefix
+        self.route_prefix = self.route_prefix.rstrip("/") or "/"
         if self.platform_compat and self._thread_store is None:
             from azure_functions_langgraph.platform.stores import InMemoryThreadStore
 
@@ -331,6 +335,12 @@ class LangGraphApp:
             return reg.auth_level
         return self.auth_level
 
+    def _metadata_path(self, route: str) -> str:
+        """Join route_prefix and route, avoiding double slashes."""
+        if self.route_prefix == "/":
+            return f"/{route}"
+        return f"{self.route_prefix}/{route}"
+
     # ------------------------------------------------------------------
     # Request handlers (thin delegation to _handlers module)
     # ------------------------------------------------------------------
@@ -384,7 +394,7 @@ class LangGraphApp:
             # invoke route
             routes.append(
                 RouteMetadata(
-                    path=f"{self.route_prefix}/{_ROUTE_INVOKE.format(name=reg.name)}",
+                    path=self._metadata_path(_ROUTE_INVOKE.format(name=reg.name)),
                     method="POST",
                     summary=f"Invoke graph '{reg.name}'",
                     request_model=reg.request_model,
@@ -395,7 +405,7 @@ class LangGraphApp:
             if reg.stream_enabled:
                 routes.append(
                     RouteMetadata(
-                        path=f"{self.route_prefix}/{_ROUTE_STREAM.format(name=reg.name)}",
+                        path=self._metadata_path(_ROUTE_STREAM.format(name=reg.name)),
                         method="POST",
                         summary=f"Stream graph '{reg.name}'",
                         request_model=reg.request_model,
@@ -406,7 +416,7 @@ class LangGraphApp:
             if isinstance(reg.graph, StatefulGraph):
                 routes.append(
                     RouteMetadata(
-                        path=f"{self.route_prefix}/{_ROUTE_STATE.format(name=reg.name)}",
+                        path=self._metadata_path(_ROUTE_STATE.format(name=reg.name)),
                         method="GET",
                         summary=f"Get thread state for '{reg.name}'",
                         parameters=(
@@ -430,7 +440,7 @@ class LangGraphApp:
         # App-level routes
         app_routes: tuple[RouteMetadata, ...] = (
             RouteMetadata(
-                path=f"{self.route_prefix}/{_ROUTE_HEALTH}",
+                path=self._metadata_path(_ROUTE_HEALTH),
                 method="GET",
                 summary="Health check",
             ),

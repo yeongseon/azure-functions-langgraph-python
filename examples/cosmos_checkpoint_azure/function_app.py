@@ -20,6 +20,8 @@ compiled_graph = build_graph().compile(checkpointer=checkpointer)
 langgraph_app = LangGraphApp(
     platform_compat=True,
     auth_level=func.AuthLevel.FUNCTION,
+    # Explicitly protect health endpoint in production; defaults to ANONYMOUS
+    health_auth_level=func.AuthLevel.FUNCTION,
 )
 
 langgraph_app.register(

@@ -87,8 +87,9 @@ test: ensure-hatch
 
 .PHONY: test-cosmos
 test-cosmos: ensure-hatch
-	docker compose -f docker-compose.cosmos.yml up -d --wait && \
-	trap 'docker compose -f docker-compose.cosmos.yml down' EXIT && \
+	@set -e; \
+	trap 'docker compose -f docker-compose.cosmos.yml down' EXIT; \
+	docker compose -f docker-compose.cosmos.yml up -d --wait; \
 	COSMOS_EMULATOR_ENDPOINT=https://localhost:8081 $(HATCH) run cosmos:test
 
 .PHONY: cov
