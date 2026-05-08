@@ -53,6 +53,9 @@ def _extract_thread_id(config: dict[str, Any]) -> tuple[str | None, str | None]:
         return None, None
     if not isinstance(thread_id, str):
         return None, "config.configurable.thread_id must be a string"
+    tid_err = validate_thread_id(thread_id)
+    if tid_err:
+        return None, tid_err
     return thread_id, None
 
 

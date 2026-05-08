@@ -1136,6 +1136,13 @@ class TestExtractThreadId:
         assert tid == "t1"
         assert err is None
 
+    def test_empty_thread_id(self) -> None:
+        from azure_functions_langgraph._handlers import _extract_thread_id
+        tid, err = _extract_thread_id({"configurable": {"thread_id": ""}})
+        assert tid is None
+        assert err is not None
+        assert "must not be empty" in err
+
 
 class TestMalformedConfigReturns400:
     """Malformed config.configurable returns 400 on invoke/stream."""
