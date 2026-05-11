@@ -122,6 +122,13 @@ features = ["dev", "cosmos"]
 [tool.hatch.envs.cosmos.scripts]
 test = "pytest -v -m integration tests/integration/ --no-cov"
 
+[tool.hatch.envs.table]
+python = "3.10"
+features = ["dev", "azure-table"]
+
+[tool.hatch.envs.table.scripts]
+test = "pytest -v -m integration tests/integration/test_table_store_integration.py --no-cov"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
