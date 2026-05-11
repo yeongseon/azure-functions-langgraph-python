@@ -160,6 +160,11 @@ from azure_functions_langgraph import LangGraphApp
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 ```
 
+> **注意：** `health_auth_level` 默认为 `ANONYMOUS`，与 `auth_level` 独立。
+> 这意味着即使设置了 `auth_level=FUNCTION`，health 端点仍然是公开可访问的。
+> 如果希望 health 端点也要求 function key，请显式设置
+> `health_auth_level=func.AuthLevel.FUNCTION`。
+
 ### 流式传输行为
 
 > **重要：** 所有 `/stream` 端点（包括原生的 `POST /api/graphs/{name}/stream`，
