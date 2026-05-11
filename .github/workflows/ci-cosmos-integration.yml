@@ -1,10 +1,24 @@
 name: Cosmos Integration
 
+# Cosmos integration tests run against the Microsoft-published Linux Cosmos
+# emulator, which is known to be flaky on GitHub-hosted runners (see #202 and
+# upstream microsoft/azure-cosmos-emulator-docker issues). To keep PRs
+# unblocked while still exercising Cosmos coverage regularly, this workflow:
+#
+#   * does NOT run on push or pull_request,
+#   * runs nightly on a schedule (03:00 UTC),
+#   * can be triggered manually via workflow_dispatch.
+#
+# Ownership / monitoring: the repository maintainer (yeongseon) is responsible
+# for triaging nightly failures via the Actions tab. A red nightly run does
+# NOT block merges; persistent failures should be filed as a follow-up issue.
+# Local validation: contributors can run `make test-cosmos` against the
+# docker-compose emulator before merging Cosmos-touching changes.
+
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-  push:
-    branches: [main]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,7 +26,8 @@ permissions:
 jobs:
   cosmos-integration:
     runs-on: ubuntu-latest
-    continue-on-error: true  # experimental: Cosmos Linux emulator can be flaky on GitHub-hosted runners
+    # Scheduled runs are non-gating; remove continue-on-error so genuine
+    # regressions surface clearly in the Actions tab nightly.
     services:
       cosmos-emulator:
         image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator

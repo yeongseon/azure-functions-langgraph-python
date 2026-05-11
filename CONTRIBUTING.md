@@ -43,6 +43,12 @@ make cov         # Run tests with coverage
 make check-all   # Run the full local gate
 ```
 
+Integration tests (Azurite, Cosmos) require docker-compose services. The
+Cosmos emulator is known-flaky on GitHub-hosted runners, so CI does not run
+it on push or pull_request: it runs nightly on a schedule and on manual
+`workflow_dispatch`. Contributors touching Cosmos code should run
+`make test-cosmos` locally before merging.
+
 ## Example Coverage Policy
 
 Examples are part of the supported API experience and should stay verified.
