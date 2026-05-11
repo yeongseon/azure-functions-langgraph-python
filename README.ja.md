@@ -160,6 +160,11 @@ from azure_functions_langgraph import LangGraphApp
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 ```
 
+> **注記:** `health_auth_level` は `auth_level` とは独立してデフォルトが `ANONYMOUS` です。
+> このため、`auth_level=FUNCTION` を設定しても health エンドポイントは依然として公開されたままです。
+> health エンドポイントにも function key を要求したい場合は、`health_auth_level=func.AuthLevel.FUNCTION` を
+> 明示的に設定してください。
+
 ### ストリーミングの挙動
 
 > **重要:** すべての `/stream` エンドポイント（ネイティブ `POST /api/graphs/{name}/stream`、
