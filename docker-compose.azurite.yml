@@ -1,0 +1,13 @@
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --skipApiVersionCheck"
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 10002 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

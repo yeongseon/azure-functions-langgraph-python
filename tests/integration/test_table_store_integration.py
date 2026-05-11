@@ -65,11 +65,8 @@ def azurite_table_client() -> Iterator[_TableClientProtocol]:
             pass
 
 
-def _new_store(table_name: str) -> AzureTableThreadStore:
-    return AzureTableThreadStore.from_connection_string(
-        connection_string=AZURITE_TABLE_CONNECTION_STRING,
-        table_name=table_name,
-    )
+def _new_store(table_client: _TableClientProtocol) -> AzureTableThreadStore:
+    return AzureTableThreadStore.from_table_client(cast(Any, table_client))
 
 
 def _set_updated_at(
@@ -90,7 +87,7 @@ def _set_updated_at(
 def test_reset_stale_locks_resets_stale_and_skips_fresh(
     azurite_table_client: _TableClientProtocol,
 ) -> None:
-    store = _new_store(azurite_table_client.table_name)
+    store = _new_store(azurite_table_client)
 
     stale = store.create(metadata={"kind": "stale"})
     fresh = store.create(metadata={"kind": "fresh"})
@@ -116,7 +113,7 @@ def test_reset_stale_locks_uses_projection_rowkey_and_updated_at(
     azurite_table_client: _TableClientProtocol,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    store = _new_store(azurite_table_client.table_name)
+    store = _new_store(azurite_table_client)
     thread = store.create()
     _ = store.try_acquire_run_lock(thread.thread_id)
     _set_updated_at(
@@ -144,7 +141,7 @@ def test_reset_stale_locks_etag_cas_conflict_does_not_stomp(
     azurite_table_client: _TableClientProtocol,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    store = _new_store(azurite_table_client.table_name)
+    store = _new_store(azurite_table_client)
     thread = store.create()
     _ = store.try_acquire_run_lock(thread.thread_id)
     _set_updated_at(
@@ -195,7 +192,7 @@ def test_reset_stale_locks_delete_race_is_skipped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If a thread is deleted between query and CAS update, skip gracefully."""
-    store = _new_store(azurite_table_client.table_name)
+    store = _new_store(azurite_table_client)
     thread = store.create()
     _ = store.try_acquire_run_lock(thread.thread_id)
     _set_updated_at(

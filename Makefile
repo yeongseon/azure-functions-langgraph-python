@@ -90,7 +90,14 @@ test-cosmos: ensure-hatch
 	@set -e; \
 	trap 'docker compose -f docker-compose.cosmos.yml down' EXIT; \
 	docker compose -f docker-compose.cosmos.yml up -d --wait; \
-	COSMOS_EMULATOR_ENDPOINT=https://localhost:8081 $(HATCH) run cosmos:test
+	COSMOS_EMULATOR_ENDPOINT=https://localhost:8081 COSMOS_DISABLE_SSL=true $(HATCH) run cosmos:test
+
+.PHONY: test-table
+test-table: ensure-hatch
+	@set -e; \
+	trap 'docker compose -f docker-compose.azurite.yml down' EXIT; \
+	docker compose -f docker-compose.azurite.yml up -d --wait; \
+	$(HATCH) run table:test
 
 .PHONY: cov
 cov: ensure-hatch

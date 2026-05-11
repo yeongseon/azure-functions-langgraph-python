@@ -120,15 +120,15 @@ def _serialize_graph_output(result: Any) -> dict[str, Any]:
     if callable(model_dump):
         try:
             return model_dump(mode="json")  # type: ignore[no-any-return]
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.debug("model_dump failed: %s", exc)
 
     # dataclass
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
         try:
             return dataclasses.asdict(result)
-        except Exception:
-            pass
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.debug("dataclasses.asdict failed: %s", exc)
 
     # Fallback
     logger.warning(

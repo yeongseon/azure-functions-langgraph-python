@@ -385,8 +385,9 @@ class LangGraphApp:
         the ``azure-functions-openapi-python`` bridge use this to generate specs.
 
         Note:
-            Route paths use the default Azure Functions ``/api`` prefix.
             Route paths use the configured ``route_prefix`` (default ``/api``).
+            This metadata-only prefix should match the Azure Functions
+            ``host.json`` ``routePrefix`` setting.
         """
         graphs: dict[str, RegisteredGraphMetadata] = {}
         for reg in self._registrations.values():
