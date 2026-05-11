@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import datetime, timedelta, timezone
 import importlib
 from typing import Any, Protocol, cast
@@ -240,3 +240,43 @@ def test_reset_stale_locks_delete_race_is_skipped(
     assert reset_count == 0
     # Thread no longer exists
     assert store.get(thread.thread_id) is None
+
+
+def test_reset_stale_locks_projection_returns_usable_etag(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    """Projected query used by reset_stale_locks must expose a usable ETag.
+
+    The Azure Tables SDK may surface the ETag either via
+    ``entity.metadata["etag"]`` or as a top-level ``entity["etag"]`` key
+    depending on the SDK version. ``reset_stale_locks`` accepts either
+    shape, so this test asserts that at least one of them is populated
+    when querying with a projection (``select=...``) against Azurite.
+    """
+    store = _new_store(azurite_table_client)
+    thread = store.create()
+    acquired = store.try_acquire_run_lock(thread.thread_id)
+    assert acquired is not None, "expected to acquire run lock on fresh thread"
+
+    entities = list(
+        cast(
+            Iterable[object],
+            azurite_table_client.query_entities(
+                query_filter="PartitionKey eq 'thread' and status eq 'busy'",
+                select=["RowKey", "updated_at"],
+            ),
+        )
+    )
+    assert entities, "projected query should return the busy thread"
+
+    entity = entities[0]
+    metadata = getattr(entity, "metadata", None)
+    etag: object = None
+    if isinstance(metadata, Mapping):
+        etag = metadata.get("etag")
+    if etag is None and isinstance(entity, Mapping):
+        etag = entity.get("etag")
+    assert etag, (
+        "projected query result must expose a usable ETag via "
+        "entity.metadata['etag'] or entity['etag']"
+    )
