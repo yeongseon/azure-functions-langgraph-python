@@ -17,7 +17,7 @@
 - Public APIs must be fully typed.
 - Graph registration must remain protocol-based — accept any object satisfying `LangGraphLike`, not just `CompiledStateGraph`.
 - Keep documentation examples, app behaviour, and tests synchronized.
-- When bumping version, update `tests/test_public_api.py` to match the new version string.
+- Bumping version is automatic — `make release-patch` updates `__version__`, and the public-API test reads it back via `importlib.metadata.version(...)` so no test edits are needed.
 
 ## Issue Conventions
 

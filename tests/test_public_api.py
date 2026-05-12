@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 
-def test_version_string() -> None:
+def test_version_matches_distribution_metadata() -> None:
+    from importlib.metadata import version
+
     from azure_functions_langgraph import __version__
 
-    assert __version__ == "0.7.1"
+    assert __version__ == version("azure-functions-langgraph")
 
 
 def test_langgraph_app_importable() -> None:
