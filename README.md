@@ -471,6 +471,8 @@ For workloads that already run a managed database (or need state shared across m
 
 Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist; the Cosmos DB helper accepts an endpoint and key, temporarily wires the upstream `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` environment variables, and directly instantiates the upstream `CosmosDBSaver`:
 
+> **Authentication — `create_cosmos_checkpointer` uses key-based auth only.** Managed Identity / `DefaultAzureCredential` is **unsupported** by the upstream `langgraph-checkpoint-cosmosdb` package, so this helper temporarily wires `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` from the constructor arguments and restores the original environment afterwards. If your platform mandates passwordless auth to Cosmos DB, prefer one of the other checkpointer backends until upstream adds `TokenCredential` support.
+
 ```python
 import os
 from azure_functions_langgraph.checkpointers.postgres import create_postgres_checkpointer

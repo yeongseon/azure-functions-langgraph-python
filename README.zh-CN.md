@@ -315,6 +315,7 @@ func_app = app.function_app
 - **前缀扫描** — `AzureBlobCheckpointSaver` 通过 blob 前缀扫描列出检查点，事务数与延迟随每线程检查点数量增长。请使用下文的保留辅助函数加以约束。
 - **实体大小** — Azure Table 实体上限为 1 MB；当达到阈值的 90% 时会记录警告。
 - **锁清理警告** — `AzureTableThreadStore.reset_stale_locks` 使用投影查询（`select=["RowKey", "updated_at"]`），依赖于每行通过 `entity.metadata["etag"]` 或 `entity["etag"]` 中任一暴露 ETag。两种形状都未提供 ETag 的行会被跳过（记录为 DEBUG 日志），以免在没有可写 ETag 的情况下重置锁；下一轮扫描会重试。
+- **Cosmos DB 不支持 Managed Identity** — 上游 `langgraph-checkpoint-cosmosdb` 包未支持 `TokenCredential`，因此 `create_cosmos_checkpointer` **仅使用基于密钥的身份验证**。辅助函数从构造参数临时写入 `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` 环境变量，随后恢复。若平台要求对 Cosmos DB 采用免密码认证，请在上游添加 `TokenCredential` 支持之前选择其他检查点后端。
 
 #### 原生端点的线程锁
 
