@@ -296,6 +296,7 @@ func_app = app.function_app
 - **단일 파티션** — `AzureTableThreadStore`는 모든 스레드를 단일 PartitionKey에 저장하며, Azure Table 파티션당 처리량(Standard 계정 기준 약 2000 엔티티/초)에 의해 제한됩니다. `status` 외의 검색 및 카운트 필터링은 **클라이언트 사이드**에서 수행됩니다. [COMPATIBILITY.md](COMPATIBILITY.md) 참고.
 - **Prefix 스캔** — `AzureBlobCheckpointSaver`는 blob prefix 스캔으로 체크포인트를 나열하므로 트랜잭션 수와 지연이 스레드당 체크포인트 수에 비례하여 증가합니다. 아래 보존 헬퍼로 이를 제한하세요.
 - **엔티티 크기** — Azure Table 엔티티는 1 MB로 제한되며, 임계값의 90%에서 경고가 기록됩니다.
+- **스테일 락 정리 주의** — `AzureTableThreadStore.reset_stale_locks`는 프로젝션 쿼리(`select=["RowKey", "updated_at"]`)를 사용하며, `entity.metadata["etag"]` 또는 `entity["etag"]` 중 하나로도 ETag가 노출되어야 합니다. 두 형태 모두에서 ETag가 없는 행은 CAS용 ETag 없이 스테일 락을 재설정하지 않도록 건너뛰어(DEBUG 로그) 다음 스캔에서 다시 시도됩니다.
 
 #### 네이티브 엔드포인트 스레드 락
 
