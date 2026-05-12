@@ -101,6 +101,14 @@ class LangGraphApp:
         deployments, always pass ``auth_level`` explicitly.
         The ``health_auth_level`` parameter controls the auth level of the health
         endpoint independently and defaults to ``ANONYMOUS`` for convenience.
+
+    Note:
+        Per-thread locking on the native invoke/stream endpoints is
+        **in-process only** — it is not distributed across Function App
+        instances, worker processes, or hosts. For distributed run locking,
+        use Platform-compatible runs (``platform_compat=True``) with
+        :class:`~azure_functions_langgraph.stores.azure_table.AzureTableThreadStore`,
+        which provides ETag-based atomic locking.
     """
 
     auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS

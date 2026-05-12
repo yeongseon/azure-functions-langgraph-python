@@ -297,6 +297,12 @@ func_app = app.function_app
 - **Prefix 스캔** — `AzureBlobCheckpointSaver`는 blob prefix 스캔으로 체크포인트를 나열하므로 트랜잭션 수와 지연이 스레드당 체크포인트 수에 비례하여 증가합니다. 아래 보존 헬퍼로 이를 제한하세요.
 - **엔티티 크기** — Azure Table 엔티티는 1 MB로 제한되며, 임계값의 90%에서 경고가 기록됩니다.
 
+#### 네이티브 엔드포인트 스레드 락
+
+네이티브 invoke/stream 엔드포인트(`POST /api/graphs/{name}/invoke` 및 `.../stream`)는 그래프에 체크포인터가 있고 요청에 `config.configurable.thread_id`가 포함된 경우 **인프로세스 스레드별 락**을 사용합니다. 이는 동일 Python 워커 프로세스 내에서 단일 작성자 체크포인터(예: `AzureBlobCheckpointSaver`)에 대한 동시 쓰기를 방지합니다.
+
+> **중요:** 이는 **분산 락이 아닙니다**(not distributed). 여러 Function App 인스턴스, 워커 프로세스 또는 호스트 간에는 조율되지 않습니다. 분산 런 락이 필요하다면 `AzureTableThreadStore`와 함께 Platform 호환 런(`platform_compat=True`)을 사용하세요 — ETag 기반의 원자적 락을 제공합니다.
+
 #### 보존 헬퍼
 
 `AzureBlobCheckpointSaver`는 정기 정리(예: Timer 트리거 Function)를 위한 두 가지 헬퍼를 제공합니다:

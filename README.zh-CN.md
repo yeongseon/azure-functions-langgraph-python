@@ -297,6 +297,12 @@ func_app = app.function_app
 - **前缀扫描** — `AzureBlobCheckpointSaver` 通过 blob 前缀扫描列出检查点，事务数与延迟随每线程检查点数量增长。请使用下文的保留辅助函数加以约束。
 - **实体大小** — Azure Table 实体上限为 1 MB；当达到阈值的 90% 时会记录警告。
 
+#### 原生端点的线程锁
+
+原生 invoke/stream 端点（`POST /api/graphs/{name}/invoke` 与 `.../stream`）在图配置了 checkpointer 且请求包含 `config.configurable.thread_id` 时使用**进程内的逐线程锁**。它可防止同一 Python 工作进程内对单写入者 checkpointer（例如 `AzureBlobCheckpointSaver`）的并发写入。
+
+> **重要:** 这**不是分布式锁**（not distributed），不会跨多个 Function App 实例、工作进程或主机进行协调。如需分布式运行锁，请配合 `AzureTableThreadStore` 使用 Platform 兼容运行（`platform_compat=True`）—— 它提供基于 ETag 的原子锁。
+
 #### 保留辅助函数
 
 `AzureBlobCheckpointSaver` 提供两个用于定期清理（例如 Timer 触发的 Function）的辅助方法:
