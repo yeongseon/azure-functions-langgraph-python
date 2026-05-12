@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.7.1
+
+### 📚 Documentation
+
+- *(readme)* Note native endpoint thread lock is not distributed (#209) (#211)
+- *(stores)* Document `reset_stale_locks` projection/ETag skip behavior (#210) (#212)
+- *(readme)* Clarify `LangGraphApp.route_prefix` is metadata-only (#207) (#213)
+- *(checkpointers)* Note Cosmos Managed Identity is unsupported by upstream (#208) (#214)
+- *(readme)* Translate `health_auth_level` ANONYMOUS-default warning into ko/ja/zh-CN (#205)
+
+### 🧪 Tests
+
+- *(stores)* Assert projection query returns usable ETag against Azurite (#204)
+- *(stores)* Add fake-SDK unit test for metadata-only ETag path in `reset_stale_locks` (#212)
+
+### ⚙️ Miscellaneous Tasks
+
+- *(ci)* Add Azurite-backed Table integration tests and `route_prefix` docstring polish (#199)
+- *(ci)* Move Cosmos integration to scheduled + `workflow_dispatch` only (#206)
+
+
 ## 0.7.0
 
 ### ✨ Features
