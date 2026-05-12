@@ -298,6 +298,7 @@ func_app = app.function_app
 - **単一パーティション** — `AzureTableThreadStore` は全スレッドを単一の PartitionKey に格納し、Azure Table のパーティション単位スループット（Standard アカウントで約 2000 エンティティ/秒）が上限となります。`status` 以外の検索とカウントは**クライアントサイド**でフィルタリングされます。[COMPATIBILITY.md](COMPATIBILITY.md) を参照してください。
 - **プレフィックススキャン** — `AzureBlobCheckpointSaver` は blob プレフィックススキャンでチェックポイントを列挙するため、トランザクション数とレイテンシはスレッドあたりのチェックポイント数に比例して増加します。下記のリテンションヘルパーで境界を保ちましょう。
 - **エンティティサイズ** — Azure Table エンティティは 1 MB が上限で、しきい値の 90% で警告がログに記録されます。
+- **ステールロッククリーンアップの注意点** — `AzureTableThreadStore.reset_stale_locks` はプロジェクションクエリ（`select=["RowKey", "updated_at"]`）を使用し、各ロウの ETag が `entity.metadata["etag"]` または `entity["etag"]` のいずれかで公開されることを要求します。どちらの形でも ETag が得られない行は、CAS に使える ETag なしにステールロックをリセットしないためにスキップされ（DEBUG ログ）、次回のスキャンで再試行されます。
 
 #### ネイティブエンドポイントのスレッドロック
 

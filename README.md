@@ -509,6 +509,8 @@ count = thread_store.reset_stale_locks(older_than_seconds=600)
 
 Each reset uses ETag CAS so a thread that has been legitimately re-acquired since the scan is never stomped. Choose `older_than_seconds` comfortably above your longest expected graph execution time — ETag CAS protects against re-acquire races, but a still-running long job will not update its `updated_at` and could be reclaimed if the threshold is too short. See [`examples/maintenance_timer/`](examples/maintenance_timer/) for a complete Timer Trigger wiring.
 
+> **Stale-lock cleanup caveat:** `reset_stale_locks` issues a projection query (`select=["RowKey", "updated_at"]`) and relies on the Azure Tables SDK to expose each row's ETag via either `entity.metadata["etag"]` or `entity["etag"]`. Rows where **neither shape** populates an ETag are skipped (logged at DEBUG) so a stale lock is never reset without a writable ETag for CAS; such rows are retried on the next scan once the SDK returns a usable ETag.
+
 #### Native endpoint thread locking
 
 Native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) use an **in-process per-thread lock** when the graph has a checkpointer and the request includes `config.configurable.thread_id`. This prevents concurrent writes to single-writer checkpointers (e.g. `AzureBlobCheckpointSaver`) within the same Python worker process.

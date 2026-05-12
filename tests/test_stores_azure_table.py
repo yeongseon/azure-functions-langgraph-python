@@ -1020,3 +1020,56 @@ def test_reset_stale_locks_deleted_thread_skipped(monkeypatch: Any) -> None:
     count = store.reset_stale_locks(older_than_seconds=300)
 
     assert count == 0
+
+
+
+def test_reset_stale_locks_metadata_only_etag(monkeypatch: Any) -> None:
+    """Stale lock is reset when ETag is exposed only via entity.metadata.
+
+    The Azure Tables SDK may surface the row ETag either as a dict key
+    (``entity["etag"]``) or as a Mapping attribute
+    (``entity.metadata["etag"]``).  ``reset_stale_locks`` must accept the
+    metadata-only shape so CAS-based reset still works on SDK versions
+    that do not project ``etag`` into the dict body of a projected row.
+    """
+    store, table_client = _new_store()
+
+    # Force projected query rows to surface ETag ONLY via .metadata,
+    # never as a top-level dict key.
+    original_query = table_client.query_entities
+
+    def query_metadata_only_etag(
+        query_filter: str | None = None, **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        rows = original_query(query_filter, **kwargs)
+        wrapped: list[dict[str, Any]] = []
+        for row in rows:
+            etag = row.pop("etag", None)
+            entity = MockEntity(row)
+            if etag is not None:
+                entity.metadata = {"etag": etag}
+            wrapped.append(cast(dict[str, Any], entity))
+        return wrapped
+
+    monkeypatch.setattr(table_client, "query_entities", query_metadata_only_etag)
+
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    timestamps = iter([
+        base,                            # create
+        base + timedelta(seconds=10),    # acquire (updated_at=10)
+        base + timedelta(seconds=700),   # reset cutoff (700 - 300 = 400)
+        base + timedelta(seconds=700),   # patch updated_at
+    ])
+    monkeypatch.setattr(store, "_now", lambda: next(timestamps))
+
+    thread = store.create()
+    store.try_acquire_run_lock(thread.thread_id)
+
+    count = store.reset_stale_locks(older_than_seconds=300)
+
+    assert count == 1, (
+        "reset_stale_locks must accept metadata-only ETag shape"
+    )
+    assert store.get(thread.thread_id).status == "error"
+    # Confirm CAS path was actually taken (etag forwarded to update_entity).
+    assert table_client.last_update_kwargs.get("etag") is not None

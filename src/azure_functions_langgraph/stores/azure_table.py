@@ -559,6 +559,13 @@ class AzureTableThreadStore(ThreadStore):
         Raises:
             ValueError: If *older_than_seconds* is negative or *status*
                 is not ``"idle"`` or ``"error"``.
+        Note:
+            Each scanned row must expose an ETag via either
+            ``entity.metadata["etag"]`` or ``entity["etag"]``.
+            Rows where neither shape populates an ETag are skipped
+            (logged at DEBUG) so a stale lock is never reset without
+            a writable ETag for CAS; such rows are retried on the next
+            scan once the SDK returns a usable ETag.
         """
         if older_than_seconds < 0:
             raise ValueError(

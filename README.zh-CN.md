@@ -296,6 +296,7 @@ func_app = app.function_app
 - **单分区** — `AzureTableThreadStore` 将所有线程置于同一 PartitionKey 下，受 Azure Table 单分区吞吐量（Standard 账户约 2000 实体/秒）限制。除 `status` 以外的搜索与计数过滤均在**客户端**完成，详见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 - **前缀扫描** — `AzureBlobCheckpointSaver` 通过 blob 前缀扫描列出检查点，事务数与延迟随每线程检查点数量增长。请使用下文的保留辅助函数加以约束。
 - **实体大小** — Azure Table 实体上限为 1 MB；当达到阈值的 90% 时会记录警告。
+- **锁清理警告** — `AzureTableThreadStore.reset_stale_locks` 使用投影查询（`select=["RowKey", "updated_at"]`），依赖于每行通过 `entity.metadata["etag"]` 或 `entity["etag"]` 中任一暴露 ETag。两种形状都未提供 ETag 的行会被跳过（记录为 DEBUG 日志），以免在没有可写 ETag 的情况下重置锁；下一轮扫描会重试。
 
 #### 原生端点的线程锁
 
