@@ -315,6 +315,7 @@ func_app = app.function_app
 - **Prefix 스캔** — `AzureBlobCheckpointSaver`는 blob prefix 스캔으로 체크포인트를 나열하므로 트랜잭션 수와 지연이 스레드당 체크포인트 수에 비례하여 증가합니다. 아래 보존 헬퍼로 이를 제한하세요.
 - **엔티티 크기** — Azure Table 엔티티는 1 MB로 제한되며, 임계값의 90%에서 경고가 기록됩니다.
 - **스테일 락 정리 주의** — `AzureTableThreadStore.reset_stale_locks`는 프로젝션 쿼리(`select=["RowKey", "updated_at"]`)를 사용하며, `entity.metadata["etag"]` 또는 `entity["etag"]` 중 하나로도 ETag가 노출되어야 합니다. 두 형태 모두에서 ETag가 없는 행은 CAS용 ETag 없이 스테일 락을 재설정하지 않도록 건너뛰어(DEBUG 로그) 다음 스캔에서 다시 시도됩니다.
+- **Cosmos DB Managed Identity 미지원** — 업스트림 `langgraph-checkpoint-cosmosdb` 패키지가 `TokenCredential`을 지원하지 않으므로 `create_cosmos_checkpointer`는 **키 기반 인증만** 사용합니다. 헬퍼는 생성자 인자로부터 `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` 환경 변수를 일시적으로 설정한 뒤 원복합니다. Cosmos DB에 패스워드리스 인증이 필수라면 업스트림이 `TokenCredential`을 추가할 때까지 다른 체크포인터 백엔드를 사용하세요.
 
 #### 네이티브 엔드포인트 스레드 락
 

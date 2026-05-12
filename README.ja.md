@@ -317,6 +317,7 @@ func_app = app.function_app
 - **プレフィックススキャン** — `AzureBlobCheckpointSaver` は blob プレフィックススキャンでチェックポイントを列挙するため、トランザクション数とレイテンシはスレッドあたりのチェックポイント数に比例して増加します。下記のリテンションヘルパーで境界を保ちましょう。
 - **エンティティサイズ** — Azure Table エンティティは 1 MB が上限で、しきい値の 90% で警告がログに記録されます。
 - **ステールロッククリーンアップの注意点** — `AzureTableThreadStore.reset_stale_locks` はプロジェクションクエリ（`select=["RowKey", "updated_at"]`）を使用し、各ロウの ETag が `entity.metadata["etag"]` または `entity["etag"]` のいずれかで公開されることを要求します。どちらの形でも ETag が得られない行は、CAS に使える ETag なしにステールロックをリセットしないためにスキップされ（DEBUG ログ）、次回のスキャンで再試行されます。
+- **Cosmos DB Managed Identity 未サポート** — アップストリームの `langgraph-checkpoint-cosmosdb` パッケージが `TokenCredential` をサポートしていないため、`create_cosmos_checkpointer` は**キーベース認証のみ**を使用します。ヘルパーはコンストラクタ引数から `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` 環境変数を一時的に設定し、後で復元します。Cosmos DB へのパスワードレス認証が必須の場合は、アップストリームが `TokenCredential` を追加するまで他のチェックポインターバックエンドを選択してください。
 
 #### ネイティブエンドポイントのスレッドロック
 
