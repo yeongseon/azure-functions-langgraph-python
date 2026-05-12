@@ -299,6 +299,12 @@ func_app = app.function_app
 - **プレフィックススキャン** — `AzureBlobCheckpointSaver` は blob プレフィックススキャンでチェックポイントを列挙するため、トランザクション数とレイテンシはスレッドあたりのチェックポイント数に比例して増加します。下記のリテンションヘルパーで境界を保ちましょう。
 - **エンティティサイズ** — Azure Table エンティティは 1 MB が上限で、しきい値の 90% で警告がログに記録されます。
 
+#### ネイティブエンドポイントのスレッドロック
+
+ネイティブ invoke/stream エンドポイント（`POST /api/graphs/{name}/invoke` および `.../stream`）は、グラフに checkpointer が設定され、リクエストに `config.configurable.thread_id` が含まれる場合、**インプロセスのスレッド単位ロック**を使用します。これにより、同一 Python ワーカープロセス内で単一ライター型 checkpointer（例: `AzureBlobCheckpointSaver`）への同時書き込みを防止します。
+
+> **重要:** これは**分散ロックではありません**（not distributed）。複数の Function App インスタンス、ワーカープロセス、ホスト間では協調しません。分散ランロックが必要な場合は、`AzureTableThreadStore` とともに Platform 互換ラン（`platform_compat=True`）を使用してください — ETag ベースの原子的ロックを提供します。
+
 #### リテンションヘルパー
 
 `AzureBlobCheckpointSaver` は、定期クリーンアップ（例: Timer トリガーの Function）向けに 2 つのヘルパーを公開しています:
