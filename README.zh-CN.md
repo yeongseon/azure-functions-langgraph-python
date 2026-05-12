@@ -195,6 +195,24 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
   -d '{"input": {"messages": [{"role": "human", "content": "Hello!"}]}}'
 ```
 
+### 自定义路由前缀
+
+所有路由默认使用 Azure Functions 的 `/api` 前缀。要修改前缀，请在 `host.json` 中配置 `routePrefix`:
+
+```json
+{
+  "extensions": {
+    "http": {
+      "routePrefix": "v1"
+    }
+  }
+}
+```
+
+这会修改所有路由（例如 `POST /v1/graphs/{name}/invoke`）。将 `routePrefix` 设为 `""` 可完全去除前缀。
+
+> **重要 — `LangGraphApp(route_prefix=...)` 仅为元数据**（metadata-only）。Azure Functions 从 `host.json`（**唯一权威来源**）解析 HTTP 路由，而不是从构造器参数。`route_prefix` 参数仅记录到供 `azure-functions-openapi-python` 等工具使用的元数据快照中，以使生成的规范反映部署后的路由；不同步修改 `host.json` 则请求实际接收位置**不会改变**。要真正移动路由，请始终修改 `host.json`，并向 `LangGraphApp(route_prefix=...)` 传递相同值以保持元数据同步。
+
 ### 生成的端点
 
 1. `POST /api/graphs/echo_agent/invoke` — 调用智能体

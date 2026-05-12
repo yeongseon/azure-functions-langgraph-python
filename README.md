@@ -266,6 +266,8 @@ configure `routePrefix` in your `host.json`:
 This changes all routes (e.g. `POST /v1/graphs/{name}/invoke`). Set `routePrefix`
 to `""` to remove the prefix entirely.
 
+> **Important — `LangGraphApp(route_prefix=...)` is metadata-only.** Azure Functions resolves HTTP routes from `host.json` (the **source of truth**), not from the constructor argument. The `route_prefix` argument is recorded into the metadata snapshot consumed by tooling such as the `azure-functions-openapi-python` bridge so generated specs reflect the deployed routes, but changing it without also updating `host.json` does **not** change where requests are served. Always edit `host.json` to actually move routes, and pass the same value to `LangGraphApp(route_prefix=...)` so metadata stays in sync.
+
 ### What you get
 
 1. `POST /api/graphs/echo_agent/invoke` — invoke the agent

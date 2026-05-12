@@ -195,6 +195,24 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
   -d '{"input": {"messages": [{"role": "human", "content": "Hello!"}]}}'
 ```
 
+### 커스텀 라우트 프리픽스
+
+모든 라우트는 Azure Functions 기본값인 `/api` 프리픽스를 사용합니다. 프리픽스를 변경하려면 `host.json`의 `routePrefix`를 수정하세요:
+
+```json
+{
+  "extensions": {
+    "http": {
+      "routePrefix": "v1"
+    }
+  }
+}
+```
+
+이는 모든 라우트(예: `POST /v1/graphs/{name}/invoke`)를 변경합니다. 프리픽스를 제거하려면 `routePrefix`를 `""`로 설정하세요.
+
+> **중요 — `LangGraphApp(route_prefix=...)`는 메타데이터 전용입니다(metadata-only).** Azure Functions는 HTTP 라우트를 `host.json`(**진실의 원천**)에서 결정하며, 생성자 인수는 해당하지 않습니다. `route_prefix` 인수는 `azure-functions-openapi-python` 브리지가 사용하는 메타데이터 스냅샷에만 기록되어 생성된 스펙이 배포된 라우트를 반영하도록 도웁니다. `host.json`을 함께 수정하지 않으면 요청이 제공되는 위치는 **바뀌지 않습니다**. 라우트를 실제로 이동하려면 항상 `host.json`을 수정하고, 메타데이터 일관성을 위해 `LangGraphApp(route_prefix=...)`에 동일한 값을 전달하세요.
+
 ### 생성되는 엔드포인트
 
 1. `POST /api/graphs/echo_agent/invoke` — 에이전트 호출
