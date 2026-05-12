@@ -2,7 +2,7 @@
 # The Python Worker is managed by the Azure Functions platform
 
 azure-functions
-azure-functions-langgraph>=0.5.1,<0.6.0
+azure-functions-langgraph>=0.7.1,<0.8.0
 azure-functions-openapi-python>=0.16.0
 langgraph>=1.0,<2.0
 langchain-core>=1.0,<2.0

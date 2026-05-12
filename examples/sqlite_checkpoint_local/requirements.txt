@@ -2,6 +2,6 @@
 # The Python Worker is managed by the Azure Functions platform
 
 azure-functions
-azure-functions-langgraph[sqlite]>=0.6.0,<0.7.0
+azure-functions-langgraph[sqlite]>=0.7.1,<0.8.0
 langgraph>=1.0,<2.0
 langchain-core>=1.0,<2.0

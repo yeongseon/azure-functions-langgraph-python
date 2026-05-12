@@ -29,12 +29,7 @@ or `AZURE_TABLE_ENDPOINT` (Managed Identity path). The timer function tries
 the connection string first, then falls back to `DefaultAzureCredential`.
 
 
-> **Pre-release:** `reset_stale_locks()` ships in a future release. Until
-> then, install from a local checkout:
->
-> ```bash
-> pip install -e ../..[azure-table,azure-identity]
-> ```
+
 ## Local development
 
 ```bash
