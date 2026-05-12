@@ -197,6 +197,24 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
   -d '{"input": {"messages": [{"role": "human", "content": "Hello!"}]}}'
 ```
 
+### カスタムルートプレフィックス
+
+すべてのルートは Azure Functions のデフォルトプレフィックス `/api` を使用します。プレフィックスを変更するには `host.json` の `routePrefix` を設定します:
+
+```json
+{
+  "extensions": {
+    "http": {
+      "routePrefix": "v1"
+    }
+  }
+}
+```
+
+これによりすべてのルート（例: `POST /v1/graphs/{name}/invoke`）が変わります。プレフィックスを完全に取り除くには `routePrefix` を `""` に設定してください。
+
+> **重要 — `LangGraphApp(route_prefix=...)` はメタデータ専用です（metadata-only）。** Azure Functions は HTTP ルートを `host.json`（**真実の原本**）から解決し、コンストラクタ引数からは解決しません。`route_prefix` 引数は `azure-functions-openapi-python` ブリッジなどが利用するメタデータスナップショットに記録され、生成されるスペックがデプロイされたルートを反映しますが、`host.json` を更新せずにこの値だけを変えてもリクエストが処理される位置は**変わりません**。ルートを実際に移動させるには常に `host.json` を編集し、メタデータを同期させるために `LangGraphApp(route_prefix=...)` にも同じ値を渡してください。
+
 ### 生成されるエンドポイント
 
 1. `POST /api/graphs/echo_agent/invoke` — エージェントの呼び出し
