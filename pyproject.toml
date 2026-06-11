@@ -65,7 +65,7 @@ dev = [
     "pytest",
     "pytest-asyncio>=0.23,<2",
     "pytest-cov",
-    "ruff==0.15.15",
+    "ruff==0.15.16",
     "requests",
     "types-requests",
     "langgraph-sdk>=0.3,<0.5",
