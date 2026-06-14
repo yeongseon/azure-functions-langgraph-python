@@ -153,6 +153,23 @@ def create_cosmos_checkpointer(
                 database_name=database_name,
                 container_name=container_name,
             )
+            # When running against the Cosmos emulator (self-signed cert),
+            # replace the internal client with one that skips SSL verification.
+            if os.environ.get("COSMOS_DISABLE_SSL", "").lower() in ("true", "1", "yes"):
+                cosmos_sdk = importlib.import_module("azure.cosmos")
+                CosmosClientCls = getattr(cosmos_sdk, "CosmosClient")
+                saver.client = CosmosClientCls(
+                    url=endpoint, credential=resolved_key, connection_verify=False
+                )
+                saver.database = saver.client.create_database_if_not_exists(
+                    id=database_name
+                )
+                saver.container = saver.database.create_container_if_not_exists(
+                    id=container_name,
+                    partition_key=getattr(cosmos_sdk, "PartitionKey")(
+                        path="/partition_key"
+                    ),
+                )
         finally:
             # Restore original env vars
             if old_endpoint is None:
