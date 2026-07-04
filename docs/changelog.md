@@ -13,11 +13,23 @@ For the full changelog, see [CHANGELOG.md](https://github.com/yeongseon/azure-fu
 - **`LangGraphApp(auth_level=...)` now defaults to `AuthLevel.FUNCTION`** (was `AuthLevel.ANONYMOUS`). Deployed endpoints require a function key by default. Existing code that relied on the anonymous default must pass `auth_level=func.AuthLevel.ANONYMOUS` explicitly. (#240)
 - Opting into `AuthLevel.ANONYMOUS` at the app level now emits an **unconditional** `UserWarning` (previously only when `AZURE_FUNCTIONS_ENVIRONMENT` was set). The warning fires in tests, CI, and local runs so accidental anonymous deployments are always loud. The environment-gated codepath and the `os`/`logging` imports it required have been removed. (#240)
 
+### Added
+
+- Pluggable `ThreadLock` protocol under `azure_functions_langgraph.locks` (`ThreadLock`, `InProcessThreadLock`, `AzureBlobLeaseThreadLock`) — swap the native invoke/stream thread lock for a distributed backend in multi-instance deployments. (#241)
+- `LangGraphApp(thread_lock=...)` argument (defaults to `InProcessThreadLock`, preserving previous behaviour). (#241)
+- `AZFUNC_LANGGRAPH_LOCK_BACKEND` environment variable as a fail-fast safety guard: setting it to `distributed` (or any non-empty value other than `inprocess`) while `thread_lock` resolves to `InProcessThreadLock` raises `RuntimeError` at construction, catching multi-instance deployments that forgot to wire a distributed backend. (#241)
+
 ### Changed
 
 - README banner across all locales (`README.md`, `README.ko.md`, `README.ja.md`, `README.zh-CN.md`) now says **Alpha Notice** to match the existing `Development Status :: 3 - Alpha` classifier in `pyproject.toml`. Documentation now explicitly points at the classifier as the source of truth for maturity. (#242)
-- `docs/{security,production-guide,configuration,faq,installation}.md` updated to reflect the FUNCTION default and the ANONYMOUS opt-in warning.
-- `examples/openapi_bridge`, `examples/platform_compat_sdk`, `examples/sqlite_checkpoint_local`, `examples/persistent_agent_blob_table` now include inline comments explaining the ANONYMOUS opt-in and its unconditional warning.
+- `docs/{security,production-guide,configuration,faq,installation}.md` updated to reflect the FUNCTION default and the ANONYMOUS opt-in warning. (#240)
+- `examples/openapi_bridge`, `examples/platform_compat_sdk`, `examples/sqlite_checkpoint_local`, `examples/persistent_agent_blob_table` now include inline comments explaining the ANONYMOUS opt-in and its unconditional warning. (#240)
+- `handle_invoke` / `handle_stream` in `_handlers.py` now require an explicit `thread_lock: ThreadLock` keyword argument (previously module-level `_thread_locks`); `LangGraphApp` wires this automatically. External callers that invoked handlers directly must pass `thread_lock=self.thread_lock`. (#241)
+
+### Documentation
+
+- README (en/ja/zh-CN): new *Distributed thread locking* subsection with backend matrix and safety-guard guidance. (#241)
+- `docs/production-guide.md`: new *Distributed thread locking* section under *Concurrency & Scale*, with scale-out matrix and interaction notes for Platform-compatible runs. (#241)
 
 ### Migration
 

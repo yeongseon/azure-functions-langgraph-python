@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from types import MappingProxyType
 from typing import Any, Callable, Optional
 import warnings
@@ -24,6 +25,7 @@ from azure_functions_langgraph.contracts import (
     RegisteredGraphMetadata,
     RouteMetadata,
 )
+from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
 from azure_functions_langgraph.protocols import InvocableGraph, StatefulGraph
 
 # Route path templates (single source of truth for both function_app and metadata)
@@ -102,11 +104,18 @@ class LangGraphApp:
 
     Note:
         Per-thread locking on the native invoke/stream endpoints is
-        **in-process only** — it is not distributed across Function App
-        instances, worker processes, or hosts. For distributed run locking,
-        use Platform-compatible runs (``platform_compat=True``) with
+        pluggable via :attr:`thread_lock`. The default,
+        :class:`~azure_functions_langgraph.locks.inprocess.InProcessThreadLock`,
+        is **in-process only** — it is not distributed across Function App
+        instances, worker processes, or hosts. For multi-instance production
+        deployments, supply a distributed backend such as
+        :class:`~azure_functions_langgraph.locks.azure_blob.AzureBlobLeaseThreadLock`,
+        or (for platform-compat runs) enable ``platform_compat=True`` with
         :class:`~azure_functions_langgraph.stores.azure_table.AzureTableThreadStore`,
-        which provides ETag-based atomic locking.
+        which provides ETag-based atomic locking. Set the
+        ``AZFUNC_LANGGRAPH_LOCK_BACKEND`` environment variable to
+        ``distributed`` to fail-fast at construction if the default
+        in-process backend is still wired.
     """
 
     auth_level: func.AuthLevel = func.AuthLevel.FUNCTION
@@ -116,6 +125,7 @@ class LangGraphApp:
     max_input_depth: int = 32
     max_input_nodes: int = 10_000
     platform_compat: bool = False
+    thread_lock: Optional[ThreadLock] = None
     route_prefix: str = _ROUTE_PREFIX  # metadata-only; must match host.json routePrefix
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
@@ -140,6 +150,27 @@ class LangGraphApp:
             from azure_functions_langgraph.platform.stores import InMemoryThreadStore
 
             self._thread_store = InMemoryThreadStore()
+
+        # Instantiate default in-process lock backend if the user did not supply
+        # a custom one. See azure_functions_langgraph.locks for backend details.
+        if self.thread_lock is None:
+            self.thread_lock = InProcessThreadLock()
+        # AZFUNC_LANGGRAPH_LOCK_BACKEND is a safety guard that keeps operators
+        # from accidentally deploying an in-process lock to a multi-instance
+        # Function App. Set it to ``distributed`` (or the exact backend class
+        # name) in Function App settings; if the wired backend is still
+        # InProcessThreadLock we raise at construction time so the mistake is
+        # visible before any request is served.
+        env_backend = os.environ.get("AZFUNC_LANGGRAPH_LOCK_BACKEND", "").strip().lower()
+        if env_backend and env_backend not in ("", "inprocess"):
+            if isinstance(self.thread_lock, InProcessThreadLock):
+                raise RuntimeError(
+                    f"AZFUNC_LANGGRAPH_LOCK_BACKEND={env_backend!r} requires a "
+                    "distributed thread_lock backend (for example "
+                    "AzureBlobLeaseThreadLock), but the app is still using the "
+                    "default InProcessThreadLock. Pass thread_lock=... explicitly "
+                    "to LangGraphApp() or unset the env var for local dev."
+                )
 
     def register(
         self,
@@ -352,9 +383,13 @@ class LangGraphApp:
 
     def _handle_invoke(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a synchronous invoke request."""
+        thread_lock = self.thread_lock
+        if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
+            raise RuntimeError("thread_lock is None; __post_init__ did not run")
         return handle_invoke(
             req,
             reg,
+            thread_lock=thread_lock,
             max_request_body_bytes=self.max_request_body_bytes,
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
@@ -362,9 +397,13 @@ class LangGraphApp:
 
     def _handle_stream(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a streaming request."""
+        thread_lock = self.thread_lock
+        if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
+            raise RuntimeError("thread_lock is None; __post_init__ did not run")
         return handle_stream(
             req,
             reg,
+            thread_lock=thread_lock,
             max_stream_response_bytes=self.max_stream_response_bytes,
             max_request_body_bytes=self.max_request_body_bytes,
             max_input_depth=self.max_input_depth,

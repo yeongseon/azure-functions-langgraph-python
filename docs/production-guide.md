@@ -280,6 +280,52 @@ For multi-instance writes, serialize thread mutations through a queue-based work
 
 This removes most race windows and aligns with current storage assumptions.
 
+### Distributed thread locking
+
+The native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) guard concurrent writes to the same `(graph_name, thread_id)` with a **per-thread lock**. The default backend, `InProcessThreadLock`, is a `threading.Lock` behind a small book-keeping layer — correct for single-instance deployments, but silently unsafe in horizontally scaled ones (two Function App instances can each acquire their own in-process lock for the same `thread_id`).
+
+For multi-instance deployments, `LangGraphApp` accepts any object satisfying the [`ThreadLock`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/src/azure_functions_langgraph/locks/base.py) protocol via the `thread_lock` constructor argument. The package ships one distributed implementation — `AzureBlobLeaseThreadLock` — which uses **Azure Blob lease compare-and-swap** as the underlying primitive; leases naturally expire (15–60 s) so a crashed host cannot orphan a lock indefinitely.
+
+```python
+import azure.functions as func
+from azure.identity import DefaultAzureCredential
+from azure.storage.blob import ContainerClient
+
+from azure_functions_langgraph import LangGraphApp
+from azure_functions_langgraph.locks import AzureBlobLeaseThreadLock
+
+container = ContainerClient(
+    account_url="https://<account>.blob.core.windows.net",
+    container_name="langgraph-locks",
+    credential=DefaultAzureCredential(),
+)
+container.create_container()  # idempotent — safe to call on cold start
+
+app = LangGraphApp(
+    auth_level=func.AuthLevel.FUNCTION,
+    thread_lock=AzureBlobLeaseThreadLock(
+        container_client=container,
+        lease_duration=60,  # seconds; 15–60 or -1 for infinite
+        blob_prefix="thread-locks/",
+    ),
+)
+```
+
+The Blob backend needs `Storage Blob Data Contributor` on the lock container (or narrower `Storage Blob Delegator` scope for lease-only workflows).
+
+**Scale-out matrix.**
+
+| Backend | Distributed? | Infra required | Failure mode | Use case |
+| --- | --- | --- | --- | --- |
+| `InProcessThreadLock` (default) | No | None | Lock lost on worker restart; racing instances get separate locks | Local dev, single-instance production |
+| `AzureBlobLeaseThreadLock` | Yes — Azure Blob lease CAS | One Blob container | Lease expiry (15–60 s) reclaims locks after host crash | Multi-instance (Consumption / Elastic Premium) |
+| Custom `ThreadLock` implementation | Yours to design | Yours to provision | Yours to reason about | Redis, Cosmos DB, Postgres advisory locks, etc. |
+
+**Safety guard — `AZFUNC_LANGGRAPH_LOCK_BACKEND`.** In multi-instance environments, set this environment variable to `distributed` (or any non-empty value other than `inprocess`). When the value indicates a distributed backend is required and `thread_lock` resolves to the default `InProcessThreadLock`, `LangGraphApp.__post_init__` raises `RuntimeError` at construction — turning a silent-race deployment mistake into a fail-fast startup error. Set the value to `inprocess` (or leave it unset) in single-instance environments; the guard passes for any wired custom backend regardless of the environment value.
+
+**Interaction with Platform-compatible runs.** `thread_lock` guards the *native* invoke/stream endpoints only. Platform-compatible runs (`platform_compat=True` with `AzureTableThreadStore`) use their own ETag-based run lock (`try_acquire_run_lock` / `release_run_lock` — see the *Run lock semantics* subsection under [Persistent storage in the README](https://github.com/yeongseon/azure-functions-langgraph-python#run-lock-semantics)) and are unaffected by the `thread_lock` argument. Deployments that expose both surfaces should configure both.
+
+
 ## Storage Configuration
 
 ### Azure Blob checkpointer

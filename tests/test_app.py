@@ -1014,10 +1014,6 @@ class TestNativeEndpointThreadLock:
 
     def test_concurrent_invoke_returns_409(self) -> None:
         """Second concurrent invoke on same thread returns 409."""
-        from azure_functions_langgraph._handlers import (
-            _acquire_thread_lock,
-            _release_thread_lock,
-        )
 
         class CheckpointedGraph:
             checkpointer = object()  # truthy = has checkpointer
@@ -1034,16 +1030,17 @@ class TestNativeEndpointThreadLock:
         app.register(graph=CheckpointedGraph(), name="agent")
         config = {"configurable": {"thread_id": "t1"}}
 
-        # Pre-acquire the lock to simulate concurrent request
-        assert _acquire_thread_lock("agent", "t1") is True
-
-        req = self._make_request({"input": {"msg": "hi"}, "config": config})
-        resp = app._handle_invoke(req, app._registrations["agent"])
-        assert resp.status_code == 409
-        assert "currently in use" in json.loads(resp.get_body())["detail"]
-
-        # Cleanup
-        _release_thread_lock("agent", "t1")
+        # Pre-acquire the lock through the app's own thread_lock backend to
+        # simulate a concurrent request already in flight.
+        assert app.thread_lock is not None
+        assert app.thread_lock.acquire("agent", "t1") is True
+        try:
+            req = self._make_request({"input": {"msg": "hi"}, "config": config})
+            resp = app._handle_invoke(req, app._registrations["agent"])
+            assert resp.status_code == 409
+            assert "currently in use" in json.loads(resp.get_body())["detail"]
+        finally:
+            app.thread_lock.release("agent", "t1")
 
     def test_invoke_without_thread_id_no_lock(self) -> None:
         """Without thread_id in config, no locking occurs."""
@@ -1066,31 +1063,61 @@ class TestNativeEndpointThreadLock:
         resp = app._handle_invoke(req, app._registrations["agent"])
         assert resp.status_code == 200
 
-    def test_lock_cleanup_after_release(self) -> None:
-        """Lock entry is removed from dict after release."""
-        from azure_functions_langgraph._handlers import (
-            _acquire_thread_lock,
-            _release_thread_lock,
-            _thread_locks,
+    def test_custom_thread_lock_is_used(self) -> None:
+        """A custom thread_lock backend receives acquire/release calls."""
+        from unittest.mock import MagicMock
+
+        class CheckpointedGraph:
+            checkpointer = object()
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
+                return {"result": "ok"}
+
+            def stream(
+                self, input: Any, config: Any = None, stream_mode: str = "values",
+            ) -> list[Any]:
+                return []
+
+        custom_lock = MagicMock()
+        custom_lock.acquire.return_value = True
+        app = LangGraphApp(thread_lock=custom_lock)
+        app.register(graph=CheckpointedGraph(), name="agent")
+
+        req = self._make_request(
+            {"input": {"msg": "hi"}, "config": {"configurable": {"thread_id": "t1"}}}
         )
+        resp = app._handle_invoke(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        custom_lock.acquire.assert_called_once_with("agent", "t1")
+        custom_lock.release.assert_called_once_with("agent", "t1")
 
-        key = ("cleanup_test", "t-cleanup")
-        assert _acquire_thread_lock(*key) is True
-        assert key in _thread_locks
-        _release_thread_lock(*key)
-        assert key not in _thread_locks
+    def test_stream_uses_thread_lock(self) -> None:
+        """Streaming path also routes acquire/release through thread_lock."""
+        from unittest.mock import MagicMock
 
-    def test_lock_reacquire_after_release(self) -> None:
-        """Lock can be reacquired after release."""
-        from azure_functions_langgraph._handlers import (
-            _acquire_thread_lock,
-            _release_thread_lock,
+        class CheckpointedGraph:
+            checkpointer = object()
+
+            def invoke(self, input: dict[str, Any], config: Any = None) -> dict[str, Any]:
+                return {"result": "ok"}
+
+            def stream(
+                self, input: Any, config: Any = None, stream_mode: str = "values",
+            ) -> list[dict[str, Any]]:
+                return [{"chunk": 1}]
+
+        custom_lock = MagicMock()
+        custom_lock.acquire.return_value = True
+        app = LangGraphApp(thread_lock=custom_lock)
+        app.register(graph=CheckpointedGraph(), name="agent")
+
+        req = self._make_request(
+            {"input": {"msg": "hi"}, "config": {"configurable": {"thread_id": "t1"}}}
         )
-
-        assert _acquire_thread_lock("reacq", "t1") is True
-        _release_thread_lock("reacq", "t1")
-        assert _acquire_thread_lock("reacq", "t1") is True
-        _release_thread_lock("reacq", "t1")
+        resp = app._handle_stream(req, app._registrations["agent"])
+        assert resp.status_code == 200
+        custom_lock.acquire.assert_called_once_with("agent", "t1")
+        custom_lock.release.assert_called_once_with("agent", "t1")
 
 class TestExtractThreadId:
     """Tests for _extract_thread_id helper."""
@@ -1220,3 +1247,81 @@ class TestRouteNormalization:
         assert not invoke_path.startswith("//")
         health_path = metadata.app_routes[0].path
         assert health_path == "/health"
+
+
+class TestThreadLockConfig:
+    """LangGraphApp thread_lock field and AZFUNC_LANGGRAPH_LOCK_BACKEND guard."""
+
+    def test_default_is_inprocess_thread_lock(self) -> None:
+        from azure_functions_langgraph.locks import InProcessThreadLock
+
+        app = LangGraphApp()
+        assert isinstance(app.thread_lock, InProcessThreadLock)
+
+    def test_custom_thread_lock_is_preserved(self) -> None:
+        """User-supplied thread_lock is not replaced by the default."""
+        custom = MagicMock()
+        app = LangGraphApp(thread_lock=custom)
+        assert app.thread_lock is custom
+
+    def test_env_guard_raises_when_distributed_requested_with_inprocess(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """AZFUNC_LANGGRAPH_LOCK_BACKEND=distributed with default InProcess raises."""
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_LOCK_BACKEND", "distributed")
+        with pytest.raises(RuntimeError, match="AZFUNC_LANGGRAPH_LOCK_BACKEND"):
+            LangGraphApp()
+
+    def test_env_guard_case_insensitive(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_LOCK_BACKEND", "Distributed")
+        with pytest.raises(RuntimeError):
+            LangGraphApp()
+
+    def test_env_guard_whitespace_tolerant(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_LOCK_BACKEND", "  distributed  ")
+        with pytest.raises(RuntimeError):
+            LangGraphApp()
+
+    def test_env_guard_inprocess_value_is_allowed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Setting AZFUNC_LANGGRAPH_LOCK_BACKEND=inprocess is a no-op."""
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_LOCK_BACKEND", "inprocess")
+        # Should not raise.
+        app = LangGraphApp()
+        assert app.thread_lock is not None
+
+    def test_env_guard_empty_value_is_no_op(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_LOCK_BACKEND", "")
+        app = LangGraphApp()
+        assert app.thread_lock is not None
+
+    def test_env_guard_unset_is_no_op(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("AZFUNC_LANGGRAPH_LOCK_BACKEND", raising=False)
+        app = LangGraphApp()
+        assert app.thread_lock is not None
+
+    def test_env_guard_passes_when_custom_backend_supplied(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Custom (non-InProcess) backend satisfies the env-var guard."""
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_LOCK_BACKEND", "distributed")
+        # Any non-InProcess object satisfying the protocol works.
+        custom = MagicMock()
+        app = LangGraphApp(thread_lock=custom)
+        assert app.thread_lock is custom
