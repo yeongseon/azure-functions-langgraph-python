@@ -6,8 +6,13 @@ import sys
 import time
 import types
 from typing import Any, Callable
+import warnings
 
 import pytest
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:.*does not renew leases in the background.*:UserWarning"
+)
 
 # ------------------------------------------------------------------
 # Fake azure.storage.blob + azure.core.exceptions used by the tests.
@@ -413,4 +418,60 @@ class TestErrorPropagation:
         lock = _make_lock()
         assert not lock._is_lease_conflict(
             FakeHttpResponseError(error_code="InternalError", status_code=500)
+        )
+
+
+
+# ------------------------------------------------------------------
+# Non-renewal warning
+# ------------------------------------------------------------------
+
+
+class TestFiniteLeaseWarning:
+    """AzureBlobLeaseThreadLock emits UserWarning for finite lease_duration."""
+
+    def test_default_lease_duration_emits_warning(self) -> None:
+        """Default finite lease_duration=60 emits UserWarning about non-renewal."""
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            _make_lock()
+        matching = [
+            r
+            for r in records
+            if issubclass(r.category, UserWarning)
+            and "does not renew leases in the background" in str(r.message)
+        ]
+        assert matching, (
+            f"Expected finite-lease UserWarning; got {[str(r.message) for r in records]}"
+        )
+
+    def test_explicit_finite_lease_emits_warning(self) -> None:
+        """Explicit finite lease_duration=30 emits UserWarning naming the value."""
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            _make_lock(lease_duration=30)
+        matching = [
+            r
+            for r in records
+            if issubclass(r.category, UserWarning)
+            and "lease_duration=30" in str(r.message)
+        ]
+        assert matching, (
+            f"Expected UserWarning naming lease_duration=30; "
+            f"got {[str(r.message) for r in records]}"
+        )
+
+    def test_infinite_lease_no_warning(self) -> None:
+        """Infinite lease_duration=-1 must not emit the non-renewal warning."""
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            _make_lock(lease_duration=-1)
+        matching = [
+            r
+            for r in records
+            if issubclass(r.category, UserWarning)
+            and "does not renew leases in the background" in str(r.message)
+        ]
+        assert not matching, (
+            f"Infinite lease must not warn; got {[str(r.message) for r in matching]}"
         )
