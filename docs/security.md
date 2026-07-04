@@ -2,15 +2,23 @@
 
 ## Authentication
 
-By default, `LangGraphApp` creates endpoints with `AuthLevel.ANONYMOUS`. For production deployments, consider setting a higher auth level:
+By default, `LangGraphApp` creates endpoints with `AuthLevel.FUNCTION`, requiring an Azure Functions key on every request. This is the recommended baseline for production deployments:
 
 ```python
 import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+app = LangGraphApp()  # default: AuthLevel.FUNCTION
 ```
+
+For local development or explicitly public surfaces, opt in to `ANONYMOUS`. Doing so emits an unconditional `UserWarning` on app construction:
+
+```python
+app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)  # emits UserWarning
+```
+
+> The health endpoint is controlled separately via `health_auth_level`, which defaults to `ANONYMOUS` (the conventional choice for liveness/readiness probes).
 
 See [Azure Functions authentication](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger#authorization-keys) for details on function keys and admin keys.
 

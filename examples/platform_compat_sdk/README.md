@@ -46,6 +46,6 @@ curl -s -X POST http://localhost:7071/api/runs/wait \
 
 ## Production notes
 
-- `LangGraphApp` defaults to `AuthLevel.ANONYMOUS` for local convenience. For production, set `auth_level=func.AuthLevel.FUNCTION` and pass `?code=<FUNCTION_KEY>` on every request.
+- `LangGraphApp` now defaults to `AuthLevel.FUNCTION`. This example opts into `AuthLevel.ANONYMOUS` for local convenience, which emits an unconditional `UserWarning`. For production, drop the `auth_level=` kwarg (uses the FUNCTION default) and pass `?code=<FUNCTION_KEY>` on every request.
 - The platform-compatible endpoints share the same buffered-SSE behavior as the native `/stream` endpoint — see [docs/production-guide.md](../../docs/production-guide.md#streaming-behavior).
 - See [COMPATIBILITY.md](../../COMPATIBILITY.md) for the per-feature SDK matrix and which `RunCreate` fields return `501 Not Implemented`.

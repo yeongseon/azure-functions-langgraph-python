@@ -64,14 +64,14 @@ This creates:
 
 `LangGraphApp` supports Azure Functions authentication levels:
 
-- `AuthLevel.ANONYMOUS` (default) — no authentication
-- `AuthLevel.FUNCTION` — requires function key
+- `AuthLevel.ANONYMOUS` — no authentication (emits `UserWarning` when opted-in at app level)
+- `AuthLevel.FUNCTION` (default) — requires function key
 - `AuthLevel.ADMIN` — requires master key
 
 ```python
 import azure.functions as func
 
-app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+app = LangGraphApp()  # FUNCTION is the default
 ```
 
 ## How is this different from LangGraph Platform?

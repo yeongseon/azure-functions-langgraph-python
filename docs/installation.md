@@ -64,5 +64,5 @@ from azure_functions_langgraph import LangGraphApp
 
 app = LangGraphApp()
 print(app)
-# LangGraphApp(auth_level=<AuthLevel.ANONYMOUS: 'anonymous'>)
+# LangGraphApp(auth_level=<AuthLevel.FUNCTION: 'function'>, health_auth_level=<AuthLevel.ANONYMOUS: 'anonymous'>, ...)
 ```

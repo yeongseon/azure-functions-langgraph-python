@@ -12,7 +12,7 @@
 
 이 문서의 언어: **한국어** | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [English](README.md)
 
-> **베타 버전 안내** — 이 패키지는 활발히 개발 중입니다. 핵심 API는 안정화되어 가고 있으나 v1.0 이전에는 변경될 수 있습니다. GitHub에서 이슈를 보고해 주세요.
+> **알파 버전 안내** — 이 패키지는 활발히 개발 중입니다. `pyproject.toml`의 `Development Status :: 3 - Alpha` 분류가 진실의 원철입니다. v1.0 이전에는 minor 버전 간 변경될 수 있습니다. GitHub에서 이슈를 보고해 주세요.
 
 [LangGraph](https://github.com/langchain-ai/langgraph) 그래프를 최소한의 보일러플레이트로 **Azure Functions** HTTP 엔드포인트로 배포하세요.
 
@@ -149,15 +149,19 @@ func_app = app.function_app  # ← Azure Functions 앱으로 사용
 
 ### 프로덕션 인증
 
-`LangGraphApp`은 로컬 개발 편의를 위해 기본적으로 `AuthLevel.ANONYMOUS`를 사용합니다.
-프로덕션 배포 시에는 `FUNCTION` 또는 `ADMIN` 인증을 사용하고 Azure Functions 키를 전송하세요.
+`LangGraphApp`은 배포된 엔드포인트에 함수 키가 요구되도록 기본으로 `AuthLevel.FUNCTION`을 사용합니다.
+로컬 개발 등 키 없이 엔드포인트에 접근하려면 `auth_level=func.AuthLevel.ANONYMOUS`를 명시적으로 전달하세요. 그러면 실수로 공개 배포되는 것을 방지하기 위해 무조건 `UserWarning`이 명시적으로 발생합니다.
 
 ```python
 import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+# 프로덕션 기본값: 함수 키 인증 요구
+app = LangGraphApp()  # LangGraphApp(auth_level=func.AuthLevel.FUNCTION)과 동일
+
+# 로컬 개발 전용: 명시적으로 익명 접근 허용 — UserWarning 발생
+app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 ```
 
 > **참고:** `health_auth_level`은 `auth_level`과 무관하게 기본값이 `ANONYMOUS`입니다.

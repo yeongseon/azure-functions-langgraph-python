@@ -29,7 +29,9 @@ compiled_graph = build_graph().compile(checkpointer=checkpointer)
 
 langgraph_app = LangGraphApp(
     platform_compat=True,
-    # Local dev: ANONYMOUS; use FUNCTION + health_auth_level=FUNCTION in production
+    # Local dev opt-in to ANONYMOUS — emits an unconditional UserWarning.
+    # Production: drop this kwarg to use the FUNCTION default; set
+    # `health_auth_level=func.AuthLevel.FUNCTION` too if you want to protect /health.
     auth_level=func.AuthLevel.ANONYMOUS,
 )
 langgraph_app.thread_store = thread_store

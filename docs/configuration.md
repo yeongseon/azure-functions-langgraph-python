@@ -13,13 +13,13 @@ import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-# Default: anonymous (no authentication required)
+# Default: FUNCTION (requires an Azure Functions key on every request)
 app = LangGraphApp()
 
-# Require function key
-app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+# Public / local-dev only — emits UserWarning
+app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 
-# Require admin key
+# Require admin (host master) key
 app = LangGraphApp(auth_level=func.AuthLevel.ADMIN)
 ```
 
@@ -27,8 +27,8 @@ Available levels:
 
 | Level | Description |
 |-------|-------------|
-| `ANONYMOUS` | No authentication (default) |
-| `FUNCTION` | Requires a function-specific API key |
+| `ANONYMOUS` | No authentication (emits `UserWarning` when opted-in) |
+| `FUNCTION` | Requires a function-specific API key (**default**) |
 | `ADMIN` | Requires the master host key |
 
 ## Graph registration

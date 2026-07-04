@@ -6,6 +6,7 @@ import dataclasses
 import json
 from typing import Any
 from unittest.mock import MagicMock
+import warnings
 
 import azure.functions as func
 import pytest
@@ -27,40 +28,35 @@ from tests.conftest import (
 
 
 class TestRegistration:
-    def test_warns_for_anonymous_auth_level(
-        self,
-        caplog: pytest.LogCaptureFixture,
-        monkeypatch: pytest.MonkeyPatch,
+    def test_default_auth_level_is_function(self) -> None:
+        """Default auth_level is FUNCTION so deployed endpoints require a function key."""
+        app = LangGraphApp()
+        assert app.auth_level == func.AuthLevel.FUNCTION
+
+    def test_warns_for_anonymous_auth_level(self) -> None:
+        """Passing auth_level=ANONYMOUS emits an unconditional UserWarning."""
+        with pytest.warns(UserWarning, match="ANONYMOUS auth") as record:
+            app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
+        assert app.auth_level == func.AuthLevel.ANONYMOUS
+        # Message points users at the recommended remediation.
+        message = str(record[0].message)
+        assert "LangGraphApp(auth_level=func.AuthLevel.FUNCTION)" in message
+        assert "Production authentication" in message
+
+    def test_warns_anonymous_regardless_of_env(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        with caplog.at_level("WARNING"):
-            monkeypatch.setenv("AZURE_FUNCTIONS_ENVIRONMENT", "Production")
+        """Warning must fire even outside an Azure Functions environment."""
+        monkeypatch.delenv("AZURE_FUNCTIONS_ENVIRONMENT", raising=False)
+        with pytest.warns(UserWarning, match="ANONYMOUS auth"):
+            LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
+
+    def test_no_warning_for_function_auth_level(self) -> None:
+        """Passing (or defaulting to) FUNCTION does not emit a UserWarning."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any warning becomes a test failure
             LangGraphApp()
-
-        assert "ANONYMOUS auth" in caplog.text
-        assert "LangGraphApp(auth_level=func.AuthLevel.FUNCTION)" in caplog.text
-        assert "v1.0" in caplog.text
-
-    def test_no_warning_for_function_auth_level(
-        self,
-        caplog: pytest.LogCaptureFixture,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        with caplog.at_level("WARNING"):
-            monkeypatch.setenv("AZURE_FUNCTIONS_ENVIRONMENT", "Production")
             LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
-
-        assert "anonymous HTTP auth" not in caplog.text
-
-    def test_no_warning_without_azure_env(
-        self,
-        caplog: pytest.LogCaptureFixture,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        with caplog.at_level("WARNING"):
-            monkeypatch.delenv("AZURE_FUNCTIONS_ENVIRONMENT", raising=False)
-            LangGraphApp()
-
-        assert "anonymous HTTP auth" not in caplog.text
 
     def test_register_single_graph(self, fake_graph: FakeCompiledGraph) -> None:
         app = LangGraphApp()
@@ -865,7 +861,8 @@ class TestRegisterWithFunctionAuth:
 
     def test_register_with_function_auth_level(self) -> None:
         """Register should accept and preserve auth_level=FUNCTION."""
-        app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
+        with pytest.warns(UserWarning, match="ANONYMOUS auth"):
+            app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
         app.register(graph=FakeCompiledGraph(), name="secure", auth_level=func.AuthLevel.FUNCTION)
 
         reg = app._registrations["secure"]
