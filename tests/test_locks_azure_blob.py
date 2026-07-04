@@ -11,7 +11,7 @@ import warnings
 import pytest
 
 pytestmark = pytest.mark.filterwarnings(
-    "ignore:.*does not renew leases in the background.*:UserWarning"
+    "ignore:.*auto_renew=False.*:UserWarning"
 )
 
 # ------------------------------------------------------------------
@@ -44,10 +44,20 @@ class MockBlobLease:
     def __init__(self, blob: "MockBlobClient") -> None:
         self._blob = blob
         self.released = False
+        self.renew_count = 0
 
     def release(self) -> None:
         self.released = True
         self._blob._active_lease = None
+
+    def renew(self) -> None:
+        if self.released:
+            raise FakeHttpResponseError(
+                "LeaseIdMismatchWithLeaseOperation",
+                error_code="LeaseIdMismatchWithLeaseOperation",
+                status_code=409,
+            )
+        self.renew_count += 1
 
 
 class MockBlobClient:
@@ -428,50 +438,257 @@ class TestErrorPropagation:
 
 
 class TestFiniteLeaseWarning:
-    """AzureBlobLeaseThreadLock emits UserWarning for finite lease_duration."""
+    """AzureBlobLeaseThreadLock emits UserWarning only when auto_renew=False."""
 
-    def test_default_lease_duration_emits_warning(self) -> None:
-        """Default finite lease_duration=60 emits UserWarning about non-renewal."""
+    def test_default_finite_lease_no_warning(self) -> None:
+        """Default (auto_renew=True) suppresses the finite-lease warning."""
         with warnings.catch_warnings(record=True) as records:
             warnings.simplefilter("always")
-            _make_lock()
-        matching = [
-            r
-            for r in records
-            if issubclass(r.category, UserWarning)
-            and "does not renew leases in the background" in str(r.message)
-        ]
-        assert matching, (
-            f"Expected finite-lease UserWarning; got {[str(r.message) for r in records]}"
+            lock = _make_lock()
+        try:
+            matching = [
+                r
+                for r in records
+                if issubclass(r.category, UserWarning)
+                and "auto_renew=False" in str(r.message)
+            ]
+            assert not matching, (
+                "Default (auto_renew=True) must not warn; got "
+                f"{[str(r.message) for r in matching]}"
+            )
+        finally:
+            lock.close()
+
+    def test_finite_lease_with_auto_renew_false_warns(self) -> None:
+        """auto_renew=False with finite lease emits UserWarning naming the values."""
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            lock = _make_lock(lease_duration=30, auto_renew=False)
+        try:
+            matching = [
+                r
+                for r in records
+                if issubclass(r.category, UserWarning)
+                and "lease_duration=30" in str(r.message)
+                and "auto_renew=False" in str(r.message)
+            ]
+            assert matching, (
+                "Expected UserWarning naming lease_duration=30 and "
+                f"auto_renew=False; got {[str(r.message) for r in records]}"
+            )
+        finally:
+            lock.close()
+
+    def test_infinite_lease_no_warning_regardless_of_auto_renew(self) -> None:
+        """Infinite lease never warns — auto-renewal is meaningless for -1."""
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            lock_a = _make_lock(lease_duration=-1)
+            lock_b = _make_lock(lease_duration=-1, auto_renew=False)
+        try:
+            matching = [
+                r
+                for r in records
+                if issubclass(r.category, UserWarning)
+                and "auto_renew" in str(r.message)
+            ]
+            assert not matching, (
+                "Infinite lease must not warn; got "
+                f"{[str(r.message) for r in matching]}"
+            )
+        finally:
+            lock_a.close()
+            lock_b.close()
+
+
+# ------------------------------------------------------------------
+# Background auto-renewal
+# ------------------------------------------------------------------
+
+
+class TestAutoRenewal:
+    """Background auto-renewal for AzureBlobLeaseThreadLock."""
+
+    def test_renewal_thread_starts_by_default(self) -> None:
+        """Default construction with finite lease spawns a daemon thread."""
+        lock = _make_lock()
+        try:
+            assert lock._renewal_thread is not None
+            assert lock._renewal_thread.is_alive()
+            assert lock._renewal_thread.daemon
+            assert lock._auto_renew is True
+            assert lock._renewal_interval == 60 / 3
+        finally:
+            lock.close()
+
+    def test_no_renewal_thread_for_infinite_lease(self) -> None:
+        """Infinite lease_duration=-1 skips the renewal thread."""
+        lock = _make_lock(lease_duration=-1)
+        try:
+            assert lock._renewal_thread is None
+            assert lock._auto_renew is False
+        finally:
+            lock.close()
+
+    def test_no_renewal_thread_when_auto_renew_false(self) -> None:
+        """auto_renew=False skips the renewal thread and emits warning."""
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            lock = _make_lock(lease_duration=30, auto_renew=False)
+        try:
+            assert lock._renewal_thread is None
+            assert lock._auto_renew is False
+            assert any(
+                issubclass(r.category, UserWarning)
+                and "auto_renew=False" in str(r.message)
+                for r in records
+            )
+        finally:
+            lock.close()
+
+    def test_renew_all_once_renews_every_active_lease(self) -> None:
+        """_renew_all_once() calls .renew() on every tracked lease exactly once."""
+        container = MockContainerClient()
+        lock = _make_lock(container, auto_renew=False)  # no background thread
+        try:
+            lock.acquire("graph", "t1")
+            lock.acquire("graph", "t2")
+            lease1 = lock._active_leases[("graph", "t1")]
+            lease2 = lock._active_leases[("graph", "t2")]
+            lock._renew_all_once()
+            assert lease1.renew_count == 1
+            assert lease2.renew_count == 1
+            lock._renew_all_once()
+            assert lease1.renew_count == 2
+            assert lease2.renew_count == 2
+        finally:
+            lock.close()
+
+    def test_renew_all_once_drops_lease_on_failure(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When renew() raises, the lease is removed from _active_leases."""
+        container = MockContainerClient()
+        lock = _make_lock(container, auto_renew=False)
+        try:
+            lock.acquire("graph", "t1")
+            lease = lock._active_leases[("graph", "t1")]
+
+            def _raise() -> None:
+                raise RuntimeError("simulated renewal failure")
+
+            lease.renew = _raise
+
+            with caplog.at_level(
+                "WARNING", logger="azure_functions_langgraph.locks.azure_blob"
+            ):
+                lock._renew_all_once()
+
+            assert ("graph", "t1") not in lock._active_leases
+            assert any(
+                "Failed to renew Azure Blob lease" in rec.getMessage()
+                for rec in caplog.records
+            )
+        finally:
+            lock.close()
+
+    def test_renew_all_once_skips_stale_lease_on_failure(self) -> None:
+        """If lease is concurrently released after snapshot, no KeyError on cleanup."""
+        container = MockContainerClient()
+        lock = _make_lock(container, auto_renew=False)
+        try:
+            lock.acquire("graph", "t1")
+            lease = lock._active_leases[("graph", "t1")]
+
+            def _release_then_raise() -> None:
+                # Simulate a race: another thread releases the lock while we
+                # were mid-renew. When our failure handler re-locks, the dict
+                # entry is gone and the identity check must skip the del.
+                lock.release("graph", "t1")
+                raise RuntimeError("simulated failure after concurrent release")
+
+            lease.renew = _release_then_raise
+            lock._renew_all_once()  # snapshot has entry; dict is empty after renew()
+            assert ("graph", "t1") not in lock._active_leases
+        finally:
+            lock.close()
+
+    def test_renewal_thread_actually_renews_in_background(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The live daemon thread renews leases at the configured interval."""
+        # Force sub-second cadence by inflating the renewal fraction so the
+        # computed interval (lease_duration / fraction) is small.
+        monkeypatch.setattr(
+            "azure_functions_langgraph.locks.azure_blob._LEASE_RENEWAL_FRACTION",
+            600,
         )
+        container = MockContainerClient()
+        lock = _make_lock(container, lease_duration=15)
+        try:
+            assert lock._renewal_interval == pytest.approx(15 / 600)
+            lock.acquire("graph", "t1")
+            lease = lock._active_leases[("graph", "t1")]
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                if lease.renew_count >= 3:
+                    break
+                time.sleep(0.02)
+            assert lease.renew_count >= 3, (
+                f"Expected ≥3 renewals, got {lease.renew_count}"
+            )
+        finally:
+            lock.close()
 
-    def test_explicit_finite_lease_emits_warning(self) -> None:
-        """Explicit finite lease_duration=30 emits UserWarning naming the value."""
-        with warnings.catch_warnings(record=True) as records:
-            warnings.simplefilter("always")
-            _make_lock(lease_duration=30)
-        matching = [
-            r
-            for r in records
-            if issubclass(r.category, UserWarning)
-            and "lease_duration=30" in str(r.message)
-        ]
-        assert matching, (
-            f"Expected UserWarning naming lease_duration=30; "
-            f"got {[str(r.message) for r in records]}"
-        )
+    def test_close_stops_renewal_thread(self) -> None:
+        """close() sets shutdown event and joins the renewal thread."""
+        lock = _make_lock()
+        thread = lock._renewal_thread
+        assert thread is not None
+        assert thread.is_alive()
+        lock.close()
+        thread.join(timeout=2.0)
+        assert not thread.is_alive()
+        assert lock._closed is True
 
-    def test_infinite_lease_no_warning(self) -> None:
-        """Infinite lease_duration=-1 must not emit the non-renewal warning."""
-        with warnings.catch_warnings(record=True) as records:
-            warnings.simplefilter("always")
-            _make_lock(lease_duration=-1)
-        matching = [
-            r
-            for r in records
-            if issubclass(r.category, UserWarning)
-            and "does not renew leases in the background" in str(r.message)
-        ]
-        assert not matching, (
-            f"Infinite lease must not warn; got {[str(r.message) for r in matching]}"
+    def test_close_releases_active_leases(self) -> None:
+        """close() releases every tracked lease."""
+        container = MockContainerClient()
+        lock = _make_lock(container)
+        lock.acquire("graph", "t1")
+        lock.acquire("graph", "t2")
+        leases = list(lock._active_leases.values())
+        assert len(leases) == 2
+        lock.close()
+        for lease in leases:
+            assert lease.released
+        assert not lock._active_leases
+
+    def test_close_idempotent(self) -> None:
+        """Repeated close() calls are safe no-ops."""
+        lock = _make_lock()
+        lock.close()
+        lock.close()
+        lock.close()  # third call must not raise
+        assert lock._closed is True
+
+    def test_close_swallows_release_errors(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """close() swallows exceptions from individual lease.release() calls."""
+        container = MockContainerClient()
+        lock = _make_lock(container)
+        lock.acquire("graph", "t1")
+        lease = lock._active_leases[("graph", "t1")]
+
+        def _raise() -> None:
+            raise RuntimeError("simulated release failure during close")
+
+        lease.release = _raise
+        with caplog.at_level(
+            "DEBUG", logger="azure_functions_langgraph.locks.azure_blob"
+        ):
+            lock.close()  # must not raise
+        assert any(
+            "during close" in rec.getMessage() for rec in caplog.records
         )

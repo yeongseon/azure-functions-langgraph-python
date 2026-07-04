@@ -286,7 +286,7 @@ The native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../st
 
 For multi-instance deployments, `LangGraphApp` accepts any object satisfying the [`ThreadLock`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/src/azure_functions_langgraph/locks/base.py) protocol via the `thread_lock` constructor argument. The package ships one distributed implementation — `AzureBlobLeaseThreadLock` — which uses **Azure Blob lease compare-and-swap** as the underlying primitive; leases naturally expire (15–60 s) so a crashed host cannot orphan a lock indefinitely.
 
-> ⚠️ **Non-renewal caveat.** `AzureBlobLeaseThreadLock` does **not** renew leases in the background. If graph execution exceeds `lease_duration` seconds, the lease silently expires mid-execution and another instance can acquire the same lock, allowing concurrent writes to single-writer checkpointers. Pass `lease_duration=-1` (infinite) whenever graph execution can exceed 60 seconds (the maximum finite lease Azure allows). Construction emits a `UserWarning` for finite `lease_duration` so the trade-off is visible in test and CI output. Auto-renewal is tracked as a future enhancement.
+> ℹ️ **Background renewal.** `AzureBlobLeaseThreadLock` renews leases in the background by default: a per-instance daemon thread renews every active lease at `lease_duration / 3` intervals until `close()` (or process exit). Pass `auto_renew=False` to opt out — a finite lease then silently expires mid-execution as it did before renewal support, and construction emits a `UserWarning` so the trade-off is visible. Infinite leases (`lease_duration=-1`) never need renewal but must be broken manually if a host crashes.
 
 ```python
 import azure.functions as func
@@ -320,7 +320,7 @@ The Blob backend needs `Storage Blob Data Contributor` on the lock container (or
 | Backend | Distributed? | Infra required | Failure mode | Use case |
 | --- | --- | --- | --- | --- |
 | `InProcessThreadLock` (default) | No | None | Lock lost on worker restart; racing instances get separate locks | Local dev, single-instance production |
-| `AzureBlobLeaseThreadLock` | Yes — Azure Blob lease CAS | One Blob container | Lease expiry (15–60 s) reclaims locks after host crash; **no background renewal**, so finite leases cap safe graph runtime | Multi-instance (Consumption / Elastic Premium); prefer `lease_duration=-1` for long executions |
+| `AzureBlobLeaseThreadLock` | Yes — Azure Blob lease CAS | One Blob container | Lease expiry (15–60 s) reclaims locks after host crash; background daemon thread renews active leases every `lease_duration / 3` s by default, so finite leases do not cap execution time | Multi-instance (Consumption / Elastic Premium); default `lease_duration=60` fits most workloads |
 | Custom `ThreadLock` implementation | Yours to design | Yours to provision | Yours to reason about | Redis, Cosmos DB, Postgres advisory locks, etc. |
 
 **Safety guard — `AZFUNC_LANGGRAPH_LOCK_BACKEND`.** In multi-instance environments, set this environment variable to `distributed` (or any non-empty value other than `inprocess`). When the value indicates a distributed backend is required and `thread_lock` resolves to the default `InProcessThreadLock`, `LangGraphApp.__post_init__` raises `RuntimeError` at construction — turning a silent-race deployment mistake into a fail-fast startup error. Set the value to `inprocess` (or leave it unset) in single-instance environments; the guard passes for any wired custom backend regardless of the environment value.
