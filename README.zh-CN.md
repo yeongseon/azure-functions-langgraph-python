@@ -12,7 +12,7 @@
 
 本文档语言: [한국어](README.ko.md) | [日本語](README.ja.md) | **简体中文** | [English](README.md)
 
-> **Beta 版本说明** — 此软件包正在积极开发中。核心 API 趋于稳定，但在 v1.0 之前可能仍会发生变更。请在 GitHub 上报告问题。
+> **Alpha 版本说明** — 此软件包正在积极开发中。`pyproject.toml` 中的 `Development Status :: 3 - Alpha` 分类属于唯一权威来源：在 v1.0 之前，次要版本之间可能会发生破坏性变更。请在 GitHub 上报告问题。
 
 以最少的样板代码将 [LangGraph](https://github.com/langchain-ai/langgraph) 图部署为 **Azure Functions** HTTP 端点。
 
@@ -149,15 +149,19 @@ func_app = app.function_app  # ← 用作 Azure Functions 应用
 
 ### 生产环境认证
 
-`LangGraphApp` 默认使用 `AuthLevel.ANONYMOUS` 以方便本地开发。
-生产部署时，建议使用 `FUNCTION` 或 `ADMIN` 认证并发送 Azure Functions 密钥。
+`LangGraphApp` 默认使用 `AuthLevel.FUNCTION`，以确保已部署的端点默认需要函数密钥。
+在本地开发等希望无密钥访问端点的情况下，请显式传入 `auth_level=func.AuthLevel.ANONYMOUS`。此时会无条件地发出 `UserWarning`，以防止意外将应用公开部署。
 
 ```python
 import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+# 生产默认：要求函数密钥认证
+app = LangGraphApp()  # 等同于 LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+
+# 仅本地开发：显式允许匿名访问 — 会发出 UserWarning
+app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 ```
 
 > **注意：** `health_auth_level` 默认为 `ANONYMOUS`，与 `auth_level` 独立。

@@ -5,6 +5,9 @@ import azure.functions as func
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.openapi import register_with_openapi
 
+# Local-dev example: opt into ANONYMOUS to avoid needing a function key.
+# This emits an unconditional UserWarning at construction time; that is expected.
+# Production: drop the `auth_level=` kwarg to use the FUNCTION default.
 langgraph_app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 langgraph_app.register(
     graph=compiled_graph,

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import logging
-import os
 from types import MappingProxyType
 from typing import Any, Callable, Optional
+import warnings
 
 import azure.functions as func
 
@@ -33,9 +32,6 @@ _ROUTE_HEALTH = "health"
 _ROUTE_INVOKE = "graphs/{name}/invoke"
 _ROUTE_STREAM = "graphs/{name}/stream"
 _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
-
-logger = logging.getLogger(__name__)
-
 _TOOLKIT_META_ATTR = "_azure_functions_metadata"
 
 
@@ -96,11 +92,13 @@ class LangGraphApp:
         Python HTTP streaming stabilises.
 
     Note:
-        The default ``auth_level`` is ``ANONYMOUS`` for local development
-        convenience. This will change to ``FUNCTION`` in v1.0. For production
-        deployments, always pass ``auth_level`` explicitly.
+        The default ``auth_level`` is :attr:`~azure.functions.AuthLevel.FUNCTION`,
+        so deployed endpoints require a function key by default. Pass
+        ``auth_level=func.AuthLevel.ANONYMOUS`` explicitly for public access
+        (e.g. local development); doing so emits an unconditional ``UserWarning``.
         The ``health_auth_level`` parameter controls the auth level of the health
-        endpoint independently and defaults to ``ANONYMOUS`` for convenience.
+        endpoint independently and defaults to :attr:`~azure.functions.AuthLevel.ANONYMOUS`,
+        which is the conventional choice for liveness/readiness probes.
 
     Note:
         Per-thread locking on the native invoke/stream endpoints is
@@ -111,7 +109,7 @@ class LangGraphApp:
         which provides ETag-based atomic locking.
     """
 
-    auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
+    auth_level: func.AuthLevel = func.AuthLevel.FUNCTION
     health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
     max_stream_response_bytes: int = 1024 * 1024
     max_request_body_bytes: int = 1024 * 1024
@@ -124,16 +122,15 @@ class LangGraphApp:
     _thread_store: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.auth_level == func.AuthLevel.ANONYMOUS and os.environ.get(
-            "AZURE_FUNCTIONS_ENVIRONMENT"
-        ):
-            logger.warning(
-                "LangGraphApp is using ANONYMOUS auth in an Azure environment. "
-                "Endpoints are publicly accessible without authentication.\n"
+        if self.auth_level == func.AuthLevel.ANONYMOUS:
+            warnings.warn(
+                "LangGraphApp is using ANONYMOUS auth. Endpoints are publicly "
+                "accessible without authentication.\n"
                 "  Recommended: LangGraphApp(auth_level=func.AuthLevel.FUNCTION)\n"
                 "  Per-graph:   app.register(..., auth_level=func.AuthLevel.FUNCTION)\n"
-                "  See the 'Production authentication' section in README.md\n"
-                "Note: The default will change from ANONYMOUS to FUNCTION in v1.0."
+                "  See the 'Production authentication' section in README.md",
+                UserWarning,
+                stacklevel=2,
             )
         # Normalize route_prefix: ensure leading slash, strip trailing slashes
         if not self.route_prefix.startswith("/"):

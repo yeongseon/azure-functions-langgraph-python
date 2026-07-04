@@ -5,29 +5,36 @@ This guide focuses on production hardening for `azure-functions-langgraph` deplo
 ## Authentication & Authorization
 ### Default auth behavior
 
-`LangGraphApp` defaults to anonymous HTTP access:
+`LangGraphApp` defaults to function-key HTTP access:
 
 ```python
 # src/azure_functions_langgraph/app.py
-auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
+auth_level: func.AuthLevel = func.AuthLevel.FUNCTION
 ```
 
-In production environments, this default is intentionally noisy.
-When `AZURE_FUNCTIONS_ENVIRONMENT` is set and `auth_level` remains anonymous,
-the app logs a warning at startup (`app.py`, `__post_init__`, around lines 98-104).
+This default is intentionally secure: deploying a `LangGraphApp()` without any auth configuration will require a function key on every request.
+
+If you opt into `ANONYMOUS` at the app level, the library emits an unconditional `UserWarning` at construction time (regardless of environment). This ensures the choice is always visible in test output, CI logs, and startup output.
+
+```python
+# Opting into anonymous access (e.g. local dev) emits UserWarning:
+# UserWarning: LangGraphApp is using ANONYMOUS auth. ...
+app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
+```
 
 ⚠️ `ANONYMOUS` is convenient for local development but too permissive for internet-facing production APIs.
 
 ### Set a production-safe app-level auth level
 
-Use `FUNCTION` (recommended baseline) or `ADMIN` (only for tightly controlled internal surfaces).
+`FUNCTION` is the default (recommended baseline). Use `ADMIN` only for tightly controlled internal surfaces.
 
 ```python
 import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+app = LangGraphApp()                                        # default: FUNCTION
+app = LangGraphApp(auth_level=func.AuthLevel.ADMIN)          # only if truly internal
 ```
 
 ### Per-graph auth override

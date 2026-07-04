@@ -12,7 +12,7 @@
 
 この文書の言語: [한국어](README.ko.md) | **日本語** | [简体中文](README.zh-CN.md) | [English](README.md)
 
-> **ベータ版について** — このパッケージは活発に開発中です。コアAPIは安定化に向かっていますが、v1.0 までは変更される可能性があります。GitHubでイシューを報告してください。
+> **アルファ版について** — このパッケージは活発に開発中です。`pyproject.toml` の `Development Status :: 3 - Alpha` 分類が真実の原本です。v1.0 まではマイナーバージョン間で破壊的変更が発生しうることを想定してください。GitHub でイシューを報告してください。
 
 最小限のボイラープレートで [LangGraph](https://github.com/langchain-ai/langgraph) グラフを **Azure Functions** HTTPエンドポイントとしてデプロイできます。
 
@@ -149,15 +149,19 @@ func_app = app.function_app  # ← Azure Functionsアプリとして使用
 
 ### プロダクション認証
 
-`LangGraphApp`はローカル開発の利便性のためにデフォルトで`AuthLevel.ANONYMOUS`を使用します。
-プロダクションデプロイでは`FUNCTION`または`ADMIN`認証を使用し、Azure Functionsキーを送信してください。
+`LangGraphApp` はデプロイされたエンドポイントで関数キーが必要となるよう、デフォルトで `AuthLevel.FUNCTION` を使用します。
+ローカル開発などでキーなしにエンドポイントにアクセスしたい場合は `auth_level=func.AuthLevel.ANONYMOUS` を明示的に渡してください。不用意なパブリック公開を防ぐため、無条件で `UserWarning` が発生します。
 
 ```python
 import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+# プロダクションデフォルト: 関数キー認証を要求
+app = LangGraphApp()  # LangGraphApp(auth_level=func.AuthLevel.FUNCTION) と同等
+
+# ローカル開発専用: 匿名アクセスを明示的に許可 — UserWarning 発生
+app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 ```
 
 > **注記:** `health_auth_level` は `auth_level` とは独立してデフォルトが `ANONYMOUS` です。

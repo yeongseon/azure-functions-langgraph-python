@@ -15,7 +15,7 @@
 
 Read this in: [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-> **Beta Notice** — This package is under active development. Core APIs are stabilizing but may still change before v1.0. Please report issues on GitHub.
+> **Alpha Notice** — This package is under active development. The `Development Status :: 3 - Alpha` classifier in `pyproject.toml` is the source of truth: expect breaking changes between minor versions until v1.0. Please report issues on GitHub.
 
 Deploy [LangGraph](https://github.com/langchain-ai/langgraph) graphs as **Azure Functions** HTTP endpoints with minimal boilerplate.
 
@@ -159,8 +159,8 @@ builder.add_edge(START, "chat")
 builder.add_edge("chat", END)
 graph = builder.compile()
 
-# 4. Deploy (ANONYMOUS for local dev; use FUNCTION in production — see below)
-app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
+# 4. Deploy (default is `AuthLevel.FUNCTION` — requires a function key when deployed).
+app = LangGraphApp()
 app.register(graph=graph, name="echo_agent")
 func_app = app.function_app  # ← use this as your Azure Functions app
 ```
@@ -200,17 +200,24 @@ curl -s "https://<your-app>.azurewebsites.net/api/health?code=<FUNCTION_KEY>"
 
 ### Production authentication
 
-> **Important:** `LangGraphApp` defaults to `AuthLevel.ANONYMOUS` for local development
-> convenience. This default will change to `AuthLevel.FUNCTION` in v1.0.
-> For production deployments, **always** set `auth_level` explicitly:
+> **Important:** `LangGraphApp` defaults to `AuthLevel.FUNCTION`, so deployed
+> endpoints require a function key (`?code=<FUNCTION_KEY>` or the
+> `x-functions-key` header) out of the box. For an unauthenticated public
+> surface — e.g. local development against `func start` when you also want to
+> hit the endpoint without a key — pass `auth_level=func.AuthLevel.ANONYMOUS`
+> **explicitly**. Doing so emits an unconditional `UserWarning` so an
+> accidental anonymous deployment is loud in test and CI output:
 
 ```python
 import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-# Production: require function key authentication
-app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+# Production (default): require function key authentication
+app = LangGraphApp()  # equivalent to LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+
+# Local dev only: explicit opt-in to anonymous — emits a UserWarning
+app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 ```
 
 > **Note:** `health_auth_level` defaults to `ANONYMOUS` independently of `auth_level`.
