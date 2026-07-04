@@ -327,7 +327,37 @@ func_app = app.function_app
 
 ネイティブ invoke/stream エンドポイント（`POST /api/graphs/{name}/invoke` および `.../stream`）は、グラフに checkpointer が設定され、リクエストに `config.configurable.thread_id` が含まれる場合、**インプロセスのスレッド単位ロック**を使用します。これにより、同一 Python ワーカープロセス内で単一ライター型 checkpointer（例: `AzureBlobCheckpointSaver`）への同時書き込みを防止します。
 
-> **重要:** これは**分散ロックではありません**（not distributed）。複数の Function App インスタンス、ワーカープロセス、ホスト間では協調しません。分散ランロックが必要な場合は、`AzureTableThreadStore` とともに Platform 互換ラン（`platform_compat=True`）を使用してください — ETag ベースの原子的ロックを提供します。
+> **重要:** **デフォルト**バックエンドは**インプロセスのみ**であり、複数の Function App インスタンス・ワーカープロセス・ホスト間では協調しません。マルチインスタンス構成（Consumption / Elastic Premium）では、分散型の `ThreadLock` バックエンド（下記参照）を利用するか、`AzureTableThreadStore` と組み合わせた Platform 互換ラン（`platform_compat=True`）を使用してください — 後者は ETag ベースの原子的ロックを提供します。
+#### 分散スレッドロック（v0.6+）
+
+`thread_lock` パラメータは [`ThreadLock`](src/azure_functions_langgraph/locks/base.py) プロトコルを満たす任意のオブジェクトを受け取ります。マルチインスタンス構成ではデフォルトの `InProcessThreadLock` を分散バックエンドに差し替えられます。パッケージには **Azure Blob リースの compare-and-swap** を用いる `AzureBlobLeaseThreadLock` が同梱されており、Blob コンテナ 1 個以外の追加インフラは不要です。
+
+```python
+import azure.functions as func
+from azure.storage.blob import ContainerClient
+
+from azure_functions_langgraph import LangGraphApp
+from azure_functions_langgraph.locks import AzureBlobLeaseThreadLock
+
+container = ContainerClient.from_connection_string(
+    "DefaultEndpointsProtocol=https;AccountName=...", "langgraph-locks"
+)
+container.create_container()  # 冪等 — コールドスタート時に安全に呼べる
+
+app = LangGraphApp(
+    auth_level=func.AuthLevel.FUNCTION,
+    thread_lock=AzureBlobLeaseThreadLock(container_client=container),
+)
+```
+
+| バックエンド | 分散対応? | 必要なインフラ | ユースケース |
+| --- | --- | --- | --- |
+| `InProcessThreadLock`（デフォルト） | 不可 — 単一 Python ワーカーのみ | なし | ローカル開発 / 単一インスタンス |
+| `AzureBlobLeaseThreadLock` | 可 — Azure Blob リース CAS | Blob コンテナ 1 個 | マルチインスタンス本番（Consumption / Elastic Premium）|
+| 独自 `ThreadLock` 実装 | 実装次第 | 実装次第 | Redis / Cosmos DB / Postgres advisory lock など |
+
+**セーフティガード — `AZFUNC_LANGGRAPH_LOCK_BACKEND`**。マルチインスタンス環境ではこの環境変数を `distributed` に設定してください。分散バックエンドが差し込まれていない場合、起動時に fail-fast させられます。値が `distributed`（または `inprocess` 以外の非空値）で `thread_lock` がデフォルトの `InProcessThreadLock` のままだと、`LangGraphApp.__post_init__` が `RuntimeError` を送出します。これは水平スケールされる Function App にインプロセスロックを誤ってデプロイすることを防ぎます。詳細は [`docs/production-guide.md`](docs/production-guide.md#distributed-thread-locking) を参照してください。
+
 
 #### リテンションヘルパー
 

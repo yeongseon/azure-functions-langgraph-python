@@ -325,7 +325,37 @@ func_app = app.function_app
 
 原生 invoke/stream 端点（`POST /api/graphs/{name}/invoke` 与 `.../stream`）在图配置了 checkpointer 且请求包含 `config.configurable.thread_id` 时使用**进程内的逐线程锁**。它可防止同一 Python 工作进程内对单写入者 checkpointer（例如 `AzureBlobCheckpointSaver`）的并发写入。
 
-> **重要:** 这**不是分布式锁**（not distributed），不会跨多个 Function App 实例、工作进程或主机进行协调。如需分布式运行锁，请配合 `AzureTableThreadStore` 使用 Platform 兼容运行（`platform_compat=True`）—— 它提供基于 ETag 的原子锁。
+> **重要：默认**后端**仅在进程内有效**，不会跨多个 Function App 实例、工作进程或主机协调。多实例部署（Consumption / Elastic Premium）**必须**要么使用分布式 `ThreadLock` 后端（见下文），要么配合 `AzureTableThreadStore` 使用 Platform 兼容运行（`platform_compat=True`）——后者提供基于 ETag 的原子锁。
+#### 分布式线程锁（v0.6+）
+
+`thread_lock` 参数接受任何满足 [`ThreadLock`](src/azure_functions_langgraph/locks/base.py) 协议的对象，因此多实例部署可以将默认的 `InProcessThreadLock` 替换为分布式后端。本包内置 `AzureBlobLeaseThreadLock`，以 **Azure Blob 租约 compare-and-swap** 为底层原语——除 Blob 容器外无需其他基础设施。
+
+```python
+import azure.functions as func
+from azure.storage.blob import ContainerClient
+
+from azure_functions_langgraph import LangGraphApp
+from azure_functions_langgraph.locks import AzureBlobLeaseThreadLock
+
+container = ContainerClient.from_connection_string(
+    "DefaultEndpointsProtocol=https;AccountName=...", "langgraph-locks"
+)
+container.create_container()  # 幂等——冷启动时可安全调用
+
+app = LangGraphApp(
+    auth_level=func.AuthLevel.FUNCTION,
+    thread_lock=AzureBlobLeaseThreadLock(container_client=container),
+)
+```
+
+| 后端 | 分布式？ | 所需基础设施 | 适用场景 |
+| --- | --- | --- | --- |
+| `InProcessThreadLock`（默认） | 否 — 仅限单个 Python 工作进程 | 无 | 本地开发 / 单实例部署 |
+| `AzureBlobLeaseThreadLock` | 是 — Azure Blob 租约 CAS | 1 个 Blob 容器 | 多实例生产环境（Consumption / Elastic Premium）|
+| 自定义 `ThreadLock` 实现 | 由你定义 | 由你提供 | Redis、Cosmos DB、Postgres advisory 锁等 |
+
+**安全防护 — `AZFUNC_LANGGRAPH_LOCK_BACKEND`**。在多实例环境中将此环境变量设为 `distributed`，可以在未接入分布式后端时在启动阶段 fail-fast。若其值为 `distributed`（或除 `inprocess` 以外的任何非空值）而 `thread_lock` 仍为默认的 `InProcessThreadLock`，`LangGraphApp.__post_init__` 会抛出 `RuntimeError`——避免意外地将进程内锁部署到水平扩展的 Function App。详见 [`docs/production-guide.md`](docs/production-guide.md#distributed-thread-locking)。
+
 
 #### 保留辅助函数
 
