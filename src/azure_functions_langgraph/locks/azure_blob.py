@@ -10,9 +10,11 @@ Lease semantics recap (see the Azure Blob REST reference for details):
 * A blob can have at most one active lease at any time.
 * Leases can be finite (15-60 seconds) or infinite (``-1``).
 * Attempting to acquire a held lease returns ``409 LeaseAlreadyPresent``.
-* Leases auto-expire if not renewed. On expiry the lock is silently
-  released — pick ``lease_duration`` comfortably above your longest
-  expected graph execution time, or use ``-1`` and rely on
+* **This class never renews leases** — there is no background renewal
+  task. A finite lease that outlives its ``lease_duration`` silently
+  releases mid-execution and lets another instance acquire the same
+  lock, so pick ``lease_duration`` comfortably above your longest
+  expected graph execution time, or use ``-1`` (infinite) and rely on
   :meth:`release` running in the request ``finally`` block.
 """
 
@@ -24,6 +26,7 @@ import threading
 import time
 from typing import Any, Protocol, cast
 from urllib.parse import quote
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +66,17 @@ class AzureBlobLeaseThreadLock:
     same container as the ``AzureBlobCheckpointSaver`` is a natural fit but
     a dedicated container is fine too.
 
+    .. warning::
+        This class does **not** renew Azure Blob leases in the background.
+        If a graph execution exceeds ``lease_duration`` seconds (default 60,
+        the maximum finite value Azure allows), the lease silently expires
+        and another instance can acquire the same ``(graph_name, thread_id)``
+        lock, allowing concurrent writes to single-writer checkpointers.
+        Pass ``lease_duration=-1`` (infinite) whenever graph execution can
+        exceed 60 seconds. Construction emits a :class:`UserWarning` for
+        finite ``lease_duration`` to make the trade-off visible in test and
+        CI output. Auto-renewal is tracked as a future enhancement.
+
     Example:
         >>> from azure.storage.blob import ContainerClient
         >>> from azure_functions_langgraph import LangGraphApp
@@ -80,10 +94,17 @@ class AzureBlobLeaseThreadLock:
             already exist — this class never creates it (that decision
             belongs to app-level infrastructure code).
         lease_duration: Lease length in seconds. Must be 15-60 (finite) or
-            ``-1`` (infinite). Defaults to 60. Finite leases auto-expire if
-            :meth:`release` never runs (host crash, scale-in), which is the
-            recommended recovery mechanism; infinite leases require an
-            operator to break them manually.
+            ``-1`` (infinite). Defaults to 60. **Because this class does
+            not renew leases in the background**, a finite ``lease_duration``
+            bounds the maximum safe graph execution time — pick a value
+            comfortably above your longest expected execution or use ``-1``
+            (infinite). Finite leases also auto-expire on the service if
+            :meth:`release` never runs (host crash, scale-in), giving you a
+            crash-recovery mechanism at the cost of the mid-execution race
+            above. Infinite leases require an operator to break them
+            manually when a host crashes. Construction emits a
+            :class:`UserWarning` for finite ``lease_duration`` to make the
+            trade-off visible in test and CI output.
         blob_prefix: Prefix applied to every marker blob so lock blobs are
             visually grouped inside the container. Defaults to
             ``"thread-locks/"``.
@@ -158,6 +179,20 @@ class AzureBlobLeaseThreadLock:
         )
         self._active_leases: dict[tuple[str, str], _BlobLeaseClientProtocol] = {}
         self._active_leases_guard = threading.Lock()
+
+        if lease_duration != _LEASE_DURATION_INFINITE:
+            warnings.warn(
+                f"AzureBlobLeaseThreadLock(lease_duration={lease_duration}) is "
+                "finite and this class does not renew leases in the background. "
+                "If a graph execution exceeds lease_duration seconds, the lease "
+                "will silently expire mid-execution and another instance may "
+                "acquire the same (graph_name, thread_id) lock, allowing "
+                "concurrent writes to single-writer checkpointers. Pass "
+                "lease_duration=-1 (infinite) whenever graph execution can "
+                "exceed 60 seconds.",
+                UserWarning,
+                stacklevel=2,
+            )
 
     def _blob_name(self, graph_name: str, thread_id: str) -> str:
         """Return the URL-safe blob path for ``(graph_name, thread_id)``."""
