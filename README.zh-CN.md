@@ -79,6 +79,14 @@
 
 > **注意：** 生成 OpenAPI 规范请使用专用的 [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python) 软件包与桥接模块（`azure_functions_langgraph.openapi.register_with_openapi`）。
 
+## 架构图
+
+时序图／状态机（Invoke、缓冲 Stream 及溢出路径、线程生命周期状态机、Blob 租约生命周期）在正式英文文档中渲染：
+
+- [Architecture](docs/architecture.md) — 模块流程图、Invoke/Stream 时序（含溢出）、线程生命周期状态机
+- [Production Guide](docs/production-guide.md#distributed-thread-locking) — 线程生命周期与分布式租约生命周期图
+
+
 ## 安装
 
 ```bash
