@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import TYPE_CHECKING
 
 __version__ = "0.7.2"
@@ -29,86 +30,52 @@ if TYPE_CHECKING:
     )
 
 
-def __getattr__(name: str) -> object:
-    if name == "LangGraphApp":
-        try:
-            from azure_functions_langgraph.app import LangGraphApp
+# Maps a public attribute name to the (module_path, attribute) it lazily imports.
+# Keeps ``import azure_functions_langgraph`` cheap: heavy deps (azure-functions,
+# langgraph) are only imported when the corresponding symbol is first accessed.
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "LangGraphApp": ("azure_functions_langgraph.app", "LangGraphApp"),
+    "get_langgraph_metadata": ("azure_functions_langgraph.app", "get_langgraph_metadata"),
+    # Contracts
+    "InvokeRequest": ("azure_functions_langgraph.contracts", "InvokeRequest"),
+    "InvokeResponse": ("azure_functions_langgraph.contracts", "InvokeResponse"),
+    "StreamRequest": ("azure_functions_langgraph.contracts", "StreamRequest"),
+    "HealthResponse": ("azure_functions_langgraph.contracts", "HealthResponse"),
+    "GraphInfo": ("azure_functions_langgraph.contracts", "GraphInfo"),
+    "ErrorResponse": ("azure_functions_langgraph.contracts", "ErrorResponse"),
+    "StateResponse": ("azure_functions_langgraph.contracts", "StateResponse"),
+    # Metadata dataclasses
+    "AppMetadata": ("azure_functions_langgraph.contracts", "AppMetadata"),
+    "RegisteredGraphMetadata": ("azure_functions_langgraph.contracts", "RegisteredGraphMetadata"),
+    "RouteMetadata": ("azure_functions_langgraph.contracts", "RouteMetadata"),
+    # Protocols
+    "InvocableGraph": ("azure_functions_langgraph.protocols", "InvocableGraph"),
+    "StreamableGraph": ("azure_functions_langgraph.protocols", "StreamableGraph"),
+    "LangGraphLike": ("azure_functions_langgraph.protocols", "LangGraphLike"),
+    "StatefulGraph": ("azure_functions_langgraph.protocols", "StatefulGraph"),
+    "CloneableGraph": ("azure_functions_langgraph.protocols", "CloneableGraph"),
+}
 
-            return LangGraphApp
-        except ImportError as exc:
+# Symbols whose import failure means the optional runtime deps are missing;
+# surface a friendly install hint instead of the raw ImportError.
+_REQUIRES_RUNTIME_DEPS = frozenset({"LangGraphApp"})
+
+
+def __getattr__(name: str) -> object:
+    try:
+        module_path, attr = _LAZY_IMPORTS[name]
+    except KeyError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+    try:
+        module = importlib.import_module(module_path)
+    except ImportError as exc:
+        if name in _REQUIRES_RUNTIME_DEPS:
             raise ImportError(
                 "LangGraphApp requires 'azure-functions' and 'langgraph'. "
                 "Install them with: pip install azure-functions-langgraph"
             ) from exc
-    # Contracts
-    if name == "InvokeRequest":
-        from azure_functions_langgraph.contracts import InvokeRequest
-
-        return InvokeRequest
-    if name == "InvokeResponse":
-        from azure_functions_langgraph.contracts import InvokeResponse
-
-        return InvokeResponse
-    if name == "StreamRequest":
-        from azure_functions_langgraph.contracts import StreamRequest
-
-        return StreamRequest
-    if name == "HealthResponse":
-        from azure_functions_langgraph.contracts import HealthResponse
-
-        return HealthResponse
-    if name == "GraphInfo":
-        from azure_functions_langgraph.contracts import GraphInfo
-
-        return GraphInfo
-    if name == "ErrorResponse":
-        from azure_functions_langgraph.contracts import ErrorResponse
-
-        return ErrorResponse
-    if name == "StateResponse":
-        from azure_functions_langgraph.contracts import StateResponse
-
-        return StateResponse
-    # Metadata dataclasses
-    if name == "AppMetadata":
-        from azure_functions_langgraph.contracts import AppMetadata
-
-        return AppMetadata
-    if name == "RegisteredGraphMetadata":
-        from azure_functions_langgraph.contracts import RegisteredGraphMetadata
-
-        return RegisteredGraphMetadata
-    if name == "RouteMetadata":
-        from azure_functions_langgraph.contracts import RouteMetadata
-
-        return RouteMetadata
-    # Protocols
-    if name == "InvocableGraph":
-        from azure_functions_langgraph.protocols import InvocableGraph
-
-        return InvocableGraph
-    if name == "StreamableGraph":
-        from azure_functions_langgraph.protocols import StreamableGraph
-
-        return StreamableGraph
-    if name == "LangGraphLike":
-        from azure_functions_langgraph.protocols import LangGraphLike
-
-        return LangGraphLike
-    if name == "StatefulGraph":
-        from azure_functions_langgraph.protocols import StatefulGraph
-
-        return StatefulGraph
-    if name == "CloneableGraph":
-        from azure_functions_langgraph.protocols import CloneableGraph
-
-        return CloneableGraph
-    # Toolkit metadata getter
-    if name == "get_langgraph_metadata":
-        from azure_functions_langgraph.app import get_langgraph_metadata
-
-        return get_langgraph_metadata
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        raise
+    return getattr(module, attr)
 
 
 __all__ = [
