@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
 
 if TYPE_CHECKING:
     from azure_functions_langgraph.app import LangGraphApp, get_langgraph_metadata
