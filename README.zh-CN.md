@@ -1,6 +1,7 @@
 # Azure Functions LangGraph
 
 [![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph.svg)](https://pypi.org/project/azure-functions-langgraph/)
+[![Downloads](https://static.pepy.tech/badge/azure-functions-langgraph/month)](https://pepy.tech/project/azure-functions-langgraph)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
 [![CI](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml)
 [![Release](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml)
@@ -78,6 +79,14 @@
 - LangGraph 之外的通用图服务抽象
 
 > **注意：** 生成 OpenAPI 规范请使用专用的 [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python) 软件包与桥接模块（`azure_functions_langgraph.openapi.register_with_openapi`）。
+
+## 架构图
+
+时序图／状态机（Invoke、缓冲 Stream 及溢出路径、线程生命周期状态机、Blob 租约生命周期）在正式英文文档中渲染：
+
+- [Architecture](docs/architecture.md) — 模块流程图、Invoke/Stream 时序（含溢出）、线程生命周期状态机
+- [Production Guide](docs/production-guide.md#distributed-thread-locking) — 线程生命周期与分布式租约生命周期图
+
 
 ## 安装
 

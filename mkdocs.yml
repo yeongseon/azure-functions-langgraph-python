@@ -21,6 +21,7 @@ nav:
   - User Guide:
       - Usage: usage.md
       - Architecture: architecture.md
+      - Operations & APIs: ops-and-apis.md
   - Deployment:
       - Choose a Plan: choose-a-plan.md
       - Deploy to Azure: deployment.md

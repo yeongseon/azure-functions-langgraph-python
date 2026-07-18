@@ -1,6 +1,7 @@
 # Azure Functions LangGraph
 
 [![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph.svg)](https://pypi.org/project/azure-functions-langgraph/)
+[![Downloads](https://static.pepy.tech/badge/azure-functions-langgraph/month)](https://pepy.tech/project/azure-functions-langgraph)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
 [![CI](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml)
 [![Release](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml)
@@ -78,6 +79,14 @@ Azure Functions에서 LangGraph를 배포하는 것은 생각보다 어렵습니
 - LangGraph 외의 범용 그래프 서빙 추상화
 
 > **참고:** OpenAPI 스펙 생성은 전용 [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python) 패키지와 브리지 모듈(`azure_functions_langgraph.openapi.register_with_openapi`)을 사용하세요.
+
+## 아키텍처 다이어그램
+
+시퀀스/상태 다이어그램(Invoke·버퍼링 Stream 및 오버플로 경로, 스레드 생명주기 상태 머신, Blob 리스 생명주기)은 정식 영문 문서에서 렌더링됩니다:
+
+- [Architecture](docs/architecture.md) — 모듈 플로우차트, Invoke/Stream 시퀀스(오버플로 포함), 스레드 생명주기 상태 머신
+- [Production Guide](docs/production-guide.md#distributed-thread-locking) — 스레드 생명주기 및 분산 리스 생명주기 다이어그램
+
 
 ## 설치
 

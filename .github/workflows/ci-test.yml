@@ -31,6 +31,10 @@ jobs:
           make install
 
       - name: Run full quality checks
+        # This matrix job (Python 3.10-3.14) is the coverage gate: `make
+        # check-all` -> `make test` -> pytest, which picks up the `--cov` +
+        # `fail_under = 95` settings from pyproject.toml and fails the build if
+        # coverage drops below 95% on any Python version.
         run: make check-all
 
       - name: Verify coverage output
@@ -71,4 +75,8 @@ jobs:
         run: pip show langgraph langgraph-sdk | grep -E '^(Name|Version):'
 
       - name: Run tests against minimum langgraph
+        # Compatibility smoke only: `--no-cov` intentionally disables coverage
+        # (and the fail_under gate) for this pinned langgraph==1.0.0 run. Because
+        # it is a separate job from the coverage-enforcing matrix above, it
+        # cannot mask coverage regressions -- the matrix job still enforces 95%.
         run: pytest tests/ --no-cov -q
