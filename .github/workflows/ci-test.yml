@@ -36,7 +36,6 @@ jobs:
         # `fail_under = 95` settings from pyproject.toml and fails the build if
         # coverage drops below 95% on any Python version.
         run: make check-all
-        run: make check-all
 
       - name: Verify coverage output
         run: ls -lh coverage.xml
@@ -80,5 +79,4 @@ jobs:
         # (and the fail_under gate) for this pinned langgraph==1.0.0 run. Because
         # it is a separate job from the coverage-enforcing matrix above, it
         # cannot mask coverage regressions -- the matrix job still enforces 95%.
-        run: pytest tests/ --no-cov -q
         run: pytest tests/ --no-cov -q
