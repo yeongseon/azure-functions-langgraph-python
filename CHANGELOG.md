@@ -1,6 +1,56 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.7.3] - 2026-07-18
+
+### Diagram
+
+- Add SSE overflow path, thread state machine, and lease-lifecycle diagrams (#267) 
+
+### ⚙️ Miscellaneous Tasks
+
+- *(deps)* Bump github/codeql-action/analyze from 4.36.3 to 4.37.1 (#260) 
+- *(deps)* Bump github/codeql-action/init from 4.36.3 to 4.37.1 (#258) 
+- *(app)* Dedupe route registration, single-source capability gates, table-driven lazy imports (#270) 
+- Document coverage-gate vs compat-smoke split in ci-test.yml (#268) 
+- *(deps)* Bump actions/stale from 10.3.0 to 10.4.0 (#259) 
+- *(deps)* Bump softprops/action-gh-release from 3.0.1 to 3.0.2 (#261) 
+- *(deps)* Bump ruff from 0.15.20 to 0.15.22 (#262) 
+- *(deps)* Bump mypy from 2.1.0 to 2.3.0 (#263) 
+- *(ci)* Pin action-gh-release to commit SHA and document policy (#246) 
+- *(deps)* Bump github/codeql-action from 4.36.2 to 4.36.3 (init+analyze) (#239) 
+- *(deps)* Bump actions/checkout from 6.0.3 to 7.0.0 (#232) 
+- *(deps)* Bump actions/setup-python from 6.2.0 to 6.3.0 (#234) 
+- *(deps)* Bump ruff from 0.15.15 to 0.15.20 (#238) 
+- *(deps)* Bump codecov/codecov-action from 6.0.1 to 7.0.0 (#228) 
+- *(deps)* Bump github/codeql-action from 4.35.4 to 4.36.2 (#227) 
+- *(deps)* Bump actions/checkout from 6.0.2 to 6.0.3 (#226) 
+- *(deps)* Bump ruff from 0.15.12 to 0.15.15 (#225) 
+- *(deps)* Update langgraph-sdk requirement (#224) 
+- *(deps)* Bump actions/stale from 10.2.0 to 10.3.0 (#220) 
+- *(deps)* Bump codecov/codecov-action from 6.0.0 to 6.0.1 (#219) 
+- *(deps)* Bump mypy from 2.0.0 to 2.1.0 (#218) 
+
+### 🐛 Bug Fixes
+
+- *(app)* Default auth_level to FUNCTION; align Alpha maturity claims (#243) 
+- *(ci)* Bypass SSL verification for Cosmos emulator in create_cosmos_checkpointer 
+
+### 💼 Other
+
+- Bump version to 0.7.3 
+
+### 📚 Documentation
+
+- Consolidate thread-lock API, SSE semantics, and RunCreate status mapping (#266) 
+- Add discoverability metadata (pepy badge + llms.txt) (#272) 
+- Document Release Process in AGENTS.md (#255) 
+- *(locks)* Warn that AzureBlobLeaseThreadLock does not renew Azure Blob leases (#248) 
+
+### 🚀 Features
+
+- *(locks)* Add background auto-renewal to AzureBlobLeaseThreadLock (#250) 
+- *(locks)* Pluggable ThreadLock backend with Azure Blob lease implementation (#244) 
 ## [0.7.2] - 2026-05-14
 
 ### ⚙️ Miscellaneous Tasks
@@ -10,6 +60,10 @@ All notable changes to this project will be documented in this file.
 ### 💼 Other
 
 - Bump version to 0.7.2 
+
+### 📚 Documentation
+
+- Update changelog 
 ## [0.7.1] - 2026-05-12
 
 ### ⚙️ Miscellaneous Tasks
