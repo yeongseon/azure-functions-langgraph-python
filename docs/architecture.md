@@ -87,19 +87,18 @@ sequenceDiagram
         Graph-->>Handlers: event dict
         Handlers->>Handlers: Serialize to SSE, add len to buffered_bytes
         alt buffered_bytes + chunk > max_stream_response_bytes
-            Handlers->>Handlers: Append "event: error" + "event: end", halt run
-            Handlers-->>AzureFunctions: HttpResponse (200, text/event-stream, Content-Location)
-            AzureFunctions-->>Client: Buffered SSE (in-band error)
+            Handlers->>Handlers: Append "event: error", break out of loop
         end
     end
     Handlers->>Handlers: Append "event: end"
-    Handlers-->>AzureFunctions: HttpResponse (200, text/event-stream, Content-Location)
-    AzureFunctions-->>Client: Buffered SSE response
+    Handlers-->>AzureFunctions: HttpResponse (200, text/event-stream; Cache-Control, X-Accel-Buffering)
+    AzureFunctions-->>Client: Buffered SSE response (in-band error if overflow)
 ```
 
 > **Streaming is buffered end-to-end; the SSE log is returned as a single
 > response.** The graph runs to completion and every event is accumulated, then
-> flushed as one `text/event-stream` response with a `Content-Location` header.
+> flushed as one `text/event-stream` response with `Cache-Control: no-cache` and
+> `X-Accel-Buffering: no` headers (the native stream endpoint sets no `Content-Location`).
 > If the buffer would exceed `max_stream_response_bytes`, the run is halted and a
 > terminal `event: error` + `event: end` is injected in-band (still HTTP 200).
 

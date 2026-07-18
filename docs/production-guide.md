@@ -284,9 +284,11 @@ stateDiagram-v2
 
 A Platform-compatible thread holds at most one in-flight run. Acquisition is an
 atomic ETag compare-and-swap; a concurrent attempt returns **409**. Release is
-best-effort, so a host terminated mid-run leaves the thread `busy` until a
-scheduled `reset_stale_locks(older_than_seconds=...)` reclaims it — set the
-threshold comfortably above your longest expected run.
+best-effort, so a host terminated mid-run leaves the thread `busy` until
+`reset_stale_locks(older_than_seconds=...)` reclaims it. This is **not** an
+automatic background task — you must invoke it periodically yourself (e.g. from a
+Timer-triggered function or cron); set the threshold comfortably above your longest
+expected run.
 
 ### Recommended production pattern
 
