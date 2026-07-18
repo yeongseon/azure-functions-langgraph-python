@@ -29,6 +29,51 @@ def _platform_error(status_code: int, detail: str) -> func.HttpResponse:
     )
 
 
+def _build_sse_response(
+    chunks: list[str],
+    *,
+    content_location: str,
+) -> func.HttpResponse:
+    """Build the buffered SSE ``HttpResponse`` shared by all streaming routes.
+
+    Every platform streaming exit path emits the same ``text/event-stream``
+    response with identical headers, differing only in ``Content-Location``.
+    """
+    return func.HttpResponse(
+        body="".join(chunks),
+        mimetype="text/event-stream",
+        status_code=200,
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Content-Location": content_location,
+        },
+    )
+
+
+def _normalize_stream_mode(
+    raw_mode: Any,
+) -> tuple[Any, func.HttpResponse | None]:
+    """Normalize a ``RunCreate.stream_mode`` value to a single mode.
+
+    Returns ``(stream_mode, None)`` on success. A one-element list collapses to
+    its single element, an empty list defaults to ``"values"``, and a
+    multi-element list returns ``(None, 501_response)`` since multi-stream-mode
+    is unsupported. Non-list values pass through unchanged.
+    """
+    if isinstance(raw_mode, list):
+        if len(raw_mode) == 1:
+            return raw_mode[0], None
+        if len(raw_mode) == 0:
+            return "values", None
+        return None, _platform_error(
+            501,
+            "Multi-stream-mode is not supported in this release. "
+            "Provide a single stream_mode string or a one-element list.",
+        )
+    return raw_mode, None
+
+
 _UNSUPPORTED_FIELDS: dict[str, str] = {
     "interrupt_before": "Interrupt-before is not supported in this release.",
     "interrupt_after": "Interrupt-after is not supported in this release.",

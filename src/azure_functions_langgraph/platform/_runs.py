@@ -14,7 +14,9 @@ from azure_functions_langgraph._validation import (
 )
 from azure_functions_langgraph.platform._common import (
     PlatformRouteDeps,
+    _build_sse_response,
     _get_threadless_graph,
+    _normalize_stream_mode,
     _platform_error,
     _preflight_run_create,
     logger,
@@ -198,20 +200,9 @@ def register_run_routes(
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
 
-        raw_mode = run_req.stream_mode
-        if isinstance(raw_mode, list):
-            if len(raw_mode) == 1:
-                stream_mode = raw_mode[0]
-            elif len(raw_mode) == 0:
-                stream_mode = "values"
-            else:
-                return _platform_error(
-                    501,
-                    "Multi-stream-mode is not supported in this release. "
-                    "Provide a single stream_mode string or a one-element list.",
-                )
-        else:
-            stream_mode = raw_mode
+        stream_mode, mode_err = _normalize_stream_mode(run_req.stream_mode)
+        if mode_err is not None:
+            return mode_err
 
         reg = deps.registrations.get(run_req.assistant_id)
         if reg is None:
@@ -283,15 +274,9 @@ def register_run_routes(
             )
             chunks.append(format_end_event())
             _release_thread_run_lock(deps, thread_id, status="error")
-            return func.HttpResponse(
-                body="".join(chunks),
-                mimetype="text/event-stream",
-                status_code=200,
-                headers={
-                    "Cache-Control": "no-cache",
-                    "X-Accel-Buffering": "no",
-                    "Content-Location": f"/api/threads/{thread_id}/runs/{run_id}",
-                },
+            return _build_sse_response(
+                chunks,
+                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
             )
         try:
             for event in reg.graph.stream(
@@ -308,15 +293,9 @@ def register_run_routes(
                     chunks.append(err_chunk)
                     chunks.append(format_end_event())
                     _release_thread_run_lock(deps, thread_id, status="error")
-                    return func.HttpResponse(
-                        body="".join(chunks),
-                        mimetype="text/event-stream",
-                        status_code=200,
-                        headers={
-                            "Cache-Control": "no-cache",
-                            "X-Accel-Buffering": "no",
-                            "Content-Location": f"/api/threads/{thread_id}/runs/{run_id}",
-                        },
+                    return _build_sse_response(
+                        chunks,
+                        content_location=f"/api/threads/{thread_id}/runs/{run_id}",
                     )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
@@ -329,30 +308,18 @@ def register_run_routes(
             _release_thread_run_lock(deps, thread_id, status="error")
             chunks.append(format_error_event("stream processing failed"))
             chunks.append(format_end_event())
-            return func.HttpResponse(
-                body="".join(chunks),
-                mimetype="text/event-stream",
-                status_code=200,
-                headers={
-                    "Cache-Control": "no-cache",
-                    "X-Accel-Buffering": "no",
-                    "Content-Location": f"/api/threads/{thread_id}/runs/{run_id}",
-                },
+            return _build_sse_response(
+                chunks,
+                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
             )
 
         chunks.append(format_end_event())
 
         _release_thread_run_lock(deps, thread_id, status="idle")
 
-        return func.HttpResponse(
-            body="".join(chunks),
-            mimetype="text/event-stream",
-            status_code=200,
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Content-Location": f"/api/threads/{thread_id}/runs/{run_id}",
-            },
+        return _build_sse_response(
+            chunks,
+            content_location=f"/api/threads/{thread_id}/runs/{run_id}",
         )
 
     @app.function_name(name="aflg_platform_runs_wait_threadless")
@@ -470,20 +437,9 @@ def register_run_routes(
         if preflight is not None:
             return preflight
 
-        raw_mode = run_req.stream_mode
-        if isinstance(raw_mode, list):
-            if len(raw_mode) == 1:
-                stream_mode = raw_mode[0]
-            elif len(raw_mode) == 0:
-                stream_mode = "values"
-            else:
-                return _platform_error(
-                    501,
-                    "Multi-stream-mode is not supported in this release. "
-                    "Provide a single stream_mode string or a one-element list.",
-                )
-        else:
-            stream_mode = raw_mode
+        stream_mode, mode_err = _normalize_stream_mode(run_req.stream_mode)
+        if mode_err is not None:
+            return mode_err
 
         reg = deps.registrations.get(run_req.assistant_id)
         if reg is None:
@@ -548,15 +504,9 @@ def register_run_routes(
                 )
             )
             chunks.append(format_end_event())
-            return func.HttpResponse(
-                body="".join(chunks),
-                mimetype="text/event-stream",
-                status_code=200,
-                headers={
-                    "Cache-Control": "no-cache",
-                    "X-Accel-Buffering": "no",
-                    "Content-Location": f"/api/runs/{run_id}",
-                },
+            return _build_sse_response(
+                chunks,
+                content_location=f"/api/runs/{run_id}",
             )
         try:
             for event in exec_graph.stream(
@@ -572,15 +522,9 @@ def register_run_routes(
                     )
                     chunks.append(err_chunk)
                     chunks.append(format_end_event())
-                    return func.HttpResponse(
-                        body="".join(chunks),
-                        mimetype="text/event-stream",
-                        status_code=200,
-                        headers={
-                            "Cache-Control": "no-cache",
-                            "X-Accel-Buffering": "no",
-                            "Content-Location": f"/api/runs/{run_id}",
-                        },
+                    return _build_sse_response(
+                        chunks,
+                        content_location=f"/api/runs/{run_id}",
                     )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
@@ -591,26 +535,14 @@ def register_run_routes(
             )
             chunks.append(format_error_event("stream processing failed"))
             chunks.append(format_end_event())
-            return func.HttpResponse(
-                body="".join(chunks),
-                mimetype="text/event-stream",
-                status_code=200,
-                headers={
-                    "Cache-Control": "no-cache",
-                    "X-Accel-Buffering": "no",
-                    "Content-Location": f"/api/runs/{run_id}",
-                },
+            return _build_sse_response(
+                chunks,
+                content_location=f"/api/runs/{run_id}",
             )
 
         chunks.append(format_end_event())
 
-        return func.HttpResponse(
-            body="".join(chunks),
-            mimetype="text/event-stream",
-            status_code=200,
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Content-Location": f"/api/runs/{run_id}",
-            },
+        return _build_sse_response(
+            chunks,
+            content_location=f"/api/runs/{run_id}",
         )
