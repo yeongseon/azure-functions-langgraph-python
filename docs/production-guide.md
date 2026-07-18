@@ -269,6 +269,27 @@ Concurrent run submissions for the same thread are rejected with HTTP 409 — no
 **Operator impact**: If your workload has bursts of concurrent requests targeting the same thread,
 implement client-side retry with backoff, or use the queue-based worker pattern below.
 
+#### Thread lifecycle (state machine)
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle: thread created
+    idle --> busy: try_acquire_run_lock (ETag CAS)
+    busy --> idle: run succeeds (release_run_lock)
+    busy --> error: run raises / stream overflow
+    error --> idle: next successful run
+    busy --> idle: reset_stale_locks (older_than_seconds)
+    idle --> [*]: thread deleted
+```
+
+A Platform-compatible thread holds at most one in-flight run. Acquisition is an
+atomic ETag compare-and-swap; a concurrent attempt returns **409**. Release is
+best-effort, so a host terminated mid-run leaves the thread `busy` until
+`reset_stale_locks(older_than_seconds=...)` reclaims it. This is **not** an
+automatic background task — you must invoke it periodically yourself (e.g. from a
+Timer-triggered function or cron); set the threshold comfortably above your longest
+expected run.
+
 ### Recommended production pattern
 
 For multi-instance writes, serialize thread mutations through a queue-based worker pattern:
@@ -287,6 +308,29 @@ The native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../st
 For multi-instance deployments, `LangGraphApp` accepts any object satisfying the [`ThreadLock`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/src/azure_functions_langgraph/locks/base.py) protocol via the `thread_lock` constructor argument. The package ships one distributed implementation — `AzureBlobLeaseThreadLock` — which uses **Azure Blob lease compare-and-swap** as the underlying primitive; leases naturally expire (15–60 s) so a crashed host cannot orphan a lock indefinitely.
 
 > ℹ️ **Background renewal.** `AzureBlobLeaseThreadLock` renews leases in the background by default: a per-instance daemon thread renews every active lease at `lease_duration / 3` intervals until `close()` (or process exit). Pass `auto_renew=False` to opt out — a finite lease then silently expires mid-execution as it did before renewal support, and construction emits a `UserWarning` so the trade-off is visible. Infinite leases (`lease_duration=-1`) never need renewal but must be broken manually if a host crashes.
+>
+#### Lease lifecycle (AzureBlobLeaseThreadLock)
+
+```mermaid
+stateDiagram-v2
+    [*] --> NoMarker
+    NoMarker --> Unleased: _ensure_marker (upload_blob, overwrite=False)
+    Unleased --> Leased: acquire_lease succeeds
+    Unleased --> Unleased: 409 LeaseAlreadyPresent (held elsewhere)\nnon-blocking returns False / blocking retries
+    Leased --> Leased: auto_renew=True — renew every lease_duration/3
+    Leased --> Unleased: release() (lease.release)
+    Leased --> Unleased: close() releases all active leases
+    Leased --> Unleased: auto_renew=False — finite lease expires mid-run
+    Leased --> Unleased: host crash — finite lease expires on service
+```
+
+With `auto_renew=True` (default) a daemon thread keeps the lease alive, so
+execution time is not bounded by `lease_duration`. With `auto_renew=False` a
+finite lease silently expires mid-execution (construction emits a `UserWarning`)
+and another instance may acquire the same lock. Infinite leases
+(`lease_duration=-1`) never expire and must be broken manually after a crash.
+See the *Distributed thread locking* subsection above for the full parameter
+reference.
 
 ```python
 import azure.functions as func

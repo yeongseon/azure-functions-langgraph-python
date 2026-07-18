@@ -83,14 +83,24 @@ sequenceDiagram
     AzureFunctions->>Handlers: handle_stream(req, reg)
     Handlers->>Handlers: validate_body_size, validate_input_structure
     Handlers->>Handlers: Parse JSON body → StreamRequest
-    loop Collect chunks
+    loop Collect chunks (buffered)
         Graph-->>Handlers: event dict
-        Handlers->>Handlers: Serialize to SSE format
+        Handlers->>Handlers: Serialize to SSE, add len to buffered_bytes
+        alt buffered_bytes + chunk > max_stream_response_bytes
+            Handlers->>Handlers: Append "event: error", break out of loop
+        end
     end
     Handlers->>Handlers: Append "event: end"
-    Handlers-->>AzureFunctions: HttpResponse (200, text/event-stream)
-    AzureFunctions-->>Client: Buffered SSE response
+    Handlers-->>AzureFunctions: HttpResponse (200, text/event-stream; Cache-Control, X-Accel-Buffering)
+    AzureFunctions-->>Client: Buffered SSE response (in-band error if overflow)
 ```
+
+> **Streaming is buffered end-to-end; the SSE log is returned as a single
+> response.** The graph runs to completion and every event is accumulated, then
+> flushed as one `text/event-stream` response with `Cache-Control: no-cache` and
+> `X-Accel-Buffering: no` headers (the native stream endpoint sets no `Content-Location`).
+> If the buffer would exceed `max_stream_response_bytes`, the run is halted and a
+> terminal `event: error` + `event: end` is injected in-band (still HTTP 200).
 
 ### Platform: Thread Run (SDK-compatible)
 
@@ -117,6 +127,25 @@ sequenceDiagram
 ```
 
 Successful run responses include `Content-Location: /api/threads/{thread_id}/runs/{run_id}`. Threadless runs use `/api/runs/{run_id}`.
+
+### Platform: Thread lifecycle (state machine)
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle: thread created
+    idle --> busy: try_acquire_run_lock (ETag CAS)
+    busy --> idle: run succeeds (release_run_lock)
+    busy --> error: run raises / stream overflow
+    error --> idle: next successful run
+    busy --> idle: reset_stale_locks (older_than_seconds)
+    idle --> [*]: thread deleted
+```
+
+A thread holds at most one in-flight run. Acquisition is an atomic ETag
+compare-and-swap; release is best-effort. A concurrent run attempt while `busy`
+returns **409** (`multitask_strategy=reject`). If a host is terminated mid-run the
+thread stays `busy` until `reset_stale_locks()` reclaims it. See the
+[production guide](production-guide.md) for the operational runbook.
 
 ## Module Boundaries (key import edges)
 
