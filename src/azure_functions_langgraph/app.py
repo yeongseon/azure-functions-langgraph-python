@@ -270,11 +270,32 @@ class LangGraphApp:
 
         # Per-graph endpoints
         for reg in self._registrations.values():
-            self._register_invoke_route(app, reg)
-            if reg.stream_enabled:
-                self._register_stream_route(app, reg)
-            if isinstance(reg.graph, StatefulGraph):
-                self._register_state_route(app, reg)
+            self._register_route(
+                app,
+                reg,
+                endpoint="invoke",
+                route_template=_ROUTE_INVOKE,
+                methods=["POST"],
+                handler_impl=self._handle_invoke,
+            )
+            if self._has_stream_route(reg):
+                self._register_route(
+                    app,
+                    reg,
+                    endpoint="stream",
+                    route_template=_ROUTE_STREAM,
+                    methods=["POST"],
+                    handler_impl=self._handle_stream,
+                )
+            if self._has_state_route(reg):
+                self._register_route(
+                    app,
+                    reg,
+                    endpoint="state",
+                    route_template=_ROUTE_STATE,
+                    methods=["GET"],
+                    handler_impl=self._handle_state,
+                )
 
         # Platform API compatibility routes
         if self.platform_compat:
@@ -296,73 +317,47 @@ class LangGraphApp:
 
         return app
 
-    def _register_invoke_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
-        route = _ROUTE_INVOKE.format(name=reg.name)
-        fn_name = f"aflg_{reg.name}_invoke"
+    @staticmethod
+    def _has_stream_route(reg: _GraphRegistration) -> bool:
+        """Whether a graph exposes a streaming endpoint (single source of truth)."""
+        return reg.stream_enabled
+
+    @staticmethod
+    def _has_state_route(reg: _GraphRegistration) -> bool:
+        """Whether a graph exposes a thread-state endpoint (single source of truth)."""
+        return isinstance(reg.graph, StatefulGraph)
+
+    def _register_route(
+        self,
+        app: func.FunctionApp,
+        reg: _GraphRegistration,
+        *,
+        endpoint: str,
+        route_template: str,
+        methods: list[str],
+        handler_impl: Callable[[func.HttpRequest, _GraphRegistration], func.HttpResponse],
+    ) -> None:
+        """Register one per-graph HTTP route, wiring metadata and auth uniformly."""
+        route = route_template.format(name=reg.name)
+        fn_name = f"aflg_{reg.name}_{endpoint}"
         captured_reg = reg
         effective_auth = self._effective_auth_level(reg)
 
-        def invoke_handler(req: func.HttpRequest) -> func.HttpResponse:
-            return self._handle_invoke(req, captured_reg)
+        def handler(req: func.HttpRequest) -> func.HttpResponse:
+            return handler_impl(req, captured_reg)
 
         _merge_toolkit_metadata(
-            invoke_handler,
+            handler,
             "langgraph",
             {
                 "version": 1,
                 "graph_name": reg.name,
-                "endpoint": "invoke",
+                "endpoint": endpoint,
             },
         )
 
         app.function_name(name=fn_name)(
-            app.route(route=route, methods=["POST"], auth_level=effective_auth)(invoke_handler)
-        )
-
-    def _register_stream_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
-        route = _ROUTE_STREAM.format(name=reg.name)
-        fn_name = f"aflg_{reg.name}_stream"
-        captured_reg = reg
-        effective_auth = self._effective_auth_level(reg)
-
-        def stream_handler(req: func.HttpRequest) -> func.HttpResponse:
-            return self._handle_stream(req, captured_reg)
-
-        _merge_toolkit_metadata(
-            stream_handler,
-            "langgraph",
-            {
-                "version": 1,
-                "graph_name": reg.name,
-                "endpoint": "stream",
-            },
-        )
-
-        app.function_name(name=fn_name)(
-            app.route(route=route, methods=["POST"], auth_level=effective_auth)(stream_handler)
-        )
-
-    def _register_state_route(self, app: func.FunctionApp, reg: _GraphRegistration) -> None:
-        route = _ROUTE_STATE.format(name=reg.name)
-        fn_name = f"aflg_{reg.name}_state"
-        captured_reg = reg
-        effective_auth = self._effective_auth_level(reg)
-
-        def state_handler(req: func.HttpRequest) -> func.HttpResponse:
-            return self._handle_state(req, captured_reg)
-
-        _merge_toolkit_metadata(
-            state_handler,
-            "langgraph",
-            {
-                "version": 1,
-                "graph_name": reg.name,
-                "endpoint": "state",
-            },
-        )
-
-        app.function_name(name=fn_name)(
-            app.route(route=route, methods=["GET"], auth_level=effective_auth)(state_handler)
+            app.route(route=route, methods=methods, auth_level=effective_auth)(handler)
         )
 
     def _effective_auth_level(self, reg: _GraphRegistration) -> func.AuthLevel:
@@ -447,7 +442,7 @@ class LangGraphApp:
                 )
             )
             # stream route (if enabled)
-            if reg.stream_enabled:
+            if self._has_stream_route(reg):
                 routes.append(
                     RouteMetadata(
                         path=self._metadata_path(_ROUTE_STREAM.format(name=reg.name)),
@@ -458,7 +453,7 @@ class LangGraphApp:
                     )
                 )
             # state route — use same capability test as _build_function_app
-            if isinstance(reg.graph, StatefulGraph):
+            if self._has_state_route(reg):
                 routes.append(
                     RouteMetadata(
                         path=self._metadata_path(_ROUTE_STATE.format(name=reg.name)),
