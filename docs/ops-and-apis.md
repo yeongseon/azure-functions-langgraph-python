@@ -143,7 +143,7 @@ once.
 | Guarantee | Value |
 | --- | --- |
 | Content-Type | `text/event-stream` |
-| Headers | `Cache-Control: no-cache`, `X-Accel-Buffering: no`, `Content-Location: /api/threads/{thread_id}/runs/{run_id}` |
+| Headers | `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Platform thread streams also add `Content-Location: /api/threads/{thread_id}/runs/{run_id}`; threadless platform streams use `/api/runs/{run_id}`; the native `POST /api/graphs/{name}/stream` sets **no** `Content-Location`. |
 | Buffer limit | `max_stream_response_bytes` (see [configuration](configuration.md)) |
 | Terminal event | Always an `event: end` frame, on both success and failure |
 
@@ -161,8 +161,10 @@ event: end
 ```
 
 The response still returns **HTTP 200** with `Content-Type: text/event-stream` —
-the error is delivered *in-band* as an SSE `event: error`, because status and
-headers are already committed for a streamed body. The same in-band pattern
+the error is delivered *in-band* as an SSE `event: error`. Even though the body is
+fully buffered before it is returned, HTTP 200 is an intentional contract choice: a
+client always receives a well-formed SSE log and must inspect the events (not the
+HTTP status) to detect failure. The same in-band pattern
 applies when the graph itself raises: an `event: error` (`"stream processing
 failed"`) followed by `event: end`. In all overflow/error cases the thread run
 lock is released with `status="error"`.
@@ -194,6 +196,7 @@ below maps common causes to response codes.
 | `command` set (command resumption) | **501** | `platform/_common.py` preflight |
 | `feedback_keys` set | **501** | `platform/_common.py` preflight |
 | `multitask_strategy` other than `"reject"` | **501** | `platform/_common.py` preflight |
+| `stream_mode` list with more than one element | **501** | `platform/_runs.py` (multi-stream-mode not supported) |
 | Malformed body / schema validation failure | **422** | `platform/_runs.py` validation |
 | `thread_id` supplied on a threadless run | **422** | `platform/_runs.py` validation |
 | Thread already has an in-flight run (concurrent run) | **409** | `platform/_runs.py` (`try_acquire_run_lock`) |
