@@ -11,7 +11,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-from typing import Any
+from typing import Any, Protocol, TypeVar
 
 import azure.functions as func
 
@@ -68,6 +68,67 @@ def _error_response(status_code: int, detail: str) -> func.HttpResponse:
     )
 
 
+class _ParsableRequest(Protocol):
+    """Structural type for the native invoke/stream request bodies."""
+
+    input: dict[str, Any]
+    config: dict[str, Any] | None
+
+    @classmethod
+    def model_validate(cls: type[_ParsableRequestT], obj: Any) -> _ParsableRequestT: ...
+
+
+_ParsableRequestT = TypeVar("_ParsableRequestT", bound=_ParsableRequest)
+
+
+def _parse_native_request(
+    req: func.HttpRequest,
+    model: type[_ParsableRequestT],
+    *,
+    max_request_body_bytes: int,
+    max_input_depth: int,
+    max_input_nodes: int,
+) -> _ParsableRequestT | func.HttpResponse:
+    """Parse and validate a native invoke/stream request body.
+
+    Shared by ``handle_invoke`` and ``handle_stream``: enforces the body-size
+    cap, JSON decoding, model validation, and structural depth/size checks on
+    the ``input`` and ``config`` payloads. Returns the validated *model*
+    instance on success, or a ``func.HttpResponse`` error otherwise.
+    """
+    raw_body = req.get_body()
+    size_err = validate_body_size(raw_body, max_request_body_bytes)
+    if size_err:
+        return _error_response(400, size_err)
+
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _error_response(400, "Invalid JSON body")
+
+    try:
+        request = model.model_validate(body)
+    except Exception as exc:
+        return _error_response(422, f"Validation error: {exc}")
+
+    structure_err = validate_input_structure(
+        request.input,
+        max_depth=max_input_depth,
+        max_nodes=max_input_nodes,
+    )
+    if structure_err:
+        return _error_response(400, structure_err)
+    if request.config:
+        config_err = validate_input_structure(
+            request.config,
+            max_depth=max_input_depth,
+            max_nodes=max_input_nodes,
+        )
+        if config_err:
+            return _error_response(400, config_err)
+    return request
+
+
 
 def _serialize_graph_output(result: Any) -> dict[str, Any]:
     """Convert a graph invoke result to a JSON-serializable dict.
@@ -118,38 +179,16 @@ def handle_invoke(
     max_input_nodes: int,
 ) -> func.HttpResponse:
     """Handle a synchronous invoke request."""
-    # Body size check — reject before parsing
-    raw_body = req.get_body()
-    size_err = validate_body_size(raw_body, max_request_body_bytes)
-    if size_err:
-        return _error_response(400, size_err)
-
-    try:
-        body = req.get_json()
-    except ValueError:
-        return _error_response(400, "Invalid JSON body")
-
-    try:
-        request = InvokeRequest.model_validate(body)
-    except Exception as exc:
-        return _error_response(422, f"Validation error: {exc}")
-
-    # Structural validation on user-supplied fields
-    structure_err = validate_input_structure(
-        request.input,
-        max_depth=max_input_depth,
-        max_nodes=max_input_nodes,
+    parsed = _parse_native_request(
+        req,
+        InvokeRequest,
+        max_request_body_bytes=max_request_body_bytes,
+        max_input_depth=max_input_depth,
+        max_input_nodes=max_input_nodes,
     )
-    if structure_err:
-        return _error_response(400, structure_err)
-    if request.config:
-        config_err = validate_input_structure(
-            request.config,
-            max_depth=max_input_depth,
-            max_nodes=max_input_nodes,
-        )
-        if config_err:
-            return _error_response(400, config_err)
+    if isinstance(parsed, func.HttpResponse):
+        return parsed
+    request = parsed
 
     config = request.config or {}
     thread_id, cfg_err = _extract_thread_id(config)
@@ -210,38 +249,16 @@ def handle_stream(
     if not isinstance(reg.graph, StreamableGraph):
         return _error_response(501, f"Graph {reg.name!r} does not support streaming")
 
-    # Body size check — reject before parsing
-    raw_body = req.get_body()
-    size_err = validate_body_size(raw_body, max_request_body_bytes)
-    if size_err:
-        return _error_response(400, size_err)
-
-    try:
-        body = req.get_json()
-    except ValueError:
-        return _error_response(400, "Invalid JSON body")
-
-    try:
-        request = StreamRequest.model_validate(body)
-    except Exception as exc:
-        return _error_response(422, f"Validation error: {exc}")
-
-    # Structural validation on user-supplied fields
-    structure_err = validate_input_structure(
-        request.input,
-        max_depth=max_input_depth,
-        max_nodes=max_input_nodes,
+    parsed = _parse_native_request(
+        req,
+        StreamRequest,
+        max_request_body_bytes=max_request_body_bytes,
+        max_input_depth=max_input_depth,
+        max_input_nodes=max_input_nodes,
     )
-    if structure_err:
-        return _error_response(400, structure_err)
-    if request.config:
-        config_err = validate_input_structure(
-            request.config,
-            max_depth=max_input_depth,
-            max_nodes=max_input_nodes,
-        )
-        if config_err:
-            return _error_response(400, config_err)
+    if isinstance(parsed, func.HttpResponse):
+        return parsed
+    request = parsed
 
     config = request.config or {}
     thread_id, cfg_err = _extract_thread_id(config)
