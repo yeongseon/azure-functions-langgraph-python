@@ -263,6 +263,106 @@ def _build_threadless_config(
     return config
 
 
+def _read_json_body(
+    req: func.HttpRequest,
+    deps: PlatformRouteDeps,
+    *,
+    require_dict: bool,
+    allow_empty: bool,
+) -> Any:
+    """Read and size-guard a request body, returning parsed JSON or an error.
+
+    Shared by the ``threads`` routes. Returns the decoded body on success, or a
+    ``func.HttpResponse`` error (400) on an oversized body, invalid JSON, or —
+    when *require_dict* — a non-object body. When *allow_empty* is set an empty
+    request body decodes to ``{}`` instead of being parsed.
+    """
+    raw = req.get_body()
+    size_err = validate_body_size(raw, deps.max_request_body_bytes)
+    if size_err:
+        return _platform_error(400, size_err)
+    if allow_empty and not (raw and raw.strip() != b""):
+        return {}
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _platform_error(400, "Invalid JSON body")
+    if require_dict and not isinstance(body, dict):
+        return _platform_error(400, "Request body must be a JSON object")
+    return body
+
+
+def _resolve_thread_graph(
+    deps: PlatformRouteDeps,
+    thread_id: str,
+    *,
+    protocol: type,
+    capability: str,
+) -> Any:
+    """Resolve the graph bound to *thread_id*, enforcing capability support.
+
+    Returns the graph on success, or a ``func.HttpResponse`` error when the
+    thread is missing (404), unbound (409), its assistant is unknown (404), or
+    the graph does not satisfy *protocol* (409, ``does not support {capability}``).
+    """
+    thread = deps.thread_store.get(thread_id)
+    if thread is None:
+        return _platform_error(404, f"Thread {thread_id!r} not found")
+    if thread.assistant_id is None:
+        return _platform_error(
+            409,
+            f"Thread {thread_id!r} is not bound to any assistant. "
+            f"Run a graph on this thread first.",
+        )
+    reg = deps.registrations.get(thread.assistant_id)
+    if reg is None:
+        return _platform_error(
+            404,
+            f"Assistant {thread.assistant_id!r} not found for thread {thread_id!r}",
+        )
+    graph = reg.graph
+    if not isinstance(graph, protocol):
+        return _platform_error(
+            409,
+            f"Graph {thread.assistant_id!r} does not support {capability}",
+        )
+    return graph
+
+
+def _build_checkpoint_config(
+    thread_id: str,
+    checkpoint: dict[str, Any] | None,
+    *,
+    fallback_checkpoint_id: str | None = None,
+) -> Any:
+    """Build the ``config`` dict for a checkpoint-scoped thread operation.
+
+    Shared by ``threads_state_update`` and ``threads_history``. Validates that a
+    checkpoint-supplied ``thread_id`` matches the path (422 on mismatch) and
+    carries over ``checkpoint_id`` / ``checkpoint_ns``. When no ``checkpoint`` is
+    given, *fallback_checkpoint_id* (state-update only) is applied. Returns the
+    config dict on success, or a ``func.HttpResponse`` on a thread_id mismatch.
+    """
+    configurable: dict[str, Any] = {"thread_id": thread_id}
+    if checkpoint is not None:
+        cp_thread_id = checkpoint.get("thread_id")
+        if cp_thread_id is not None and cp_thread_id != thread_id:
+            return _platform_error(
+                422,
+                f"Checkpoint thread_id {cp_thread_id!r} does not match "
+                f"path thread_id {thread_id!r}",
+            )
+        cp_id = checkpoint.get("checkpoint_id")
+        if cp_id is not None:
+            configurable["checkpoint_id"] = cp_id
+        cp_ns = checkpoint.get("checkpoint_ns")
+        if cp_ns is not None:
+            configurable["checkpoint_ns"] = cp_ns
+    elif fallback_checkpoint_id is not None:
+        configurable["checkpoint_id"] = fallback_checkpoint_id
+    return {"configurable": configurable}
+
+
 def _snapshot_to_thread_state(snapshot: Any, thread_id: str) -> ThreadState:
     """Convert a LangGraph ``StateSnapshot`` to the SDK ``ThreadState`` contract.
 
