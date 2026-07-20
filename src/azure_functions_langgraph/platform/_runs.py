@@ -14,6 +14,7 @@ from azure_functions_langgraph.platform._common import (
     _build_sse_response,
     _build_threaded_config,
     _build_threadless_config,
+    _check_stream_overflow,
     _get_threadless_graph,
     _normalize_stream_mode,
     _parse_run_create,
@@ -186,13 +187,7 @@ def register_run_routes(
         chunks.append(meta_chunk)
         buffered_bytes += len(meta_chunk.encode())
 
-        if buffered_bytes > max_bytes:
-            chunks.append(
-                format_error_event(
-                    f"stream response exceeded max buffered size ({max_bytes} bytes)"
-                )
-            )
-            chunks.append(format_end_event())
+        if _check_stream_overflow(chunks, buffered_bytes, 0, max_bytes):
             _release_thread_run_lock(deps, thread_id, status="error")
             return _build_sse_response(
                 chunks,
@@ -206,12 +201,7 @@ def register_run_routes(
             ):
                 chunk = format_data_event(stream_mode, event)
                 chunk_bytes = len(chunk.encode())
-                if buffered_bytes + chunk_bytes > max_bytes:
-                    err_chunk = format_error_event(
-                        f"stream response exceeded max buffered size ({max_bytes} bytes)"
-                    )
-                    chunks.append(err_chunk)
-                    chunks.append(format_end_event())
+                if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
                     _release_thread_run_lock(deps, thread_id, status="error")
                     return _build_sse_response(
                         chunks,
@@ -331,13 +321,7 @@ def register_run_routes(
         chunks.append(meta_chunk)
         buffered_bytes += len(meta_chunk.encode())
 
-        if buffered_bytes > max_bytes:
-            chunks.append(
-                format_error_event(
-                    f"stream response exceeded max buffered size ({max_bytes} bytes)"
-                )
-            )
-            chunks.append(format_end_event())
+        if _check_stream_overflow(chunks, buffered_bytes, 0, max_bytes):
             return _build_sse_response(
                 chunks,
                 content_location=f"/api/runs/{run_id}",
@@ -350,12 +334,7 @@ def register_run_routes(
             ):
                 chunk = format_data_event(stream_mode, event)
                 chunk_bytes = len(chunk.encode())
-                if buffered_bytes + chunk_bytes > max_bytes:
-                    err_chunk = format_error_event(
-                        f"stream response exceeded max buffered size ({max_bytes} bytes)"
-                    )
-                    chunks.append(err_chunk)
-                    chunks.append(format_end_event())
+                if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
                     return _build_sse_response(
                         chunks,
                         content_location=f"/api/runs/{run_id}",

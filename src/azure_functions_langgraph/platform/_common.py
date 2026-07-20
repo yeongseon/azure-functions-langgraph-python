@@ -12,6 +12,7 @@ from azure_functions_langgraph._validation import (
     validate_graph_name,
     validate_input_structure,
 )
+from azure_functions_langgraph.platform._sse import format_end_event, format_error_event
 from azure_functions_langgraph.platform.contracts import (
     Assistant,
     Checkpoint,
@@ -77,6 +78,29 @@ def _normalize_stream_mode(
             "Provide a single stream_mode string or a one-element list.",
         )
     return raw_mode, None
+
+def _check_stream_overflow(
+    chunks: list[str],
+    buffered_bytes: int,
+    chunk_bytes: int,
+    max_bytes: int,
+) -> bool:
+    """Guard the buffered SSE size cap shared by every streaming route.
+
+    Returns ``True`` when appending *chunk_bytes* would push the buffer past
+    *max_bytes*; on overflow the standard error + end events are appended to
+    *chunks* so the caller can release any locks and emit the SSE response.
+    Pass ``chunk_bytes=0`` for the initial metadata-only check.
+    """
+    if buffered_bytes + chunk_bytes > max_bytes:
+        chunks.append(
+            format_error_event(
+                f"stream response exceeded max buffered size ({max_bytes} bytes)"
+            )
+        )
+        chunks.append(format_end_event())
+        return True
+    return False
 
 
 _UNSUPPORTED_FIELDS: dict[str, str] = {
