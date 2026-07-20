@@ -7,6 +7,11 @@ from typing import Any
 
 import azure.functions as func
 
+from azure_functions_langgraph._validation import (
+    validate_body_size,
+    validate_graph_name,
+    validate_input_structure,
+)
 from azure_functions_langgraph.platform.contracts import (
     Assistant,
     Checkpoint,
@@ -140,6 +145,122 @@ def _get_threadless_graph(graph: Any) -> Any | None:
             exc_info=True,
         )
         return None
+
+
+def _parse_run_create(
+    req: func.HttpRequest,
+    deps: PlatformRouteDeps,
+    *,
+    require_dict_body: bool,
+) -> RunCreate | func.HttpResponse:
+    """Parse and validate the shared RunCreate request preamble.
+
+    Covers the body-size guard, JSON parse, optional dict-shape guard, model
+    validation, assistant-name validation, and unsupported-feature preflight
+    shared by every ``runs/*`` route. Returns the parsed ``RunCreate`` on
+    success or an ``HttpResponse`` on the first failing check, preserving the
+    exact status-code precedence of the inlined handlers.
+    """
+    raw_body = req.get_body()
+    size_err = validate_body_size(raw_body, deps.max_request_body_bytes)
+    if size_err:
+        return _platform_error(400, size_err)
+
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _platform_error(400, "Invalid JSON body")
+
+    if require_dict_body and not isinstance(body, dict):
+        return _platform_error(400, "Request body must be a JSON object")
+
+    try:
+        run_req = RunCreate.model_validate(body)
+    except Exception as exc:  # noqa: BLE001 - surfaced as a 422 to the client
+        return _platform_error(422, f"Validation error: {exc}")
+
+    name_err = validate_graph_name(run_req.assistant_id)
+    if name_err:
+        return _platform_error(400, name_err)
+
+    preflight = _preflight_run_create(run_req)
+    if preflight is not None:
+        return preflight
+
+    return run_req
+
+
+def _validate_run_io_structure(
+    run_req: RunCreate,
+    deps: PlatformRouteDeps,
+) -> func.HttpResponse | None:
+    """Validate the ``input`` and ``config`` structure depth/breadth limits."""
+    if run_req.input:
+        input_err = validate_input_structure(
+            run_req.input,
+            max_depth=deps.max_input_depth,
+            max_nodes=deps.max_input_nodes,
+        )
+        if input_err:
+            return _platform_error(400, input_err)
+    if run_req.config:
+        config_err = validate_input_structure(
+            run_req.config,
+            max_depth=deps.max_input_depth,
+            max_nodes=deps.max_input_nodes,
+        )
+        if config_err:
+            return _platform_error(400, config_err)
+    return None
+
+
+def _resolve_run_graph(
+    run_req: RunCreate,
+    deps: PlatformRouteDeps,
+) -> Any:
+    """Look up the assistant registration and validate its run I/O structure.
+
+    Returns the registration on success, or an ``HttpResponse`` when the
+    assistant is unknown (404) or the input/config structure is invalid (400).
+    """
+    reg = deps.registrations.get(run_req.assistant_id)
+    if reg is None:
+        return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
+    io_err = _validate_run_io_structure(run_req, deps)
+    if io_err is not None:
+        return io_err
+    return reg
+
+
+def _build_threaded_config(run_req: RunCreate, thread_id: str) -> dict[str, Any]:
+    """Build the run config for a thread-scoped run, pinning ``thread_id``."""
+    config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+    if run_req.config:
+        user_config = dict(run_req.config)
+        user_configurable = user_config.pop("configurable", {})
+        config["configurable"].update(user_configurable)
+        config["configurable"]["thread_id"] = thread_id
+        config.update(user_config)
+    return config
+
+
+def _build_threadless_config(
+    run_req: RunCreate,
+) -> dict[str, Any] | func.HttpResponse:
+    """Build the run config for a threadless run, rejecting any ``thread_id``.
+
+    Returns ``(config, None)`` on success or ``(None, 422_response)`` when the
+    caller supplied a ``thread_id`` (not permitted for threadless execution).
+    """
+    config: dict[str, Any] = {}
+    if run_req.config:
+        user_config = dict(run_req.config)
+        user_configurable = user_config.pop("configurable", {})
+        config["configurable"] = user_configurable
+        config.update(user_config)
+    if config.get("configurable", {}).get("thread_id") is not None:
+        return _platform_error(422, "thread_id is not allowed on threadless runs")
+    return config
 
 
 def _snapshot_to_thread_state(snapshot: Any, thread_id: str) -> ThreadState:

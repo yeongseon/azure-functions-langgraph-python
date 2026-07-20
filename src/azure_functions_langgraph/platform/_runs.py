@@ -7,18 +7,18 @@ import uuid
 import azure.functions as func
 
 from azure_functions_langgraph._validation import (
-    validate_body_size,
-    validate_graph_name,
-    validate_input_structure,
     validate_thread_id,
 )
 from azure_functions_langgraph.platform._common import (
     PlatformRouteDeps,
     _build_sse_response,
+    _build_threaded_config,
+    _build_threadless_config,
     _get_threadless_graph,
     _normalize_stream_mode,
+    _parse_run_create,
     _platform_error,
-    _preflight_run_create,
+    _resolve_run_graph,
     logger,
 )
 from azure_functions_langgraph.platform._sse import (
@@ -27,7 +27,7 @@ from azure_functions_langgraph.platform._sse import (
     format_error_event,
     format_metadata_event,
 )
-from azure_functions_langgraph.platform.contracts import RunCreate, ThreadStatus
+from azure_functions_langgraph.platform.contracts import ThreadStatus
 from azure_functions_langgraph.protocols import StreamableGraph
 
 
@@ -68,52 +68,18 @@ def register_run_routes(
         if tid_err:
             return _platform_error(400, tid_err)
 
-        raw_body = req.get_body()
-        size_err = validate_body_size(raw_body, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
-
-        try:
-            body = req.get_json()
-        except ValueError:
-            return _platform_error(400, "Invalid JSON body")
-
-        try:
-            run_req = RunCreate.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
-
-        name_err = validate_graph_name(run_req.assistant_id)
-        if name_err:
-            return _platform_error(400, name_err)
-        preflight = _preflight_run_create(run_req)
-        if preflight is not None:
-            return preflight
+        parsed = _parse_run_create(req, deps, require_dict_body=False)
+        if isinstance(parsed, func.HttpResponse):
+            return parsed
+        run_req = parsed
 
         thread = deps.thread_store.get(thread_id)
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
 
-        reg = deps.registrations.get(run_req.assistant_id)
-        if reg is None:
-            return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
-
-        if run_req.input:
-            input_err = validate_input_structure(
-                run_req.input,
-                max_depth=deps.max_input_depth,
-                max_nodes=deps.max_input_nodes,
-            )
-            if input_err:
-                return _platform_error(400, input_err)
-        if run_req.config:
-            config_err = validate_input_structure(
-                run_req.config,
-                max_depth=deps.max_input_depth,
-                max_nodes=deps.max_input_nodes,
-            )
-            if config_err:
-                return _platform_error(400, config_err)
+        reg = _resolve_run_graph(run_req, deps)
+        if isinstance(reg, func.HttpResponse):
+            return reg
 
         try:
             locked = deps.thread_store.try_acquire_run_lock(
@@ -131,13 +97,7 @@ def register_run_routes(
                 f"Concurrent runs are not supported (multitask_strategy=reject).",
             )
 
-        config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
-        if run_req.config:
-            user_config = dict(run_req.config)
-            user_configurable = user_config.pop("configurable", {})
-            config["configurable"].update(user_configurable)
-            config["configurable"]["thread_id"] = thread_id
-            config.update(user_config)
+        config = _build_threaded_config(run_req, thread_id)
 
         graph_input = run_req.input or {}
         try:
@@ -174,27 +134,10 @@ def register_run_routes(
         if tid_err:
             return _platform_error(400, tid_err)
 
-        raw_body = req.get_body()
-        size_err = validate_body_size(raw_body, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
-
-        try:
-            body = req.get_json()
-        except ValueError:
-            return _platform_error(400, "Invalid JSON body")
-
-        try:
-            run_req = RunCreate.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
-
-        name_err = validate_graph_name(run_req.assistant_id)
-        if name_err:
-            return _platform_error(400, name_err)
-        preflight = _preflight_run_create(run_req)
-        if preflight is not None:
-            return preflight
+        parsed = _parse_run_create(req, deps, require_dict_body=False)
+        if isinstance(parsed, func.HttpResponse):
+            return parsed
+        run_req = parsed
 
         thread = deps.thread_store.get(thread_id)
         if thread is None:
@@ -204,26 +147,9 @@ def register_run_routes(
         if mode_err is not None:
             return mode_err
 
-        reg = deps.registrations.get(run_req.assistant_id)
-        if reg is None:
-            return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
-
-        if run_req.input:
-            input_err = validate_input_structure(
-                run_req.input,
-                max_depth=deps.max_input_depth,
-                max_nodes=deps.max_input_nodes,
-            )
-            if input_err:
-                return _platform_error(400, input_err)
-        if run_req.config:
-            config_err = validate_input_structure(
-                run_req.config,
-                max_depth=deps.max_input_depth,
-                max_nodes=deps.max_input_nodes,
-            )
-            if config_err:
-                return _platform_error(400, config_err)
+        reg = _resolve_run_graph(run_req, deps)
+        if isinstance(reg, func.HttpResponse):
+            return reg
 
         if not isinstance(reg.graph, StreamableGraph):
             return _platform_error(
@@ -247,13 +173,7 @@ def register_run_routes(
                 f"Concurrent runs are not supported (multitask_strategy=reject).",
             )
 
-        config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
-        if run_req.config:
-            user_config = dict(run_req.config)
-            user_configurable = user_config.pop("configurable", {})
-            config["configurable"].update(user_configurable)
-            config["configurable"]["thread_id"] = thread_id
-            config.update(user_config)
+        config = _build_threaded_config(run_req, thread_id)
 
         run_id = str(uuid.uuid4())
 
@@ -325,51 +245,14 @@ def register_run_routes(
     @app.function_name(name="aflg_platform_runs_wait_threadless")
     @app.route(route="runs/wait", methods=["POST"], auth_level=auth)
     def runs_wait_threadless(req: func.HttpRequest) -> func.HttpResponse:
-        raw_body = req.get_body()
-        size_err = validate_body_size(raw_body, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
+        parsed = _parse_run_create(req, deps, require_dict_body=True)
+        if isinstance(parsed, func.HttpResponse):
+            return parsed
+        run_req = parsed
 
-        try:
-            body = req.get_json()
-        except ValueError:
-            return _platform_error(400, "Invalid JSON body")
-
-        if not isinstance(body, dict):
-            return _platform_error(400, "Request body must be a JSON object")
-
-        try:
-            run_req = RunCreate.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
-
-        name_err = validate_graph_name(run_req.assistant_id)
-        if name_err:
-            return _platform_error(400, name_err)
-        preflight = _preflight_run_create(run_req)
-        if preflight is not None:
-            return preflight
-
-        reg = deps.registrations.get(run_req.assistant_id)
-        if reg is None:
-            return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
-
-        if run_req.input:
-            input_err = validate_input_structure(
-                run_req.input,
-                max_depth=deps.max_input_depth,
-                max_nodes=deps.max_input_nodes,
-            )
-            if input_err:
-                return _platform_error(400, input_err)
-        if run_req.config:
-            config_err = validate_input_structure(
-                run_req.config,
-                max_depth=deps.max_input_depth,
-                max_nodes=deps.max_input_nodes,
-            )
-            if config_err:
-                return _platform_error(400, config_err)
+        reg = _resolve_run_graph(run_req, deps)
+        if isinstance(reg, func.HttpResponse):
+            return reg
 
         exec_graph = _get_threadless_graph(reg.graph)
         if exec_graph is None:
@@ -379,15 +262,9 @@ def register_run_routes(
                 f"be disabled for threadless execution.",
             )
 
-        config: dict[str, Any] = {}
-        if run_req.config:
-            user_config = dict(run_req.config)
-            user_configurable = user_config.pop("configurable", {})
-            config["configurable"] = user_configurable
-            config.update(user_config)
-
-        if config.get("configurable", {}).get("thread_id") is not None:
-            return _platform_error(422, "thread_id is not allowed on threadless runs")
+        config = _build_threadless_config(run_req)
+        if isinstance(config, func.HttpResponse):
+            return config
 
         graph_input = run_req.input or {}
         try:
@@ -412,55 +289,18 @@ def register_run_routes(
     @app.function_name(name="aflg_platform_runs_stream_threadless")
     @app.route(route="runs/stream", methods=["POST"], auth_level=auth)
     def runs_stream_threadless(req: func.HttpRequest) -> func.HttpResponse:
-        raw_body = req.get_body()
-        size_err = validate_body_size(raw_body, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
-
-        try:
-            body = req.get_json()
-        except ValueError:
-            return _platform_error(400, "Invalid JSON body")
-
-        if not isinstance(body, dict):
-            return _platform_error(400, "Request body must be a JSON object")
-
-        try:
-            run_req = RunCreate.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
-
-        name_err = validate_graph_name(run_req.assistant_id)
-        if name_err:
-            return _platform_error(400, name_err)
-        preflight = _preflight_run_create(run_req)
-        if preflight is not None:
-            return preflight
+        parsed = _parse_run_create(req, deps, require_dict_body=True)
+        if isinstance(parsed, func.HttpResponse):
+            return parsed
+        run_req = parsed
 
         stream_mode, mode_err = _normalize_stream_mode(run_req.stream_mode)
         if mode_err is not None:
             return mode_err
 
-        reg = deps.registrations.get(run_req.assistant_id)
-        if reg is None:
-            return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
-
-        if run_req.input:
-            input_err = validate_input_structure(
-                run_req.input,
-                max_depth=deps.max_input_depth,
-                max_nodes=deps.max_input_nodes,
-            )
-            if input_err:
-                return _platform_error(400, input_err)
-        if run_req.config:
-            config_err = validate_input_structure(
-                run_req.config,
-                max_depth=deps.max_input_depth,
-                max_nodes=deps.max_input_nodes,
-            )
-            if config_err:
-                return _platform_error(400, config_err)
+        reg = _resolve_run_graph(run_req, deps)
+        if isinstance(reg, func.HttpResponse):
+            return reg
 
         exec_graph = _get_threadless_graph(reg.graph)
         if exec_graph is None:
@@ -476,15 +316,9 @@ def register_run_routes(
                 f"Graph {run_req.assistant_id!r} does not support streaming",
             )
 
-        config: dict[str, Any] = {}
-        if run_req.config:
-            user_config = dict(run_req.config)
-            user_configurable = user_config.pop("configurable", {})
-            config["configurable"] = user_configurable
-            config.update(user_config)
-
-        if config.get("configurable", {}).get("thread_id") is not None:
-            return _platform_error(422, "thread_id is not allowed on threadless runs")
+        config = _build_threadless_config(run_req)
+        if isinstance(config, func.HttpResponse):
+            return config
 
         run_id = str(uuid.uuid4())
 
