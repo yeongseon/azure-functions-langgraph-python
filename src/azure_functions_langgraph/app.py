@@ -15,6 +15,11 @@ from azure_functions_langgraph._handlers import (
     handle_state,
     handle_stream,
 )
+from azure_functions_langgraph._metadata import (
+    LangGraphMetadata,
+    read_langgraph_metadata,
+    set_langgraph_metadata,
+)
 from azure_functions_langgraph._validation import (
     validate_graph_name,
 )
@@ -34,20 +39,6 @@ _ROUTE_HEALTH = "health"
 _ROUTE_INVOKE = "graphs/{name}/invoke"
 _ROUTE_STREAM = "graphs/{name}/stream"
 _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
-_TOOLKIT_META_ATTR = "_azure_functions_metadata"
-
-
-def _merge_toolkit_metadata(
-    fn: Callable[..., Any],
-    namespace: str,
-    payload: dict[str, Any],
-) -> None:
-    """Merge toolkit metadata into the convention attribute, preserving other namespaces."""
-    existing: dict[str, Any] = getattr(fn, _TOOLKIT_META_ATTR, {})
-    if not isinstance(existing, dict):
-        existing = {}
-    existing = {**existing, namespace: payload}
-    setattr(fn, _TOOLKIT_META_ATTR, existing)
 
 
 @dataclass
@@ -346,15 +337,12 @@ class LangGraphApp:
         def handler(req: func.HttpRequest) -> func.HttpResponse:
             return handler_impl(req, captured_reg)
 
-        _merge_toolkit_metadata(
-            handler,
-            "langgraph",
-            {
-                "version": 1,
-                "graph_name": reg.name,
-                "endpoint": endpoint,
-            },
-        )
+        _payload: LangGraphMetadata = {
+            "version": 1,
+            "graph_name": reg.name,
+            "endpoint": endpoint,
+        }
+        set_langgraph_metadata(handler, _payload)
 
         app.function_name(name=fn_name)(
             app.route(route=route, methods=methods, auth_level=effective_auth)(handler)
@@ -504,9 +492,5 @@ def get_langgraph_metadata(func: Any) -> dict[str, Any] | None:
 
     Returns ``None`` if the function has no langgraph metadata attached.
     """
-    toolkit_meta = getattr(func, _TOOLKIT_META_ATTR, None)
-    if isinstance(toolkit_meta, dict):
-        meta = toolkit_meta.get("langgraph")
-        if isinstance(meta, dict):
-            return meta
-    return None
+    meta = read_langgraph_metadata(func)
+    return dict(meta) if meta is not None else None
