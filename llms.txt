@@ -1,0 +1,25 @@
+# Azure Functions LangGraph
+
+> LangGraph integration for Azure Functions Python v2 — deploy compiled graphs as HTTP endpoints.
+
+Part of the **Azure Functions Python DX Toolkit**. Deploy compiled LangGraph graphs as Azure Functions HTTP endpoints with minimal boilerplate, bringing agentic LLM workflows to serverless Azure. Install from PyPI with `pip install azure-functions-langgraph`.
+
+## Getting Started
+- [Installation](https://yeongseon.github.io/azure-functions-langgraph-python/installation/): Install the package.
+- [Quickstart](https://yeongseon.github.io/azure-functions-langgraph-python/getting-started/): Minimal end-to-end example.
+- [Configuration](https://yeongseon.github.io/azure-functions-langgraph-python/configuration/): Configure graph deployment.
+
+## User Guide
+- [Usage](https://yeongseon.github.io/azure-functions-langgraph-python/usage/): Decorator reference and graph wiring.
+- [Architecture](https://yeongseon.github.io/azure-functions-langgraph-python/architecture/): How graphs map to endpoints.
+
+## Deployment
+- [Choose a Plan](https://yeongseon.github.io/azure-functions-langgraph-python/choose-a-plan/): Hosting options.
+- [Deploy to Azure](https://yeongseon.github.io/azure-functions-langgraph-python/deployment/): Deployment guide.
+- [Production Guide](https://yeongseon.github.io/azure-functions-langgraph-python/production-guide/): Production hardening.
+
+## Reference
+- [API Reference](https://yeongseon.github.io/azure-functions-langgraph-python/api/): Public API surface.
+- [Simple Agent Example](https://yeongseon.github.io/azure-functions-langgraph-python/examples/simple_agent/): End-to-end agent.
+- [FAQ](https://yeongseon.github.io/azure-functions-langgraph-python/faq/): Frequently asked questions.
+- [Troubleshooting](https://yeongseon.github.io/azure-functions-langgraph-python/troubleshooting/): Common issues and fixes.
