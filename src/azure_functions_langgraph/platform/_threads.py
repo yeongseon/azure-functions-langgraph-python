@@ -6,14 +6,16 @@ from typing import Any
 import azure.functions as func
 
 from azure_functions_langgraph._validation import (
-    validate_body_size,
     validate_input_structure,
     validate_thread_id,
 )
 from azure_functions_langgraph.platform._common import (
     _UNSUPPORTED_THREAD_FILTER_FIELDS,
     PlatformRouteDeps,
+    _build_checkpoint_config,
     _platform_error,
+    _read_json_body,
+    _resolve_thread_graph,
     _snapshot_to_thread_state,
     logger,
 )
@@ -43,17 +45,9 @@ def register_thread_routes(
     @app.function_name(name="aflg_platform_threads_create")
     @app.route(route="threads", methods=["POST"], auth_level=auth)
     def threads_create(req: func.HttpRequest) -> func.HttpResponse:
-        raw = req.get_body()
-        size_err = validate_body_size(raw, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
-        if raw and raw.strip() != b"":
-            try:
-                body: dict[str, Any] = req.get_json()
-            except ValueError:
-                return _platform_error(400, "Invalid JSON body")
-        else:
-            body = {}
+        body = _read_json_body(req, deps, require_dict=False, allow_empty=True)
+        if isinstance(body, func.HttpResponse):
+            return body
 
         try:
             create_req = ThreadCreate.model_validate(body)
@@ -91,17 +85,9 @@ def register_thread_routes(
         if tid_err:
             return _platform_error(400, tid_err)
 
-        raw = req.get_body()
-        size_err = validate_body_size(raw, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
-        if raw and raw.strip() != b"":
-            try:
-                body: dict[str, Any] = req.get_json()
-            except ValueError:
-                return _platform_error(400, "Invalid JSON body")
-        else:
-            body = {}
+        body = _read_json_body(req, deps, require_dict=False, allow_empty=True)
+        if isinstance(body, func.HttpResponse):
+            return body
 
         try:
             update_req = ThreadUpdate.model_validate(body)
@@ -148,20 +134,9 @@ def register_thread_routes(
     @app.function_name(name="aflg_platform_threads_search")
     @app.route(route="threads/search", methods=["POST"], auth_level=auth)
     def threads_search(req: func.HttpRequest) -> func.HttpResponse:
-        raw = req.get_body()
-        size_err = validate_body_size(raw, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
-        if raw and raw.strip() != b"":
-            try:
-                body = req.get_json()
-            except ValueError:
-                return _platform_error(400, "Invalid JSON body")
-        else:
-            body = {}
-
-        if not isinstance(body, dict):
-            return _platform_error(400, "Request body must be a JSON object")
+        body = _read_json_body(req, deps, require_dict=True, allow_empty=True)
+        if isinstance(body, func.HttpResponse):
+            return body
 
         unsupported = set(body.keys()) & _UNSUPPORTED_THREAD_FILTER_FIELDS
         if unsupported:
@@ -190,20 +165,9 @@ def register_thread_routes(
     @app.function_name(name="aflg_platform_threads_count")
     @app.route(route="threads/count", methods=["POST"], auth_level=auth)
     def threads_count(req: func.HttpRequest) -> func.HttpResponse:
-        raw = req.get_body()
-        size_err = validate_body_size(raw, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
-        if raw and raw.strip() != b"":
-            try:
-                body = req.get_json()
-            except ValueError:
-                return _platform_error(400, "Invalid JSON body")
-        else:
-            body = {}
-
-        if not isinstance(body, dict):
-            return _platform_error(400, "Request body must be a JSON object")
+        body = _read_json_body(req, deps, require_dict=True, allow_empty=True)
+        if isinstance(body, func.HttpResponse):
+            return body
 
         unsupported = set(body.keys()) & _UNSUPPORTED_THREAD_FILTER_FIELDS
         if unsupported:
@@ -234,30 +198,11 @@ def register_thread_routes(
         tid_err = validate_thread_id(thread_id)
         if tid_err:
             return _platform_error(400, tid_err)
-        thread = deps.thread_store.get(thread_id)
-        if thread is None:
-            return _platform_error(404, f"Thread {thread_id!r} not found")
-
-        if thread.assistant_id is None:
-            return _platform_error(
-                409,
-                f"Thread {thread_id!r} is not bound to any assistant. "
-                f"Run a graph on this thread first.",
-            )
-
-        reg = deps.registrations.get(thread.assistant_id)
-        if reg is None:
-            return _platform_error(
-                404,
-                f"Assistant {thread.assistant_id!r} not found for thread {thread_id!r}",
-            )
-
-        graph = reg.graph
-        if not isinstance(graph, StatefulGraph):
-            return _platform_error(
-                409,
-                f"Graph {thread.assistant_id!r} does not support state retrieval",
-            )
+        graph = _resolve_thread_graph(
+            deps, thread_id, protocol=StatefulGraph, capability="state retrieval"
+        )
+        if isinstance(graph, func.HttpResponse):
+            return graph
 
         config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
         try:
@@ -297,17 +242,9 @@ def register_thread_routes(
         if tid_err:
             return _platform_error(400, tid_err)
 
-        raw = req.get_body()
-        size_err = validate_body_size(raw, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
-        try:
-            body: dict[str, Any] = req.get_json()
-        except ValueError:
-            return _platform_error(400, "Invalid JSON body")
-
-        if not isinstance(body, dict):
-            return _platform_error(400, "Request body must be a JSON object")
+        body = _read_json_body(req, deps, require_dict=True, allow_empty=False)
+        if isinstance(body, func.HttpResponse):
+            return body
 
         try:
             update_req = ThreadStateUpdate.model_validate(body)
@@ -328,49 +265,19 @@ def register_thread_routes(
         if val_err:
             return _platform_error(400, val_err)
 
-        thread = deps.thread_store.get(thread_id)
-        if thread is None:
-            return _platform_error(404, f"Thread {thread_id!r} not found")
+        graph = _resolve_thread_graph(
+            deps, thread_id, protocol=UpdatableStateGraph, capability="state updates"
+        )
+        if isinstance(graph, func.HttpResponse):
+            return graph
 
-        if thread.assistant_id is None:
-            return _platform_error(
-                409,
-                f"Thread {thread_id!r} is not bound to any assistant. "
-                f"Run a graph on this thread first.",
-            )
-
-        reg = deps.registrations.get(thread.assistant_id)
-        if reg is None:
-            return _platform_error(
-                404,
-                f"Assistant {thread.assistant_id!r} not found for thread {thread_id!r}",
-            )
-
-        graph = reg.graph
-        if not isinstance(graph, UpdatableStateGraph):
-            return _platform_error(
-                409,
-                f"Graph {thread.assistant_id!r} does not support state updates",
-            )
-
-        configurable: dict[str, Any] = {"thread_id": thread_id}
-        if update_req.checkpoint is not None:
-            cp_thread_id = update_req.checkpoint.get("thread_id")
-            if cp_thread_id is not None and cp_thread_id != thread_id:
-                return _platform_error(
-                    422,
-                    f"Checkpoint thread_id {cp_thread_id!r} does not match "
-                    f"path thread_id {thread_id!r}",
-                )
-            cp_id = update_req.checkpoint.get("checkpoint_id")
-            if cp_id is not None:
-                configurable["checkpoint_id"] = cp_id
-            cp_ns = update_req.checkpoint.get("checkpoint_ns")
-            if cp_ns is not None:
-                configurable["checkpoint_ns"] = cp_ns
-        elif update_req.checkpoint_id is not None:
-            configurable["checkpoint_id"] = update_req.checkpoint_id
-        config: dict[str, Any] = {"configurable": configurable}
+        config = _build_checkpoint_config(
+            thread_id,
+            update_req.checkpoint,
+            fallback_checkpoint_id=update_req.checkpoint_id,
+        )
+        if isinstance(config, func.HttpResponse):
+            return config
 
         try:
             result = graph.update_state(config, update_req.values, as_node=update_req.as_node)
@@ -401,20 +308,9 @@ def register_thread_routes(
         if tid_err:
             return _platform_error(400, tid_err)
 
-        raw = req.get_body()
-        size_err = validate_body_size(raw, deps.max_request_body_bytes)
-        if size_err:
-            return _platform_error(400, size_err)
-        if raw and raw.strip() != b"":
-            try:
-                body: dict[str, Any] = req.get_json()
-            except ValueError:
-                return _platform_error(400, "Invalid JSON body")
-
-            if not isinstance(body, dict):
-                return _platform_error(400, "Request body must be a JSON object")
-        else:
-            body = {}
+        body = _read_json_body(req, deps, require_dict=True, allow_empty=True)
+        if isinstance(body, func.HttpResponse):
+            return body
 
         try:
             hist_req = ThreadHistoryRequest.model_validate(body)
@@ -431,47 +327,15 @@ def register_thread_routes(
             if val_err:
                 return _platform_error(400, val_err)
 
-        thread = deps.thread_store.get(thread_id)
-        if thread is None:
-            return _platform_error(404, f"Thread {thread_id!r} not found")
+        graph = _resolve_thread_graph(
+            deps, thread_id, protocol=StateHistoryGraph, capability="state history"
+        )
+        if isinstance(graph, func.HttpResponse):
+            return graph
 
-        if thread.assistant_id is None:
-            return _platform_error(
-                409,
-                f"Thread {thread_id!r} is not bound to any assistant. "
-                f"Run a graph on this thread first.",
-            )
-
-        reg = deps.registrations.get(thread.assistant_id)
-        if reg is None:
-            return _platform_error(
-                404,
-                f"Assistant {thread.assistant_id!r} not found for thread {thread_id!r}",
-            )
-
-        graph = reg.graph
-        if not isinstance(graph, StateHistoryGraph):
-            return _platform_error(
-                409,
-                f"Graph {thread.assistant_id!r} does not support state history",
-            )
-
-        configurable: dict[str, Any] = {"thread_id": thread_id}
-        if hist_req.checkpoint is not None:
-            cp_thread_id = hist_req.checkpoint.get("thread_id")
-            if cp_thread_id is not None and cp_thread_id != thread_id:
-                return _platform_error(
-                    422,
-                    f"Checkpoint thread_id {cp_thread_id!r} does not match "
-                    f"path thread_id {thread_id!r}",
-                )
-            cp_id = hist_req.checkpoint.get("checkpoint_id")
-            if cp_id is not None:
-                configurable["checkpoint_id"] = cp_id
-            cp_ns = hist_req.checkpoint.get("checkpoint_ns")
-            if cp_ns is not None:
-                configurable["checkpoint_ns"] = cp_ns
-        config: dict[str, Any] = {"configurable": configurable}
+        config = _build_checkpoint_config(thread_id, hist_req.checkpoint)
+        if isinstance(config, func.HttpResponse):
+            return config
 
         try:
             history_iter = graph.get_state_history(config)
