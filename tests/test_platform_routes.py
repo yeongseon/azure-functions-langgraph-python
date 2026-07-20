@@ -2937,7 +2937,7 @@ class TestCoverageBoostRunsThreads:
     def test_runs_stream_config_validation_failure(
         self, store: InMemoryThreadStore, monkeypatch: Any
     ) -> None:
-        import azure_functions_langgraph.platform._runs as runs_module
+        import azure_functions_langgraph.platform._common as runs_module
 
         app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
         thread = store.create()
@@ -2956,7 +2956,7 @@ class TestCoverageBoostRunsThreads:
     def test_runs_wait_threadless_config_validation_failure(
         self, store: InMemoryThreadStore, monkeypatch: Any
     ) -> None:
-        import azure_functions_langgraph.platform._runs as runs_module
+        import azure_functions_langgraph.platform._common as runs_module
 
         app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
         monkeypatch.setattr(
