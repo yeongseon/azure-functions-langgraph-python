@@ -19,6 +19,11 @@
 - Keep documentation examples, app behaviour, and tests synchronized.
 - Bumping version is automatic — `make release-patch` updates `__version__`, and the public-API test reads it back via `importlib.metadata.version(...)` so no test edits are needed.
 
+### Documentation & Translations
+- When a change touches `README.md` or any English documentation, update the translated READMEs (`README.ko.md`, `README.ja.md`, `README.zh-CN.md`) **in the same PR** so translations never drift from the English source.
+- This applies to any code change that alters documented behavior, CLI output, or the ecosystem/package table — not just direct edits to prose.
+- If a full translation cannot land in the same PR, add a short "translation pending" note to the affected translated file and open a tracking issue before merging.
+
 ## Issue Conventions
 
 Follow these conventions when opening issues so the backlog stays consistent with sibling DX Toolkit repositories.
