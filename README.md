@@ -9,7 +9,7 @@
 [![CI](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml)
 [![Release](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml)
 [![Security Scans](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/security.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/security.yml)
-[![codecov](https://codecov.io/gh/yeongseon/azure-functions-langgraph/branch/main/graph/badge.svg)](https://codecov.io/gh/yeongseon/azure-functions-langgraph)
+[![codecov](https://codecov.io/gh/yeongseon/azure-functions-langgraph-python/branch/main/graph/badge.svg)](https://codecov.io/gh/yeongseon/azure-functions-langgraph-python)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://pre-commit.com/)
 [![Docs](https://img.shields.io/badge/docs-gh--pages-blue)](https://yeongseon.github.io/azure-functions-langgraph-python/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -285,22 +285,22 @@ to `""` to remove the prefix entirely.
 
 With `platform_compat=True`, you also get SDK-compatible endpoints:
 
-6. `POST /assistants/search` — list registered assistants
-7. `GET /assistants/{id}` — get assistant details
-8. `POST /assistants/count` — count assistants
-9. `POST /threads` — create thread
-10. `GET /threads/{id}` — get thread
-11. `PATCH /threads/{id}` — update thread metadata
-12. `DELETE /threads/{id}` — delete thread
-13. `POST /threads/search` — search threads
-14. `POST /threads/count` — count threads
-15. `POST /threads/{id}/runs/wait` — run and wait for result
-16. `POST /threads/{id}/runs/stream` — run and stream result (buffered SSE)
-17. `POST /runs/wait` — threadless run
-18. `POST /runs/stream` — threadless stream (buffered SSE)
-19. `GET /threads/{id}/state` — get thread state
-20. `POST /threads/{id}/state` — update thread state
-21. `POST /threads/{id}/history` — get state history
+-4. `POST /assistants/search` — list registered assistants
+-3. `GET /assistants/{id}` — get assistant details
+-2. `POST /assistants/count` — count assistants
+-1. `POST /threads` — create thread
+0. `GET /threads/{id}` — get thread
+1. `PATCH /threads/{id}` — update thread metadata
+2. `DELETE /threads/{id}` — delete thread
+3. `POST /threads/search` — search threads
+4. `POST /threads/count` — count threads
+5. `POST /threads/{id}/runs/wait` — run and wait for result
+6. `POST /threads/{id}/runs/stream` — run and stream result (buffered SSE)
+7. `POST /runs/wait` — threadless run
+8. `POST /runs/stream` — threadless stream (buffered SSE)
+9. `GET /threads/{id}/state` — get thread state
+10. `POST /threads/{id}/state` — update thread state
+11. `POST /threads/{id}/history` — get state history
 
 ### Request format
 
