@@ -42,8 +42,13 @@ _REF_TEMPLATE = "#/$defs/{model}"
 _SchemaMode = Literal["validation", "serialization"]
 
 
-class EndpointMetadata(TypedDict, total=False):
-    """Shape of ``_azure_functions_metadata["endpoint"]`` (schema version 1)."""
+class EndpointMetadata(TypedDict):
+    """Shape of ``_azure_functions_metadata["endpoint"]`` (schema version 1).
+
+    Total: ``build_endpoint_metadata`` always emits every key, and consumers
+    index them directly, so all fields are required by the cross-package
+    contract.
+    """
 
     version: int
     request_body: dict[str, Any] | None
@@ -52,7 +57,7 @@ class EndpointMetadata(TypedDict, total=False):
     responses: dict[str, dict[str, Any]] | None
 
 
-def _is_model_type(model: type[BaseModel] | None) -> TypeGuard[type[BaseModel]]:
+def _is_model_type(model: object) -> TypeGuard[type[BaseModel]]:
     """Return ``True`` if *model* is a Pydantic ``BaseModel`` subclass."""
     return isinstance(model, type) and issubclass(model, BaseModel)
 
