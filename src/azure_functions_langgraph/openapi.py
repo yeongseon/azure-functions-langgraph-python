@@ -32,6 +32,15 @@ def register_with_openapi(app: LangGraphApp) -> int:
     calls :func:`azure_functions_openapi.register_openapi_metadata` for each
     route.
 
+    .. deprecated:: 0.6.0
+        Request/response *shape* now also flows through the shared
+        ``_azure_functions_metadata["endpoint"]`` namespace, which
+        ``azure-functions-openapi`` reads directly from each handler (see
+        issue #294; umbrella azure-functions-validation#270). This bridge is
+        retained through the deprecation cycle to keep supplying documentation
+        metadata (``summary``/``description``/``tags``) that the endpoint
+        namespace intentionally does not carry.
+
     Args:
         app: A :class:`LangGraphApp` instance with graphs already registered.
 

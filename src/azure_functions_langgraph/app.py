@@ -10,6 +10,10 @@ import warnings
 
 import azure.functions as func
 
+from azure_functions_langgraph._endpoint import (
+    build_endpoint_metadata,
+    set_endpoint_metadata,
+)
 from azure_functions_langgraph._handlers import (
     handle_invoke,
     handle_state,
@@ -52,6 +56,44 @@ class _GraphRegistration:
     auth_level: Optional[func.AuthLevel] = None
     request_model: Optional[type[Any]] = None
     response_model: Optional[type[Any]] = None
+
+
+@dataclass(frozen=True)
+class _EndpointSpec:
+    """Resolved request/response models and parameters for one route type."""
+
+    request_model: Optional[type[Any]] = None
+    response_model: Optional[type[Any]] = None
+    parameters: tuple[dict[str, Any], ...] = ()
+
+
+def _resolve_endpoint_spec(reg: _GraphRegistration, endpoint: str) -> _EndpointSpec:
+    """Resolve the (request_model, response_model, parameters) triple for a route.
+
+    Single source of truth shared by :meth:`LangGraphApp._register_route` (which
+    writes the ``endpoint`` metadata namespace) and
+    :meth:`LangGraphApp.get_app_metadata` (which builds the public
+    :class:`RouteMetadata`), so the two never drift.
+    """
+    if endpoint == "invoke":
+        return _EndpointSpec(reg.request_model, reg.response_model, ())
+    if endpoint == "stream":
+        # Stream responses are SSE, not a single JSON body.
+        return _EndpointSpec(reg.request_model, None, ())
+    if endpoint == "state":
+        return _EndpointSpec(
+            None,
+            None,
+            (
+                {
+                    "name": "thread_id",
+                    "in": "path",
+                    "required": True,
+                    "schema": {"type": "string"},
+                },
+            ),
+        )
+    return _EndpointSpec()  # defensive: unknown endpoint type carries no models
 
 
 @dataclass
@@ -344,6 +386,18 @@ class LangGraphApp:
         }
         set_langgraph_metadata(handler, _payload)
 
+        # Attach the shared, self-contained ``endpoint`` namespace consumed by
+        # azure-functions-openapi (issue #294; umbrella validation#270).
+        spec = _resolve_endpoint_spec(reg, endpoint)
+        set_endpoint_metadata(
+            handler,
+            build_endpoint_metadata(
+                request_model=spec.request_model,
+                response_model=spec.response_model,
+                parameters=list(spec.parameters),
+            ),
+        )
+
         app.function_name(name=fn_name)(
             app.route(route=route, methods=methods, auth_level=effective_auth)(handler)
         )
@@ -420,42 +474,38 @@ class LangGraphApp:
         for reg in self._registrations.values():
             routes: list[RouteMetadata] = []
             # invoke route
+            invoke_spec = _resolve_endpoint_spec(reg, "invoke")
             routes.append(
                 RouteMetadata(
                     path=self._metadata_path(_ROUTE_INVOKE.format(name=reg.name)),
                     method="POST",
                     summary=f"Invoke graph '{reg.name}'",
-                    request_model=reg.request_model,
-                    response_model=reg.response_model,
+                    request_model=invoke_spec.request_model,
+                    response_model=invoke_spec.response_model,
                 )
             )
             # stream route (if enabled)
             if self._has_stream_route(reg):
+                stream_spec = _resolve_endpoint_spec(reg, "stream")
                 routes.append(
                     RouteMetadata(
                         path=self._metadata_path(_ROUTE_STREAM.format(name=reg.name)),
                         method="POST",
                         summary=f"Stream graph '{reg.name}'",
-                        request_model=reg.request_model,
+                        request_model=stream_spec.request_model,
                         # Stream responses are SSE, not a single JSON body
                     )
                 )
             # state route — use same capability test as _build_function_app
             if self._has_state_route(reg):
+                state_spec = _resolve_endpoint_spec(reg, "state")
                 routes.append(
                     RouteMetadata(
                         path=self._metadata_path(_ROUTE_STATE.format(name=reg.name)),
                         method="GET",
                         summary=f"Get thread state for '{reg.name}'",
-                        parameters=(
-                            MappingProxyType(
-                                {
-                                    "name": "thread_id",
-                                    "in": "path",
-                                    "required": True,
-                                    "schema": {"type": "string"},
-                                }
-                            ),
+                        parameters=tuple(
+                            MappingProxyType(param) for param in state_spec.parameters
                         ),
                     )
                 )
