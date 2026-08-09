@@ -10,11 +10,14 @@ The ``"endpoint"`` namespace is the shared, OpenAPI-ready contract. Unlike the
 ``endpoint`` payload is entirely *self-contained* JSON Schema: the consumer
 needs no import of this package and no access to the user's model classes.
 
-The payload shape and canonicalization rules are pinned by the shared endpoint
-SPEC owned by ``azure-functions-validation``. This module intentionally
-*replicates* that contract (it is NOT shared via a runtime dependency); keep the
-``version`` field, the ``by_alias``/``ref_template``/``mode`` canonicalization,
-and the merge-without-clobber semantics identical to the sibling packages.
+The payload shape and canonicalization rules follow a shared toolkit
+convention (see the discussion linked below); no single package *owns* the
+``endpoint`` namespace. This module is fully self-contained and independently
+adopts the same ``by_alias``/``ref_template``/``mode`` canonicalization so its
+emitted JSON Schema stays byte-consistent with sibling producers/consumers —
+it is NOT shared via a runtime dependency. Keep the ``version`` field, that
+canonicalization, and the merge-without-clobber semantics identical to the
+sibling packages.
 
 Ref: https://github.com/yeongseon/azure-functions-validation-python/issues/270
 """
@@ -28,14 +31,15 @@ from pydantic import BaseModel
 #: Convention attribute name shared across all toolkit packages.
 METADATA_ATTR = "_azure_functions_metadata"
 
-#: Namespace owned by the shared endpoint contract.
+#: Namespace for the shared endpoint convention (no single owning package).
 ENDPOINT_NAMESPACE = "endpoint"
 
 #: Schema version for the ``endpoint`` namespace payload.
 ENDPOINT_METADATA_VERSION = 1
 
-#: Pydantic ref template pinned by the SPEC so ``$defs`` stay unresolved and the
-#: consumer (openapi) remains the sole ``$ref``-collision authority.
+#: Pydantic ref template chosen to match the shared convention so ``$defs`` stay
+#: unresolved and the consumer (openapi) remains the sole ``$ref``-collision
+#: authority.
 _REF_TEMPLATE = "#/$defs/{model}"
 
 #: Pydantic JSON-Schema generation modes (request vs response canonicalization).
@@ -63,7 +67,12 @@ def _is_model_type(model: object) -> TypeGuard[type[BaseModel]]:
 
 
 def _model_schema(model: type[BaseModel], mode: _SchemaMode) -> dict[str, Any]:
-    """Generate a model's JSON Schema using the SPEC-pinned canonicalization."""
+    """Generate a model's JSON Schema using the shared canonicalization.
+
+    LangGraph independently applies ``by_alias``/``ref_template``/``mode`` here
+    to keep its emitted schema consistent with sibling producers/consumers,
+    matching the toolkit convention rather than a package-owned SPEC mandate.
+    """
     return model.model_json_schema(
         by_alias=True,
         ref_template=_REF_TEMPLATE,
