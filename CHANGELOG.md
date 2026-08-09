@@ -1,6 +1,48 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.8.0] - 2026-08-09
+
+### ⚙️ Miscellaneous Tasks
+
+- *(deps)* Cap azure-functions below 2.0.0 (#301) 
+- *(deps)* Bump github/codeql-action/analyze from 4.37.4 to 4.37.6 (#298) 
+- *(deps)* Bump github/codeql-action/init from 4.37.4 to 4.37.6 (#297) 
+- *(deps)* Bump ruff from 0.16.0 to 0.16.1 (#296) 
+- *(deps)* Bump codeql-action init+analyze to 4.37.4 atomically 
+- *(deps)* Bump ruff from 0.15.22 to 0.16.0 (#290) 
+- *(deps)* Bump actions/stale from 10.4.0 to 11.0.0 (#291) 
+- Track issue priority via priority:* labels instead of body line (#293) 
+- *(deps)* Bump github/codeql-action/init from 4.37.1 to 4.37.3 (#285) 
+- *(deps)* Bump actions/checkout from 7.0.0 to 7.0.1 (#287) 
+- *(deps)* Bump actions/setup-python from 6.3.0 to 7.0.0 (#286) 
+
+### 🐛 Bug Fixes
+
+- *(deps)* Pin azure-functions to >=1.17,<3 (#300) 
+
+### 💼 Other
+
+- Bump version to 0.8.0 
+
+### 📚 Documentation
+
+- Require translation sync in the same PR as English changes (Closes #283) (#284) 
+- Align codecov badge slug and renumber SDK endpoint list (#282) 
+- Correct azure-functions-db description in ecosystem table (#280) 
+
+### 🚀 Features
+
+- *(endpoint)* Write shared endpoint metadata namespace (#294) (#295) 
+
+### 🚜 Refactor
+
+- *(handlers)* Extract shared native request parser (#278) 
+- *(platform)* Extract shared SSE overflow guard in _runs.py (#277) 
+- *(platform)* De-duplicate thread route preambles in _threads.py (#276) 
+- *(platform)* De-duplicate RunCreate preamble in _runs.py (#275) 
+- *(metadata)* Type the langgraph cross-package metadata contract (#274) 
+- *(platform)* Extract shared SSE response + stream_mode helpers (#273) 
 ## [0.7.3] - 2026-07-18
 
 ### Diagram
@@ -42,6 +84,7 @@ All notable changes to this project will be documented in this file.
 
 ### 📚 Documentation
 
+- Update changelog 
 - Consolidate thread-lock API, SSE semantics, and RunCreate status mapping (#266) 
 - Add discoverability metadata (pepy badge + llms.txt) (#272) 
 - Document Release Process in AGENTS.md (#255) 
