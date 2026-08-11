@@ -1,6 +1,17 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.8.1] - 2026-08-11
+
+### 💼 Other
+
+- Bump version to 0.8.1 
+
+### 📚 Documentation
+
+- Add Branch Hygiene section to AGENTS.md 
+- *(release)* Require cookbook dogfood verification after publish 
+- *(endpoint)* Reframe SPEC-pinned wording as an independent convention choice (#303) 
 ## [0.8.0] - 2026-08-09
 
 ### ⚙️ Miscellaneous Tasks
@@ -27,6 +38,7 @@ All notable changes to this project will be documented in this file.
 
 ### 📚 Documentation
 
+- Update changelog 
 - Require translation sync in the same PR as English changes (Closes #283) (#284) 
 - Align codecov badge slug and renumber SDK endpoint list (#282) 
 - Correct azure-functions-db description in ecosystem table (#280) 
