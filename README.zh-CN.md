@@ -1,5 +1,7 @@
 # Azure Functions LangGraph
 
+> ⚠️ **实验性（Experimental）** — 处于模式探索阶段。API 和行为可能会变化，暂不建议作为生产依赖使用。
+
 [![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph.svg)](https://pypi.org/project/azure-functions-langgraph/)
 [![Downloads](https://static.pepy.tech/badge/azure-functions-langgraph/month)](https://pepy.tech/project/azure-functions-langgraph)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)

@@ -1,5 +1,7 @@
 # Azure Functions LangGraph
 
+> ⚠️ **実験的（Experimental）** — パターン探索の段階です。API と振る舞いは変更される可能性があり、まだ本番環境の依存関係として推奨されません。
+
 [![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph.svg)](https://pypi.org/project/azure-functions-langgraph/)
 [![Downloads](https://static.pepy.tech/badge/azure-functions-langgraph/month)](https://pepy.tech/project/azure-functions-langgraph)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
