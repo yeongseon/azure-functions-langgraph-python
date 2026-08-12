@@ -94,7 +94,7 @@ def create_cosmos_checkpointer(
         ImportError: If ``langgraph-checkpoint-cosmosdb`` is not installed.
             Install via the ``cosmos`` extra.
     """
-    global _USE_MARKER_FALLBACK  # noqa: PLW0603
+    global _USE_MARKER_FALLBACK
 
     # --- Credential resolution ---
     if key is not None and credential is not None:
@@ -189,9 +189,9 @@ def create_cosmos_checkpointer(
         except TypeError:
             # Upstream uses __slots__ without __weakref__; fall back to marker
             _USE_MARKER_FALLBACK = True
-            saver._managed_by_cosmos_helper = True  # noqa: SLF001
+            saver._managed_by_cosmos_helper = True
     else:
-        saver._managed_by_cosmos_helper = True  # noqa: SLF001
+        saver._managed_by_cosmos_helper = True
 
     return saver
 
@@ -233,7 +233,7 @@ def close_cosmos_checkpointer(saver: CosmosDBSaver) -> None:
                 close_fn()
 
     # Mark closed
-    saver._cosmos_helper_closed = True  # noqa: SLF001
+    saver._cosmos_helper_closed = True
 
     # Remove from tracking
     _managed_savers.discard(saver)
