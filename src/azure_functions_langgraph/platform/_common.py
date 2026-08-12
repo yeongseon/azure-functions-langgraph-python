@@ -200,7 +200,7 @@ def _parse_run_create(
 
     try:
         run_req = RunCreate.model_validate(body)
-    except Exception as exc:  # noqa: BLE001 - surfaced as a 422 to the client
+    except Exception as exc:
         return _platform_error(422, f"Validation error: {exc}")
 
     name_err = validate_graph_name(run_req.assistant_id)
