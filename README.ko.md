@@ -13,6 +13,8 @@
 
 이 문서의 언어: **한국어** | [日本語](README.ja.md) | [简体中文](README.zh-CN.md) | [English](README.md)
 
+> ℹ️ 이 번역은 커뮤니티가 관리하는 참고용 문서로, 최신 [English README](README.md)보다 뒤처질 수 있습니다. 정확한 최신 정보는 영어 원문을 기준으로 하세요.
+
 > **알파 버전 안내** — 이 패키지는 활발히 개발 중입니다. `pyproject.toml`의 `Development Status :: 3 - Alpha` 분류가 진실의 원철입니다. v1.0 이전에는 minor 버전 간 변경될 수 있습니다. GitHub에서 이슈를 보고해 주세요.
 
 [LangGraph](https://github.com/langchain-ai/langgraph) 그래프를 최소한의 보일러플레이트로 **Azure Functions** HTTP 엔드포인트로 배포하세요.
