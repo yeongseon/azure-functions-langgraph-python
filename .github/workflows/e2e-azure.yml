@@ -1,0 +1,184 @@
+name: e2e-azure
+
+# Azure Release Certification. Dispatch-only: deploys the release commit's own
+# source to a real Azure Functions host, runs the live e2e suite against the
+# native LangGraph routes, and records an azure-cert artifact for the exact
+# release commit + version. The publish-pypi.yml verify-azure-certification gate
+# requires a fresh, matching certification before it will publish.
+#
+# Unlike a PyPI-pinned example, the deployed app installs a wheel built from the
+# checked-out ref (see the "Bundle candidate wheel" step), so this certifies the
+# EXACT candidate under release — not the last-published PyPI version.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Release commit SHA (or ref) to certify
+        required: false
+        type: string
+      version:
+        description: Expected package version (must match source __version__)
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'koreacentral' }}
+  REPO_SHORT: langgraph
+
+jobs:
+  deploy_and_test:
+    name: Deploy & Test
+    runs-on: ubuntu-latest
+    outputs:
+      resource_group: ${{ steps.names.outputs.rg }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Compute resource names
+        id: names
+        run: |
+          RUN="${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          RG="rg-af-e2e-${REPO_SHORT}-${RUN}"
+          APP="af-e2e-${REPO_SHORT}-${RUN}"
+          # Storage name: lowercase alphanumeric, max 24 chars
+          ST="stafe2e${RUN}"
+          ST="${ST:0:24}"
+          echo "rg=${RG}"   >> "$GITHUB_OUTPUT"
+          echo "app=${APP}" >> "$GITHUB_OUTPUT"
+          echo "st=${ST}"   >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create Resource Group
+        run: |
+          az group create \
+            --name "${{ steps.names.outputs.rg }}" \
+            --location "$AZURE_LOCATION" \
+            --tags purpose=e2e repo=azure-functions-langgraph run="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Deploy infra (Bicep)
+        run: |
+          az deployment group create \
+            --resource-group "${{ steps.names.outputs.rg }}" \
+            --template-file infra/main.bicep \
+            --parameters \
+                location="$AZURE_LOCATION" \
+                functionAppName="${{ steps.names.outputs.app }}" \
+                storageName="${{ steps.names.outputs.st }}" \
+                enableAppInsights=false
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+
+      - name: Install Azure Functions Core Tools
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/microsoft.gpg
+          sudo install -o root -g root -m 644 /tmp/microsoft.gpg /etc/apt/trusted.gpg.d/
+          sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-$(lsb_release -cs)-prod $(lsb_release -cs) main" > /etc/apt/sources.list.d/dotnetdev.list'
+          sudo apt-get update
+          sudo apt-get install -y azure-functions-core-tools-4
+
+      - name: Bundle candidate wheel into the deploy payload
+        run: |
+          # Build a wheel from THIS ref and inject it into the deployed app's
+          # requirements so the Azure remote build runs the candidate source
+          # under certification — never the PyPI release.
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir dist
+          WHEEL=$(ls dist/azure_functions_langgraph-*.whl | head -n1)
+          echo "Built candidate wheel: $WHEEL"
+          mkdir -p examples/e2e_app/wheels
+          cp "$WHEEL" examples/e2e_app/wheels/
+          BASENAME=$(basename "$WHEEL")
+          echo "./wheels/${BASENAME}" >> examples/e2e_app/requirements.txt
+          echo "---- examples/e2e_app/requirements.txt ----"
+          cat examples/e2e_app/requirements.txt
+
+      - name: Install library from source + test deps
+        run: |
+          pip install -e ".[dev]"
+          pip install requests
+
+      - name: Publish function app
+        working-directory: examples/e2e_app
+        timeout-minutes: 30
+        run: |
+          func azure functionapp publish "${{ steps.names.outputs.app }}" --python --build remote
+
+      - name: Run e2e tests
+        env:
+          E2E_BASE_URL: https://${{ steps.names.outputs.app }}.azurewebsites.net
+        run: |
+          # Clear the repo's default addopts (which force '-m "not e2e"' and
+          # coverage) so the e2e-marked suite is actually collected.
+          pytest tests/e2e -v -m e2e -o addopts=""
+
+      - name: Record certification
+        run: |
+          SHA=$(git rev-parse HEAD)
+          FILE_VERSION=$(grep -Po '(?<=__version__ = ")[^"]*' src/azure_functions_langgraph/__init__.py)
+          REQ_VERSION="${{ inputs.version }}"
+          if [ -n "$REQ_VERSION" ] && [ "$REQ_VERSION" != "$FILE_VERSION" ]; then
+            echo "::error ::Requested certification version ($REQ_VERSION) != source version ($FILE_VERSION)"
+            exit 1
+          fi
+          VERSION="${REQ_VERSION:-$FILE_VERSION}"
+          mkdir -p cert
+          cat > cert/certification.json <<EOF
+          {
+            "package": "azure-functions-langgraph",
+            "version": "$VERSION",
+            "commit": "$SHA",
+            "ref": "${{ inputs.ref || github.ref }}",
+            "workflow": "e2e-azure.yml",
+            "run_id": "${{ github.run_id }}",
+            "result": "success",
+            "certified_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          cat cert/certification.json
+
+      - name: Upload certification record
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: azure-cert
+          path: cert/
+          if-no-files-found: error
+          retention-days: 30
+
+  cleanup:
+    name: Cleanup Azure Resources
+    runs-on: ubuntu-latest
+    needs: [deploy_and_test]
+    if: always()
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Delete Resource Group
+        run: |
+          RG="${{ needs.deploy_and_test.outputs.resource_group }}"
+          if [ -n "$RG" ]; then
+            echo "Deleting resource group: $RG"
+            az group delete --name "$RG" --yes --no-wait
+          else
+            echo "No resource group to delete."
+          fi
