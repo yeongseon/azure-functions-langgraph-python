@@ -43,7 +43,7 @@ def warmup() -> None:
     while time.time() < deadline:
         try:
             r = requests.get(_url("/api/health"), timeout=15)
-            if r.status_code < 500:
+            if r.status_code == 200:
                 return
         except requests.RequestException as exc:  # pragma: no cover - network
             last_exc = exc
@@ -94,17 +94,17 @@ def test_stream_emits_events() -> None:
         stream=True,
     )
     assert r.status_code == 200, r.text
-    saw_data = False
+    saw_json_frame = False
     for raw in r.iter_lines(decode_unicode=True):
         if not raw:
             continue
         if raw.startswith("data:"):
-            saw_data = True
             data = raw[len("data:") :].strip()
             if data and data != "{}":
-                # Any well-formed SSE data frame proves the stream route runs.
+                # A JSON-decodable SSE data frame proves the stream route runs.
                 try:
                     json.loads(data)
                 except json.JSONDecodeError:
-                    pass
-    assert saw_data, "stream produced no SSE data frames"
+                    continue
+                saw_json_frame = True
+    assert saw_json_frame, "stream produced no JSON-decodable SSE data frames"
