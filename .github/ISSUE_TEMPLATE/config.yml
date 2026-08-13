@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Documentation
-    url: https://yeongseon.github.io/azure-functions-langgraph-python/
+    url: https://yeongseon.dev/azure-functions-python/langgraph/
     about: Check our documentation for usage guides and examples
