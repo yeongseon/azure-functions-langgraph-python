@@ -16,9 +16,16 @@ permissions:
   contents: read
 
 # Verify-before-publish gate (see AGENTS.md):
-#   build -> lib-tests -> verify-azure-certification -> publish
+#   build -> lib-tests + wheel-tests -> verify-azure-certification -> publish
 # Tiered runtime verification before any PyPI upload:
-#   * lib-tests            : the library's own unit suite (against the built wheel).
+#   * lib-tests            : the library's own unit suite run against the source
+#                            tree; this is where the >=95% coverage gate is enforced.
+#   * wheel-tests          : the same unit suite run against the *installed built
+#                            wheel* (imports resolve from site-packages, not src/),
+#                            so packaging regressions - missing files, bad metadata,
+#                            install-only import errors - fail fast in the per-publish
+#                            path instead of only in the heavyweight Azure tier.
+#                            Coverage is not re-measured here (owned by lib-tests).
 #   * verify-azure-certification : requires the EXACT release commit to have passed a real-Azure
 #                            deploy+live-e2e certification (e2e-azure.yml) that is fresh and
 #                            version/SHA-matched. Real Azure is certified per release, not per publish.
@@ -100,6 +107,57 @@ jobs:
       - name: Run test suite
         run: hatch run test
 
+  wheel-tests:
+    name: Wheel packaging tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Download built distribution
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+
+      # Install the *built wheel* (plus its test-only dev deps) so the suite
+      # imports the package from site-packages, not the checked-out src/ tree.
+      # This is what turns lib-tests' source-tree run into a real packaging
+      # gate: missing wheel files, bad metadata, or install-only import errors
+      # surface here in the fast per-publish path instead of only in the
+      # heavyweight Azure certification tier.
+      - name: Install built wheel
+        run: |
+          python -m pip install --upgrade pip
+          WHEEL=$(ls dist/*.whl)
+          echo "Installing ${WHEEL}[dev]"
+          python -m pip install "${WHEEL}[dev]"
+
+      # Run from a scratch dir with a dedicated config (tools/wheel-tests.ini)
+      # that omits `pythonpath = ["src", "."]` and coverage, so nothing re-adds
+      # the source tree to sys.path. --import-mode=importlib prevents test dirs
+      # from shadowing the installed distribution. Coverage stays owned by the
+      # source-tree lib-tests tier; this tier only proves the artifact imports
+      # and behaves once installed.
+      - name: Run test suite against installed wheel
+        run: |
+          mkdir -p "${RUNNER_TEMP}/wheel-tests"
+          cd "${RUNNER_TEMP}/wheel-tests"
+          python -m pytest \
+            -c "${GITHUB_WORKSPACE}/tools/wheel-tests.ini" \
+            --import-mode=importlib \
+            -p no:cacheprovider \
+            -m "not e2e" \
+            "${GITHUB_WORKSPACE}/tests"
+
   verify-azure-certification:
     name: Verify Azure release certification
     needs: build
@@ -179,7 +237,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: [build, lib-tests, verify-azure-certification]
+    needs: [build, lib-tests, wheel-tests, verify-azure-certification]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
