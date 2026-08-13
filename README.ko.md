@@ -1,5 +1,7 @@
 # Azure Functions LangGraph
 
+> ⚠️ **실험적(Experimental)** — 패턴 탐색 단계입니다. API와 동작이 변경될 수 있으며, 아직 프로덕션 의존성으로 권장되지 않습니다.
+
 [![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph.svg)](https://pypi.org/project/azure-functions-langgraph/)
 [![Downloads](https://static.pepy.tech/badge/azure-functions-langgraph/month)](https://pepy.tech/project/azure-functions-langgraph)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
