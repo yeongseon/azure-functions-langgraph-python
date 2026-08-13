@@ -13,6 +13,8 @@
 
 この文書の言語: [한국어](README.ko.md) | **日本語** | [简体中文](README.zh-CN.md) | [English](README.md)
 
+> ℹ️ この翻訳はコミュニティによる参考用であり、最新の [English README](README.md) より古い場合があります。正確な最新情報は英語版を参照してください。
+
 > **アルファ版について** — このパッケージは活発に開発中です。`pyproject.toml` の `Development Status :: 3 - Alpha` 分類が真実の原本です。v1.0 まではマイナーバージョン間で破壊的変更が発生しうることを想定してください。GitHub でイシューを報告してください。
 
 最小限のボイラープレートで [LangGraph](https://github.com/langchain-ai/langgraph) グラフを **Azure Functions** HTTPエンドポイントとしてデプロイできます。

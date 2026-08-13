@@ -13,6 +13,8 @@
 
 本文档语言: [한국어](README.ko.md) | [日本語](README.ja.md) | **简体中文** | [English](README.md)
 
+> ℹ️ 本翻译由社区维护，仅供参考，可能落后于最新的 [English README](README.md)。请以英文版为准。
+
 > **Alpha 版本说明** — 此软件包正在积极开发中。`pyproject.toml` 中的 `Development Status :: 3 - Alpha` 分类属于唯一权威来源：在 v1.0 之前，次要版本之间可能会发生破坏性变更。请在 GitHub 上报告问题。
 
 以最少的样板代码将 [LangGraph](https://github.com/langchain-ai/langgraph) 图部署为 **Azure Functions** HTTP 端点。
