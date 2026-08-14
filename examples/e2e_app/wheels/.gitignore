@@ -1,0 +1,4 @@
+# Built wheels are dropped here by the e2e-azure workflow before deploy.
+# Keep the directory tracked, but never commit built wheels.
+*.whl
+!.gitignore

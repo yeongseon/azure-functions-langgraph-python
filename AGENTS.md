@@ -20,9 +20,9 @@
 - Bumping version is automatic — `make release-patch` updates `__version__`, and the public-API test reads it back via `importlib.metadata.version(...)` so no test edits are needed.
 
 ### Documentation & Translations
-- When a change touches `README.md` or any English documentation, update the translated READMEs (`README.ko.md`, `README.ja.md`, `README.zh-CN.md`) **in the same PR** so translations never drift from the English source.
-- This applies to any code change that alters documented behavior, CLI output, or the ecosystem/package table — not just direct edits to prose.
-- If a full translation cannot land in the same PR, add a short "translation pending" note to the affected translated file and open a tracking issue before merging.
+- English (`README.md`) is the **canonical** source of truth for all documentation. Translated READMEs (`README.ko.md`, `README.ja.md`, `README.zh-CN.md`) are **best-effort**, community-maintained, and may lag the English source.
+- Translation sync is **not** required in the same PR as an English change, and a PR is **never** blocked by translation drift. Update translations opportunistically; when you do, keep them faithful to the current English source.
+- Each translated README carries a staleness banner linking back to the canonical English README. Keep that banner in place so readers always know the translation may be out of date.
 
 ## Issue Conventions
 
@@ -81,16 +81,27 @@ When splitting a large piece of work into focused issues, keep the umbrella open
 - `make release VERSION=x.y.z` — set explicit version, update changelog, tag, and push
 - `make tag-release VERSION=x.y.z` — create and push an annotated tag (used internally by release targets)
 
+### Tiered runtime verification (what gates a release)
+
+Release verification is layered; each tier is a **pre-publish gate**, not a post-publish check. No version reaches PyPI until every tier passes:
+
+| Tier | Runs where | Catches |
+| --- | --- | --- |
+| `lib-tests` | publish-pypi.yml (per publish) | library unit regressions (against the built wheel) |
+| `verify-azure-certification` | publish-pypi.yml (per publish) | requires a fresh, SHA+version-matched **real-Azure** certification for the exact release commit |
+| Azure Release Certification (`e2e-azure.yml`) | `workflow_dispatch`, per release | cloud-only drift — deploys this package's own `examples/e2e_app/` to real Azure (Y1 Consumption), runs the native LangGraph HTTP e2e (health/invoke/stream), and records a certification artifact keyed by commit SHA + version. **Certified per release, not per publish.** |
+
+Unlike the sibling repos, this package has **no** cookbook host-smoke tier. The real-Azure e2e deploys this package's own example app and exercises the native LangGraph routes, so it *is* the package-native runtime proof. Critically, the certification builds the candidate **wheel from the release ref** and bundles it into the example app (`examples/e2e_app/wheels/`), so Azure certifies the release commit's source — not the last-published PyPI build.
+
 ### Flow
 1. `make release-patch` (or `-minor` / `-major`) on `main`
 2. This runs: `hatch version` → `git commit` → `make changelog` → `git commit` → `git tag` → `git push`
-3. Tag push triggers **Publish to PyPI** GitHub Actions workflow automatically.
-4. Update `docs/changelog.md` separately if needed (different format from `CHANGELOG.md`).
-5. **Verify the release against the dogfood cookbook.** Once **Publish to PyPI** succeeds, confirm the downstream consumer still passes on the freshly published version:
-   - In [`azure-functions-cookbook-python`](https://github.com/yeongseon/azure-functions-cookbook-python), upgrade to the new release (`hatch run pip install -U "azure-functions-langgraph>=X.Y,<1"`) and run `make test`.
-   - Treat any new `RuntimeWarning`/`DeprecationWarning` surfaced by this library during the cookbook run as a release-blocking signal — decorator-order and API-drift problems are reported as warnings, so a clean run (zero warnings from this package) is part of the release gate.
-   - If the cookbook pins a lower bound (`azure-functions-langgraph>=X.Y,<1`), bump it to the new minor in the same verification PR so examples are tested against the version they advertise.
-   - A release is **not** considered done until the cookbook passes on the published version.
+3. **Real-Azure certification (required once per release, before the final publish).** Before (or immediately after) pushing the release tag, dispatch the **Azure Release Certification** workflow on the exact release commit and version:
+   - `gh workflow run e2e-azure.yml --ref main -f ref=<release-sha> -f version=<x.y.z>`
+   - The run deploys `examples/e2e_app/` (with a wheel built from `<release-sha>`) to real Azure, executes the live e2e suite (health/invoke/stream), and uploads the `azure-cert` artifact (keyed by commit SHA + version).
+4. Tag push triggers the **Publish to PyPI** workflow. The `publish` job runs only after `build → lib-tests → verify-azure-certification` all pass, and it uploads the exact artifact that was built (it never rebuilds). `verify-azure-certification` requires a successful, SHA+version-matched, non-stale (<14 day) certification for the release commit; without it the publish gate fails and the version stays unpublished.
+5. Update `docs/changelog.md` separately if needed (different format from `CHANGELOG.md`).
+6. **Failed-gate recovery (stuck tag).** A git tag is immutable and may already have been consumed, so if the gate fails do **not** move or reuse the tag. Fix forward on `main` and cut the next patch tag (`make release-patch`). The unpublished version number is simply skipped.
 
 ## Branch Hygiene
 

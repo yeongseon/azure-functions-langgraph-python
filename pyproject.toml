@@ -31,8 +31,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://yeongseon.github.io/azure-functions-langgraph-python/"
-Documentation = "https://yeongseon.github.io/azure-functions-langgraph-python/"
+Homepage = "https://yeongseon.dev/azure-functions-python/langgraph/"
+Documentation = "https://yeongseon.dev/azure-functions-python/langgraph/"
 Repository = "https://github.com/yeongseon/azure-functions-langgraph-python"
 Issues = "https://github.com/yeongseon/azure-functions-langgraph-python/issues"
 
