@@ -78,6 +78,23 @@ jobs:
       - name: Build distribution packages
         run: python -m build
 
+
+      - name: Verify built wheel is non-empty and importable
+        run: |
+          set -euo pipefail
+          WHEEL=$(ls dist/*.whl)
+          echo "Inspecting $WHEEL"
+          MODCOUNT=$(python -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); print(len([n for n in z.namelist() if n.endswith('.py')]))" "$WHEEL")
+          echo "Wheel contains $MODCOUNT .py modules"
+          if [ "$MODCOUNT" -eq 0 ]; then
+            echo "::error ::Built wheel is EMPTY (0 .py modules) — refusing to publish"
+            exit 1
+          fi
+          python -m venv /tmp/verify-wheel
+          /tmp/verify-wheel/bin/pip install --upgrade pip
+          /tmp/verify-wheel/bin/pip install "$WHEEL"
+          /tmp/verify-wheel/bin/python -c "import azure_functions_langgraph; print('import OK', azure_functions_langgraph.__version__)"
+
       - name: Upload distribution artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -248,6 +265,7 @@ jobs:
         with:
           name: dist
           path: dist
+
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1 # pin-exempt: PyPA official publisher (trusted-publisher OIDC); tracks release/v1 by design
