@@ -32,7 +32,7 @@ LangGraph is the most popular framework for building stateful AI agents with LLM
 ### Should Have (v0.2)
 
 1. **State Endpoint** — `GET /api/graphs/{name}/threads/{thread_id}/state` for thread state inspection
-2. **Azure Table Storage Checkpointer** — Azure-native checkpointer for conversation persistence
+2. **Azure-native persistent storage** — Azure Blob Storage checkpointer and Azure Table Storage thread store for conversation persistence
 3. **Auth Level Configuration** — Per-graph auth level overrides
 
 ### Could Have (v0.3+) — delivered as experimental, optional surfaces
