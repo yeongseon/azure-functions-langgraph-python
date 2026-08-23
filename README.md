@@ -308,29 +308,30 @@ to `""` to remove the prefix entirely.
 
 ### What you get
 
-1. `POST /api/graphs/echo_agent/invoke` — invoke the agent
-2. `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE, not true token streaming)
-3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — inspect thread state
-4. `GET /api/health` — health check
+- `POST /api/graphs/echo_agent/invoke` — invoke the agent
+- `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE, not true token streaming)
+- `GET /api/graphs/echo_agent/threads/{thread_id}/state` — inspect thread state
+- `GET /api/health` — liveness probe (`{"status": "ok"}`)
+- `GET /api/health/details` — registered-graph inventory (protected by default)
 
 With `platform_compat=True`, you also get SDK-compatible endpoints:
 
--4. `POST /assistants/search` — list registered assistants
--3. `GET /assistants/{id}` — get assistant details
--2. `POST /assistants/count` — count assistants
--1. `POST /threads` — create thread
-0. `GET /threads/{id}` — get thread
-1. `PATCH /threads/{id}` — update thread metadata
-2. `DELETE /threads/{id}` — delete thread
-3. `POST /threads/search` — search threads
-4. `POST /threads/count` — count threads
-5. `POST /threads/{id}/runs/wait` — run and wait for result
-6. `POST /threads/{id}/runs/stream` — run and stream result (buffered SSE)
-7. `POST /runs/wait` — threadless run
-8. `POST /runs/stream` — threadless stream (buffered SSE)
-9. `GET /threads/{id}/state` — get thread state
-10. `POST /threads/{id}/state` — update thread state
-11. `POST /threads/{id}/history` — get state history
+- `POST /assistants/search` — list registered assistants
+- `GET /assistants/{id}` — get assistant details
+- `POST /assistants/count` — count assistants
+- `POST /threads` — create thread
+- `GET /threads/{id}` — get thread
+- `PATCH /threads/{id}` — update thread metadata
+- `DELETE /threads/{id}` — delete thread
+- `POST /threads/search` — search threads
+- `POST /threads/count` — count threads
+- `POST /threads/{id}/runs/wait` — run and wait for result
+- `POST /threads/{id}/runs/stream` — run and stream result (buffered SSE)
+- `POST /runs/wait` — threadless run
+- `POST /runs/stream` — threadless stream (buffered SSE)
+- `GET /threads/{id}/state` — get thread state
+- `POST /threads/{id}/state` — update thread state
+- `POST /threads/{id}/history` — get state history
 
 ### Request format
 
