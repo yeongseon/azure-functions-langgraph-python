@@ -1361,12 +1361,28 @@ def test_latest_json_non_dict_and_missing_id_return_none(
 # InMemorySaver uses). The saver is backed by the in-process MockContainerClient
 # above — no live Azure/Azurite needed. See issue #344.
 # ---------------------------------------------------------------------------
-_conformance = pytest.importorskip(
-    "langgraph.checkpoint.conformance",
-    reason="langgraph-checkpoint-conformance not installed",
-)
-_checkpointer_test = _conformance.checkpointer_test
-_validate = _conformance.validate
+# The conformance harness is an *optional* dev dependency. Import it defensively
+# so that when it is absent only the conformance test below is skipped -- the
+# many non-conformance AzureBlobCheckpointSaver tests earlier in this module
+# still run (and still count toward coverage). See issue #344.
+try:
+    _conformance: Any = importlib.import_module("langgraph.checkpoint.conformance")
+    _checkpointer_test = _conformance.checkpointer_test
+    _validate = _conformance.validate
+    _HAS_CONFORMANCE = True
+except ImportError:  # pragma: no cover - exercised only without the optional dep
+    _HAS_CONFORMANCE = False
+
+    def _checkpointer_test(*args: Any, **kwargs: Any) -> Any:
+        """No-op stand-in so the factory below still imports without the dep."""
+
+        def _decorator(fn: Any) -> Any:
+            return fn
+
+        return _decorator
+
+    async def _validate(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("langgraph-checkpoint-conformance not installed")
 
 _azure_blob_saver_cls = getattr(
     importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob"),
@@ -1423,6 +1439,10 @@ async def _azure_blob_conformance_factory() -> Any:
     yield _AsyncConformanceSaver(container_client=MockContainerClient())
 
 
+@pytest.mark.skipif(  # type: ignore[untyped-decorator]
+    not _HAS_CONFORMANCE,
+    reason="langgraph-checkpoint-conformance not installed",
+)
 async def test_conformance_base_capabilities() -> None:
     """AzureBlobCheckpointSaver satisfies the upstream base storage contract."""
     report = await _validate(_azure_blob_conformance_factory)
