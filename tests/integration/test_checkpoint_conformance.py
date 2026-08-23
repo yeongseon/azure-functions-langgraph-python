@@ -15,11 +15,11 @@ unaffected.
 from __future__ import annotations
 
 import importlib
-from typing import Any, Iterator, Sequence
+from typing import Any, AsyncIterator, Iterator, Sequence
 import uuid
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
+from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata, CheckpointTuple
 import pytest
 
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
@@ -72,7 +72,7 @@ class _AsyncConformanceSaver(AzureBlobCheckpointSaver):
     ) -> None:
         self.put_writes(config, writes, task_id, task_path)
 
-    async def aget_tuple(self, config: RunnableConfig) -> Any:
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         return self.get_tuple(config)
 
     async def alist(
@@ -82,7 +82,7 @@ class _AsyncConformanceSaver(AzureBlobCheckpointSaver):
         filter: dict[str, Any] | None = None,
         before: RunnableConfig | None = None,
         limit: int | None = None,
-    ) -> Any:
+    ) -> AsyncIterator[CheckpointTuple]:
         for item in self.list(config, filter=filter, before=before, limit=limit):
             yield item
 
