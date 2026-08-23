@@ -58,7 +58,7 @@ This creates:
 - `POST /api/graphs/support/stream`
 - `POST /api/graphs/sales/invoke`
 - `POST /api/graphs/sales/stream`
-- `GET /api/health` (lists all)
+- `GET /api/health` (liveness probe; `GET /api/health/details` lists all, protected by default)
 
 ## What authentication options are available?
 

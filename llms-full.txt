@@ -121,7 +121,8 @@ gapp = LangGraphApp(thread_store=store, platform_compat=True)
 - `POST /api/graphs/{name}/invoke` — Invoke graph
 - `POST /api/graphs/{name}/stream` — Stream graph (buffered SSE)
 - `GET /api/graphs/{name}/threads/{thread_id}/state` — Get thread state
-- `GET /api/health` — Health check with registered graph info
+- `GET /api/health` — Anonymous liveness probe (`{"status": "ok"}`)
+- `GET /api/health/details` — Registered-graph inventory (protected by default)
 
 ### Platform-Compatible Routes (when `platform_compat=True`)
 - `POST /api/assistants/search` — List assistants

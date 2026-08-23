@@ -11,7 +11,8 @@ When you register a graph named `my_agent`, the following endpoints are created:
 | `POST` | `/api/graphs/my_agent/invoke` | Synchronous graph invocation |
 | `POST` | `/api/graphs/my_agent/stream` | Buffered SSE streaming |
 | `GET` | `/api/graphs/my_agent/threads/{thread_id}/state` | Thread state inspection |
-| `GET` | `/api/health` | Health check with registered graph list |
+| `GET` | `/api/health` | Anonymous liveness probe (`{"status": "ok"}`) |
+| `GET` | `/api/health/details` | Registered-graph inventory (protected by default) |
 
 ## Invoke endpoint
 
@@ -129,6 +130,23 @@ GET /api/health
 ```
 
 ### Response
+
+```json
+{"status": "ok"}
+```
+
+The anonymous liveness probe returns only `{"status": "ok"}` — it never
+enumerates registered graphs.
+
+### Detailed inventory
+
+```
+GET /api/health/details
+```
+
+Returns the registered-graph inventory. This surface is protected by
+`health_details_auth_level` (defaults to the app-level `auth_level`), so it
+requires a function key unless you opt it into `ANONYMOUS` explicitly.
 
 ```json
 {

@@ -153,7 +153,9 @@ class LangGraphApp:
 
     - ``POST /api/graphs/{name}/invoke`` — synchronous invocation
     - ``POST /api/graphs/{name}/stream`` — buffered SSE response (not true streaming)
-    - ``GET /api/health`` — health check with registered graph list
+    - ``GET /api/health`` — anonymous liveness probe (returns only ``{"status": "ok"}``)
+    - ``GET /api/health/details`` — registered-graph inventory (protected;
+      gated by ``health_details_auth_level``)
     - ``GET /api/graphs/{name}/threads/{thread_id}/state`` — thread state (StatefulGraph only)
 
     Note:
