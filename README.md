@@ -535,7 +535,18 @@ For workloads that already run a managed database (or need state shared across m
 
 Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist; the Cosmos DB helper accepts an endpoint and key, temporarily wires the upstream `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` environment variables, and directly instantiates the upstream `CosmosDBSaver`:
 
-> **Authentication — `create_cosmos_checkpointer` uses key-based auth only.** Managed Identity / `DefaultAzureCredential` is **unsupported** by the upstream `langgraph-checkpoint-cosmosdb` package, so this helper temporarily wires `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` from the constructor arguments and restores the original environment afterwards. If your platform mandates passwordless auth to Cosmos DB, prefer one of the other checkpointer backends until upstream adds `TokenCredential` support.
+> **Authentication — `create_cosmos_checkpointer` is a key-based convenience wrapper; Managed Identity is available upstream.** The DX helper resolves an account key and temporarily wires `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` before instantiating the upstream `CosmosDBSaver`, so calling the helper always uses **key-based auth**. However, the upstream `langgraph-checkpoint-cosmosdb` package (≥ 0.2.8) **does** support passwordless auth: `CosmosDBSaver` falls back to `DefaultAzureCredential` (Managed Identity, `az login`, service principal) whenever `COSMOSDB_KEY` is **unset**. To use Managed Identity today, skip the helper and instantiate the upstream saver directly with only `COSMOSDB_ENDPOINT` set (no key):
+
+```python
+import os
+from langgraph_checkpoint_cosmosdb import CosmosDBSaver
+
+os.environ["COSMOSDB_ENDPOINT"] = "https://<account>.documents.azure.com:443/"
+# Leave COSMOSDB_KEY unset → upstream uses DefaultAzureCredential (Managed Identity)
+checkpointer = CosmosDBSaver(database_name="langgraph", container_name="checkpoints")
+```
+
+> Grant the Function App's identity a Cosmos DB data-plane role (e.g. *Cosmos DB Built-in Data Contributor*) on the account. The official `langchain-azure-cosmosdb` package is an alternative that also supports `DefaultAzureCredential`. A future release may extend `create_cosmos_checkpointer` with a first-class Managed Identity path; until then the helper remains key-based by design.
 
 ```python
 import os

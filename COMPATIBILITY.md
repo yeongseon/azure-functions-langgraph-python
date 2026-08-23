@@ -146,4 +146,4 @@ CI tests include:
 |---|---|---|---|
 | `postgres` | `langgraph-checkpoint-postgres>=3.0,<4` | 3.10+ | Production DB checkpoint backend |
 | `sqlite` | `langgraph-checkpoint-sqlite>=3.0,<4` | 3.10+ | Local development |
-| `cosmos` | `langgraph-checkpoint-cosmosdb>=0.2.0,<0.3` | 3.10+ | Azure-native checkpoint backend (key-based auth) |
+| `cosmos` | `langgraph-checkpoint-cosmosdb>=0.2.0,<0.3` | 3.10+ | Azure-native checkpoint backend. The `create_cosmos_checkpointer` helper is key-based; upstream `CosmosDBSaver` (≥0.2.8) also supports Managed Identity via `DefaultAzureCredential` when `COSMOSDB_KEY` is unset (see README). |
