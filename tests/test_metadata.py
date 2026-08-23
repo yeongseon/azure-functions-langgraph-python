@@ -90,8 +90,9 @@ class TestGetAppMetadata:
         meta = app.get_app_metadata()
         assert isinstance(meta, AppMetadata)
         assert meta.graphs == {}
-        assert len(meta.app_routes) == 1
+        assert len(meta.app_routes) == 2
         assert meta.app_routes[0].path == "/api/health"
+        assert meta.app_routes[1].path == "/api/health/details"
 
     def test_single_graph(self) -> None:
         app = LangGraphApp()
@@ -192,10 +193,13 @@ class TestGetAppMetadata:
         app.register(graph=FakeCompiledGraph(), name="agent")
         meta = app.get_app_metadata()
 
-        assert len(meta.app_routes) == 1
+        assert len(meta.app_routes) == 2
         assert meta.app_routes[0].path == "/api/health"
         assert meta.app_routes[0].method == "GET"
         assert meta.app_routes[0].summary == "Health check"
+        assert meta.app_routes[1].path == "/api/health/details"
+        assert meta.app_routes[1].method == "GET"
+        assert meta.app_routes[1].summary == "Health check with registered-graph inventory"
 
     def test_metadata_is_snapshot(self) -> None:
         """Metadata should be an immutable snapshot, not live."""

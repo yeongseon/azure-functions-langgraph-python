@@ -700,12 +700,13 @@ class TestHealthEndpointHTTPHandler:
 
     @staticmethod
     def _call_health_fn(fa: func.FunctionApp, function_name: str) -> func.HttpResponse:
+        route = "health/details" if function_name == "aflg_health_details" else "health"
         for fn in fa.get_functions():
             if fn.get_function_name() == function_name:
                 health_fn = fn.get_user_function()
                 req = func.HttpRequest(
                     method="GET",
-                    url="http://localhost:7071/api/health",
+                    url=f"http://localhost:7071/api/{route}",
                     body=b"",
                 )
                 response: func.HttpResponse = health_fn(req)

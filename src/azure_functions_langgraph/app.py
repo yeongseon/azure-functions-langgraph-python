@@ -562,6 +562,11 @@ class LangGraphApp:
                 method="GET",
                 summary="Health check",
             ),
+            RouteMetadata(
+                path=self._metadata_path(_ROUTE_HEALTH_DETAILS),
+                method="GET",
+                summary="Health check with registered-graph inventory",
+            ),
         )
 
         return AppMetadata(graphs=MappingProxyType(graphs), app_routes=app_routes)

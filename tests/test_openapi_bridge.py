@@ -73,9 +73,9 @@ class TestRegisterWithOpenapi:
 
             count = register_with_openapi(app)
 
-        # 2 graph routes (invoke + stream) + 1 app route (health) = 3
-        assert count == 3
-        assert mock_register.call_count == 3
+        # 2 graph routes (invoke + stream) + 2 app routes (health + health/details) = 4
+        assert count == 4
+        assert mock_register.call_count == 4
 
         # Verify invoke route
         invoke_call = [
@@ -116,8 +116,8 @@ class TestRegisterWithOpenapi:
 
             count = register_with_openapi(app)
 
-        # 3 graph routes (invoke + stream + state) + 1 app route (health) = 4
-        assert count == 4
+        # 3 graph routes (invoke + stream + state) + 2 app routes (health + health/details) = 5
+        assert count == 5
 
         # Verify state route includes parameters
         state_calls = [
@@ -202,8 +202,8 @@ class TestRegisterWithOpenapi:
 
             count = register_with_openapi(app)
 
-        # 1 graph route (invoke only) + 1 app route (health) = 2
-        assert count == 2
+        # 1 graph route (invoke only) + 2 app routes (health + health/details) = 3
+        assert count == 3
 
     def test_multiple_graphs(self) -> None:
         app = LangGraphApp()
@@ -219,8 +219,8 @@ class TestRegisterWithOpenapi:
 
             count = register_with_openapi(app)
 
-        # 2 graphs * 2 routes + 1 health = 5
-        assert count == 5
+        # 2 graphs * 2 routes + 2 app routes (health + health/details) = 6
+        assert count == 6
 
     def test_tags_set_to_graph_name(self) -> None:
         app = LangGraphApp()
@@ -245,7 +245,7 @@ class TestRegisterWithOpenapi:
         system_calls = [
             c for c in mock_register.call_args_list if c.kwargs.get("tags") == ["system"]
         ]
-        assert len(system_calls) == 1
+        assert len(system_calls) == 2
 
     def test_empty_app(self) -> None:
         app = LangGraphApp()
@@ -259,8 +259,8 @@ class TestRegisterWithOpenapi:
 
             count = register_with_openapi(app)
 
-        # Only health route
-        assert count == 1
+        # Only the two app routes (health + health/details)
+        assert count == 2
 
 
 # ------------------------------------------------------------------
