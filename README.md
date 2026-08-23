@@ -441,6 +441,26 @@ Required role assignments on the storage account (or narrower scopes):
 
 For a complete runnable example (Managed Identity in prod, Azurite + connection string locally), see [`examples/managed_identity_storage/`](examples/managed_identity_storage/).
 
+#### Checkpoint store security
+
+The checkpointer backends persist graph state using LangGraph's default
+serializer, which can restore **arbitrary Python types** from a checkpoint
+payload. Treat the checkpoint store as part of your threat model — checkpoint
+blobs are **not** trusted-free data:
+
+- **Restrict storage access** with RBAC / Managed Identity (above) and private
+  endpoints so only the Function App identity can read or write checkpoints.
+- **Enable strict deserialization** by setting `LANGGRAPH_STRICT_MSGPACK=true`
+  (plus any allowed modules your graphs need) in your Function App
+  **application settings**. The env var is read at **import time**, so it must
+  be set before the app imports LangGraph — configure it as an app setting, not
+  at runtime. Upstream defaults to permissive (`false`).
+
+See the upstream advisory
+[GHSA-g48c-2wqr-h844](https://github.com/langchain-ai/langgraph/security/advisories/GHSA-g48c-2wqr-h844)
+and [`docs/security.md`](docs/security.md#checkpoint-store-security) for the full
+rationale.
+
 ### Scale envelope
 
 The bundled persistent backends are intended for development and small-to-medium production deployments. Plan ahead before pushing past these limits:
