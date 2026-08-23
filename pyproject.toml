@@ -74,7 +74,7 @@ dev = [
     "ruff==0.16.3",
     "requests",
     "types-requests",
-    "langgraph-sdk>=0.2.2,<0.4",
+    "langgraph-sdk>=0.2.2,<0.5",
     "langgraph-checkpoint-conformance>=0.0.2,<0.1",
 ]
 docs = [
