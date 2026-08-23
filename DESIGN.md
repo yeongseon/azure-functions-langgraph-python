@@ -123,13 +123,15 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 
 **Non-goals**: Absorbing validation or documentation concerns into this package.
 
-### 13. Auth level default (v0.5)
+### 13. Auth level default
 
 **Context**: Oracle design review flagged that `LangGraphApp` defaulting to `ANONYMOUS` creates a security risk - users copy example code into Azure without changing auth settings. The official Azure Functions Python `FunctionApp` class defaults to `FUNCTION`.
 
-**Decision**: Keep `ANONYMOUS` as the default in v0.5.x-v0.6.x for backward compatibility. Strengthen the runtime warning when running in Azure to include exact remediation code. Update all examples to use explicit `auth_level`. Plan to change the default to `FUNCTION` in v1.0.
+**Decision**: `LangGraphApp` defaults to `AuthLevel.FUNCTION`. Passing `auth_level=ANONYMOUS` is an explicit opt-in that emits an unconditional `UserWarning`, so an accidental anonymous surface is loud in test/CI output. All examples set `auth_level` explicitly.
 
-**Consequences**: No breaking change in the current release line. Users who deploy to Azure see a clear warning with copy-pasteable remediation. All examples show explicit auth_level, reducing copy-paste security issues. The v1.0 migration path is announced early.
+**Consequences**: Deployed endpoints require a function key out of the box, matching the official Azure Functions `FunctionApp` default and closing the copy-paste-into-Azure security gap. The health surfaces are gated separately (`GET /api/health` liveness is `ANONYMOUS` by default and exposes only `{"status": "ok"}`; `GET /api/health/details` inherits `auth_level`, so the graph inventory is protected by default).
+
+**Decision history**: The original v0.5 plan was to keep `ANONYMOUS` as the default through v0.5.x-v0.6.x for backward compatibility and only switch to `FUNCTION` in v1.0. That plan was superseded: `FUNCTION` became the default in **v0.7.3** (#243), ahead of v1.0, because the security risk of an anonymous default outweighed the backward-compatibility concern.
 
 **Non-goals**: Environment-dependent defaults (surprising behavior), `DeprecationWarning` emission (ignored by default, creates noise without protection).
 
@@ -165,8 +167,8 @@ src/azure_functions_langgraph/
 - Integration tests use real `StateGraph` compiled graphs with `MemorySaver` and mocked Azure backends
 - Persistent storage integration tests verify end-to-end flows with restart simulation
 - No real LLM calls in any tests
-- 645 tests, 91%+ coverage as of v0.4.0
-- Coverage threshold enforced at 90% (`fail_under = 90`)
+- Extensive unit + SDK-compatibility + integration suite; coverage tracked in CI (see `pyproject.toml` for the current gate). Historical snapshot: 645 tests, 91%+ coverage as of v0.4.0.
+- Coverage threshold enforced at 95% (`fail_under = 95`)
 
 
 ## Sources
