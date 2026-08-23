@@ -15,9 +15,9 @@ app.register(graph=builder, name="agent")
 
 ## Does this support true SSE streaming?
 
-Not yet. In v0.2, the stream endpoint collects all chunks from `graph.stream()` into memory, then returns them as a single SSE-formatted HTTP response. This is a limitation of the Azure Functions Python worker, which does not support chunked transfer encoding.
+Not with the current classic-model surface. The stream endpoint collects all chunks from `graph.stream()` into memory, then returns them as a single SSE-formatted HTTP response. This is **this adapter's current implementation choice**, not a limitation of the Azure Functions Python worker.
 
-True streaming support is planned for a future release.
+True incremental streaming *is* supported by Azure Functions Python v2 (runtime 4.34.1+) via the `azurefunctions-extensions-http-fastapi` extension, but enabling it switches the entire function app to the FastAPI/ASGI streaming model, which cannot be mixed with the classic `HttpRequest`/`HttpResponse` routes this package uses. Adopting it is therefore an app-wide architecture change tracked separately under umbrella issue #339.
 
 ## How does thread_id work?
 

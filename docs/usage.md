@@ -105,9 +105,8 @@ event: end
 data: {}
 ```
 
-!!! warning "Buffered streaming (v0.2)"
-    In v0.2, streaming is **buffered** — all chunks are collected first, then returned as a single SSE-formatted HTTP response. This is not true chunked streaming. True streaming support is planned for a future release.
-    In v0.1, streaming is **buffered** — all chunks are collected first, then returned as a single SSE-formatted HTTP response. This is not true chunked streaming. True streaming support is planned for a future release.
+!!! warning "Buffered streaming"
+    Streaming is **buffered** — all chunks are collected first, then returned as a single SSE-formatted HTTP response. This is not true chunked streaming; it is **this adapter's current implementation choice** given its classic `HttpRequest`/`HttpResponse` model, not an Azure Functions platform limitation. True incremental streaming requires the app-wide FastAPI/streaming model (incompatible with the current classic-model routes) and is tracked separately under umbrella issue #339.
 
 ### Stream error handling
 

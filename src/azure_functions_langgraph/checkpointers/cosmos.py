@@ -18,9 +18,13 @@ extra when the upstream package is missing.
 
 .. note::
 
-   Managed Identity / ``DefaultAzureCredential`` is not supported by this
-   helper yet.  If upstream adds ``TokenCredential`` support later, this
-   helper can be updated.
+   This helper always uses **key-based authentication**.  The upstream
+   ``CosmosDBSaver`` (>= 0.2.8) *does* support Managed Identity /
+   ``DefaultAzureCredential`` when ``COSMOSDB_KEY`` is unset, but this DX
+   wrapper resolves and wires a key, so the passwordless path is bypassed.
+   To use Managed Identity today, instantiate the upstream
+   ``CosmosDBSaver`` directly with only ``COSMOSDB_ENDPOINT`` set (no key).
+   A future release may add a first-class Managed Identity path here.
 """
 
 from __future__ import annotations

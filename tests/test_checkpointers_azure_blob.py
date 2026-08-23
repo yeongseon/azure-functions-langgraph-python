@@ -1348,3 +1348,109 @@ def test_latest_json_non_dict_and_missing_id_return_none(
         json.dumps({"checkpoint_id": 123}).encode(), metadata={}, overwrite=True
     )
     assert saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns")) is None
+
+
+# ---------------------------------------------------------------------------
+# Upstream conformance suite (langgraph-checkpoint-conformance)
+#
+# Validates AzureBlobCheckpointSaver against LangGraph's official
+# BaseCheckpointSaver storage contract, guarding against silent 1.x contract
+# drift. The harness detects capabilities via async method overrides and
+# drives the saver through its async API, so we expose thin async wrappers
+# that forward to the sync implementation (the same pattern upstream
+# InMemorySaver uses). The saver is backed by the in-process MockContainerClient
+# above — no live Azure/Azurite needed. See issue #344.
+# ---------------------------------------------------------------------------
+# The conformance harness is an *optional* dev dependency. Import it defensively
+# so that when it is absent only the conformance test below is skipped -- the
+# many non-conformance AzureBlobCheckpointSaver tests earlier in this module
+# still run (and still count toward coverage). See issue #344.
+try:
+    _conformance: Any = importlib.import_module("langgraph.checkpoint.conformance")
+    _checkpointer_test = _conformance.checkpointer_test
+    _validate = _conformance.validate
+    _HAS_CONFORMANCE = True
+except ImportError:  # pragma: no cover - exercised only without the optional dep
+    _HAS_CONFORMANCE = False
+
+    def _checkpointer_test(*args: Any, **kwargs: Any) -> Any:
+        """No-op stand-in so the factory below still imports without the dep."""
+
+        def _decorator(fn: Any) -> Any:
+            return fn
+
+        return _decorator
+
+    async def _validate(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("langgraph-checkpoint-conformance not installed")
+
+_azure_blob_saver_cls = getattr(
+    importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob"),
+    "AzureBlobCheckpointSaver",
+)
+
+
+class _AsyncConformanceSaver(_azure_blob_saver_cls):  # type: ignore[misc, valid-type]
+    """Async wrappers forwarding to the sync AzureBlobCheckpointSaver methods.
+
+    Present only so the conformance harness detects the base capabilities and
+    exercises the real synchronous storage logic through its async entrypoints.
+    """
+
+    async def aput(
+        self,
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: Any,
+    ) -> RunnableConfig:
+        result: RunnableConfig = self.put(config, checkpoint, metadata, new_versions)
+        return result
+
+    async def aput_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        self.put_writes(config, writes, task_id, task_path)
+
+    async def aget_tuple(self, config: RunnableConfig) -> Any:
+        return self.get_tuple(config)
+
+    async def alist(
+        self,
+        config: RunnableConfig | None,
+        *,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        for item in self.list(config, filter=filter, before=before, limit=limit):
+            yield item
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        self.delete_thread(thread_id)
+
+
+@_checkpointer_test(name="AzureBlobCheckpointSaver")  # type: ignore[untyped-decorator]
+async def _azure_blob_conformance_factory() -> Any:
+    yield _AsyncConformanceSaver(container_client=MockContainerClient())
+
+
+@pytest.mark.skipif(  # type: ignore[untyped-decorator]
+    not _HAS_CONFORMANCE,
+    reason="langgraph-checkpoint-conformance not installed",
+)
+async def test_conformance_base_capabilities() -> None:
+    """AzureBlobCheckpointSaver satisfies the upstream base storage contract."""
+    report = await _validate(_azure_blob_conformance_factory)
+
+    base_capabilities = ("put", "put_writes", "get_tuple", "list", "delete_thread")
+    for cap in base_capabilities:
+        result = report.results[cap]
+        assert result.detected, f"base capability {cap!r} was not detected"
+        assert result.passed, (
+            f"base capability {cap!r} failed conformance: {result.failures!r}"
+        )

@@ -47,8 +47,18 @@ class GraphInfo(BaseModel):
     has_checkpointer: bool = False
 
 
+class HealthStatus(BaseModel):
+    """Minimal liveness response for the anonymous health probe.
+
+    Intentionally free of any registered-graph inventory so an
+    unauthenticated caller only learns "the process is up".
+    """
+
+    status: str = "ok"
+
+
 class HealthResponse(BaseModel):
-    """Health check response."""
+    """Detailed health response (protected ``/health/details`` surface)."""
 
     status: str = "ok"
     graphs: list[GraphInfo] = Field(default_factory=list)

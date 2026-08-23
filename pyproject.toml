@@ -70,7 +70,8 @@ dev = [
     "ruff==0.16.1",
     "requests",
     "types-requests",
-    "langgraph-sdk>=0.3,<0.5",
+    "langgraph-sdk>=0.2.2,<0.4",
+    "langgraph-checkpoint-conformance>=0.0.2,<0.1",
 ]
 docs = [
     "mkdocs<2.0",

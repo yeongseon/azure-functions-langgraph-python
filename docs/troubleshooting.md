@@ -59,7 +59,7 @@ The stream endpoint returns 501 when the registered graph does not have a `strea
 
 ### Streaming responses arrive all at once
 
-This is expected behavior in v0.1. Streaming is **buffered** — all chunks are collected and returned as a single SSE-formatted response. True chunked streaming is not yet supported by the Azure Functions Python worker.
+This is expected behavior. Streaming is **buffered** — all chunks are collected and returned as a single SSE-formatted response. This is **this adapter's current implementation choice** given its classic `HttpRequest`/`HttpResponse` model, not a limitation of the Azure Functions Python worker (which does support true streaming via the app-wide FastAPI model). True incremental streaming is tracked separately under umbrella issue #339.
 
 ### 422: Validation error
 

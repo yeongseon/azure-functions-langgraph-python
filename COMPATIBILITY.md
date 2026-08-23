@@ -5,13 +5,13 @@
 | Package | Supported Versions | Notes |
 |---|---|---|
 | `langgraph` | `>=1.0,<2.0` | Runtime dependency. CI covers the minimum supported 1.x release (1.0.0) plus the latest resolved 1.x release on every Python version (3.10–3.14). |
-| `langgraph-sdk` | `>=0.3,<0.4` | Platform compat layer mirrors this SDK version's REST API shapes. |
+| `langgraph-sdk` | `>=0.2.2,<0.4` | Platform compat layer mirrors this SDK version's REST API shapes. The floor tracks the minimum supported `langgraph` (1.0.0), which resolves `langgraph-sdk 0.2.2`. |
 | `pydantic` | `>=2.0` | Required for request/response models. |
 | `azure-functions` | `>=1.17` | Azure Functions Python v2 programming model. |
 
 ## Platform Compatibility Layer
 
-The `platform/` subpackage mirrors the LangGraph Platform REST API as understood by `langgraph-sdk >=0.3,<0.4`. This means:
+The `platform/` subpackage mirrors the LangGraph Platform REST API as understood by `langgraph-sdk >=0.2.2,<0.4`. This means:
 
 1. **Response shapes** — JSON response structures match what `langgraph-sdk` expects. Required fields, types, and nesting are tested via contract tests in `tests/test_sdk_contracts.py`.
 
@@ -146,4 +146,4 @@ CI tests include:
 |---|---|---|---|
 | `postgres` | `langgraph-checkpoint-postgres>=3.0,<4` | 3.10+ | Production DB checkpoint backend |
 | `sqlite` | `langgraph-checkpoint-sqlite>=3.0,<4` | 3.10+ | Local development |
-| `cosmos` | `langgraph-checkpoint-cosmosdb>=0.2.0,<0.3` | 3.10+ | Azure-native checkpoint backend (key-based auth) |
+| `cosmos` | `langgraph-checkpoint-cosmosdb>=0.2.0,<0.3` | 3.10+ | Azure-native checkpoint backend. The `create_cosmos_checkpointer` helper is key-based; upstream `CosmosDBSaver` (≥0.2.8) also supports Managed Identity via `DefaultAzureCredential` when `COSMOSDB_KEY` is unset (see README). |

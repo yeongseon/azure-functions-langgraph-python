@@ -174,7 +174,10 @@ lock is released with `status="error"`.
     it defeats token-by-token streaming. If you need incremental delivery, front
     the graph with your own streaming HTTP function that yields directly from
     `graph.stream(...)` — the buffered endpoints are optimized for correctness and
-    bounded memory, not latency.
+    bounded memory, not latency. Note that a true-streaming HTTP function requires
+    the app-wide FastAPI/ASGI model (`azurefunctions-extensions-http-fastapi`,
+    runtime 4.34.1+), which cannot be mixed with this package's classic-model
+    routes in the same function app.
 
 ---
 

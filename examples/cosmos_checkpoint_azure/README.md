@@ -81,9 +81,13 @@ The second response shows `[turn 2]`.
 
 ## Notes
 
-- Cosmos DB helper currently uses key-based authentication.
-- The upstream `langgraph-checkpoint-cosmosdb` package expects a Cosmos DB key.
-- Managed Identity / `DefaultAzureCredential` is not supported by the upstream Cosmos checkpointer package.
-- If upstream adds `TokenCredential` support later, this helper can be updated.
+- The `create_cosmos_checkpointer` helper currently uses key-based authentication.
+- The upstream `langgraph-checkpoint-cosmosdb` package (>= 0.2.8) **does** support
+  Managed Identity / `DefaultAzureCredential` — its `CosmosDBSaver` falls back to
+  `DefaultAzureCredential` whenever `COSMOSDB_KEY` is unset. To use passwordless
+  auth today, instantiate `CosmosDBSaver` directly (only set `COSMOSDB_ENDPOINT`,
+  no key) instead of calling this key-based helper, and grant the Function App's
+  identity a Cosmos DB data-plane role. A future release may add a first-class
+  Managed Identity path to the helper.
 - The Cosmos DB container must be created with partition key path `/partition_key`.
 - `COSMOS_KEY` is not the same as upstream's `COSMOSDB_KEY`; the helper handles the mapping.

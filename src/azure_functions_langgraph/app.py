@@ -31,6 +31,7 @@ from azure_functions_langgraph.contracts import (
     AppMetadata,
     GraphInfo,
     HealthResponse,
+    HealthStatus,
     RegisteredGraphMetadata,
     RouteMetadata,
 )
@@ -40,6 +41,7 @@ from azure_functions_langgraph.protocols import InvocableGraph, StatefulGraph
 # Route path templates (single source of truth for both function_app and metadata)
 _ROUTE_PREFIX = "/api"
 _ROUTE_HEALTH = "health"
+_ROUTE_HEALTH_DETAILS = "health/details"
 _ROUTE_INVOKE = "graphs/{name}/invoke"
 _ROUTE_STREAM = "graphs/{name}/stream"
 _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
@@ -133,7 +135,13 @@ class LangGraphApp:
         (e.g. local development); doing so emits an unconditional ``UserWarning``.
         The ``health_auth_level`` parameter controls the auth level of the health
         endpoint independently and defaults to :attr:`~azure.functions.AuthLevel.ANONYMOUS`,
-        which is the conventional choice for liveness/readiness probes.
+        which is the conventional choice for liveness/readiness probes. The
+        anonymous ``GET /api/health`` returns only ``{"status": "ok"}`` — it never
+        enumerates registered graphs. The detailed inventory (graph names,
+        descriptions, and checkpointer status) lives on a separate
+        ``GET /api/health/details`` endpoint gated by ``health_details_auth_level``,
+        which defaults to the app-level ``auth_level`` (``FUNCTION``) so the
+        inventory is protected unless explicitly opened up.
 
     Note:
         Per-thread locking on the native invoke/stream endpoints is
@@ -153,6 +161,7 @@ class LangGraphApp:
 
     auth_level: func.AuthLevel = func.AuthLevel.FUNCTION
     health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
+    health_details_auth_level: Optional[func.AuthLevel] = None
     max_stream_response_bytes: int = 1024 * 1024
     max_request_body_bytes: int = 1024 * 1024
     max_input_depth: int = 32
@@ -262,6 +271,18 @@ class LangGraphApp:
         return self._function_app
 
     @property
+    def _resolved_health_details_auth_level(self) -> func.AuthLevel:
+        """Auth level for ``/health/details``.
+
+        Defaults to the app-level ``auth_level`` (protected) when the operator
+        did not set ``health_details_auth_level`` explicitly, so the graph
+        inventory is never anonymous by accident.
+        """
+        if self.health_details_auth_level is None:
+            return self.auth_level
+        return self.health_details_auth_level
+
+    @property
     def thread_store(self) -> Any:
         """Return the thread store, or ``None`` if platform compat is disabled."""
         return self._thread_store
@@ -282,10 +303,29 @@ class LangGraphApp:
     def _build_function_app(self) -> func.FunctionApp:
         app = func.FunctionApp(http_auth_level=self.auth_level)
 
-        # Health endpoint
+        # Health endpoints.
+        #
+        # The anonymous liveness probe (``/health``) intentionally exposes only
+        # ``{"status": "ok"}`` so an unauthenticated caller cannot enumerate
+        # registered graphs. The detailed inventory moves to ``/health/details``,
+        # gated by ``health_details_auth_level`` (defaults to the app-level
+        # ``auth_level``, i.e. protected unless explicitly opened up). See #341.
         @app.function_name(name="aflg_health")
         @app.route(route=_ROUTE_HEALTH, methods=["GET"], auth_level=self.health_auth_level)
         def health(req: func.HttpRequest) -> func.HttpResponse:
+            return func.HttpResponse(
+                body=HealthStatus().model_dump_json(),
+                mimetype="application/json",
+                status_code=200,
+            )
+
+        @app.function_name(name="aflg_health_details")
+        @app.route(
+            route=_ROUTE_HEALTH_DETAILS,
+            methods=["GET"],
+            auth_level=self._resolved_health_details_auth_level,
+        )
+        def health_details(req: func.HttpRequest) -> func.HttpResponse:
             graphs = [
                 GraphInfo(
                     name=reg.name,
@@ -521,6 +561,11 @@ class LangGraphApp:
                 path=self._metadata_path(_ROUTE_HEALTH),
                 method="GET",
                 summary="Health check",
+            ),
+            RouteMetadata(
+                path=self._metadata_path(_ROUTE_HEALTH_DETAILS),
+                method="GET",
+                summary="Health check with registered-graph inventory",
             ),
         )
 

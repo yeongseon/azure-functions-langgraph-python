@@ -4,14 +4,25 @@ Every response model matches the ``TypedDict`` of the same name in
 ``langgraph_sdk.schema`` so that the official Python SDK client can
 deserialise responses without conversion.
 
-Request models use ``model_config = ConfigDict(extra="ignore")`` so
-that unknown fields sent by newer SDK versions are silently dropped
-instead of causing 422 errors.
+Request models use ``model_config = ConfigDict(extra="ignore")`` so that
+genuinely-unknown fields sent by newer SDK versions are silently dropped
+instead of causing 422 errors. This is deliberate forward-compatibility:
 
-The shapes target the **langgraph-sdk** wire format (``langgraph_sdk.schema``
-as of 2025-06).  Fields added in later SDK versions will be silently
-dropped on request models and absent on response models until this
-module is updated.
+* **Known-but-unsupported** request fields (e.g. ``interrupt_before``,
+  ``webhook``, ``multitask_strategy`` other than ``reject``) are declared
+  explicitly here and rejected with ``501 Not Implemented`` at the route
+  layer (see ``platform/_runs.py`` and ``COMPATIBILITY.md``) rather than
+  silently ignored — the caller always learns the feature is unsupported.
+* **Truly-unknown** future fields are dropped by ``extra="ignore"`` so a
+  newer SDK client does not break against an older server.
+
+The shapes target the **langgraph-sdk** ``>=0.2.2,<0.4`` wire format
+(``langgraph_sdk.schema``). This range is the single source of truth shared
+with ``pyproject.toml`` (dev/test pin) and ``COMPATIBILITY.md``; a drift
+guard in ``tests/test_sdk_contracts.py`` fails if the installed SDK falls
+outside it. Fields added in later SDK versions are dropped on request
+models and absent on response models until this module is updated for a
+new supported range.
 
 .. versionadded:: 0.3.0
 """

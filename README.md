@@ -41,7 +41,7 @@ This package provides a focused adapter for serving LangGraph graphs on Azure Fu
 - **Zero-boilerplate deployment** — register a compiled graph, get HTTP endpoints automatically
 - **Invoke endpoint** — `POST /api/graphs/{name}/invoke` for synchronous execution
 - **Stream endpoint** — `POST /api/graphs/{name}/stream` for buffered SSE responses
-- **Health endpoint** — `GET /api/health` listing registered graphs with checkpointer status
+- **Health endpoints** — anonymous `GET /api/health` liveness probe (`{"status": "ok"}`, no graph inventory) plus protected `GET /api/health/details` listing registered graphs with checkpointer status
 - **Checkpointer pass-through** — thread-based conversation state works via LangGraph's native config
 - **State endpoint** — `GET /api/graphs/{name}/threads/{thread_id}/state` for thread state inspection (when supported)
 - **Per-graph auth** — override app-level auth with `register(..., auth_level=...)`
@@ -185,13 +185,34 @@ curl -s http://localhost:7071/api/health
 ```
 
 ```json
+{"status": "ok"}
+```
+
+The anonymous liveness probe returns only `{"status": "ok"}`. To see the
+registered-graph inventory, call the protected details endpoint:
+
+```bash
+curl -s http://localhost:7071/api/health/details
+```
+
+```json
 {"status": "ok", "graphs": [{"name": "echo_agent", "description": null, "has_checkpointer": false}]}
 ```
 
 #### Azure
 
 ```bash
-curl -s "https://<your-app>.azurewebsites.net/api/health?code=<FUNCTION_KEY>"
+# Liveness probe (anonymous by default)
+curl -s "https://<your-app>.azurewebsites.net/api/health"
+```
+
+```json
+{"status": "ok"}
+```
+
+```bash
+# Detailed inventory (protected — defaults to the app auth_level)
+curl -s "https://<your-app>.azurewebsites.net/api/health/details?code=<FUNCTION_KEY>"
 ```
 
 ```json
@@ -223,10 +244,17 @@ app = LangGraphApp()  # equivalent to LangGraphApp(auth_level=func.AuthLevel.FUN
 app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 ```
 
-> **Note:** `health_auth_level` defaults to `ANONYMOUS` independently of `auth_level`.
-> This means the health endpoint remains publicly accessible even when `auth_level=FUNCTION`.
-> Set `health_auth_level=func.AuthLevel.FUNCTION` explicitly if the health endpoint should
-> also require a function key.
+> **Note:** There are two health surfaces. The liveness probe
+> `GET /api/health` uses `health_auth_level`, which defaults to `ANONYMOUS`
+> independently of `auth_level`, and returns only `{"status": "ok"}` — it never
+> enumerates registered graphs. Set `health_auth_level=func.AuthLevel.FUNCTION`
+> to require a key on the probe as well.
+>
+> The detailed inventory `GET /api/health/details` (graph names, descriptions,
+> and checkpointer status) uses `health_details_auth_level`, which defaults to
+> the app-level `auth_level` (`FUNCTION`) — so the inventory is **protected by
+> default**. Pass `health_details_auth_level=func.AuthLevel.ANONYMOUS`
+> explicitly to expose it publicly (e.g. local development).
 
 ### Streaming behavior
 
@@ -236,9 +264,14 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > and flushed as SSE events **after the run completes** — this is **not** true
 > token-level streaming, and clients will not receive partial tokens incrementally.
 >
-> True chunked streaming is on the roadmap and depends on Azure Functions Python v2
-> streaming response support. If you need real-time token streaming today, run the
-> graph behind a long-running host (e.g. App Service or AKS) instead.
+> Buffered SSE is **this adapter's current implementation choice**, not an Azure
+> Functions platform limitation. Azure Functions Python v2 *does* support true HTTP
+> streaming (runtime 4.34.1+) via the `azurefunctions-extensions-http-fastapi`
+> extension, but enabling it switches the **entire function app** to the FastAPI/ASGI
+> streaming model, which cannot be mixed with the classic `HttpRequest`/`HttpResponse`
+> routes this package is built on. Adopting true streaming is therefore an app-wide
+> architectural change (tracked separately). If you need real-time token streaming
+> today, run the graph behind a long-running host (e.g. App Service or AKS) instead.
 
 ### Per-graph auth
 
@@ -280,29 +313,30 @@ to `""` to remove the prefix entirely.
 
 ### What you get
 
-1. `POST /api/graphs/echo_agent/invoke` — invoke the agent
-2. `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE, not true token streaming)
-3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — inspect thread state
-4. `GET /api/health` — health check
+- `POST /api/graphs/echo_agent/invoke` — invoke the agent
+- `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE, not true token streaming)
+- `GET /api/graphs/echo_agent/threads/{thread_id}/state` — inspect thread state
+- `GET /api/health` — liveness probe (`{"status": "ok"}`)
+- `GET /api/health/details` — registered-graph inventory (protected by default)
 
 With `platform_compat=True`, you also get SDK-compatible endpoints:
 
--4. `POST /assistants/search` — list registered assistants
--3. `GET /assistants/{id}` — get assistant details
--2. `POST /assistants/count` — count assistants
--1. `POST /threads` — create thread
-0. `GET /threads/{id}` — get thread
-1. `PATCH /threads/{id}` — update thread metadata
-2. `DELETE /threads/{id}` — delete thread
-3. `POST /threads/search` — search threads
-4. `POST /threads/count` — count threads
-5. `POST /threads/{id}/runs/wait` — run and wait for result
-6. `POST /threads/{id}/runs/stream` — run and stream result (buffered SSE)
-7. `POST /runs/wait` — threadless run
-8. `POST /runs/stream` — threadless stream (buffered SSE)
-9. `GET /threads/{id}/state` — get thread state
-10. `POST /threads/{id}/state` — update thread state
-11. `POST /threads/{id}/history` — get state history
+- `POST /assistants/search` — list registered assistants
+- `GET /assistants/{id}` — get assistant details
+- `POST /assistants/count` — count assistants
+- `POST /threads` — create thread
+- `GET /threads/{id}` — get thread
+- `PATCH /threads/{id}` — update thread metadata
+- `DELETE /threads/{id}` — delete thread
+- `POST /threads/search` — search threads
+- `POST /threads/count` — count threads
+- `POST /threads/{id}/runs/wait` — run and wait for result
+- `POST /threads/{id}/runs/stream` — run and stream result (buffered SSE)
+- `POST /runs/wait` — threadless run
+- `POST /runs/stream` — threadless stream (buffered SSE)
+- `GET /threads/{id}/state` — get thread state
+- `POST /threads/{id}/state` — update thread state
+- `POST /threads/{id}/history` — get state history
 
 ### Request format
 
@@ -412,6 +446,26 @@ Required role assignments on the storage account (or narrower scopes):
 
 For a complete runnable example (Managed Identity in prod, Azurite + connection string locally), see [`examples/managed_identity_storage/`](examples/managed_identity_storage/).
 
+#### Checkpoint store security
+
+The checkpointer backends persist graph state using LangGraph's default
+serializer, which can restore **arbitrary Python types** from a checkpoint
+payload. Treat the checkpoint store as part of your threat model — checkpoint
+blobs are **not** trusted-free data:
+
+- **Restrict storage access** with RBAC / Managed Identity (above) and private
+  endpoints so only the Function App identity can read or write checkpoints.
+- **Enable strict deserialization** by setting `LANGGRAPH_STRICT_MSGPACK=true`
+  (plus any allowed modules your graphs need) in your Function App
+  **application settings**. The env var is read at **import time**, so it must
+  be set before the app imports LangGraph — configure it as an app setting, not
+  at runtime. Upstream defaults to permissive (`false`).
+
+See the upstream advisory
+[GHSA-g48c-2wqr-h844](https://github.com/langchain-ai/langgraph/security/advisories/GHSA-g48c-2wqr-h844)
+and [`docs/security.md`](docs/security.md#checkpoint-store-security) for the full
+rationale.
+
 ### Scale envelope
 
 The bundled persistent backends are intended for development and small-to-medium production deployments. Plan ahead before pushing past these limits:
@@ -481,7 +535,18 @@ For workloads that already run a managed database (or need state shared across m
 
 Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist; the Cosmos DB helper accepts an endpoint and key, temporarily wires the upstream `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` environment variables, and directly instantiates the upstream `CosmosDBSaver`:
 
-> **Authentication — `create_cosmos_checkpointer` uses key-based auth only.** Managed Identity / `DefaultAzureCredential` is **unsupported** by the upstream `langgraph-checkpoint-cosmosdb` package, so this helper temporarily wires `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` from the constructor arguments and restores the original environment afterwards. If your platform mandates passwordless auth to Cosmos DB, prefer one of the other checkpointer backends until upstream adds `TokenCredential` support.
+> **Authentication — `create_cosmos_checkpointer` is a key-based convenience wrapper; Managed Identity is available upstream.** The DX helper resolves an account key and temporarily wires `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` before instantiating the upstream `CosmosDBSaver`, so calling the helper always uses **key-based auth**. However, the upstream `langgraph-checkpoint-cosmosdb` package (≥ 0.2.8) **does** support passwordless auth: `CosmosDBSaver` falls back to `DefaultAzureCredential` (Managed Identity, `az login`, service principal) whenever `COSMOSDB_KEY` is **unset**. To use Managed Identity today, skip the helper and instantiate the upstream saver directly with only `COSMOSDB_ENDPOINT` set (no key):
+
+```python
+import os
+from langgraph_checkpoint_cosmosdb import CosmosDBSaver
+
+os.environ["COSMOSDB_ENDPOINT"] = "https://<account>.documents.azure.com:443/"
+# Leave COSMOSDB_KEY unset → upstream uses DefaultAzureCredential (Managed Identity)
+checkpointer = CosmosDBSaver(database_name="langgraph", container_name="checkpoints")
+```
+
+> Grant the Function App's identity a Cosmos DB data-plane role (e.g. *Cosmos DB Built-in Data Contributor*) on the account. The official `langchain-azure-cosmosdb` package is an alternative that also supports `DefaultAzureCredential`. A future release may extend `create_cosmos_checkpointer` with a first-class Managed Identity path; until then the helper remains key-based by design.
 
 ```python
 import os
