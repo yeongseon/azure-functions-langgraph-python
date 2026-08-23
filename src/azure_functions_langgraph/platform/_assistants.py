@@ -8,8 +8,9 @@ import azure.functions as func
 from azure_functions_langgraph._validation import validate_body_size
 from azure_functions_langgraph.platform._common import (
     PlatformRouteDeps,
-    _platform_error,
-    _registration_to_assistant,
+    _check_unknown_platform_fields,
+_platform_error,
+_registration_to_assistant,
 )
 from azure_functions_langgraph.platform.contracts import (
     Assistant,
@@ -39,6 +40,9 @@ def register_assistant_routes(
         else:
             body = {}
 
+        unknown_err = _check_unknown_platform_fields(AssistantSearch, body)
+        if unknown_err is not None:
+            return unknown_err
         try:
             search = AssistantSearch.model_validate(body)
         except Exception as exc:
@@ -76,6 +80,9 @@ def register_assistant_routes(
         else:
             body = {}
 
+        unknown_err = _check_unknown_platform_fields(AssistantCount, body)
+        if unknown_err is not None:
+            return unknown_err
         try:
             count_req = AssistantCount.model_validate(body)
         except Exception as exc:

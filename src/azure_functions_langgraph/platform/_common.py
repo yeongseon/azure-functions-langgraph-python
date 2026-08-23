@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import logging
+import os
 from typing import Any
+import warnings
 
 import azure.functions as func
+from pydantic import BaseModel
 
 from azure_functions_langgraph._validation import (
     validate_body_size,
@@ -23,6 +26,68 @@ from azure_functions_langgraph.platform.stores import ThreadStore
 from azure_functions_langgraph.protocols import CloneableGraph
 
 logger = logging.getLogger(__name__)
+
+_PLATFORM_STRICT_ENV = "AZFUNC_LANGGRAPH_PLATFORM_STRICT"
+
+
+def _platform_strict_enabled() -> bool:
+    """Return ``True`` when the opt-in platform strict mode is enabled.
+
+    Controlled by the ``AZFUNC_LANGGRAPH_PLATFORM_STRICT`` environment variable.
+    Any value other than unset/empty/``0``/``false``/``no`` (case-insensitive)
+    enables strict mode, in which truly-unknown request fields are rejected with
+    a ``400`` instead of being warned-about and dropped.
+    """
+    raw = os.environ.get(_PLATFORM_STRICT_ENV, "")
+    return raw.strip().lower() not in ("", "0", "false", "no")
+
+
+def _unknown_request_fields(model_cls: type[BaseModel], body: Any) -> list[str]:
+    """Return body keys not declared (by name or alias) on *model_cls*.
+
+    Known-but-unsupported fields (e.g. ``interrupt_before``) are declared on the
+    models and rejected separately with ``501``; only *truly-unknown* fields are
+    reported here. Non-dict bodies carry no nameable extras, so return ``[]``.
+    """
+    if not isinstance(body, dict):
+        return []
+    allowed: set[str] = set()
+    for name, field in model_cls.model_fields.items():
+        allowed.add(name)
+        if field.alias is not None:
+            allowed.add(field.alias)
+    return sorted(key for key in body if key not in allowed)
+
+
+def _check_unknown_platform_fields(
+    model_cls: type[BaseModel], body: Any
+) -> func.HttpResponse | None:
+    """Observe or reject truly-unknown fields on a platform request body.
+
+    Default behaviour preserves ``extra="ignore"`` forward-compatibility: unknown
+    fields are logged and surfaced as a :class:`UserWarning`, then dropped. When
+    :func:`_platform_strict_enabled` is set, unknown fields become a ``400``
+    instead. Returns an error :class:`~azure.functions.HttpResponse` only in
+    strict mode; otherwise ``None`` so the caller proceeds normally.
+    """
+    unknown = _unknown_request_fields(model_cls, body)
+    if not unknown:
+        return None
+    joined = ", ".join(unknown)
+    if _platform_strict_enabled():
+        return _platform_error(
+            400,
+            f"Unknown request field(s) rejected in strict mode: {joined}. "
+            f"Unset {_PLATFORM_STRICT_ENV} to ignore unknown fields instead.",
+        )
+    message = (
+        f"{model_cls.__name__} request received unknown field(s) [{joined}] "
+        f"that are not part of the supported wire contract; they were ignored. "
+        f"Set {_PLATFORM_STRICT_ENV}=1 to reject unknown fields instead."
+    )
+    logger.warning(message)
+    warnings.warn(message, UserWarning, stacklevel=2)
+    return None
 
 
 def _platform_error(status_code: int, detail: str) -> func.HttpResponse:
@@ -197,6 +262,10 @@ def _parse_run_create(
 
     if require_dict_body and not isinstance(body, dict):
         return _platform_error(400, "Request body must be a JSON object")
+
+    unknown_err = _check_unknown_platform_fields(RunCreate, body)
+    if unknown_err is not None:
+        return unknown_err
 
     try:
         run_req = RunCreate.model_validate(body)
