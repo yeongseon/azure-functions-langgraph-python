@@ -14,7 +14,7 @@ Deploy [LangGraph](https://github.com/langchain-ai/langgraph) agents as **Azure 
 - **Zero-boilerplate deployment** — register a compiled graph, get HTTP endpoints automatically
 - **Invoke endpoint** — `POST /api/graphs/{name}/invoke` for synchronous execution
 - **Stream endpoint** — `POST /api/graphs/{name}/stream` for buffered SSE responses
-- **Health endpoint** — `GET /api/health` listing registered graphs with checkpointer status
+- **Health endpoints** — anonymous `GET /api/health` liveness probe (`{"status": "ok"}`) plus protected `GET /api/health/details` listing registered graphs with checkpointer status
 - **Protocol-based** — works with any object that has `invoke()` and `stream()` methods
 - **Checkpointer pass-through** — thread-based conversation state via LangGraph's native config
 
@@ -51,7 +51,7 @@ This gives you:
 
 1. `POST /api/graphs/echo_agent/invoke` — invoke the agent
 2. `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE)
-3. `GET /api/health` — health check
+3. `GET /api/health` — anonymous liveness probe (`GET /api/health/details` for the protected graph inventory)
 
 ## Next steps
 

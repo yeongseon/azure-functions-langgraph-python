@@ -206,7 +206,7 @@ The core module. Contains:
 - `_GraphRegistration` — internal record for a registered graph (includes `request_model`/`response_model` since v0.5).
 - Route wiring — delegates to `_handlers.py` for native routes and `platform/routes.py` for SDK-compatible routes.
 - `get_app_metadata()` — returns an immutable `AppMetadata` snapshot with per-graph route metadata (v0.5+).
-- `health()` — health check handler returning registered graph list.
+- `health()` — anonymous liveness handler returning `{"status": "ok"}`; `health_details()` returns the registered-graph inventory (protected by default).
 
 
 ### `openapi.py` *(v0.5+)*

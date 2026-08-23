@@ -39,7 +39,7 @@ The `register()` method accepts:
 |-----------|------|----------|-------------|
 | `graph` | Any (must satisfy `InvocableGraph` protocol) | Yes | A compiled LangGraph graph or any object with an `invoke()` method |
 | `name` | `str` | Yes | Unique name used in URL routes (`/api/graphs/{name}/invoke`) |
-| `description` | `str` or `None` | No | Human-readable description shown in health endpoint |
+| `description` | `str` or `None` | No | Human-readable description shown in the `/api/health/details` endpoint |
 
 ```python
 app = LangGraphApp()
@@ -76,7 +76,7 @@ This creates endpoints for all three:
 - `POST /api/graphs/sales/stream`
 - `POST /api/graphs/triage/invoke`
 - `POST /api/graphs/triage/stream`
-- `GET /api/health`
+- `GET /api/health` (liveness probe; `GET /api/health/details` for the graph inventory, protected by default)
 
 ## Checkpointer configuration
 
@@ -103,7 +103,7 @@ Then pass `thread_id` in requests:
 }
 ```
 
-The health endpoint reports whether each graph has a checkpointer:
+The detailed health endpoint (`GET /api/health/details`, protected by default) reports whether each graph has a checkpointer:
 
 ```json
 {
