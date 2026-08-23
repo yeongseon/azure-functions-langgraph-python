@@ -13,7 +13,8 @@ from azure_functions_langgraph.platform._common import (
     _UNSUPPORTED_THREAD_FILTER_FIELDS,
     PlatformRouteDeps,
     _build_checkpoint_config,
-    _platform_error,
+    _check_unknown_platform_fields,
+_platform_error,
     _read_json_body,
     _resolve_thread_graph,
     _snapshot_to_thread_state,
@@ -49,6 +50,9 @@ def register_thread_routes(
         if isinstance(body, func.HttpResponse):
             return body
 
+        unknown_err = _check_unknown_platform_fields(ThreadCreate, body)
+        if unknown_err is not None:
+            return unknown_err
         try:
             create_req = ThreadCreate.model_validate(body)
         except Exception as exc:
@@ -89,6 +93,9 @@ def register_thread_routes(
         if isinstance(body, func.HttpResponse):
             return body
 
+        unknown_err = _check_unknown_platform_fields(ThreadUpdate, body)
+        if unknown_err is not None:
+            return unknown_err
         try:
             update_req = ThreadUpdate.model_validate(body)
         except Exception as exc:
@@ -145,6 +152,9 @@ def register_thread_routes(
                 f"Unsupported filter(s): {', '.join(sorted(unsupported))}",
             )
 
+        unknown_err = _check_unknown_platform_fields(ThreadSearch, body)
+        if unknown_err is not None:
+            return unknown_err
         try:
             search_req = ThreadSearch.model_validate(body)
         except Exception as exc:
@@ -176,6 +186,9 @@ def register_thread_routes(
                 f"Unsupported filter(s): {', '.join(sorted(unsupported))}",
             )
 
+        unknown_err = _check_unknown_platform_fields(ThreadCount, body)
+        if unknown_err is not None:
+            return unknown_err
         try:
             count_req = ThreadCount.model_validate(body)
         except Exception as exc:
@@ -246,6 +259,9 @@ def register_thread_routes(
         if isinstance(body, func.HttpResponse):
             return body
 
+        unknown_err = _check_unknown_platform_fields(ThreadStateUpdate, body)
+        if unknown_err is not None:
+            return unknown_err
         try:
             update_req = ThreadStateUpdate.model_validate(body)
         except Exception as exc:
@@ -312,6 +328,9 @@ def register_thread_routes(
         if isinstance(body, func.HttpResponse):
             return body
 
+        unknown_err = _check_unknown_platform_fields(ThreadHistoryRequest, body)
+        if unknown_err is not None:
+            return unknown_err
         try:
             hist_req = ThreadHistoryRequest.model_validate(body)
         except Exception as exc:

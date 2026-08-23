@@ -13,8 +13,11 @@ instead of causing 422 errors. This is deliberate forward-compatibility:
   explicitly here and rejected with ``501 Not Implemented`` at the route
   layer (see ``platform/_runs.py`` and ``COMPATIBILITY.md``) rather than
   silently ignored — the caller always learns the feature is unsupported.
-* **Truly-unknown** future fields are dropped by ``extra="ignore"`` so a
-  newer SDK client does not break against an older server.
+* **Truly-unknown** future fields are still dropped by ``extra="ignore"`` so a
+  newer SDK client does not break against an older server, but the route
+  layer now logs a warning and emits a :class:`UserWarning` for them so the
+  drift is observable. Set ``AZFUNC_LANGGRAPH_PLATFORM_STRICT`` to reject
+  unknown fields with ``400`` instead (opt-in strict mode).
 
 The shapes target the **langgraph-sdk** ``>=0.2.2,<0.4`` wire format
 (``langgraph_sdk.schema``). This range is the single source of truth shared
@@ -226,8 +229,10 @@ class ThreadUpdate(BaseModel):
     """Request body to update a Thread.
 
     Covers ``PATCH /threads/{thread_id}``.
-    The SDK also sends a ``ttl`` field which is silently dropped
-    (``extra="ignore"``).
+    The SDK also sends a ``ttl`` field which is not supported: it is dropped
+    (``extra="ignore"``) but now surfaces a warning and a :class:`UserWarning`
+    at the route layer, or a ``400`` when
+    ``AZFUNC_LANGGRAPH_PLATFORM_STRICT`` is set.
     """
 
     model_config = ConfigDict(extra="ignore")

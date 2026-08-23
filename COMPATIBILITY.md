@@ -43,7 +43,7 @@ get a clear failure rather than silent drift.
 
 | SDK call | Support | Notes |
 |---|---|---|
-| `threads.create` | ✅ Full | `metadata` accepted; `ttl` silently dropped (`extra="ignore"`). |
+| `threads.create` | ✅ Full | `metadata` accepted; `ttl` dropped (`extra="ignore"`) with a warning — see the unknown-field note under Runs. |
 | `threads.get` | ✅ Full | |
 | `threads.update` | ✅ Full | Only `metadata` updates — matches SDK `PATCH` shape. |
 | `threads.delete` | ✅ Full | Also clears persisted state when a checkpointer is wired. |
@@ -88,12 +88,22 @@ Derived from `_preflight_run_create()` in `platform/_common.py`.
 | `after_seconds` | ❌ `501` |
 | `if_not_exists` | ❌ `501` |
 | `feedback_keys` | ❌ `501` |
-| Other unknown fields | Silently dropped (`extra="ignore"`) |
+| Other unknown fields | Dropped (`extra="ignore"`) but logged + a `UserWarning` is emitted; set `AZFUNC_LANGGRAPH_PLATFORM_STRICT=1` to reject with `400` instead |
 
 > **Why explicit 501 rather than silent drop?** Concurrent runs on the same
 > thread are rejected with `409` (`multitask_strategy=reject`). Other
 > unsupported features must surface immediately so SDK callers do not silently
 > lose semantics — see `_preflight_run_create()`.
+>
+> **Unknown (undeclared) fields — warn by default, opt-in strict.** Fields that
+> are neither declared nor in the `501` list are still dropped by
+> `extra="ignore"` (so a newer SDK client never 422s an older server), but the
+> route layer now logs a warning and emits a `UserWarning` so the drift is
+> observable. Set the `AZFUNC_LANGGRAPH_PLATFORM_STRICT` environment variable
+> (to any value other than empty/`0`/`false`/`no`) to reject unknown fields with
+> a `400` instead. This applies to all platform-compat request models
+> (assistants, threads, runs); the default remains "ignore" and is unchanged
+> for native invoke/stream endpoints.
 
 ### State
 
