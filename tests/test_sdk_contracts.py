@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from importlib import import_module
+import importlib.metadata as importlib_metadata
 import json
+import re
 
 
 def _contracts() -> object:
@@ -146,3 +148,24 @@ def test_assistant_json_serialization_roundtrip() -> None:
     assert isinstance(dumped["assistant_id"], str)
     assert isinstance(dumped["version"], int)
     assert isinstance(dumped["config"], dict)
+
+
+def _parse_version(raw: str) -> tuple[int, int]:
+    match = re.match(r"(\d+)\.(\d+)", raw)
+    assert match is not None, f"unexpected langgraph-sdk version string: {raw!r}"
+    return int(match.group(1)), int(match.group(2))
+
+
+def test_installed_langgraph_sdk_within_supported_range() -> None:
+    """Drift guard: the installed langgraph-sdk must stay within >=0.3,<0.4.
+
+    The ``platform/contracts.py`` response/request models mirror the
+    ``langgraph-sdk >=0.3,<0.4`` wire format. This single source of truth is
+    also pinned in ``pyproject.toml`` (dev extra) and documented in
+    ``COMPATIBILITY.md``. If the installed SDK falls outside the range, the
+    contract models may silently drift from the real wire format, so fail
+    loudly here instead.
+    """
+    major, minor = _parse_version(importlib_metadata.version("langgraph-sdk"))
+    assert (major, minor) >= (0, 3), "langgraph-sdk below supported floor >=0.3"
+    assert (major, minor) < (0, 4), "langgraph-sdk at/above unsupported ceiling <0.4"
