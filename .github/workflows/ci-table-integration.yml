@@ -37,7 +37,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,azure-table]"
+          pip install -e ".[dev,azure-table,azure-blob]"
 
       - name: Run table integration tests
         run: pytest -v -m integration tests/integration/test_table_store_integration.py --no-cov
+
+      - name: Run blob checkpointer conformance (Azurite)
+        run: pytest -v -m integration tests/integration/test_checkpoint_conformance.py --no-cov
