@@ -379,6 +379,18 @@ The Blob backend needs `Storage Blob Data Contributor` on the lock container (or
 
 **Safety guard — `AZFUNC_LANGGRAPH_LOCK_BACKEND`.** In multi-instance environments, set this environment variable to `distributed` (or any non-empty value other than `inprocess`). When the value indicates a distributed backend is required and `thread_lock` resolves to the default `InProcessThreadLock`, `LangGraphApp.__post_init__` raises `RuntimeError` at construction — turning a silent-race deployment mistake into a fail-fast startup error. Set the value to `inprocess` (or leave it unset) in single-instance environments; the guard passes for any wired custom backend regardless of the environment value.
 
+**Safety guard — `AZFUNC_LANGGRAPH_THREAD_STORE` (platform-compat).** The thread *store* has the same scale-out footgun as the lock: when `platform_compat=True` and no store is supplied, `LangGraphApp` defaults to the per-instance `InMemoryThreadStore`, so on Azure scale-out (Consumption / Elastic Premium) each worker keeps its own threads and state diverges across instances. Two layered guards mirror the lock-backend precedent:
+
+- **Warn by default on Azure.** When the process looks Azure-hosted (the host sets `WEBSITE_INSTANCE_ID` / `WEBSITE_SITE_NAME`) and the default in-memory store is in use, `__post_init__` emits a `RuntimeWarning` pointing at `AzureTableThreadStore`. Local development (`func start`, where those markers are absent) stays warning-free.
+- **Fail-fast when declared.** Set `AZFUNC_LANGGRAPH_THREAD_STORE=distributed` (or any non-empty value other than `inmemory`) in Function App settings to escalate the warning to a `RuntimeError` at construction whenever the default in-memory store is still in use. Supply a real store — `app.thread_store = AzureTableThreadStore(...)` — to satisfy the guard.
+
+```python
+# Multi-instance production: fail-fast if the in-memory default slips through.
+# App setting: AZFUNC_LANGGRAPH_THREAD_STORE=distributed
+app = LangGraphApp(platform_compat=True, auth_level=func.AuthLevel.FUNCTION)
+app.thread_store = AzureTableThreadStore.from_connection_string(...)  # required
+```
+
 **Interaction with Platform-compatible runs.** `thread_lock` guards the *native* invoke/stream endpoints only. Platform-compatible runs (`platform_compat=True` with `AzureTableThreadStore`) use their own ETag-based run lock (`try_acquire_run_lock` / `release_run_lock` — see the *Run lock semantics* subsection under [Persistent storage in the README](https://github.com/yeongseon/azure-functions-langgraph-python#run-lock-semantics)) and are unaffected by the `thread_lock` argument. Deployments that expose both surfaces should configure both.
 
 

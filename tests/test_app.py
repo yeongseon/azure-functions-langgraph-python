@@ -1332,3 +1332,84 @@ class TestThreadLockConfig:
         custom = MagicMock()
         app = LangGraphApp(thread_lock=custom)
         assert app.thread_lock is custom
+
+
+class TestThreadStoreConfig:
+    """Default InMemoryThreadStore guard: Azure-host warning + env fail-fast."""
+
+    @staticmethod
+    def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("WEBSITE_INSTANCE_ID", raising=False)
+        monkeypatch.delenv("WEBSITE_SITE_NAME", raising=False)
+        monkeypatch.delenv("AZFUNC_LANGGRAPH_THREAD_STORE", raising=False)
+
+    def test_local_default_is_warning_free(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No Azure host markers → default in-memory store stays silent."""
+        self._clear_env(monkeypatch)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            app = LangGraphApp(platform_compat=True)
+        assert app.thread_store is not None
+
+    def test_azure_hosted_default_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Azure host marker + default in-memory store → RuntimeWarning."""
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("WEBSITE_INSTANCE_ID", "abc123")
+        with pytest.warns(RuntimeWarning, match="in-memory thread store"):
+            LangGraphApp(platform_compat=True)
+
+    def test_azure_hosted_site_name_marker_warns(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("WEBSITE_SITE_NAME", "my-func-app")
+        with pytest.warns(RuntimeWarning, match="in-memory thread store"):
+            LangGraphApp(platform_compat=True)
+
+    def test_warning_category_is_runtimewarning(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The default-store warning is a RuntimeWarning, not a UserWarning."""
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("WEBSITE_INSTANCE_ID", "abc123")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            LangGraphApp(platform_compat=True)
+        categories = {w.category for w in caught}
+        assert RuntimeWarning in categories
+
+    def test_non_platform_compat_creates_no_store(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("WEBSITE_INSTANCE_ID", "abc123")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            app = LangGraphApp(platform_compat=False)
+        assert app.thread_store is None
+
+    def test_env_guard_raises_when_distributed_requested(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AZFUNC_LANGGRAPH_THREAD_STORE=distributed with default store raises."""
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_THREAD_STORE", "distributed")
+        with pytest.raises(RuntimeError, match="AZFUNC_LANGGRAPH_THREAD_STORE"):
+            LangGraphApp(platform_compat=True)
+
+    def test_env_guard_case_and_whitespace_tolerant(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_THREAD_STORE", "  Distributed  ")
+        with pytest.raises(RuntimeError):
+            LangGraphApp(platform_compat=True)
+
+    def test_env_guard_inmemory_value_is_allowed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Setting AZFUNC_LANGGRAPH_THREAD_STORE=inmemory is a no-op."""
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_THREAD_STORE", "inmemory")
+        app = LangGraphApp(platform_compat=True)
+        assert app.thread_store is not None
