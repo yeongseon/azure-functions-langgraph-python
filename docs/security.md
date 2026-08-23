@@ -18,7 +18,13 @@ For local development or explicitly public surfaces, opt in to `ANONYMOUS`. Doin
 app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)  # emits UserWarning
 ```
 
-> The health endpoint is controlled separately via `health_auth_level`, which defaults to `ANONYMOUS` (the conventional choice for liveness/readiness probes).
+> The health surfaces are controlled separately. The liveness probe
+> `GET /api/health` uses `health_auth_level` (defaults to `ANONYMOUS`, the
+> conventional choice for liveness/readiness probes) and exposes only
+> `{"status": "ok"}`. The registered-graph inventory lives on
+> `GET /api/health/details`, gated by `health_details_auth_level`, which
+> defaults to the app-level `auth_level` (`FUNCTION`) so the inventory is
+> protected by default.
 
 See [Azure Functions authentication](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger#authorization-keys) for details on function keys and admin keys.
 

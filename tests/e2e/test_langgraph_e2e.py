@@ -53,7 +53,13 @@ def warmup() -> None:
 
 @pytest.mark.skipif(not BASE_URL, reason=SKIP_REASON)
 def test_health_lists_registered_graph() -> None:
+    # Liveness probe is minimal — status only, no graph enumeration.
     r = requests.get(_url("/api/health"), timeout=30)
+    assert r.status_code == 200, r.text
+    assert r.json().get("status") == "ok", r.text
+    # Detailed inventory lives on /health/details (anonymous in this e2e app,
+    # which is configured with auth_level=ANONYMOUS).
+    r = requests.get(_url("/api/health/details"), timeout=30)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body.get("status") == "ok", body

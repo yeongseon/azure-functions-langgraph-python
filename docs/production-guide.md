@@ -98,17 +98,27 @@ This enables end-to-end traceability for each run.
 
 ### Health endpoint
 
-`GET /health` (exposed as `GET /api/health` with the default Functions route prefix) returns a liveness and configuration response.
-It confirms the app is running and lists registered graphs with their checkpointer status.
+`GET /health` (exposed as `GET /api/health` with the default Functions route
+prefix) is a minimal **liveness probe** — it returns `{"status": "ok"}` and
+nothing else, confirming only that the app process is up.
 
-⚠️ This is a **liveness/configuration endpoint**, not a dependency-readiness check.
+⚠️ This is a **liveness endpoint**, not a dependency-readiness check.
 It does not probe Blob Storage, Table Storage, or downstream LLM availability.
 For deep health checks, implement a custom endpoint or use Azure Monitor availability tests.
 
-The `/health` endpoint inherits the **app-level** `auth_level`, not per-graph overrides.
-If the app uses `FUNCTION` auth, `/health` also requires a function key — even if individual graphs are `ANONYMOUS`.
+The liveness probe uses `health_auth_level`, which defaults to `ANONYMOUS`
+independently of `auth_level` — so it stays reachable as an unauthenticated
+probe even when the rest of the app requires a function key. It never
+enumerates registered graphs.
 
-The response includes a list of graphs and whether each has a checkpointer.
+### Health details endpoint
+
+`GET /health/details` (exposed as `GET /api/health/details`) returns the
+registered-graph inventory — graph names, descriptions, and checkpointer
+status. Because that information is more sensitive than a liveness signal, it
+uses `health_details_auth_level`, which defaults to the app-level `auth_level`
+(`FUNCTION`). The inventory is therefore **protected by default**; set
+`health_details_auth_level=func.AuthLevel.ANONYMOUS` to expose it publicly.
 
 ```json
 {

@@ -41,7 +41,7 @@ This package provides a focused adapter for serving LangGraph graphs on Azure Fu
 - **Zero-boilerplate deployment** — register a compiled graph, get HTTP endpoints automatically
 - **Invoke endpoint** — `POST /api/graphs/{name}/invoke` for synchronous execution
 - **Stream endpoint** — `POST /api/graphs/{name}/stream` for buffered SSE responses
-- **Health endpoint** — `GET /api/health` listing registered graphs with checkpointer status
+- **Health endpoints** — anonymous `GET /api/health` liveness probe (`{"status": "ok"}`, no graph inventory) plus protected `GET /api/health/details` listing registered graphs with checkpointer status
 - **Checkpointer pass-through** — thread-based conversation state works via LangGraph's native config
 - **State endpoint** — `GET /api/graphs/{name}/threads/{thread_id}/state` for thread state inspection (when supported)
 - **Per-graph auth** — override app-level auth with `register(..., auth_level=...)`
@@ -185,13 +185,34 @@ curl -s http://localhost:7071/api/health
 ```
 
 ```json
+{"status": "ok"}
+```
+
+The anonymous liveness probe returns only `{"status": "ok"}`. To see the
+registered-graph inventory, call the protected details endpoint:
+
+```bash
+curl -s http://localhost:7071/api/health/details
+```
+
+```json
 {"status": "ok", "graphs": [{"name": "echo_agent", "description": null, "has_checkpointer": false}]}
 ```
 
 #### Azure
 
 ```bash
-curl -s "https://<your-app>.azurewebsites.net/api/health?code=<FUNCTION_KEY>"
+# Liveness probe (anonymous by default)
+curl -s "https://<your-app>.azurewebsites.net/api/health"
+```
+
+```json
+{"status": "ok"}
+```
+
+```bash
+# Detailed inventory (protected — defaults to the app auth_level)
+curl -s "https://<your-app>.azurewebsites.net/api/health/details?code=<FUNCTION_KEY>"
 ```
 
 ```json
@@ -223,10 +244,17 @@ app = LangGraphApp()  # equivalent to LangGraphApp(auth_level=func.AuthLevel.FUN
 app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 ```
 
-> **Note:** `health_auth_level` defaults to `ANONYMOUS` independently of `auth_level`.
-> This means the health endpoint remains publicly accessible even when `auth_level=FUNCTION`.
-> Set `health_auth_level=func.AuthLevel.FUNCTION` explicitly if the health endpoint should
-> also require a function key.
+> **Note:** There are two health surfaces. The liveness probe
+> `GET /api/health` uses `health_auth_level`, which defaults to `ANONYMOUS`
+> independently of `auth_level`, and returns only `{"status": "ok"}` — it never
+> enumerates registered graphs. Set `health_auth_level=func.AuthLevel.FUNCTION`
+> to require a key on the probe as well.
+>
+> The detailed inventory `GET /api/health/details` (graph names, descriptions,
+> and checkpointer status) uses `health_details_auth_level`, which defaults to
+> the app-level `auth_level` (`FUNCTION`) — so the inventory is **protected by
+> default**. Pass `health_details_auth_level=func.AuthLevel.ANONYMOUS`
+> explicitly to expose it publicly (e.g. local development).
 
 ### Streaming behavior
 

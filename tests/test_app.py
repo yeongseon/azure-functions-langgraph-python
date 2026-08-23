@@ -188,6 +188,24 @@ class TestPerGraphAuth:
         # Health should still be ANONYMOUS despite app auth being FUNCTION
         assert self._get_trigger_auth(fa, "aflg_health") == func.AuthLevel.ANONYMOUS
 
+    def test_health_details_defaults_to_app_auth_level(self) -> None:
+        """/health/details defaults to the (protected) app-level auth_level."""
+        app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        fa = app.function_app
+        assert self._get_trigger_auth(fa, "aflg_health_details") == func.AuthLevel.FUNCTION
+
+    def test_health_details_uses_explicit_override(self) -> None:
+        """health_details_auth_level overrides the app-level default."""
+        app = LangGraphApp(
+            auth_level=func.AuthLevel.FUNCTION,
+            health_details_auth_level=func.AuthLevel.ADMIN,
+        )
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        fa = app.function_app
+        assert self._get_trigger_auth(fa, "aflg_health_details") == func.AuthLevel.ADMIN
+        assert self._get_trigger_auth(fa, "aflg_health") == func.AuthLevel.ANONYMOUS
+
 
 # ------------------------------------------------------------------
 # Function app creation tests
@@ -680,73 +698,61 @@ class TestHelpers:
 class TestHealthEndpointHTTPHandler:
     """Test health endpoint via actual HTTP request dispatch."""
 
-    def test_health_endpoint_with_no_graphs(self) -> None:
-        """Health endpoint should work even with no registered graphs."""
-        app = LangGraphApp()
-        fa = app.function_app
-
-        # Get the health function and call it
+    @staticmethod
+    def _call_health_fn(fa: func.FunctionApp, function_name: str) -> func.HttpResponse:
         for fn in fa.get_functions():
-            if fn.get_function_name() == "aflg_health":
+            if fn.get_function_name() == function_name:
                 health_fn = fn.get_user_function()
                 req = func.HttpRequest(
                     method="GET",
                     url="http://localhost:7071/api/health",
                     body=b"",
                 )
-                resp = health_fn(req)
-                assert resp.status_code == 200
-                body = json.loads(resp.get_body())
-                assert body["status"] == "ok"
-                assert body["graphs"] == []
-                break
-        else:
-            raise AssertionError("health function not found")
+                response: func.HttpResponse = health_fn(req)
+                return response
+        raise AssertionError(f"{function_name} function not found")
 
-    def test_health_endpoint_with_graphs_no_checkpointer(self) -> None:
-        """Health endpoint lists graphs without checkpointer marker."""
+    def test_health_endpoint_returns_minimal_status(self) -> None:
+        """Anonymous /health returns only status, never graph inventory."""
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(checkpointer=MagicMock()), name="secret_agent")
+        resp = self._call_health_fn(app.function_app, "aflg_health")
+        assert resp.status_code == 200
+        body = json.loads(resp.get_body())
+        assert body == {"status": "ok"}
+        assert "graphs" not in body
+
+    def test_health_details_with_no_graphs(self) -> None:
+        """Detailed endpoint works even with no registered graphs."""
+        app = LangGraphApp()
+        resp = self._call_health_fn(app.function_app, "aflg_health_details")
+        assert resp.status_code == 200
+        body = json.loads(resp.get_body())
+        assert body["status"] == "ok"
+        assert body["graphs"] == []
+
+    def test_health_details_with_graphs_no_checkpointer(self) -> None:
+        """Detailed endpoint lists graphs without checkpointer marker."""
         app = LangGraphApp()
         app.register(graph=FakeCompiledGraph(checkpointer=None), name="agent1")
         app.register(graph=FakeCompiledGraph(checkpointer=None), name="agent2")
-        fa = app.function_app
+        resp = self._call_health_fn(app.function_app, "aflg_health_details")
+        body = json.loads(resp.get_body())
+        assert len(body["graphs"]) == 2
+        assert body["graphs"][0]["name"] == "agent1"
+        assert body["graphs"][0]["has_checkpointer"] is False
+        assert body["graphs"][1]["name"] == "agent2"
+        assert body["graphs"][1]["has_checkpointer"] is False
 
-        for fn in fa.get_functions():
-            if fn.get_function_name() == "aflg_health":
-                health_fn = fn.get_user_function()
-                req = func.HttpRequest(
-                    method="GET",
-                    url="http://localhost:7071/api/health",
-                    body=b"",
-                )
-                resp = health_fn(req)
-                body = json.loads(resp.get_body())
-                assert len(body["graphs"]) == 2
-                assert body["graphs"][0]["name"] == "agent1"
-                assert body["graphs"][0]["has_checkpointer"] is False
-                assert body["graphs"][1]["name"] == "agent2"
-                assert body["graphs"][1]["has_checkpointer"] is False
-                break
-
-    def test_health_endpoint_with_graphs_with_checkpointer(self) -> None:
-        """Health endpoint marks graphs with checkpointer."""
+    def test_health_details_with_graphs_with_checkpointer(self) -> None:
+        """Detailed endpoint marks graphs with checkpointer."""
         app = LangGraphApp()
         app.register(graph=FakeCompiledGraph(checkpointer=MagicMock()), name="stateful_agent")
-        fa = app.function_app
-
-        for fn in fa.get_functions():
-            if fn.get_function_name() == "aflg_health":
-                health_fn = fn.get_user_function()
-                req = func.HttpRequest(
-                    method="GET",
-                    url="http://localhost:7071/api/health",
-                    body=b"",
-                )
-                resp = health_fn(req)
-                body = json.loads(resp.get_body())
-                assert len(body["graphs"]) == 1
-                assert body["graphs"][0]["name"] == "stateful_agent"
-                assert body["graphs"][0]["has_checkpointer"] is True
-                break
+        resp = self._call_health_fn(app.function_app, "aflg_health_details")
+        body = json.loads(resp.get_body())
+        assert len(body["graphs"]) == 1
+        assert body["graphs"][0]["name"] == "stateful_agent"
+        assert body["graphs"][0]["has_checkpointer"] is True
 
 
 class TestStreamValidationError:
