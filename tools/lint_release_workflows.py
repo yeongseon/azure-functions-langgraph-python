@@ -43,6 +43,13 @@ CANONICAL_ACTIONS: dict[str, tuple[str, str]] = {
     "actions/setup-python": ("5fda3b95a4ea91299a34e894583c3862153e4b97", "v7.0.0"),
     # renovate: datasource=github-tags depName=azure/login versioning=github-tags
     "azure/login": ("f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca", "v3.0.1"),
+    # actions/upload-artifact + actions/download-artifact are deliberately held
+    # as a v4 "canonical pair". Newer majors are NOT adopted automatically:
+    # download-artifact v5+ raises the runner floor to Node 24 and flips
+    # digest-mismatch to fail-by-default, which would break this gate lint and
+    # the release-gate workflows. Dependabot is configured to ignore major bumps
+    # for both (see .github/dependabot.yml); adopt new majors deliberately, in
+    # lockstep, and update these SHAs together. See issue #334.
     # renovate: datasource=github-tags depName=actions/upload-artifact versioning=github-tags
     "actions/upload-artifact": ("ea165f8d65b6e75b540449e92b4886f43607fa02", "v4"),
     # renovate: datasource=github-tags depName=actions/download-artifact versioning=github-tags
