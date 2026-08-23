@@ -264,9 +264,14 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > and flushed as SSE events **after the run completes** — this is **not** true
 > token-level streaming, and clients will not receive partial tokens incrementally.
 >
-> True chunked streaming is on the roadmap and depends on Azure Functions Python v2
-> streaming response support. If you need real-time token streaming today, run the
-> graph behind a long-running host (e.g. App Service or AKS) instead.
+> Buffered SSE is **this adapter's current implementation choice**, not an Azure
+> Functions platform limitation. Azure Functions Python v2 *does* support true HTTP
+> streaming (runtime 4.34.1+) via the `azurefunctions-extensions-http-fastapi`
+> extension, but enabling it switches the **entire function app** to the FastAPI/ASGI
+> streaming model, which cannot be mixed with the classic `HttpRequest`/`HttpResponse`
+> routes this package is built on. Adopting true streaming is therefore an app-wide
+> architectural change (tracked separately). If you need real-time token streaming
+> today, run the graph behind a long-running host (e.g. App Service or AKS) instead.
 
 ### Per-graph auth
 

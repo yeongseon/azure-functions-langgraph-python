@@ -312,11 +312,11 @@ Rather than importing `CompiledStateGraph` from `langgraph`, the library uses `t
 
 `UpdatableStateGraph` and `StateHistoryGraph` protocols enable graceful degradation — graphs without these capabilities return 409 instead of failing. Route handlers use `isinstance()` checks with `@runtime_checkable`.
 
-### Buffered SSE (v0.1)
+### Buffered SSE
 
-Azure Functions Python worker does not support true chunked HTTP streaming. All stream events are collected into memory and returned as a single SSE-formatted response. Functional for development but not suitable for long-running streams in production.
+This adapter collects all stream events into memory and returns them as a single SSE-formatted response. This is **this adapter's current implementation choice**, not an Azure Functions platform limitation: the package is built entirely on the classic `azure.functions.HttpRequest`/`HttpResponse` model, and buffered SSE is the correct behaviour for that model. Functional for development but not suitable for long-running streams in production.
 
-**⚠️ User expectation**: The SSE endpoints use "stream" in their path names and return `text/event-stream` content type, but responses are **buffered end-to-end** by the Azure Functions Python worker. Users should expect complete SSE-formatted responses delivered at once, not incremental token-by-token delivery. This is a platform limitation, not a design choice. When Azure Functions Python HTTP streaming stabilises, true incremental delivery will be implemented.
+**⚠️ User expectation**: The SSE endpoints use "stream" in their path names and return `text/event-stream` content type, but responses are **buffered end-to-end**. Users should expect complete SSE-formatted responses delivered at once, not incremental token-by-token delivery. True incremental HTTP streaming *is* available on Azure Functions Python v2 (runtime 4.34.1+) via the `azurefunctions-extensions-http-fastapi` extension, but enabling it switches the **entire function app** to the FastAPI/ASGI streaming model, which cannot be mixed with the classic `HttpRequest`/`HttpResponse` routes this package is built on. Adopting true streaming is therefore an app-wide architectural change, not a drop-in — see the streaming roadmap discussion under umbrella issue #339.
 
 ### Platform compatibility layer (v0.3)
 
