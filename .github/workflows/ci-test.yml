@@ -80,3 +80,35 @@ jobs:
         # it is a separate job from the coverage-enforcing matrix above, it
         # cannot mask coverage regressions -- the matrix job still enforces 95%.
         run: pytest tests/ --no-cov -q
+
+  langgraph-sdk-max:
+    name: langgraph-sdk compat (max supported)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install package and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,azure-blob,azure-table]"
+
+      - name: Pin langgraph-sdk to the maximum supported line (<0.4)
+        # The floor is exercised by the langgraph-min lane (langgraph==1.0.0
+        # resolves langgraph-sdk 0.2.2). This lane proves the platform-compat
+        # wire-shape contracts also hold at the >=0.2.2,<0.4 ceiling so the
+        # supported range is verified at both ends (issue #340).
+        run: pip install "langgraph-sdk>=0.3,<0.4"
+
+      - name: Show resolved versions
+        run: pip show langgraph langgraph-sdk | grep -E '^(Name|Version):'
+
+      - name: Run SDK contract tests against maximum langgraph-sdk
+        # Compatibility smoke only: `--no-cov` disables the coverage gate for
+        # this pinned run (a separate job from the coverage-enforcing matrix).
+        run: pytest tests/test_sdk_contracts.py tests/test_sdk_compat.py --no-cov -q
