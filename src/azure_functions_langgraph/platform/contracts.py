@@ -16,7 +16,7 @@ instead of causing 422 errors. This is deliberate forward-compatibility:
 * **Truly-unknown** future fields are dropped by ``extra="ignore"`` so a
   newer SDK client does not break against an older server.
 
-The shapes target the **langgraph-sdk** ``>=0.3,<0.4`` wire format
+The shapes target the **langgraph-sdk** ``>=0.2.2,<0.4`` wire format
 (``langgraph_sdk.schema``). This range is the single source of truth shared
 with ``pyproject.toml`` (dev/test pin) and ``COMPATIBILITY.md``; a drift
 guard in ``tests/test_sdk_contracts.py`` fails if the installed SDK falls
