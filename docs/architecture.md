@@ -38,6 +38,31 @@ flowchart TB
 
 Platform-compatible routes are registered when `platform_compat=True`, enabling the official `langgraph-sdk` Python client to communicate with Azure Functions–hosted graphs.
 
+## Core adapter vs Experimental Platform Compatibility
+
+The surface deliberately splits into two layers so the package's identity — **the
+most natural way to deploy an already-built LangGraph graph on Azure Functions** —
+stays crisp:
+
+- **Core adapter (stable).** Native routes (`invoke` / `stream` / `state` /
+  health), auth, route + endpoint metadata, and checkpointer pass-through. Always
+  registered; this is the supported product.
+- **Experimental Platform Compatibility (optional).** The `langgraph-sdk`-compatible
+  thread / run / assistant / state routes under `platform/`. Registered **only**
+  when `platform_compat=True`.
+
+**`platform_compat=False` is the default, and that default *is* the boundary** — you
+opt into the Platform surface explicitly. The package is a deployment adapter, not a
+reimplementation of LangGraph Platform on Azure Functions.
+
+> **Store terminology.** Three distinct concepts, often conflated: the
+> **checkpointer** (`AzureBlobCheckpointSaver`) persists *graph execution state*
+> (LangGraph `BaseCheckpointSaver`); **`AzureTableThreadStore`** is a *Platform
+> thread-metadata registry* (thread records, status, run locks) serving the
+> Platform-compatible routes; and LangGraph **`BaseStore`** (long-term cross-thread
+> memory) is **not implemented by this package**. `AzureTableThreadStore` is not a
+> `BaseStore`.
+
 ## Design Objectives
 
 - **Thin adapter, not a framework** — wrap LangGraph, don't replace it. All graph logic stays in LangGraph.
