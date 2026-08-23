@@ -150,10 +150,17 @@ class LangGraphApp:
         hard import dependency on ``langgraph`` at the library level.
 
     Note:
-        v0.1 streams are **buffered** — all chunks are collected and returned
-        in a single SSE-formatted HTTP response. True streaming (chunked
-        transfer encoding) is planned for a future release once Azure Functions
-        Python HTTP streaming stabilises.
+        All ``/stream`` responses are **buffered SSE** — chunks emitted by the
+        graph are collected during execution and flushed as SSE events after the
+        run completes, so clients do not receive partial tokens incrementally.
+        This is a deliberate consequence of the classic
+        ``HttpRequest``/``HttpResponse`` routing model this package is built on,
+        not a platform limitation. Azure Functions Python v2 *does* support true
+        HTTP streaming (runtime 4.34.1+) via the
+        ``azurefunctions-extensions-http-fastapi`` ASGI extension, but enabling
+        it switches the entire function app to the FastAPI/ASGI model, which
+        cannot be mixed with the classic routes used here — an app-wide
+        architectural change tracked separately.
 
     Note:
         The default ``auth_level`` is :attr:`~azure.functions.AuthLevel.FUNCTION`,
