@@ -157,8 +157,12 @@ class TestRegisterWithOpenapi:
         assert invoke_kwargs["request_body"] is not None
         assert invoke_kwargs["request_body"]["required"] is True
         schema = invoke_kwargs["request_body"]["content"]["application/json"]["schema"]
+        # The request body is the transport envelope; the user model is nested
+        # under ``input`` (issue #349).
         assert "properties" in schema
-        assert "query" in schema["properties"]
+        assert "input" in schema["properties"]
+        assert schema["properties"]["input"]["$ref"] == "#/$defs/ChatRequest"
+        assert "query" in schema["$defs"]["ChatRequest"]["properties"]
 
     def test_registers_with_response_model(self) -> None:
         class ChatResponse(BaseModel):
@@ -187,7 +191,13 @@ class TestRegisterWithOpenapi:
             if c.kwargs.get("path") == "/api/graphs/agent/invoke"
         ]
         assert len(invoke_calls) == 1
-        assert invoke_calls[0].kwargs["response_model"] is ChatResponse
+        # The response model is wrapped in the ``{output: ...}`` envelope so the
+        # generated spec matches the runtime wire contract (issue #349).
+        response_model = invoke_calls[0].kwargs["response_model"]
+        assert response_model is not None
+        resp_schema = response_model.model_json_schema()
+        assert resp_schema["properties"]["output"]["$ref"] == "#/$defs/ChatResponse"
+        assert "ChatResponse" in resp_schema["$defs"]
 
     def test_invoke_only_omits_stream(self) -> None:
         app = LangGraphApp()
@@ -334,20 +344,16 @@ class TestValidateModel:
             _validate_model("not a class", "response_model")
 
     def test_response_model_validated_during_registration(self) -> None:
-        """response_model should be validated when register_with_openapi is called."""
+        """A non-model response_model is rejected fast at register() time.
+
+        Enveloping (issue #349) would otherwise silently coerce a bad model into
+        the generic ``{output: ...}`` envelope, so ``register()`` validates the
+        user model up front instead of masking the error.
+        """
         app = LangGraphApp()
-        app.register(
-            graph=FakeCompiledGraph(),
-            name="agent",
-            response_model=dict,
-        )
-
-        mock_register = MagicMock()
-        mock_openapi_module = MagicMock()
-        mock_openapi_module.register_openapi_metadata = mock_register
-
-        with patch.dict("sys.modules", {"azure_functions_openapi": mock_openapi_module}):
-            from azure_functions_langgraph.openapi import register_with_openapi
-
-            with pytest.raises(TypeError, match="response_model must be a Pydantic BaseModel"):
-                register_with_openapi(app)
+        with pytest.raises(TypeError, match="response_model must be a Pydantic BaseModel"):
+            app.register(
+                graph=FakeCompiledGraph(),
+                name="agent",
+                response_model=dict,
+            )

@@ -166,8 +166,17 @@ class TestGetAppMetadata:
         meta = app.get_app_metadata()
 
         invoke_route = meta.graphs["agent"].routes[0]
-        assert invoke_route.request_model is MyRequest
-        assert invoke_route.response_model is MyResponse
+        # invoke routes wrap the user models in the transport envelope so the
+        # metadata matches the runtime wire contract; see issue #349.
+        assert invoke_route.request_model is not None
+        req_schema = invoke_route.request_model.model_json_schema()
+        assert req_schema["required"] == ["input"]
+        assert req_schema["properties"]["input"]["$ref"] == "#/$defs/MyRequest"
+        assert "MyRequest" in req_schema["$defs"]
+        assert invoke_route.response_model is not None
+        resp_schema = invoke_route.response_model.model_json_schema()
+        assert resp_schema["properties"]["output"]["$ref"] == "#/$defs/MyResponse"
+        assert "MyResponse" in resp_schema["$defs"]
 
     def test_stream_route_has_no_response_model(self) -> None:
         """Stream routes should not have response_model (SSE, not JSON)."""

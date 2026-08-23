@@ -29,11 +29,15 @@ from azure_functions_langgraph._validation import (
 )
 from azure_functions_langgraph.contracts import (
     AppMetadata,
-    GraphInfo,
-    HealthResponse,
-    HealthStatus,
-    RegisteredGraphMetadata,
+GraphInfo,
+HealthResponse,
+HealthStatus,
+RegisteredGraphMetadata,
     RouteMetadata,
+    _is_model_type,
+    build_invoke_request_model,
+    build_invoke_response_model,
+    build_stream_request_model,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
 from azure_functions_langgraph.protocols import InvocableGraph, StatefulGraph
@@ -78,10 +82,18 @@ def _resolve_endpoint_spec(reg: _GraphRegistration, endpoint: str) -> _EndpointS
     :class:`RouteMetadata`), so the two never drift.
     """
     if endpoint == "invoke":
-        return _EndpointSpec(reg.request_model, reg.response_model, ())
+        # Wrap the graph input/output models in the transport envelope so the
+        # generated OpenAPI matches the runtime wire contract ({input, config}
+        # -> {output}); see issue #349 and ``_handlers.handle_invoke``.
+        return _EndpointSpec(
+            build_invoke_request_model(reg.request_model),
+            build_invoke_response_model(reg.response_model),
+            (),
+        )
     if endpoint == "stream":
-        # Stream responses are SSE, not a single JSON body.
-        return _EndpointSpec(reg.request_model, None, ())
+        # Stream responses are SSE, not a single JSON body, so only the request
+        # envelope ({input, config, stream_mode}) is described.
+        return _EndpointSpec(build_stream_request_model(reg.request_model), None, ())
     if endpoint == "state":
         return _EndpointSpec(
             None,
@@ -96,6 +108,21 @@ def _resolve_endpoint_spec(reg: _GraphRegistration, endpoint: str) -> _EndpointS
             ),
         )
     return _EndpointSpec()  # defensive: unknown endpoint type carries no models
+
+
+def _validate_optional_model(model: Optional[type[Any]], label: str) -> None:
+    """Reject a non-``BaseModel`` *model* early, unless it is ``None``.
+
+    ``request_model``/``response_model`` are wrapped in the transport envelope
+    for metadata generation (issue #349), and the wrapper silently falls back to
+    the generic envelope for non-model inputs. Validating here keeps the failure
+    fast and close to the caller's ``register()`` call instead of masking a bad
+    model as a generic envelope.
+    """
+    if model is not None and not _is_model_type(model):
+        raise TypeError(
+            f"{label} must be a Pydantic BaseModel subclass, got {model!r}"
+        )
 
 
 @dataclass
@@ -241,11 +268,15 @@ class LangGraphApp:
                 (used by the metadata / bridge API, not for runtime validation).
 
         Raises:
-            TypeError: If *graph* does not satisfy the required protocol.
+            TypeError: If *graph* does not satisfy the required protocol, or if
+                ``request_model``/``response_model`` is provided but is not a
+                Pydantic ``BaseModel`` subclass.
             ValueError: If *name* is already registered or invalid.
         """
         if not isinstance(graph, InvocableGraph):
             raise TypeError(f"Graph must have an invoke() method. Got {type(graph).__name__}")
+        _validate_optional_model(request_model, "request_model")
+        _validate_optional_model(response_model, "response_model")
         name_err = validate_graph_name(name)
         if name_err:
             raise ValueError(name_err)

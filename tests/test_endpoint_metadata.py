@@ -18,6 +18,13 @@ from azure_functions_langgraph._endpoint import (
     set_endpoint_metadata,
 )
 from azure_functions_langgraph.app import LangGraphApp, _EndpointSpec, _resolve_endpoint_spec
+from azure_functions_langgraph.contracts import (
+    InvokeRequest,
+    InvokeResponse,
+    build_invoke_request_model,
+    build_invoke_response_model,
+    build_stream_request_model,
+)
 from tests.conftest import FakeCompiledGraph, FakeStatefulGraph
 
 
@@ -77,15 +84,19 @@ class TestEndpointNamespaceOnHandlers:
 
         payload = _endpoint_meta(invoke_fn)
         assert payload["version"] == ENDPOINT_METADATA_VERSION
-        assert payload["request_body"] == RequestBody.model_json_schema(
+        # The wire contract is the transport envelope ({input, config} ->
+        # {output}), not the bare user model; see issue #349.
+        assert payload["request_body"] == build_invoke_request_model(
+            RequestBody
+        ).model_json_schema(
             by_alias=True, ref_template="#/$defs/{model}", mode="validation"
         )
-        # user_id is required (no default) -> request body required.
+        # ``input`` is always required -> request body required.
         assert payload["request_body_required"] is True
         assert payload["parameters"] == []
         assert payload["responses"] == {
             "200": {
-                "schema": ResponseBody.model_json_schema(
+                "schema": build_invoke_response_model(ResponseBody).model_json_schema(
                     by_alias=True, ref_template="#/$defs/{model}", mode="serialization"
                 )
             }
@@ -131,9 +142,19 @@ class TestEndpointNamespaceOnHandlers:
         invoke_fn = _get_registered_functions(app.function_app)["aflg_agent_invoke"]
 
         payload = _endpoint_meta(invoke_fn)
-        assert payload["request_body"] is None
-        assert payload["request_body_required"] is False
-        assert payload["responses"] is None
+        # With no user models the generic envelope is still the honest wire
+        # contract ({input, config} -> {output}); see issue #349.
+        assert payload["request_body"] == InvokeRequest.model_json_schema(
+            by_alias=True, ref_template="#/$defs/{model}", mode="validation"
+        )
+        assert payload["request_body_required"] is True
+        assert payload["responses"] == {
+            "200": {
+                "schema": InvokeResponse.model_json_schema(
+                    by_alias=True, ref_template="#/$defs/{model}", mode="serialization"
+                )
+            }
+        }
         assert payload["parameters"] == []
 
     def test_endpoint_namespace_preserves_langgraph_namespace(self) -> None:
@@ -249,14 +270,25 @@ class TestResolveEndpointSpec:
     def test_invoke_spec(self) -> None:
         reg = _make_reg(request_model=RequestBody, response_model=ResponseBody)
         spec = _resolve_endpoint_spec(reg, "invoke")
-        assert spec.request_model is RequestBody
-        assert spec.response_model is ResponseBody
+        # invoke wraps the models in the transport envelope (issue #349).
+        assert spec.request_model is not None
+        assert spec.request_model.model_json_schema() == build_invoke_request_model(
+            RequestBody
+        ).model_json_schema()
+        assert spec.response_model is not None
+        assert spec.response_model.model_json_schema() == build_invoke_response_model(
+            ResponseBody
+        ).model_json_schema()
         assert spec.parameters == ()
 
     def test_stream_spec(self) -> None:
         reg = _make_reg(request_model=RequestBody, response_model=ResponseBody)
         spec = _resolve_endpoint_spec(reg, "stream")
-        assert spec.request_model is RequestBody
+        # stream wraps the request in the transport envelope (issue #349).
+        assert spec.request_model is not None
+        assert spec.request_model.model_json_schema() == build_stream_request_model(
+            RequestBody
+        ).model_json_schema()
         assert spec.response_model is None
         assert spec.parameters == ()
 
