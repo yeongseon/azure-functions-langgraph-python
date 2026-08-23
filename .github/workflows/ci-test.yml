@@ -112,3 +112,46 @@ jobs:
         # Compatibility smoke only: `--no-cov` disables the coverage gate for
         # this pinned run (a separate job from the coverage-enforcing matrix).
         run: pytest tests/test_sdk_contracts.py tests/test_sdk_compat.py --no-cov -q
+
+  azure-functions-2x:
+    name: azure-functions 2.x compat (Py 3.13)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.13
+        # azure-functions 2.x declares Requires-Python >=3.13, so this proof
+        # lane must run on 3.13 (3.14 stays exploratory until Azure supports it).
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Build wheel
+        # Issue #350 requires proving 2.x against a WHEEL-installed build, not an
+        # editable/source tree, so we build and install the distribution artifact.
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir dist
+
+      - name: Install wheel with dev + storage extras
+        run: pip install "$(ls dist/azure_functions_langgraph-*.whl)[dev,azure-blob,azure-table]"
+
+      - name: Upgrade azure-functions to the 2.x line
+        # pyproject caps azure-functions <2.0.0 until 2.x is certified on real
+        # Azure (issue #350). This lane deliberately overrides that cap to PROVE
+        # the adapter surface (FunctionApp route discovery, HttpRequest.get_json,
+        # HttpResponse status/headers/body, buffered-SSE stream) holds under 2.x.
+        # pip warns about the intentional override; that is expected.
+        run: pip install "azure-functions>=2,<3"
+
+      - name: Show resolved versions
+        run: pip show azure-functions langgraph langgraph-sdk | grep -E '^(Name|Version):'
+
+      - name: Run compat suite against the wheel + azure-functions 2.x
+        # Compatibility smoke only: `--no-cov` disables the coverage gate for this
+        # pinned run (a separate job from the coverage-enforcing matrix). The repo
+        # pytest config sets `pythonpath = ["src", "."]`, which would shadow the
+        # installed wheel with the source tree; `-o pythonpath=` clears it so the
+        # suite genuinely exercises the wheel-installed package.
+        run: pytest tests/ --no-cov -q -o "pythonpath="

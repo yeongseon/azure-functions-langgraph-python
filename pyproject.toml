@@ -23,8 +23,12 @@ classifiers = [
 ]
 
 dependencies = [
-    # Cap below 2.0.0: azure-functions v2 may change worker function-indexing
-    # behavior this package relies on. See knowledge#46 / dx#8.
+    # Cap below 2.0.0 pending real-Azure certification of azure-functions 2.x.
+    # 2.x requires Python >=3.13 and may change worker function-indexing. A CI
+    # proof lane (ci-test.yml: "azure-functions 2.x compat (Py 3.13)") already
+    # verifies the adapter surface holds against a wheel-installed 2.x build; the
+    # cap is lifted only after e2e-azure.yml certifies 2.x on real Azure (#350).
+    # See knowledge#46 / dx#8.
     "azure-functions>=1.17,<2.0.0",
     "langgraph>=1.0,<2.0",
     "pydantic>=2.0,<3.0",
