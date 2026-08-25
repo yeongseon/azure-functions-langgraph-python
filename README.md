@@ -135,6 +135,8 @@ pip install -e .[dev]
 
 ## Quick Start
 
+> **New to this package?** Follow the [**Deploy a LangGraph agent to Azure Functions in 5 minutes**](docs/tutorial-5-min.md) tutorial — a genuinely runnable, CI-smoke-tested walkthrough from a compiled graph to live HTTP endpoints, locally and on Azure.
+
 ```python
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
@@ -655,6 +657,7 @@ Fully backward-compatible. No breaking changes.
 
 ## Documentation
 
+- **Start here:** [5-minute tutorial](docs/tutorial-5-min.md) — compile a graph → expose as HTTP → run locally → deploy to Azure
 - Project docs live under `docs/`
 - Smoke-tested examples live under `examples/`
 - Product requirements: `PRD.md`
