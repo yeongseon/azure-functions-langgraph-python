@@ -234,6 +234,9 @@ Adjust `max_stream_response_bytes` in `LangGraphApp` if your graph produces larg
 This is an Azure Functions Python worker limitation for HTTP streaming/chunked transfer.
 The package currently collects stream events and returns a single response body.
 
+> For how the Azure Functions Python worker loads and binds handlers, see the toolkit's
+> [Platform mechanics](https://yeongseon.dev/azure-functions-python/platform/) reference.
+
 ### Operational recommendation
 
 For long-running production runs, prefer:
