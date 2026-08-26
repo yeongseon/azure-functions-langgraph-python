@@ -235,7 +235,7 @@ This is an Azure Functions Python worker limitation for HTTP streaming/chunked t
 The package currently collects stream events and returns a single response body.
 
 > For how the Azure Functions Python worker loads and binds handlers, see the toolkit's
-> [Platform mechanics](https://yeongseon.dev/azure-functions-python/platform/) reference.
+> [how the worker binds handlers](https://yeongseon.dev/azure-functions-python/platform/how-the-worker-binds-handlers/) reference — how invocation_id / handler binding works.
 
 ### Operational recommendation
 
