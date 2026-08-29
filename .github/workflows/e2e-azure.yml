@@ -47,12 +47,14 @@ jobs:
           RUN="${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
           RG="rg-af-e2e-${REPO_SHORT}-${RUN}"
           APP="af-e2e-${REPO_SHORT}-${RUN}"
+          APP_B="af-e2e-${REPO_SHORT}-${RUN}-b"
           # Storage name: lowercase alphanumeric, max 24 chars
           ST="stafe2e${RUN}"
           ST="${ST:0:24}"
-          echo "rg=${RG}"   >> "$GITHUB_OUTPUT"
-          echo "app=${APP}" >> "$GITHUB_OUTPUT"
-          echo "st=${ST}"   >> "$GITHUB_OUTPUT"
+          echo "rg=${RG}"     >> "$GITHUB_OUTPUT"
+          echo "app=${APP}"   >> "$GITHUB_OUTPUT"
+          echo "app_b=${APP_B}" >> "$GITHUB_OUTPUT"
+          echo "st=${ST}"     >> "$GITHUB_OUTPUT"
 
       - name: Azure login (OIDC)
         uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
@@ -76,6 +78,7 @@ jobs:
             --parameters \
                 location="$AZURE_LOCATION" \
                 functionAppName="${{ steps.names.outputs.app }}" \
+                functionAppNameB="${{ steps.names.outputs.app_b }}" \
                 storageName="${{ steps.names.outputs.st }}" \
                 enableAppInsights=false
 
@@ -113,15 +116,20 @@ jobs:
           pip install -e ".[dev]"
           pip install requests
 
-      - name: Publish function app
+      - name: Publish function apps (App A and App B)
         working-directory: examples/e2e_app
-        timeout-minutes: 30
+        timeout-minutes: 40
         run: |
+          # Deploy the SAME candidate payload to both hosts. They share one
+          # storage account, one lock container, and one checkpoint container,
+          # so they genuinely contend for a single lease per thread_id.
           func azure functionapp publish "${{ steps.names.outputs.app }}" --python --build remote
+          func azure functionapp publish "${{ steps.names.outputs.app_b }}" --python --build remote
 
       - name: Run e2e tests
         env:
           E2E_BASE_URL: https://${{ steps.names.outputs.app }}.azurewebsites.net
+          E2E_BASE_URL_B: https://${{ steps.names.outputs.app_b }}.azurewebsites.net
         run: |
           # Clear the repo's default addopts (which force '-m "not e2e"' and
           # coverage) so the e2e-marked suite is actually collected.
