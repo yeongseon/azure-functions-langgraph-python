@@ -195,10 +195,10 @@ def handle_invoke(
     if cfg_err:
         return _error_response(400, cfg_err)
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
-    locked = False
+    lock_token: str | None = None
     if has_cp and thread_id:
-        locked = thread_lock.acquire(reg.name, thread_id)
-        if not locked:
+        lock_token = thread_lock.acquire(reg.name, thread_id)
+        if not lock_token:
             return _error_response(
                 409, f"Thread {thread_id!r} is currently in use by another request"
             )
@@ -209,8 +209,8 @@ def handle_invoke(
         _ = exc
         return _error_response(500, "Graph execution failed")
     finally:
-        if locked and thread_id is not None:
-            thread_lock.release(reg.name, thread_id)
+        if lock_token is not None and thread_id is not None:
+            thread_lock.release(reg.name, thread_id, lock_token)
 
     output = _serialize_graph_output(result)
     response = InvokeResponse(output=output)
@@ -265,10 +265,10 @@ def handle_stream(
     if cfg_err:
         return _error_response(400, cfg_err)
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
-    locked = False
+    lock_token: str | None = None
     if has_cp and thread_id:
-        locked = thread_lock.acquire(reg.name, thread_id)
-        if not locked:
+        lock_token = thread_lock.acquire(reg.name, thread_id)
+        if not lock_token:
             return _error_response(
                 409, f"Thread {thread_id!r} is currently in use by another request"
             )
@@ -313,8 +313,8 @@ def handle_stream(
         error_payload = json.dumps({"error": "stream processing failed"})
         _append_chunk(f"event: error\ndata: {error_payload}\n\n")
     finally:
-        if locked and thread_id is not None:
-            thread_lock.release(reg.name, thread_id)
+        if lock_token is not None and thread_id is not None:
+            thread_lock.release(reg.name, thread_id, lock_token)
 
     _append_chunk("event: end\ndata: {}\n\n")
 

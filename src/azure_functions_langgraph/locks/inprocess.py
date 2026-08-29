@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import threading
 
 logger = logging.getLogger(__name__)
@@ -31,33 +32,54 @@ class InProcessThreadLock:
 
     def __init__(self) -> None:
         self._locks: dict[tuple[str, str], threading.Lock] = {}
+        self._tokens: dict[tuple[str, str], str] = {}
         self._guard = threading.Lock()
 
-    def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> bool:
+    def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> str | None:
         """Acquire the lock for ``(graph_name, thread_id)``.
 
-        See :meth:`ThreadLock.acquire` for the general contract.
+        See :meth:`ThreadLock.acquire` for the general contract. Returns a
+        fresh opaque owner token on success, or ``None`` if the lock is held.
         """
+        key = (graph_name, thread_id)
         with self._guard:
-            lock = self._locks.setdefault((graph_name, thread_id), threading.Lock())
+            lock = self._locks.setdefault(key, threading.Lock())
         if timeout > 0.0:
-            return lock.acquire(blocking=True, timeout=timeout)
-        return lock.acquire(blocking=False)
+            acquired = lock.acquire(blocking=True, timeout=timeout)
+        else:
+            acquired = lock.acquire(blocking=False)
+        if not acquired:
+            return None
+        token = secrets.token_hex(16)
+        with self._guard:
+            self._tokens[key] = token
+        return token
 
-    def release(self, graph_name: str, thread_id: str) -> None:
+    def release(self, graph_name: str, thread_id: str, token: str) -> None:
         """Release the lock for ``(graph_name, thread_id)``.
 
-        See :meth:`ThreadLock.release` for the general contract. Also
-        garbage-collects the underlying :class:`threading.Lock` when no
-        other request currently holds it, so long-lived workers do not
-        grow the internal dict unboundedly.
+        See :meth:`ThreadLock.release` for the general contract. A ``token``
+        that does not match the currently-held owner is a no-op (DEBUG log),
+        so a stale caller cannot release a lock re-acquired by a newer
+        execution. Also garbage-collects the underlying
+        :class:`threading.Lock` when no other request currently holds it, so
+        long-lived workers do not grow the internal dict unboundedly.
         """
         key = (graph_name, thread_id)
         with self._guard:
             lock = self._locks.get(key)
+            current_token = self._tokens.get(key)
         if lock is None:
             logger.debug(
                 "release() called for unknown lock key %s/%s; ignoring", graph_name, thread_id
+            )
+            return
+        if current_token != token:
+            logger.debug(
+                "release() token mismatch for %s/%s; lock is held by a newer "
+                "owner, ignoring stale release",
+                graph_name,
+                thread_id,
             )
             return
         try:
@@ -78,3 +100,4 @@ class InProcessThreadLock:
             current = self._locks.get(key)
             if current is lock and not lock.locked():
                 self._locks.pop(key, None)
+                self._tokens.pop(key, None)
