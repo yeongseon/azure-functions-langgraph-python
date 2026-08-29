@@ -20,43 +20,50 @@ class TestInProcessThreadLockProtocol:
 class TestInProcessThreadLockAcquire:
     """Non-blocking and blocking acquire semantics."""
 
-    def test_first_acquire_returns_true(self) -> None:
+    def test_first_acquire_returns_token(self) -> None:
         lock = InProcessThreadLock()
-        assert lock.acquire("graph", "t1") is True
-        lock.release("graph", "t1")
+        token = lock.acquire("graph", "t1")
+        assert token
+        lock.release("graph", "t1", token)
 
-    def test_second_acquire_returns_false(self) -> None:
+    def test_second_acquire_returns_none(self) -> None:
         lock = InProcessThreadLock()
-        assert lock.acquire("graph", "t1") is True
-        assert lock.acquire("graph", "t1") is False
-        lock.release("graph", "t1")
+        token = lock.acquire("graph", "t1")
+        assert token
+        assert lock.acquire("graph", "t1") is None
+        lock.release("graph", "t1", token)
 
     def test_distinct_keys_do_not_conflict(self) -> None:
         lock = InProcessThreadLock()
-        assert lock.acquire("graph", "t1") is True
-        assert lock.acquire("graph", "t2") is True
-        assert lock.acquire("other", "t1") is True
-        lock.release("graph", "t1")
-        lock.release("graph", "t2")
-        lock.release("other", "t1")
+        t1 = lock.acquire("graph", "t1")
+        t2 = lock.acquire("graph", "t2")
+        t3 = lock.acquire("other", "t1")
+        assert t1 and t2 and t3
+        # Each acquisition gets a distinct token.
+        assert len({t1, t2, t3}) == 3
+        lock.release("graph", "t1", t1)
+        lock.release("graph", "t2", t2)
+        lock.release("other", "t1", t3)
 
-    def test_blocking_acquire_with_timeout_returns_false_after_deadline(self) -> None:
+    def test_blocking_acquire_with_timeout_returns_none_after_deadline(self) -> None:
         lock = InProcessThreadLock()
-        assert lock.acquire("graph", "t1") is True
+        token = lock.acquire("graph", "t1")
+        assert token
         start = time.monotonic()
-        # 0.1s timeout — the lock is held so acquire must return False.
-        assert lock.acquire("graph", "t1", timeout=0.1) is False
+        # 0.1s timeout — the lock is held so acquire must return None.
+        assert lock.acquire("graph", "t1", timeout=0.1) is None
         elapsed = time.monotonic() - start
         # Verify we actually blocked (at least 90ms) rather than fast-fail.
         assert elapsed >= 0.09
-        lock.release("graph", "t1")
+        lock.release("graph", "t1", token)
 
-    def test_blocking_acquire_returns_true_when_released(self) -> None:
+    def test_blocking_acquire_returns_token_when_released(self) -> None:
         """Another thread releasing lets the blocked acquire complete."""
         lock = InProcessThreadLock()
-        assert lock.acquire("graph", "t1") is True
+        token = lock.acquire("graph", "t1")
+        assert token
 
-        acquired: dict[str, bool] = {}
+        acquired: dict[str, str | None] = {}
 
         def _try_acquire() -> None:
             # Blocking wait up to 1s — the main thread will release in 0.05s.
@@ -65,10 +72,12 @@ class TestInProcessThreadLockAcquire:
         thread = threading.Thread(target=_try_acquire)
         thread.start()
         time.sleep(0.05)
-        lock.release("graph", "t1")
+        lock.release("graph", "t1", token)
         thread.join(timeout=2.0)
-        assert acquired["result"] is True
-        lock.release("graph", "t1")
+        second_token = acquired["result"]
+        assert second_token
+        assert second_token != token
+        lock.release("graph", "t1", second_token)
 
 
 class TestInProcessThreadLockRelease:
@@ -76,25 +85,28 @@ class TestInProcessThreadLockRelease:
 
     def test_release_removes_entry_from_internal_dict(self) -> None:
         lock = InProcessThreadLock()
-        assert lock.acquire("cleanup", "t1") is True
+        token = lock.acquire("cleanup", "t1")
+        assert token
         key = ("cleanup", "t1")
         assert key in lock._locks
-        lock.release("cleanup", "t1")
+        lock.release("cleanup", "t1", token)
         assert key not in lock._locks
+        assert key not in lock._tokens
 
     def test_release_of_unknown_key_is_silent(self) -> None:
         lock = InProcessThreadLock()
         # Must not raise even though the key was never acquired.
-        lock.release("unknown", "t99")
+        lock.release("unknown", "t99", "no-such-token")
 
     def test_release_of_unheld_lock_is_silent(self) -> None:
         """release() on a lock that exists but isn't held is silent."""
         lock = InProcessThreadLock()
-        assert lock.acquire("graph", "t1") is True
-        lock.release("graph", "t1")
+        token = lock.acquire("graph", "t1")
+        assert token
+        lock.release("graph", "t1", token)
         # A second release() should be a no-op — the lock is not held (it was
         # cleaned up on the first release) so the guarded lookup finds nothing.
-        lock.release("graph", "t1")
+        lock.release("graph", "t1", token)
 
     def test_release_when_lock_still_locked_by_another_holder(self) -> None:
         """release() with lock.release() raising RuntimeError is swallowed."""
@@ -103,15 +115,63 @@ class TestInProcessThreadLockRelease:
         # raises RuntimeError inside release() and must be swallowed.
         raw_lock = threading.Lock()
         lock._locks[("graph", "manual")] = raw_lock
+        lock._tokens[("graph", "manual")] = "manual-token"
         # No one holds raw_lock, so calling .release() will raise RuntimeError.
-        lock.release("graph", "manual")
+        lock.release("graph", "manual", "manual-token")
 
     def test_reacquire_after_release(self) -> None:
         lock = InProcessThreadLock()
-        assert lock.acquire("reacq", "t1") is True
-        lock.release("reacq", "t1")
-        assert lock.acquire("reacq", "t1") is True
-        lock.release("reacq", "t1")
+        first = lock.acquire("reacq", "t1")
+        assert first
+        lock.release("reacq", "t1", first)
+        second = lock.acquire("reacq", "t1")
+        assert second
+        lock.release("reacq", "t1", second)
+
+
+class TestInProcessThreadLockOwnerToken:
+    """A stale/foreign token must not release a lock held by a newer owner."""
+
+    def test_foreign_token_release_is_noop(self) -> None:
+        lock = InProcessThreadLock()
+        token = lock.acquire("graph", "t1")
+        assert token
+        # A caller with the wrong token must NOT free the lock.
+        lock.release("graph", "t1", "foreign-token")
+        # Still held — a fresh acquire fails.
+        assert lock.acquire("graph", "t1") is None
+        # The true owner can still release.
+        lock.release("graph", "t1", token)
+        assert lock.acquire("graph", "t1") is not None
+        lock.release("graph", "t1", lock._tokens[("graph", "t1")])
+
+    def test_stale_token_does_not_release_reacquired_lock(self) -> None:
+        """The classic cross-execution bug: stale release must not free a new lease."""
+        lock = InProcessThreadLock()
+        stale_token = lock.acquire("graph", "t1")
+        assert stale_token
+        # Original owner releases legitimately.
+        lock.release("graph", "t1", stale_token)
+        # A different execution acquires the same key.
+        new_token = lock.acquire("graph", "t1")
+        assert new_token
+        # The stale owner's late release must be a no-op — it must NOT free the
+        # new owner's lock.
+        lock.release("graph", "t1", stale_token)
+        assert lock.acquire("graph", "t1") is None
+        # New owner still holds it and can release.
+        lock.release("graph", "t1", new_token)
+        assert lock.acquire("graph", "t1") is not None
+        lock.release("graph", "t1", lock._tokens[("graph", "t1")])
+
+    def test_foreign_token_release_logs_debug(self, caplog: pytest.LogCaptureFixture) -> None:
+        lock = InProcessThreadLock()
+        token = lock.acquire("graph", "t1")
+        assert token
+        with caplog.at_level("DEBUG", logger="azure_functions_langgraph.locks.inprocess"):
+            lock.release("graph", "t1", "foreign-token")
+        assert any("token mismatch" in rec.getMessage() for rec in caplog.records)
+        lock.release("graph", "t1", token)
 
 
 class TestInProcessThreadLockConcurrency:
@@ -124,10 +184,11 @@ class TestInProcessThreadLockConcurrency:
 
         def _worker(worker_id: int) -> None:
             barrier.wait()
-            if lock.acquire("graph", "shared"):
+            token = lock.acquire("graph", "shared")
+            if token:
                 winners.append(worker_id)
                 time.sleep(0.01)
-                lock.release("graph", "shared")
+                lock.release("graph", "shared", token)
 
         threads = [threading.Thread(target=_worker, args=(i,)) for i in range(10)]
         for t in threads:
@@ -147,7 +208,8 @@ class TestInProcessThreadLockConcurrency:
         # Simulate two overlapping acquires with a helper lock: after we
         # release, another thread already holds the same key, so the dict
         # entry must remain.
-        assert lock.acquire("graph", "shared") is True
+        token = lock.acquire("graph", "shared")
+        assert token
         key = ("graph", "shared")
 
         # Overwrite the dict entry with a fake "still-held" lock to simulate a
@@ -165,7 +227,7 @@ class TestInProcessThreadLockConcurrency:
         # and since impostor IS held (by the acquire above), the release
         # succeeds. Then cleanup checks lock.locked() → False → removes entry.
         # This exercises the "current is lock and not locked" branch.
-        lock.release("graph", "shared")
+        lock.release("graph", "shared", token)
         assert key not in lock._locks
 
 
@@ -175,13 +237,14 @@ class TestInProcessThreadLockLogging:
     def test_release_unknown_logs_debug(self, caplog: pytest.LogCaptureFixture) -> None:
         lock = InProcessThreadLock()
         with caplog.at_level("DEBUG", logger="azure_functions_langgraph.locks.inprocess"):
-            lock.release("unknown", "t99")
+            lock.release("unknown", "t99", "no-such-token")
         assert any("unknown lock key" in rec.getMessage() for rec in caplog.records)
 
     def test_release_unheld_logs_debug(self, caplog: pytest.LogCaptureFixture) -> None:
         lock = InProcessThreadLock()
         # Force an unheld lock entry so release() hits the RuntimeError branch.
         lock._locks[("graph", "t1")] = threading.Lock()
+        lock._tokens[("graph", "t1")] = "tok"
         with caplog.at_level("DEBUG", logger="azure_functions_langgraph.locks.inprocess"):
-            lock.release("graph", "t1")
+            lock.release("graph", "t1", "tok")
         assert any("unheld lock" in rec.getMessage() for rec in caplog.records)

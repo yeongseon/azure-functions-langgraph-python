@@ -1040,14 +1040,15 @@ class TestNativeEndpointThreadLock:
         # Pre-acquire the lock through the app's own thread_lock backend to
         # simulate a concurrent request already in flight.
         assert app.thread_lock is not None
-        assert app.thread_lock.acquire("agent", "t1") is True
+        _lock_token = app.thread_lock.acquire("agent", "t1")
+        assert _lock_token
         try:
             req = self._make_request({"input": {"msg": "hi"}, "config": config})
             resp = app._handle_invoke(req, app._registrations["agent"])
             assert resp.status_code == 409
             assert "currently in use" in json.loads(resp.get_body())["detail"]
         finally:
-            app.thread_lock.release("agent", "t1")
+            app.thread_lock.release("agent", "t1", _lock_token)
 
     def test_invoke_without_thread_id_no_lock(self) -> None:
         """Without thread_id in config, no locking occurs."""
@@ -1086,7 +1087,7 @@ class TestNativeEndpointThreadLock:
                 return []
 
         custom_lock = MagicMock()
-        custom_lock.acquire.return_value = True
+        custom_lock.acquire.return_value = "tok-123"
         app = LangGraphApp(thread_lock=custom_lock)
         app.register(graph=CheckpointedGraph(), name="agent")
 
@@ -1096,7 +1097,7 @@ class TestNativeEndpointThreadLock:
         resp = app._handle_invoke(req, app._registrations["agent"])
         assert resp.status_code == 200
         custom_lock.acquire.assert_called_once_with("agent", "t1")
-        custom_lock.release.assert_called_once_with("agent", "t1")
+        custom_lock.release.assert_called_once_with("agent", "t1", "tok-123")
 
     def test_stream_uses_thread_lock(self) -> None:
         """Streaming path also routes acquire/release through thread_lock."""
@@ -1114,7 +1115,7 @@ class TestNativeEndpointThreadLock:
                 return [{"chunk": 1}]
 
         custom_lock = MagicMock()
-        custom_lock.acquire.return_value = True
+        custom_lock.acquire.return_value = "tok-456"
         app = LangGraphApp(thread_lock=custom_lock)
         app.register(graph=CheckpointedGraph(), name="agent")
 
@@ -1124,7 +1125,7 @@ class TestNativeEndpointThreadLock:
         resp = app._handle_stream(req, app._registrations["agent"])
         assert resp.status_code == 200
         custom_lock.acquire.assert_called_once_with("agent", "t1")
-        custom_lock.release.assert_called_once_with("agent", "t1")
+        custom_lock.release.assert_called_once_with("agent", "t1", "tok-456")
 
 class TestExtractThreadId:
     """Tests for _extract_thread_id helper."""

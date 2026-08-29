@@ -25,7 +25,7 @@ class ThreadLock(Protocol):
     can be plugged in via :attr:`LangGraphApp.thread_lock`.
     """
 
-    def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> bool:
+    def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> str | None:
         """Attempt to acquire an exclusive lock for ``(graph_name, thread_id)``.
 
         Args:
@@ -36,14 +36,26 @@ class ThreadLock(Protocol):
                 behavior. Positive values block up to ``timeout`` seconds.
 
         Returns:
-            ``True`` if the lock was acquired, ``False`` if it is held
-            elsewhere (in the same process or, for distributed backends, on
-            another Function App instance).
+            An opaque, non-empty **owner token** if the lock was acquired, or
+            ``None`` if it is held elsewhere (in the same process or, for
+            distributed backends, on another Function App instance). The token
+            is truthy on success and ``None`` on failure, so callers may still
+            branch on truthiness. Pass the returned token back to
+            :meth:`release` so a stale caller cannot free a lock that has since
+            been re-acquired by a different execution.
         """
         ...
 
-    def release(self, graph_name: str, thread_id: str) -> None:
-        """Release a previously acquired lock.
+    def release(self, graph_name: str, thread_id: str, token: str) -> None:
+        """Release a lock previously acquired with :meth:`acquire`.
+
+        Args:
+            graph_name: Registered graph name.
+            thread_id: Thread ID that was locked.
+            token: The owner token returned by the matching :meth:`acquire`
+                call. If it does not match the currently-held owner (e.g. the
+                lock was dropped and re-acquired by a newer execution), release
+                is a **no-op** logged at DEBUG — the newer owner is preserved.
 
         Must be safe to call even if the lock is not currently held by the
         caller — implementations should log at DEBUG level for any
