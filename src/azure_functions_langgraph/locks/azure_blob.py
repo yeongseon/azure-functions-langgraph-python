@@ -47,6 +47,7 @@ Renewal resilience:
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 import importlib
 import logging
@@ -101,6 +102,12 @@ _MAX_CONSECUTIVE_RENEWAL_FAILURES = 3
 # Deadline for join() when close() stops the renewal thread. Bounded so a
 # stuck Azure call cannot indefinitely block interpreter shutdown.
 _RENEWAL_SHUTDOWN_TIMEOUT = 5.0
+
+# Upper bound on renewal worker threads. Each renewal tick renews all active
+# leases concurrently through this pool so one slow/hung ``renew()`` call cannot
+# delay renewals for the other keys; the pool is bounded so a burst of tracked
+# leases (or several simultaneously hung calls) cannot spawn unbounded threads.
+_RENEWAL_MAX_WORKERS = 16
 
 # Azure error codes that mean the lease is *definitively* gone (as opposed to a
 # transient network/service failure that should be retried on the next tick).
@@ -283,6 +290,10 @@ class AzureBlobLeaseThreadLock:
         self._shutdown_event: threading.Event = threading.Event()
         self._renewal_thread: threading.Thread | None = None
         self._renewal_interval: float = 0.0
+        # Per-call client-side timeout for a single ``renew()`` and the pool used
+        # to run renewals concurrently. Both stay unset when auto-renewal is off.
+        self._renewal_call_timeout: float = 0.0
+        self._renewal_executor: ThreadPoolExecutor | None = None
 
         if lease_duration != _LEASE_DURATION_INFINITE and not auto_renew:
             warnings.warn(
@@ -301,6 +312,14 @@ class AzureBlobLeaseThreadLock:
 
         if self._auto_renew:
             self._renewal_interval = lease_duration / _LEASE_RENEWAL_FRACTION
+            # Bound each renew() by one renewal interval: a call still pending
+            # when the next tick is due is abandoned (counted as a transient
+            # failure) so a hung call never stalls the loop or later ticks.
+            self._renewal_call_timeout = self._renewal_interval
+            self._renewal_executor = ThreadPoolExecutor(
+                max_workers=_RENEWAL_MAX_WORKERS,
+                thread_name_prefix=f"azblob-lease-renew-{id(self):x}",
+            )
             self._renewal_thread = threading.Thread(
                 target=self._renewal_worker,
                 name=f"azblob-lease-renew-{id(self):x}",
@@ -433,35 +452,84 @@ class AzureBlobLeaseThreadLock:
     def _renew_all_once(self) -> None:
         """Renew every currently tracked lease exactly once.
 
-        Safe to call from any thread. Renewal failures are classified:
+        Safe to call from any thread. When auto-renewal is enabled the renewals
+        run **concurrently** on a bounded pool and each ``renew()`` call is
+        bounded by :attr:`_renewal_call_timeout`, so one slow or hung call
+        neither delays the other keys' renewals nor stalls later ticks. A call
+        still pending when its timeout elapses is treated as a transient
+        failure (the key is retried, then marked ``lost`` after
+        :data:`_MAX_CONSECUTIVE_RENEWAL_FAILURES` consecutive misses). When
+        auto-renewal is disabled (no pool) the renewals run sequentially.
+
+        Renewal failures are classified:
 
         * **Definitive lease-loss** (see :meth:`_is_definitive_lease_loss`):
           the entry is marked ``lost`` but kept locally occupied so the same
           process cannot reacquire the key until :meth:`release` runs.
-        * **Transient failure** (anything else): the entry is kept and its
-          ``consecutive_failures`` counter is incremented so the next tick
-          retries. Only after
+        * **Transient failure** (anything else, including a timed-out call):
+          the entry is kept and its ``consecutive_failures`` counter is
+          incremented so the next tick retries. Only after
           :data:`_MAX_CONSECUTIVE_RENEWAL_FAILURES` consecutive transient
           failures is the entry marked ``lost``.
 
         A successful renewal resets ``consecutive_failures`` to ``0``.
         """
         with self._active_leases_guard:
-            snapshot = list(self._active_leases.items())
+            snapshot = [
+                (key, state)
+                for key, state in self._active_leases.items()
+                if not state.lost
+            ]
+        if not snapshot:
+            return
+
+        executor = self._renewal_executor
+        if executor is None:
+            # No pool (auto_renew disabled) — renew sequentially in-thread.
+            for key, state in snapshot:
+                try:
+                    state.lease.renew()
+                except Exception as exc:  # noqa: BLE001 - classified below
+                    self._handle_renew_failure(key, state, exc)
+                else:
+                    self._record_renew_success(key, state)
+            return
+
+        futures: dict[Future[None], tuple[tuple[str, str], _LeaseState]] = {}
         for key, state in snapshot:
-            if state.lost:
-                # Already known gone; leave it for release() to clear.
-                continue
-            try:
-                state.lease.renew()
-            except Exception as exc:  # noqa: BLE001 - classified below
-                self._handle_renew_failure(key, state, exc)
+            future = executor.submit(state.lease.renew)
+            futures[future] = (key, state)
+        done, not_done = wait(futures, timeout=self._renewal_call_timeout)
+        for future in done:
+            key, state = futures[future]
+            renew_exc = future.exception()
+            if renew_exc is not None:
+                self._handle_renew_failure(key, state, renew_exc)
             else:
-                with self._active_leases_guard:
-                    if self._active_leases.get(key) is state:
-                        state.consecutive_failures = 0
-                        state.last_successful_renewal = time.monotonic()
-                        state.last_error = None
+                self._record_renew_success(key, state)
+        for future in not_done:
+            # Call exceeded the client-side timeout; abandon it and count the
+            # miss as a transient failure. The orphaned thread stays parked in
+            # the bounded pool until its renew() returns, and the key is marked
+            # lost after enough consecutive misses, so the leak is bounded.
+            key, state = futures[future]
+            self._handle_renew_failure(
+                key,
+                state,
+                TimeoutError(
+                    "lease renew() exceeded the client-side renewal timeout"
+                ),
+            )
+
+    def _record_renew_success(
+        self, key: tuple[str, str], state: _LeaseState
+    ) -> None:
+        """Reset failure tracking for a lease that just renewed successfully."""
+        with self._active_leases_guard:
+            if self._active_leases.get(key) is state:
+                state.consecutive_failures = 0
+                state.last_successful_renewal = time.monotonic()
+                state.last_error = None
 
     def _handle_renew_failure(
         self, key: tuple[str, str], state: _LeaseState, exc: BaseException
@@ -530,6 +598,11 @@ class AzureBlobLeaseThreadLock:
         thread = self._renewal_thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=_RENEWAL_SHUTDOWN_TIMEOUT)
+        executor = self._renewal_executor
+        if executor is not None:
+            # Don't wait on in-flight renewals — a hung renew() must not block
+            # shutdown; cancel_futures drops any that never started running.
+            executor.shutdown(wait=False, cancel_futures=True)
         with self._active_leases_guard:
             remaining = list(self._active_leases.items())
             self._active_leases.clear()
