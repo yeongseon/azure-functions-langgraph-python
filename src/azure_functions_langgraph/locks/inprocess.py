@@ -113,7 +113,7 @@ class InProcessThreadLock:
             return
         if current_token != token:
             logger.debug(
-                "release() token mismatch for %s/%s; lock is held by a newer "
+                "release() owner mismatch for %s/%s; lock is held by a newer "
                 "owner, ignoring stale release",
                 graph_name,
                 thread_id,
