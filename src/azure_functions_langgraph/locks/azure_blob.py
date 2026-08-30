@@ -91,9 +91,11 @@ _POLL_INTERVAL_MAX = 0.5
 # be retried on the next tick instead of abandoning the lease immediately.
 _LEASE_RENEWAL_FRACTION = 3
 # How many *consecutive* transient renewal failures may occur before the lease
-# is treated as lost and dropped from local tracking. With the 1/3 cadence
-# above, the Azure lease has typically already expired by the time this many
-# consecutive renewals have failed, so continuing to retry buys nothing.
+# is marked ``lost``. With the 1/3 cadence above, the Azure lease has typically
+# already expired by the time this many consecutive renewals have failed, so
+# continuing to retry buys nothing. Note the key stays locally occupied even
+# once marked ``lost`` — it is only removed from tracking by ``release()`` — so a
+# lost lease never silently frees the slot for a concurrent in-process caller.
 _MAX_CONSECUTIVE_RENEWAL_FAILURES = 3
 # Deadline for join() when close() stops the renewal thread. Bounded so a
 # stuck Azure call cannot indefinitely block interpreter shutdown.
