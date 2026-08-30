@@ -8,6 +8,7 @@ import time
 import pytest
 
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
+from azure_functions_langgraph.locks.inprocess import _KeyState
 
 
 class TestInProcessThreadLockProtocol:
@@ -88,10 +89,9 @@ class TestInProcessThreadLockRelease:
         token = lock.acquire("cleanup", "t1")
         assert token
         key = ("cleanup", "t1")
-        assert key in lock._locks
+        assert key in lock._states
         lock.release("cleanup", "t1", token)
-        assert key not in lock._locks
-        assert key not in lock._tokens
+        assert key not in lock._states
 
     def test_release_of_unknown_key_is_silent(self) -> None:
         lock = InProcessThreadLock()
@@ -108,16 +108,25 @@ class TestInProcessThreadLockRelease:
         # cleaned up on the first release) so the guarded lookup finds nothing.
         lock.release("graph", "t1", token)
 
-    def test_release_when_lock_still_locked_by_another_holder(self) -> None:
-        """release() with lock.release() raising RuntimeError is swallowed."""
+    def test_release_matching_token_on_unheld_lock_swallows_runtimeerror(self) -> None:
+        """A matching token whose underlying lock is not held is swallowed.
+
+        The name previously implied "another holder"; in fact the failure mode
+        is a state whose ``lock`` is *unheld* (e.g. after an external release),
+        so ``lock.release()`` raises ``RuntimeError``. release() must swallow
+        it, still drop the ref, and clean the entry up rather than leak it.
+        """
         lock = InProcessThreadLock()
-        # Force a lock entry that we don't actually hold, so lock.release()
+        # Force a state whose lock we do not actually hold, so lock.release()
         # raises RuntimeError inside release() and must be swallowed.
-        raw_lock = threading.Lock()
-        lock._locks[("graph", "manual")] = raw_lock
-        lock._tokens[("graph", "manual")] = "manual-token"
-        # No one holds raw_lock, so calling .release() will raise RuntimeError.
+        state = _KeyState()
+        state.token = "manual-token"
+        state.refs = 1
+        lock._states[("graph", "manual")] = state
+        # No one holds state.lock, so calling .release() will raise RuntimeError.
         lock.release("graph", "manual", "manual-token")
+        # Fall-through cleanup must have removed the leaked entry.
+        assert ("graph", "manual") not in lock._states
 
     def test_reacquire_after_release(self) -> None:
         lock = InProcessThreadLock()
@@ -142,8 +151,9 @@ class TestInProcessThreadLockOwnerToken:
         assert lock.acquire("graph", "t1") is None
         # The true owner can still release.
         lock.release("graph", "t1", token)
-        assert lock.acquire("graph", "t1") is not None
-        lock.release("graph", "t1", lock._tokens[("graph", "t1")])
+        final_token = lock.acquire("graph", "t1")
+        assert final_token
+        lock.release("graph", "t1", final_token)
 
     def test_stale_token_does_not_release_reacquired_lock(self) -> None:
         """The classic cross-execution bug: stale release must not free a new lease."""
@@ -161,8 +171,9 @@ class TestInProcessThreadLockOwnerToken:
         assert lock.acquire("graph", "t1") is None
         # New owner still holds it and can release.
         lock.release("graph", "t1", new_token)
-        assert lock.acquire("graph", "t1") is not None
-        lock.release("graph", "t1", lock._tokens[("graph", "t1")])
+        final_token = lock.acquire("graph", "t1")
+        assert final_token
+        lock.release("graph", "t1", final_token)
 
     def test_foreign_token_release_logs_debug(self, caplog: pytest.LogCaptureFixture) -> None:
         lock = InProcessThreadLock()
@@ -202,33 +213,25 @@ class TestInProcessThreadLockConcurrency:
         # simultaneously by checking no duplicate winner in this window.
         assert len(winners) == len(set(winners))
 
-    def test_cleanup_keeps_entry_if_still_held(self) -> None:
-        """release() must not evict the dict entry if another thread holds it."""
+    def test_cleanup_keeps_entry_if_another_acquire_in_flight(self) -> None:
+        """release() must not evict the state while another ref is outstanding."""
         lock = InProcessThreadLock()
-        # Simulate two overlapping acquires with a helper lock: after we
-        # release, another thread already holds the same key, so the dict
-        # entry must remain.
         token = lock.acquire("graph", "shared")
         assert token
         key = ("graph", "shared")
-
-        # Overwrite the dict entry with a fake "still-held" lock to simulate a
-        # racing acquire that landed between our release and cleanup check.
-        original_lock = lock._locks[key]
-        original_lock.release()  # release the real lock cleanly first
-
-        # Now insert a locked "impostor" that release() would try to clean up.
-        impostor = threading.Lock()
-        impostor.acquire()
-        lock._locks[key] = impostor
-
-        # release() should notice impostor != original and skip cleanup.
-        # We call release() again — it looks up impostor, tries to release it,
-        # and since impostor IS held (by the acquire above), the release
-        # succeeds. Then cleanup checks lock.locked() → False → removes entry.
-        # This exercises the "current is lock and not locked" branch.
+        state = lock._states[key]
+        # Simulate a concurrent acquire that has reserved a ref but not yet
+        # completed: refs is now 2 (this holder + the in-flight acquire).
+        state.refs += 1
+        # Releasing our hold drops one ref but must NOT GC the state, because
+        # the in-flight acquire still references it.
         lock.release("graph", "shared", token)
-        assert key not in lock._locks
+        assert key in lock._states
+        assert lock._states[key].refs == 1
+        # Draining the outstanding ref lets the next release GC it.
+        lock._states[key].refs -= 1
+        lock._maybe_gc(key, state)
+        assert key not in lock._states
 
 
 class TestInProcessThreadLockLogging:
@@ -243,8 +246,10 @@ class TestInProcessThreadLockLogging:
     def test_release_unheld_logs_debug(self, caplog: pytest.LogCaptureFixture) -> None:
         lock = InProcessThreadLock()
         # Force an unheld lock entry so release() hits the RuntimeError branch.
-        lock._locks[("graph", "t1")] = threading.Lock()
-        lock._tokens[("graph", "t1")] = "tok"
+        state = _KeyState()
+        state.token = "tok"
+        state.refs = 1
+        lock._states[("graph", "t1")] = state
         with caplog.at_level("DEBUG", logger="azure_functions_langgraph.locks.inprocess"):
             lock.release("graph", "t1", "tok")
         assert any("unheld lock" in rec.getMessage() for rec in caplog.records)
