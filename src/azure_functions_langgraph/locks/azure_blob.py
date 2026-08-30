@@ -405,7 +405,7 @@ class AzureBlobLeaseThreadLock:
                 return
             if state.token != token:
                 logger.debug(
-                    "release() token mismatch for %s/%s; lease is held by a "
+                    "release() owner mismatch for %s/%s; lease is held by a "
                     "newer owner, ignoring stale release",
                     graph_name,
                     thread_id,

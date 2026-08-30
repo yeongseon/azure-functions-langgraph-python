@@ -347,7 +347,7 @@ class TestAcquireRelease:
         assert token
         with caplog.at_level("DEBUG", logger="azure_functions_langgraph.locks.azure_blob"):
             lock.release("graph", "t1", "foreign-token")
-        assert any("token mismatch" in rec.getMessage() for rec in caplog.records)
+        assert any("owner mismatch" in rec.getMessage() for rec in caplog.records)
         lock.release("graph", "t1", token)
     def test_release_swallows_azure_errors(
         self,
