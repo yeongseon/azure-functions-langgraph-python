@@ -29,6 +29,7 @@ import time
 import uuid
 from typing import Any, TypedDict
 
+from azure.core.exceptions import ResourceExistsError
 from azure.storage.blob import ContainerClient
 from langgraph.graph import END, START, StateGraph
 
@@ -86,8 +87,10 @@ def _build_checkpointer() -> AzureBlobCheckpointSaver:
     # and local (Azurite) reproduction where it may not yet exist.
     try:
         container_client.create_container()
-    except Exception:  # pragma: no cover - depends on live Azure state
-        # Already exists (or a benign concurrent create). Safe to ignore.
+    except ResourceExistsError:  # pragma: no cover - depends on live Azure state
+        # Already exists (or a benign concurrent create). Safe to ignore. Any
+        # other error (bad connection string, missing RBAC, outage) propagates
+        # so wiring fails fast and surfaces the real root cause.
         pass
     return AzureBlobCheckpointSaver(container_client=container_client)
 

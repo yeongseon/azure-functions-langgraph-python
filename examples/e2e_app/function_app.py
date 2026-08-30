@@ -44,6 +44,7 @@ langgraph_app.register(
 # two hosts genuinely contend for one lease. Guarded so a wiring failure never
 # breaks the baseline e2e_agent certification.
 try:
+    from azure.core.exceptions import ResourceExistsError
     from azure.storage.blob import ContainerClient
 
     from lock_graph import compiled_lock_graph
@@ -57,7 +58,10 @@ try:
     )
     try:
         _lock_container.create_container()  # idempotent — Bicep pre-creates it
-    except Exception:  # pragma: no cover - depends on live Azure state
+    except ResourceExistsError:  # pragma: no cover - depends on live Azure state
+        # Container already exists (Bicep pre-created it, or a benign concurrent
+        # create). Any other error (auth/RBAC/network) propagates to the outer
+        # handler so the wiring failure is logged instead of silently masked.
         pass
 
     langgraph_app.thread_lock = AzureBlobLeaseThreadLock(container_client=_lock_container)
