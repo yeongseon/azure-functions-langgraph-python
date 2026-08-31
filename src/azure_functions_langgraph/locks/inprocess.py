@@ -3,9 +3,29 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import threading
 
 logger = logging.getLogger(__name__)
+
+
+class _KeyState:
+    """Per-``(graph_name, thread_id)`` lock state.
+
+    ``refs`` counts in-flight ``acquire`` reservations *plus* the current
+    holder, so garbage collection can never remove the state while another
+    thread is mid-acquire. This closes the race where an orphaned
+    :class:`threading.Lock` could be acquired by one thread while a fresh
+    replacement lock is handed to another — yielding two simultaneous holders
+    for a single key.
+    """
+
+    __slots__ = ("lock", "token", "refs")
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.token: str | None = None
+        self.refs = 0
 
 
 class InProcessThreadLock:
@@ -30,51 +50,86 @@ class InProcessThreadLock:
     """
 
     def __init__(self) -> None:
-        self._locks: dict[tuple[str, str], threading.Lock] = {}
+        self._states: dict[tuple[str, str], _KeyState] = {}
         self._guard = threading.Lock()
 
-    def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> bool:
+    def _maybe_gc(self, key: tuple[str, str], state: _KeyState) -> None:
+        """Drop ``state`` from the registry when nothing references it.
+
+        Caller MUST hold ``self._guard``. Only removes the entry when no
+        acquire is in flight and no holder remains (``refs == 0``) and the
+        registry still maps ``key`` to this exact ``state`` object.
+        """
+        if state.refs == 0 and self._states.get(key) is state:
+            self._states.pop(key, None)
+
+    def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> str | None:
         """Acquire the lock for ``(graph_name, thread_id)``.
 
-        See :meth:`ThreadLock.acquire` for the general contract.
-        """
-        with self._guard:
-            lock = self._locks.setdefault((graph_name, thread_id), threading.Lock())
-        if timeout > 0.0:
-            return lock.acquire(blocking=True, timeout=timeout)
-        return lock.acquire(blocking=False)
-
-    def release(self, graph_name: str, thread_id: str) -> None:
-        """Release the lock for ``(graph_name, thread_id)``.
-
-        See :meth:`ThreadLock.release` for the general contract. Also
-        garbage-collects the underlying :class:`threading.Lock` when no
-        other request currently holds it, so long-lived workers do not
-        grow the internal dict unboundedly.
+        See :meth:`ThreadLock.acquire` for the general contract. Returns a
+        fresh opaque owner token on success, or ``None`` if the lock is held.
         """
         key = (graph_name, thread_id)
         with self._guard:
-            lock = self._locks.get(key)
-        if lock is None:
+            state = self._states.get(key)
+            if state is None:
+                state = _KeyState()
+                self._states[key] = state
+            # Reserve a ref BEFORE dropping the guard so a concurrent release
+            # cannot garbage-collect this state while we block on it below.
+            state.refs += 1
+        if timeout > 0.0:
+            acquired = state.lock.acquire(blocking=True, timeout=timeout)
+        else:
+            acquired = state.lock.acquire(blocking=False)
+        if not acquired:
+            with self._guard:
+                state.refs -= 1
+                self._maybe_gc(key, state)
+            return None
+        token = secrets.token_hex(16)
+        with self._guard:
+            state.token = token
+        return token
+
+    def release(self, graph_name: str, thread_id: str, token: str) -> None:
+        """Release the lock for ``(graph_name, thread_id)``.
+
+        See :meth:`ThreadLock.release` for the general contract. A ``token``
+        that does not match the currently-held owner is a no-op (DEBUG log),
+        so a stale caller cannot release a lock re-acquired by a newer
+        execution. On a successful match the owner ref is dropped and the
+        underlying state is garbage-collected when no other request holds it,
+        so long-lived workers do not grow the internal dict unboundedly.
+        """
+        key = (graph_name, thread_id)
+        with self._guard:
+            state = self._states.get(key)
+            current_token = state.token if state is not None else None
+        if state is None:
             logger.debug(
                 "release() called for unknown lock key %s/%s; ignoring", graph_name, thread_id
             )
             return
-        try:
-            lock.release()
-        except RuntimeError:
-            # Not held (or not held by us). Log and continue so the caller's
-            # `finally` block never masks the original exception.
+        if current_token != token:
             logger.debug(
-                "release() called on unheld lock for %s/%s; ignoring",
+                "release() owner mismatch for %s/%s; lock is held by a newer "
+                "owner, ignoring stale release",
                 graph_name,
                 thread_id,
             )
             return
-        # Clean up to prevent unbounded growth in long-lived workers.
-        # Re-check under guard: only remove if the lock is not currently held
-        # (another request may have acquired it between release and this check).
+        try:
+            state.lock.release()
+        except RuntimeError:
+            # Not held (or not held by us). Log and fall through so the ref is
+            # still dropped and the entry is cleaned up — never leak the state.
+            logger.debug(
+                "release() called on unheld lock for %s/%s; cleaning up",
+                graph_name,
+                thread_id,
+            )
         with self._guard:
-            current = self._locks.get(key)
-            if current is lock and not lock.locked():
-                self._locks.pop(key, None)
+            state.token = None
+            state.refs -= 1
+            self._maybe_gc(key, state)

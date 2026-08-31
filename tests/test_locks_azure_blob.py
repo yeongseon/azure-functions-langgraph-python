@@ -246,57 +246,109 @@ class TestAcquireRelease:
     def test_first_acquire_returns_true(self) -> None:
         container = MockContainerClient()
         lock = _make_lock(container)
-        assert lock.acquire("graph", "t1") is True
+        token = lock.acquire("graph", "t1")
+        assert token
         # Marker blob must have been created.
         assert any(name.endswith("t1") for name in container.blobs)
-        lock.release("graph", "t1")
+        lock.release("graph", "t1", token)
 
     def test_release_frees_lease(self) -> None:
         container = MockContainerClient()
         lock = _make_lock(container)
-        lock.acquire("graph", "t1")
-        lock.release("graph", "t1")
+        token = lock.acquire("graph", "t1")
+        assert token
+        lock.release("graph", "t1", token)
         # After release, another lock (same container) can acquire.
         lock2 = _make_lock(container)
-        assert lock2.acquire("graph", "t1") is True
-        lock2.release("graph", "t1")
+        token2 = lock2.acquire("graph", "t1")
+        assert token2
+        lock2.release("graph", "t1", token2)
 
     def test_local_fast_path_prevents_double_acquire(self) -> None:
         """A second acquire on the same lock instance returns False without hitting Azure."""
         container = MockContainerClient()
         lock = _make_lock(container)
-        assert lock.acquire("graph", "t1") is True
-        assert lock.acquire("graph", "t1") is False
-        lock.release("graph", "t1")
+        token = lock.acquire("graph", "t1")
+        assert token
+        assert lock.acquire("graph", "t1") is None
+        lock.release("graph", "t1", token)
 
     def test_non_blocking_returns_false_on_conflict(self) -> None:
         """When another instance holds the lease, non-blocking acquire returns False."""
         container = MockContainerClient()
         holder = _make_lock(container)
-        holder.acquire("graph", "t1")
+        holder_token = holder.acquire("graph", "t1")
+        assert holder_token
         try:
             challenger = _make_lock(container)
-            assert challenger.acquire("graph", "t1", timeout=0.0) is False
+            assert challenger.acquire("graph", "t1", timeout=0.0) is None
         finally:
-            holder.release("graph", "t1")
+            holder.release("graph", "t1", holder_token)
 
     def test_marker_reused_across_acquires(self) -> None:
         """Marker blob is created once, then reused (idempotent)."""
         container = MockContainerClient()
         lock = _make_lock(container)
-        lock.acquire("graph", "t1")
-        lock.release("graph", "t1")
+        token = lock.acquire("graph", "t1")
+        assert token
+        lock.release("graph", "t1", token)
         # Marker persists after release.
         assert any(name.endswith("t1") for name in container.blobs)
         # Second acquire should not raise despite marker already existing.
-        lock.acquire("graph", "t1")
-        lock.release("graph", "t1")
+        token2 = lock.acquire("graph", "t1")
+        assert token2
+        lock.release("graph", "t1", token2)
 
     def test_release_unknown_key_is_silent(self) -> None:
         lock = _make_lock()
         # Must not raise.
-        lock.release("unknown", "t99")
+        lock.release("unknown", "t99", "no-such-token")
 
+    def test_foreign_token_release_is_noop(self) -> None:
+        """A caller with the wrong token must not free a held lease."""
+        container = MockContainerClient()
+        lock = _make_lock(container)
+        token = lock.acquire("graph", "t1")
+        assert token
+        # Wrong token: release must be a no-op and leave the lease tracked.
+        lock.release("graph", "t1", "foreign-token")
+        assert ("graph", "t1") in lock._active_leases
+        assert lock.acquire("graph", "t1") is None
+        # The true owner can still release.
+        lock.release("graph", "t1", token)
+        assert ("graph", "t1") not in lock._active_leases
+
+    def test_stale_token_does_not_release_reacquired_lease(self) -> None:
+        """A stale release must not free a lease re-acquired under the same key."""
+        container = MockContainerClient()
+        lock = _make_lock(container)
+        stale_token = lock.acquire("graph", "t1")
+        assert stale_token
+        lock.release("graph", "t1", stale_token)
+        # A different execution re-acquires the same key (new lease, new token).
+        new_token = lock.acquire("graph", "t1")
+        assert new_token
+        assert new_token != stale_token
+        # The original execution's late release must NOT free the new lease.
+        lock.release("graph", "t1", stale_token)
+        assert ("graph", "t1") in lock._active_leases
+        assert lock.acquire("graph", "t1") is None
+        # New owner can still release cleanly.
+        lock.release("graph", "t1", new_token)
+        assert ("graph", "t1") not in lock._active_leases
+
+    def test_foreign_token_release_logs_debug(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        container = MockContainerClient()
+        lock = _make_lock(container)
+        token = lock.acquire("graph", "t1")
+        assert token
+        with caplog.at_level("DEBUG", logger="azure_functions_langgraph.locks.azure_blob"):
+            lock.release("graph", "t1", "foreign-token")
+        assert any("owner mismatch" in rec.getMessage() for rec in caplog.records)
+        lock.release("graph", "t1", token)
     def test_release_swallows_azure_errors(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -304,7 +356,8 @@ class TestAcquireRelease:
         """release() must swallow lease.release() exceptions (log only)."""
 
         lock = _make_lock()
-        lock.acquire("graph", "t1")
+        token = lock.acquire("graph", "t1")
+        assert token
 
         # Sabotage the tracked lease so its .release() raises.
         key = ("graph", "t1")
@@ -316,7 +369,7 @@ class TestAcquireRelease:
         lease.release = _raise
 
         with caplog.at_level("DEBUG", logger="azure_functions_langgraph.locks.azure_blob"):
-            lock.release("graph", "t1")
+            lock.release("graph", "t1", token)
 
         assert any("Failed to release blob lease" in rec.getMessage() for rec in caplog.records)
         # Entry should be cleaned up even on failure.
@@ -336,7 +389,8 @@ class TestBlockingAcquire:
         """Blocking acquire polls, then returns False when deadline elapses."""
         container = MockContainerClient()
         holder = _make_lock(container)
-        holder.acquire("graph", "t1")
+        holder_token = holder.acquire("graph", "t1")
+        assert holder_token
         try:
             # Speed up time.sleep so tests remain fast.
             sleep_calls: list[float] = []
@@ -346,13 +400,13 @@ class TestBlockingAcquire:
             )
             challenger = _make_lock(container)
             start = time.monotonic()
-            assert challenger.acquire("graph", "t1", timeout=0.2) is False
+            assert challenger.acquire("graph", "t1", timeout=0.2) is None
             # Should have slept at least once during polling.
             assert len(sleep_calls) >= 1
             # Non-zero elapsed time.
             assert time.monotonic() >= start
         finally:
-            holder.release("graph", "t1")
+            holder.release("graph", "t1", holder_token)
 
     def test_blocking_acquire_succeeds_when_released_mid_wait(
         self,
@@ -361,7 +415,8 @@ class TestBlockingAcquire:
         """If the lease is released while polling, acquire returns True."""
         container = MockContainerClient()
         holder = _make_lock(container)
-        holder.acquire("graph", "t1")
+        holder_token = holder.acquire("graph", "t1")
+        assert holder_token
 
         # Release after the first sleep call so the second acquire_lease succeeds.
         sleep_count = {"n": 0}
@@ -369,7 +424,7 @@ class TestBlockingAcquire:
         def _fake_sleep(seconds: float) -> None:
             sleep_count["n"] += 1
             if sleep_count["n"] == 1:
-                holder.release("graph", "t1")
+                holder.release("graph", "t1", holder_token)
 
         monkeypatch.setattr(
             "azure_functions_langgraph.locks.azure_blob.time.sleep",
@@ -377,8 +432,9 @@ class TestBlockingAcquire:
         )
 
         challenger = _make_lock(container)
-        assert challenger.acquire("graph", "t1", timeout=1.0) is True
-        challenger.release("graph", "t1")
+        challenger_token = challenger.acquire("graph", "t1", timeout=1.0)
+        assert challenger_token
+        challenger.release("graph", "t1", challenger_token)
 
 
 # ------------------------------------------------------------------
@@ -642,7 +698,7 @@ class TestAutoRenewal:
                 >= _MAX_CONSECUTIVE_RENEWAL_FAILURES
             )
             # A lost entry still blocks reacquire of the same key.
-            assert lock.acquire("graph", "t1") is False
+            assert lock.acquire("graph", "t1") is None
         finally:
             lock.close()
 
@@ -673,7 +729,7 @@ class TestAutoRenewal:
             assert key in lock._active_leases
             assert lock._active_leases[key].lost is True
             assert lock._active_leases[key].consecutive_failures == 0
-            assert lock.acquire("graph", "t1") is False
+            assert lock.acquire("graph", "t1") is None
             assert any(
                 "is lost (definitive lease-loss" in rec.getMessage()
                 for rec in caplog.records
@@ -708,7 +764,7 @@ class TestAutoRenewal:
                 raise AssertionError("lease.release() must not run for a lost lease")
 
             state.lease.release = _boom
-            lock.release("graph", "t1")  # must not raise
+            lock.release("graph", "t1", state.token)  # must not raise
             assert key not in lock._active_leases
         finally:
             lock.close()
@@ -718,14 +774,14 @@ class TestAutoRenewal:
         container = MockContainerClient()
         lock = _make_lock(container, auto_renew=False)
         try:
-            lock.acquire("graph", "t1")
+            token = lock.acquire("graph", "t1")
             lease = lock._active_leases[("graph", "t1")].lease
 
             def _release_then_raise() -> None:
                 # Simulate a race: another thread releases the lock while we
                 # were mid-renew. When our failure handler re-locks, the dict
                 # entry is gone and the identity check must skip the del.
-                lock.release("graph", "t1")
+                lock.release("graph", "t1", token)
                 raise RuntimeError("simulated failure after concurrent release")
 
             lease.renew = _release_then_raise

@@ -50,6 +50,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import importlib
 import logging
+import secrets
 import threading
 import time
 from typing import Any, Protocol, cast
@@ -120,6 +121,9 @@ class _LeaseState:
 
     Attributes:
         lease: The Azure ``BlobLeaseClient`` (or protocol-compatible stub).
+        token: Opaque owner token returned by :meth:`acquire` and required by
+            :meth:`release`, so a stale caller cannot free a lease that has
+            since been re-acquired under the same key by a newer execution.
         consecutive_failures: Count of consecutive *transient* renewal
             failures since the last successful renewal. Reset to ``0`` on
             every successful renewal.
@@ -134,6 +138,7 @@ class _LeaseState:
     """
 
     lease: _BlobLeaseClientProtocol
+    token: str = field(default_factory=lambda: secrets.token_hex(16))
     consecutive_failures: int = 0
     last_successful_renewal: float = field(default_factory=time.monotonic)
     lost: bool = False
@@ -319,7 +324,7 @@ class AzureBlobLeaseThreadLock:
             # created once and reused for every subsequent lease attempt.
             return
 
-    def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> bool:
+    def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> str | None:
         """Attempt to hold an Azure Blob lease for ``(graph_name, thread_id)``.
 
         Semantics match :meth:`ThreadLock.acquire`:
@@ -329,7 +334,7 @@ class AzureBlobLeaseThreadLock:
           the lease is acquired or the deadline expires.
 
         A key that is already tracked locally — **including** one whose lease
-        has been marked ``lost`` but not yet released — returns ``False``
+        has been marked ``lost`` but not yet released — returns ``None``
         immediately without hitting Azure, so the original execution retains
         exclusive local ownership until it releases.
         """
@@ -338,7 +343,7 @@ class AzureBlobLeaseThreadLock:
         # (a lost-but-unreleased entry still counts as occupied).
         with self._active_leases_guard:
             if key in self._active_leases:
-                return False
+                return None
 
         blob_client = self._container_client.get_blob_client(self._blob_name(graph_name, thread_id))
         self._ensure_marker(blob_client)
@@ -351,7 +356,7 @@ class AzureBlobLeaseThreadLock:
                 if not self._is_lease_conflict(exc):
                     raise
                 if timeout <= 0.0 or time.monotonic() >= deadline:
-                    return False
+                    return None
                 remaining = deadline - time.monotonic()
                 time.sleep(min(_POLL_INTERVAL_MAX, max(_POLL_INTERVAL_MIN, remaining / 2)))
                 continue
@@ -370,28 +375,43 @@ class AzureBlobLeaseThreadLock:
                             thread_id,
                             exc_info=True,
                         )
-                    return False
-                self._active_leases[key] = _LeaseState(lease=lease)
-            return True
+                    return None
+                state = _LeaseState(lease=lease)
+                self._active_leases[key] = state
+            return state.token
 
-    def release(self, graph_name: str, thread_id: str) -> None:
+    def release(self, graph_name: str, thread_id: str, token: str) -> None:
         """Release the Azure Blob lease for ``(graph_name, thread_id)``.
 
-        Best-effort — never raises. If the tracked lease was already marked
-        ``lost`` (definitive loss or exhausted renewals), the local entry is
-        simply cleared without calling ``lease.release()`` because the lease
-        is gone. Otherwise the lease is released best-effort; failures during
-        release are logged at DEBUG and left for lease expiry (or manual
-        break) to recover.
+        Best-effort — never raises. If ``token`` does not match the owner
+        token of the currently-tracked lease (e.g. the key was dropped and
+        re-acquired by a newer execution), release is a no-op logged at DEBUG
+        so the newer owner is preserved. If the tracked lease was already
+        marked ``lost`` (definitive loss or exhausted renewals), the local
+        entry is simply cleared without calling ``lease.release()`` because
+        the lease is gone. Otherwise the lease is released best-effort;
+        failures during release are logged at DEBUG and left for lease expiry
+        (or manual break) to recover.
         """
         key = (graph_name, thread_id)
         with self._active_leases_guard:
-            state = self._active_leases.pop(key, None)
-        if state is None:
-            logger.debug(
-                "release() called for unknown lease key %s/%s; ignoring", graph_name, thread_id
-            )
-            return
+            state = self._active_leases.get(key)
+            if state is None:
+                logger.debug(
+                    "release() called for unknown lease key %s/%s; ignoring",
+                    graph_name,
+                    thread_id,
+                )
+                return
+            if state.token != token:
+                logger.debug(
+                    "release() owner mismatch for %s/%s; lease is held by a "
+                    "newer owner, ignoring stale release",
+                    graph_name,
+                    thread_id,
+                )
+                return
+            self._active_leases.pop(key, None)
         if state.lost:
             # Lease already gone — nothing to release on the service side.
             logger.debug(
