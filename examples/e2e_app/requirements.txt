@@ -10,3 +10,6 @@
 azure-functions
 langgraph>=1.0,<2.0
 langchain-core>=1.0,<2.0
+# Required by the two-app single-writer exclusivity graph (#386): the
+# AzureBlobLeaseThreadLock + AzureBlobCheckpointSaver used by e2e_lock_agent.
+azure-storage-blob>=12.0,<13
