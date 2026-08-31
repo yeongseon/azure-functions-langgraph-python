@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 import types
 from typing import Any, Callable
@@ -869,3 +870,108 @@ class TestAutoRenewal:
         assert any(
             "during close" in rec.getMessage() for rec in caplog.records
         )
+
+
+class TestPerLeaseRenewalIsolation:
+    """#387 — one stuck renew() must not stall renewals for the other leases."""
+
+    def test_auto_renew_builds_bounded_executor_and_call_timeout(self) -> None:
+        """Enabling auto-renew wires a bounded pool and a per-call timeout."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        lock = _make_lock(lease_duration=30)
+        try:
+            assert isinstance(lock._renewal_executor, ThreadPoolExecutor)
+            # Client-side timeout bounds a single renew() to one renewal tick.
+            assert lock._renewal_call_timeout == pytest.approx(lock._renewal_interval)
+        finally:
+            lock.close()
+
+    def test_no_executor_when_auto_renew_disabled(self) -> None:
+        """Without auto-renew there is no pool; renewals run sequentially."""
+        lock = _make_lock(lease_duration=30, auto_renew=False)
+        try:
+            assert lock._renewal_executor is None
+            assert lock._renewal_call_timeout == 0.0
+        finally:
+            lock.close()
+
+    def test_hung_renew_does_not_block_other_leases(self) -> None:
+        """A hung renew() for key A must not stop key B renewing within the tick."""
+        container = MockContainerClient()
+        # auto_renew=True builds the concurrency pool; the background daemon only
+        # fires at lease_duration/3 (=20s), so it will not run during this test.
+        lock = _make_lock(container, lease_duration=60)
+        release_hung = threading.Event()
+        try:
+            # Shrink the per-call timeout so the hung call is abandoned quickly.
+            lock._renewal_call_timeout = 0.2
+            lock.acquire("graph", "hung")
+            lock.acquire("graph", "fast")
+            hung_state = lock._active_leases[("graph", "hung")]
+            fast_state = lock._active_leases[("graph", "fast")]
+
+            def _hang() -> None:
+                release_hung.wait(timeout=5.0)
+
+            hung_state.lease.renew = _hang
+
+            start = time.monotonic()
+            lock._renew_all_once()
+            elapsed = time.monotonic() - start
+
+            # The fast lease was renewed even though the other call is still hung,
+            assert fast_state.lease.renew_count == 1
+            assert fast_state.consecutive_failures == 0
+            assert fast_state.lost is False
+            # the tick returned near the client-side timeout, not the 5s hang,
+            assert elapsed < 2.0
+            # and the abandoned call was counted as one transient failure.
+            assert hung_state.consecutive_failures == 1
+            assert hung_state.lost is False
+        finally:
+            release_hung.set()
+            lock.close()
+
+    def test_repeated_renew_timeouts_mark_lease_lost(self) -> None:
+        """Enough consecutive timed-out renewals mark the lease lost."""
+        container = MockContainerClient()
+        lock = _make_lock(container, lease_duration=60)
+        release_hung = threading.Event()
+        try:
+            lock._renewal_call_timeout = 0.05
+            lock.acquire("graph", "hung")
+            state = lock._active_leases[("graph", "hung")]
+
+            def _hang() -> None:
+                release_hung.wait(timeout=5.0)
+
+            state.lease.renew = _hang
+
+            for _ in range(3):
+                lock._renew_all_once()
+            assert state.lost is True
+        finally:
+            release_hung.set()
+            lock.close()
+
+    def test_concurrent_path_records_immediate_renew_failure(self) -> None:
+        """A renew() that raises quickly on the pool is classified, not swallowed."""
+        container = MockContainerClient()
+        lock = _make_lock(container, lease_duration=60)
+        try:
+            lock.acquire("graph", "flaky")
+            state = lock._active_leases[("graph", "flaky")]
+
+            def _boom() -> None:
+                raise FakeHttpResponseError(
+                    "InternalError", error_code="InternalError", status_code=500
+                )
+
+            state.lease.renew = _boom
+            lock._renew_all_once()
+            # Transient failure recorded via the concurrent (pool) code path.
+            assert state.consecutive_failures == 1
+            assert state.lost is False
+        finally:
+            lock.close()
