@@ -20,10 +20,34 @@ Lease semantics recap (see the Azure Blob REST reference for details):
   trade-off visible.
 * Infinite leases (``lease_duration=-1``) never need renewal but must
   be broken manually if a host crashes.
+
+Renewal resilience:
+
+* A single *transient* renewal failure (network blip, timeout,
+  throttling, 5xx) does **not** drop the lease from local tracking. The
+  Azure lease is still valid for roughly two more renewal intervals, so
+  the daemon retries on the next tick. Only after
+  :data:`_MAX_CONSECUTIVE_RENEWAL_FAILURES` consecutive transient
+  failures is the lease treated as lost.
+* A *definitive* lease-loss error (the lease id no longer matches, the
+  lease is gone, or a ``412`` precondition failure) marks the local
+  entry ``lost`` immediately — but the entry is **kept** locally
+  occupied until :meth:`release` runs, so the same process cannot
+  reacquire the key while its original graph execution may still be
+  running.
+
+.. warning::
+    This lock is best-effort under mid-run lease loss. If a lease is
+    genuinely lost while a graph execution is still running, this lock
+    alone cannot prevent another Function App instance from acquiring
+    the same ``(graph_name, thread_id)`` and writing concurrently —
+    preventing that would require cancelling the in-flight execution or
+    fencing the checkpoint writes, neither of which this alpha lock does.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import importlib
 import logging
 import threading
@@ -62,12 +86,58 @@ _POLL_INTERVAL_MIN = 0.05
 _POLL_INTERVAL_MAX = 0.5
 
 # Renewal cadence: renew each active lease this fraction of lease_duration
-# before expiry. 1/3 leaves two full retries per lease lifetime if a single
-# renewal call fails transiently.
+# before expiry. 1/3 means the Azure lease stays valid for roughly two more
+# renewal ticks after a single failed renewal call, so a transient failure can
+# be retried on the next tick instead of abandoning the lease immediately.
 _LEASE_RENEWAL_FRACTION = 3
+# How many *consecutive* transient renewal failures may occur before the lease
+# is marked ``lost``. With the 1/3 cadence above, the Azure lease has typically
+# already expired by the time this many consecutive renewals have failed, so
+# continuing to retry buys nothing. Note the key stays locally occupied even
+# once marked ``lost`` — it is only removed from tracking by ``release()`` — so a
+# lost lease never silently frees the slot for a concurrent in-process caller.
+_MAX_CONSECUTIVE_RENEWAL_FAILURES = 3
 # Deadline for join() when close() stops the renewal thread. Bounded so a
 # stuck Azure call cannot indefinitely block interpreter shutdown.
 _RENEWAL_SHUTDOWN_TIMEOUT = 5.0
+
+# Azure error codes that mean the lease is *definitively* gone (as opposed to a
+# transient network/service failure that should be retried on the next tick).
+_DEFINITIVE_LEASE_LOSS_ERROR_CODES = frozenset(
+    code.lower()
+    for code in (
+        "LeaseLost",
+        "LeaseIdMismatchWithLeaseOperation",
+        "LeaseNotPresentWithLeaseOperation",
+        "LeaseIdMissing",
+    )
+)
+
+
+@dataclass
+class _LeaseState:
+    """Mutable per-key tracking record for one held Azure Blob lease.
+
+    Attributes:
+        lease: The Azure ``BlobLeaseClient`` (or protocol-compatible stub).
+        consecutive_failures: Count of consecutive *transient* renewal
+            failures since the last successful renewal. Reset to ``0`` on
+            every successful renewal.
+        last_successful_renewal: ``time.monotonic()`` timestamp of the last
+            successful ``renew()`` (or of acquisition, before the first
+            renewal).
+        lost: ``True`` once the lease is known to be gone (definitive loss or
+            too many consecutive transient failures). A lost entry is kept
+            locally occupied so the same process does not reacquire the key
+            until :meth:`release` clears it.
+        last_error: The most recent renewal exception, for diagnostics.
+    """
+
+    lease: _BlobLeaseClientProtocol
+    consecutive_failures: int = 0
+    last_successful_renewal: float = field(default_factory=time.monotonic)
+    lost: bool = False
+    last_error: BaseException | None = None
 
 
 class AzureBlobLeaseThreadLock:
@@ -200,7 +270,7 @@ class AzureBlobLeaseThreadLock:
         self._http_response_error: type[BaseException] = cast(
             type[BaseException], http_response_error
         )
-        self._active_leases: dict[tuple[str, str], _BlobLeaseClientProtocol] = {}
+        self._active_leases: dict[tuple[str, str], _LeaseState] = {}
         self._active_leases_guard = threading.Lock()
 
         self._auto_renew: bool = auto_renew and lease_duration != _LEASE_DURATION_INFINITE
@@ -257,9 +327,15 @@ class AzureBlobLeaseThreadLock:
         * ``timeout=0.0`` — non-blocking. Returns immediately.
         * ``timeout>0.0`` — polls the Azure API with jittered backoff until
           the lease is acquired or the deadline expires.
+
+        A key that is already tracked locally — **including** one whose lease
+        has been marked ``lost`` but not yet released — returns ``False``
+        immediately without hitting Azure, so the original execution retains
+        exclusive local ownership until it releases.
         """
         key = (graph_name, thread_id)
-        # Fast local check — do not hammer Azure if we already track a lease.
+        # Fast local check — do not hammer Azure if we already track a lease
+        # (a lost-but-unreleased entry still counts as occupied).
         with self._active_leases_guard:
             if key in self._active_leases:
                 return False
@@ -295,25 +371,37 @@ class AzureBlobLeaseThreadLock:
                             exc_info=True,
                         )
                     return False
-                self._active_leases[key] = lease
+                self._active_leases[key] = _LeaseState(lease=lease)
             return True
 
     def release(self, graph_name: str, thread_id: str) -> None:
         """Release the Azure Blob lease for ``(graph_name, thread_id)``.
 
-        Best-effort — never raises. Failures during release are logged at
-        DEBUG and left for lease expiry (or manual break) to recover.
+        Best-effort — never raises. If the tracked lease was already marked
+        ``lost`` (definitive loss or exhausted renewals), the local entry is
+        simply cleared without calling ``lease.release()`` because the lease
+        is gone. Otherwise the lease is released best-effort; failures during
+        release are logged at DEBUG and left for lease expiry (or manual
+        break) to recover.
         """
         key = (graph_name, thread_id)
         with self._active_leases_guard:
-            lease = self._active_leases.pop(key, None)
-        if lease is None:
+            state = self._active_leases.pop(key, None)
+        if state is None:
             logger.debug(
                 "release() called for unknown lease key %s/%s; ignoring", graph_name, thread_id
             )
             return
+        if state.lost:
+            # Lease already gone — nothing to release on the service side.
+            logger.debug(
+                "release() clearing lost lease entry for %s/%s (no service release)",
+                graph_name,
+                thread_id,
+            )
+            return
         try:
-            lease.release()
+            state.lease.release()
         except Exception:
             logger.debug(
                 "Failed to release blob lease for %s/%s; will expire naturally",
@@ -325,30 +413,81 @@ class AzureBlobLeaseThreadLock:
     def _renew_all_once(self) -> None:
         """Renew every currently tracked lease exactly once.
 
-        Safe to call from any thread. On per-lease failure, logs a warning
-        and drops that lease from local tracking so :meth:`acquire` can
-        take a fresh lease later (and so a stale entry does not block the
-        local fast-path check indefinitely).
+        Safe to call from any thread. Renewal failures are classified:
+
+        * **Definitive lease-loss** (see :meth:`_is_definitive_lease_loss`):
+          the entry is marked ``lost`` but kept locally occupied so the same
+          process cannot reacquire the key until :meth:`release` runs.
+        * **Transient failure** (anything else): the entry is kept and its
+          ``consecutive_failures`` counter is incremented so the next tick
+          retries. Only after
+          :data:`_MAX_CONSECUTIVE_RENEWAL_FAILURES` consecutive transient
+          failures is the entry marked ``lost``.
+
+        A successful renewal resets ``consecutive_failures`` to ``0``.
         """
         with self._active_leases_guard:
             snapshot = list(self._active_leases.items())
-        for key, lease in snapshot:
+        for key, state in snapshot:
+            if state.lost:
+                # Already known gone; leave it for release() to clear.
+                continue
             try:
-                lease.renew()
-            except Exception:
+                state.lease.renew()
+            except Exception as exc:  # noqa: BLE001 - classified below
+                self._handle_renew_failure(key, state, exc)
+            else:
+                with self._active_leases_guard:
+                    if self._active_leases.get(key) is state:
+                        state.consecutive_failures = 0
+                        state.last_successful_renewal = time.monotonic()
+                        state.last_error = None
+
+    def _handle_renew_failure(
+        self, key: tuple[str, str], state: _LeaseState, exc: BaseException
+    ) -> None:
+        """Apply the transient-vs-definitive policy for one failed renewal."""
+        definitive = self._is_definitive_lease_loss(exc)
+        with self._active_leases_guard:
+            # A concurrent release() may have swapped/removed the entry; only
+            # act if this is still the same state object.
+            if self._active_leases.get(key) is not state:
+                return
+            state.last_error = exc
+            if definitive:
+                state.lost = True
                 logger.warning(
-                    "Failed to renew Azure Blob lease for %s/%s; dropping "
-                    "from local tracking. Another instance may now acquire "
-                    "this lock.",
+                    "Azure Blob lease for %s/%s is lost (definitive lease-loss "
+                    "on renew); keeping the key locally occupied until release. "
+                    "Another instance may now acquire this lock.",
                     key[0],
                     key[1],
                     exc_info=True,
                 )
-                with self._active_leases_guard:
-                    # Only pop if this is still the same lease object; a
-                    # concurrent release() may have swapped it out.
-                    if self._active_leases.get(key) is lease:
-                        del self._active_leases[key]
+                return
+            state.consecutive_failures += 1
+            if state.consecutive_failures >= _MAX_CONSECUTIVE_RENEWAL_FAILURES:
+                state.lost = True
+                logger.warning(
+                    "Azure Blob lease for %s/%s failed renewal %d consecutive "
+                    "times; treating as lost and keeping the key locally "
+                    "occupied until release. Another instance may now acquire "
+                    "this lock.",
+                    key[0],
+                    key[1],
+                    state.consecutive_failures,
+                    exc_info=True,
+                )
+            else:
+                logger.warning(
+                    "Transient failure renewing Azure Blob lease for %s/%s "
+                    "(%d/%d consecutive); will retry on the next renewal tick.",
+                    key[0],
+                    key[1],
+                    state.consecutive_failures,
+                    _MAX_CONSECUTIVE_RENEWAL_FAILURES,
+                    exc_info=True,
+                )
 
     def _renewal_worker(self) -> None:
         """Daemon loop: call :meth:`_renew_all_once` every renewal interval."""
@@ -361,7 +500,8 @@ class AzureBlobLeaseThreadLock:
         Idempotent and safe to call from any thread. After :meth:`close`,
         further :meth:`acquire` calls still work but will not be
         auto-renewed even if ``auto_renew=True`` was passed to the
-        constructor.
+        constructor. Entries already marked ``lost`` are dropped without a
+        service-side release (their lease is gone).
         """
         if self._closed:
             return
@@ -373,9 +513,11 @@ class AzureBlobLeaseThreadLock:
         with self._active_leases_guard:
             remaining = list(self._active_leases.items())
             self._active_leases.clear()
-        for key, lease in remaining:
+        for key, state in remaining:
+            if state.lost:
+                continue
             try:
-                lease.release()
+                state.lease.release()
             except Exception:
                 logger.debug(
                     "Failed to release blob lease for %s/%s during close",
@@ -399,3 +541,22 @@ class AzureBlobLeaseThreadLock:
             return True
         status_code = getattr(exc, "status_code", None)
         return status_code == 409
+
+    def _is_definitive_lease_loss(self, exc: BaseException) -> bool:
+        """Return True if *exc* means the lease is *definitively* gone.
+
+        Distinguishes a genuine lease-loss (the lease id no longer matches,
+        the lease is not present, or a ``412`` precondition failure) from a
+        transient service/network error that should be retried on the next
+        renewal tick. Prefers the Azure ``error_code`` allowlist; falls back
+        to a ``412 Precondition Failed`` status, which the Blob lease API
+        returns when the lease id is no longer valid.
+        """
+        error_code = getattr(exc, "error_code", None)
+        if isinstance(error_code, str) and error_code.lower() in _DEFINITIVE_LEASE_LOSS_ERROR_CODES:
+            return True
+        # 412 Precondition Failed on a renew means the lease id is no longer
+        # valid (lease broken/changed). 409/5xx/timeouts are treated as
+        # transient and retried.
+        status_code = getattr(exc, "status_code", None)
+        return status_code == 412

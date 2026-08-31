@@ -308,7 +308,7 @@ class TestAcquireRelease:
 
         # Sabotage the tracked lease so its .release() raises.
         key = ("graph", "t1")
-        lease = lock._active_leases[key]
+        lease = lock._active_leases[key].lease
 
         def _raise() -> None:
             raise RuntimeError("simulated Azure failure")
@@ -553,8 +553,8 @@ class TestAutoRenewal:
         try:
             lock.acquire("graph", "t1")
             lock.acquire("graph", "t2")
-            lease1 = lock._active_leases[("graph", "t1")]
-            lease2 = lock._active_leases[("graph", "t2")]
+            lease1 = lock._active_leases[("graph", "t1")].lease
+            lease2 = lock._active_leases[("graph", "t2")].lease
             lock._renew_all_once()
             assert lease1.renew_count == 1
             assert lease2.renew_count == 1
@@ -564,31 +564,152 @@ class TestAutoRenewal:
         finally:
             lock.close()
 
-    def test_renew_all_once_drops_lease_on_failure(
+    def test_renew_all_once_keeps_lease_on_transient_failure(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """When renew() raises, the lease is removed from _active_leases."""
+        """A single transient renew() failure keeps the lease and retries next tick."""
         container = MockContainerClient()
         lock = _make_lock(container, auto_renew=False)
         try:
             lock.acquire("graph", "t1")
-            lease = lock._active_leases[("graph", "t1")]
+            key = ("graph", "t1")
+            state = lock._active_leases[key]
 
-            def _raise() -> None:
-                raise RuntimeError("simulated renewal failure")
+            calls = {"n": 0}
 
-            lease.renew = _raise
+            def _flaky() -> None:
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    # Transient error: not a definitive lease-loss code.
+                    raise FakeHttpResponseError(
+                        "InternalError", error_code="InternalError", status_code=500
+                    )
+                state.lease.renew_count += 1
+
+            state.lease.renew = _flaky
 
             with caplog.at_level(
                 "WARNING", logger="azure_functions_langgraph.locks.azure_blob"
             ):
                 lock._renew_all_once()
 
-            assert ("graph", "t1") not in lock._active_leases
+            # Kept, not dropped; one transient failure recorded.
+            assert key in lock._active_leases
+            assert state.lost is False
+            assert state.consecutive_failures == 1
             assert any(
-                "Failed to renew Azure Blob lease" in rec.getMessage()
+                "Transient failure renewing Azure Blob lease" in rec.getMessage()
                 for rec in caplog.records
             )
+
+            # Next tick succeeds -> counter resets.
+            lock._renew_all_once()
+            assert lock._active_leases[key].consecutive_failures == 0
+            assert lock._active_leases[key].lost is False
+        finally:
+            lock.close()
+
+    def test_renew_all_once_marks_lost_after_consecutive_transient_failures(
+        self,
+    ) -> None:
+        """After the consecutive-failure threshold, the lease is marked lost but kept."""
+        from azure_functions_langgraph.locks.azure_blob import (
+            _MAX_CONSECUTIVE_RENEWAL_FAILURES,
+        )
+
+        container = MockContainerClient()
+        lock = _make_lock(container, auto_renew=False)
+        try:
+            lock.acquire("graph", "t1")
+            key = ("graph", "t1")
+            state = lock._active_leases[key]
+
+            def _always_transient() -> None:
+                raise FakeHttpResponseError(
+                    "ServerBusy", error_code="ServerBusy", status_code=503
+                )
+
+            state.lease.renew = _always_transient
+
+            for _ in range(_MAX_CONSECUTIVE_RENEWAL_FAILURES):
+                lock._renew_all_once()
+
+            # Threshold reached: marked lost, but kept locally occupied.
+            assert key in lock._active_leases
+            assert lock._active_leases[key].lost is True
+            assert (
+                lock._active_leases[key].consecutive_failures
+                >= _MAX_CONSECUTIVE_RENEWAL_FAILURES
+            )
+            # A lost entry still blocks reacquire of the same key.
+            assert lock.acquire("graph", "t1") is False
+        finally:
+            lock.close()
+
+    def test_renew_all_once_marks_lost_on_definitive_loss(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A definitive lease-loss error marks the entry lost immediately (kept locally)."""
+        container = MockContainerClient()
+        lock = _make_lock(container, auto_renew=False)
+        try:
+            lock.acquire("graph", "t1")
+            key = ("graph", "t1")
+            state = lock._active_leases[key]
+
+            def _lease_lost() -> None:
+                raise FakeHttpResponseError(
+                    "LeaseLost", error_code="LeaseLost", status_code=409
+                )
+
+            state.lease.renew = _lease_lost
+
+            with caplog.at_level(
+                "WARNING", logger="azure_functions_langgraph.locks.azure_blob"
+            ):
+                lock._renew_all_once()
+
+            # Marked lost on the FIRST definitive failure, but kept occupied.
+            assert key in lock._active_leases
+            assert lock._active_leases[key].lost is True
+            assert lock._active_leases[key].consecutive_failures == 0
+            assert lock.acquire("graph", "t1") is False
+            assert any(
+                "is lost (definitive lease-loss" in rec.getMessage()
+                for rec in caplog.records
+            )
+
+            # A subsequent renewal tick skips the lost entry.
+            lock._renew_all_once()
+            assert lock._active_leases[key].lost is True
+        finally:
+            lock.close()
+
+    def test_release_clears_lost_lease_without_service_release(self) -> None:
+        """release() on a lost entry clears local state without calling lease.release()."""
+        container = MockContainerClient()
+        lock = _make_lock(container, auto_renew=False)
+        try:
+            lock.acquire("graph", "t1")
+            key = ("graph", "t1")
+            state = lock._active_leases[key]
+
+            def _lease_lost() -> None:
+                raise FakeHttpResponseError(
+                    "LeaseLost", error_code="LeaseLost", status_code=409
+                )
+
+            state.lease.renew = _lease_lost
+            lock._renew_all_once()
+            assert lock._active_leases[key].lost is True
+
+            # Sabotage lease.release() to prove it is never called for a lost lease.
+            def _boom() -> None:
+                raise AssertionError("lease.release() must not run for a lost lease")
+
+            state.lease.release = _boom
+            lock.release("graph", "t1")  # must not raise
+            assert key not in lock._active_leases
         finally:
             lock.close()
 
@@ -598,7 +719,7 @@ class TestAutoRenewal:
         lock = _make_lock(container, auto_renew=False)
         try:
             lock.acquire("graph", "t1")
-            lease = lock._active_leases[("graph", "t1")]
+            lease = lock._active_leases[("graph", "t1")].lease
 
             def _release_then_raise() -> None:
                 # Simulate a race: another thread releases the lock while we
@@ -628,7 +749,7 @@ class TestAutoRenewal:
         try:
             assert lock._renewal_interval == pytest.approx(15 / 600)
             lock.acquire("graph", "t1")
-            lease = lock._active_leases[("graph", "t1")]
+            lease = lock._active_leases[("graph", "t1")].lease
             deadline = time.monotonic() + 3.0
             while time.monotonic() < deadline:
                 if lease.renew_count >= 3:
@@ -657,11 +778,11 @@ class TestAutoRenewal:
         lock = _make_lock(container)
         lock.acquire("graph", "t1")
         lock.acquire("graph", "t2")
-        leases = list(lock._active_leases.values())
-        assert len(leases) == 2
+        states = list(lock._active_leases.values())
+        assert len(states) == 2
         lock.close()
-        for lease in leases:
-            assert lease.released
+        for state in states:
+            assert state.lease.released
         assert not lock._active_leases
 
     def test_close_idempotent(self) -> None:
@@ -679,7 +800,7 @@ class TestAutoRenewal:
         container = MockContainerClient()
         lock = _make_lock(container)
         lock.acquire("graph", "t1")
-        lease = lock._active_leases[("graph", "t1")]
+        lease = lock._active_leases[("graph", "t1")].lease
 
         def _raise() -> None:
             raise RuntimeError("simulated release failure during close")
