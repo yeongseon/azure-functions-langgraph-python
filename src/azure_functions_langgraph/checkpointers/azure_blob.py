@@ -168,7 +168,10 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             current_v = int(current.split(".")[0])
         next_v = current_v + 1
         next_h = random.random()  # nosec B311 - non-crypto ordering/uniqueness only
-        return f"{next_v:032}.{next_h:016}"
+        # Fixed 16-decimal precision keeps the suffix a stable ``0.<digits>`` shape.
+        # A bare ``:016`` width spec left-zero-pads short reprs (e.g. ``0.5`` ->
+        # ``0000000000000.5``), which is inconsistent and non-deterministic. See #397.
+        return f"{next_v:032}.{next_h:.16f}"
 
     def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Fetch a checkpoint tuple by config or latest checkpoint hint."""
