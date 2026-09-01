@@ -74,6 +74,11 @@ dev = [
     "ruff==0.16.4",
     "requests",
     "types-requests",
+    # Ceiling <0.4 is NOT ours to lift independently: langgraph core (a runtime
+    # dep, langgraph>=1.0,<2.0 -> currently 1.1.x) itself pins langgraph-sdk
+    # <0.4.0,>=0.3.0, so the resolver keeps the SDK <0.4 regardless. The 0.4.3
+    # wire surface is in fact compatible (see the #368 spike in
+    # tests/test_sdk_contracts.py), but the cap stays until langgraph core relaxes.
     "langgraph-sdk>=0.2.2,<0.4",
     "langgraph-checkpoint-conformance>=0.0.2,<0.1",
 ]

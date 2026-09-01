@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/yeongseon/azure-functions-python/endpoint-metadata/v1",
+  "title": "Azure Functions Python DX Toolkit — endpoint metadata namespace (schema version 1)",
+  "description": "Vendored, self-contained contract for the payload stored at handler._azure_functions_metadata['endpoint']. Producers (azure-functions-langgraph, azure-functions-validation) emit this; consumers (azure-functions-openapi) and validators (azure-functions-doctor) read it — WITHOUT importing any shared runtime package. This file is vendored intentionally (issue #368): the toolkit deliberately shares this convention by copy, not by a runtime dependency, so five packages keep independent release cadences. Keep it byte-consistent with the sibling copies.",
+  "type": "object",
+  "required": [
+    "version",
+    "request_body",
+    "request_body_required",
+    "parameters",
+    "responses"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Schema version of this endpoint payload.",
+      "const": 1
+    },
+    "request_body": {
+      "description": "Request body JSON Schema (validation mode), or null when the route has no request body.",
+      "type": ["object", "null"]
+    },
+    "request_body_required": {
+      "description": "Whether the request body is required.",
+      "type": "boolean"
+    },
+    "parameters": {
+      "description": "OpenAPI parameter objects (path/query/header). Each entry is self-contained.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "in", "schema"],
+        "properties": {
+          "name": {"type": "string"},
+          "in": {"type": "string", "enum": ["path", "query", "header", "cookie"]},
+          "required": {"type": "boolean"},
+          "schema": {"type": "object"}
+        }
+      }
+    },
+    "responses": {
+      "description": "Map of HTTP status code (string) to a response object carrying a 'schema' (serialization mode), or null when the route emits no single JSON response (e.g. SSE streams).",
+      "type": ["object", "null"]
+    }
+  }
+}
