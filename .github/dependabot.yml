@@ -4,6 +4,17 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Let freshly-published versions age before Dependabot proposes them, so a
+    # compromised release has time to be yanked/flagged (supply-chain hardening).
+    # Cooldown applies to *version* updates only — Dependabot **security** updates
+    # bypass cooldown and stay on the fast path. See issue #381.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
+      include:
+        - "*"
     commit-message:
       prefix: "chore(deps)"
     labels:
@@ -21,6 +32,33 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Let freshly-published versions age before Dependabot proposes them, so a
+    # compromised release has time to be yanked/flagged (supply-chain hardening).
+    # Cooldown applies to *version* updates only — Dependabot **security** updates
+    # bypass cooldown and stay on the fast path. See issue #381.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
+      include:
+        - "*"
+    # actions/upload-artifact + actions/download-artifact are deliberately held
+    # as a v4 "canonical pair" (see tools/lint_release_workflows.py CANONICAL_ACTIONS).
+    # download-artifact v5+ raises the runner floor to Node 24 and flips
+    # digest-mismatch to fail-by-default, which would break the release-gate lint
+    # and the release-gate workflows. New majors are adopted deliberately, in
+    # lockstep, by updating those canonical SHAs together — not via an automatic
+    # Dependabot bump. Note: ignoring the major line also suppresses *major*
+    # security advisories for these two actions, so such advisories require
+    # deliberate manual review. See issue #334.
+    ignore:
+      - dependency-name: "actions/upload-artifact"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "actions/download-artifact"
+        update-types:
+          - "version-update:semver-major"
     commit-message:
       prefix: "chore(deps)"
     labels:
