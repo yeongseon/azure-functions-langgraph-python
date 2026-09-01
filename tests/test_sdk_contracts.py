@@ -165,6 +165,17 @@ def test_installed_langgraph_sdk_within_supported_range() -> None:
     ``COMPATIBILITY.md``. If the installed SDK falls outside the range, the
     contract models may silently drift from the real wire format, so fail
     loudly here instead.
+
+    Issue #368 spike (langgraph-sdk 0.2.x -> 0.4.3 wire-diff): the 0.4.3 schema
+    surface this package mirrors (Assistant, Thread, ThreadState, ThreadTask,
+    Run, RunCreate, Checkpoint) is byte-identical to 0.3.x, sse.py/errors.py
+    differ only in type-checker-ignore comment style, and 0.4.3 keeps
+    ``Requires-Python >=3.10``. The ``<0.4`` ceiling is therefore NOT a wire
+    limitation — it is transitively enforced by langgraph core (``langgraph``
+    1.1.x pins ``langgraph-sdk<0.4.0,>=0.3.0``). Lifting this package's own cap
+    to ``<0.5`` would be inert (the resolver keeps <0.4 via langgraph core) and
+    harmful if force-installed, so the cap stays put until langgraph core
+    relaxes its own bound.
     """
     major, minor = _parse_version(importlib_metadata.version("langgraph-sdk"))
     assert (major, minor) >= (0, 2), "langgraph-sdk below supported floor >=0.2.2"
