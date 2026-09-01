@@ -174,7 +174,8 @@ class LangGraphApp:
         ``azurefunctions-extensions-http-fastapi`` ASGI extension, but enabling
         it switches the entire function app to the FastAPI/ASGI model, which
         cannot be mixed with the classic routes used here — an app-wide
-        architectural change tracked separately.
+        architectural change tracked in issue #378 (see the "Streaming:
+        buffered SSE and the true-streaming migration" section of ``DESIGN.md``).
 
     Note:
         The default ``auth_level`` is :attr:`~azure.functions.AuthLevel.FUNCTION`,
