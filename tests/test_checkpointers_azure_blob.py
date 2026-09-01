@@ -274,12 +274,18 @@ def test_get_next_version(
 ) -> None:
     saver, _ = saver_and_container
 
-    version_1 = saver.get_next_version(None, None)
-    version_2 = saver.get_next_version(version_1, None)
-
-    assert re.fullmatch(r"\d{32}\.0\.\d+", version_1) is not None
-    assert re.fullmatch(r"\d{32}\.0\.\d+", version_2) is not None
-    assert int(version_2.split(".", maxsplit=1)[0]) == int(version_1.split(".", maxsplit=1)[0]) + 1
+    # Exercise many random draws so a regression to the non-deterministic
+    # zero-padded suffix (see #397) is caught reliably, not intermittently.
+    previous = saver.get_next_version(None, None)
+    assert re.fullmatch(r"\d{32}\.0\.\d+", previous) is not None
+    for _ in range(1000):
+        current = saver.get_next_version(previous, None)
+        assert re.fullmatch(r"\d{32}\.0\.\d+", current) is not None
+        assert (
+            int(current.split(".", maxsplit=1)[0])
+            == int(previous.split(".", maxsplit=1)[0]) + 1
+        )
+        previous = current
 
 
 def test_put_and_get_tuple(
