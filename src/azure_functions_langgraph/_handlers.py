@@ -240,8 +240,10 @@ def handle_stream(
 
     Returns a **buffered** SSE-formatted response.  All stream chunks are
     collected first, then returned in a single HTTP response.  This is a
-    known v0.1 limitation — true chunked streaming will follow once Azure
-    Functions Python HTTP streaming is fully stable.
+    known v0.1 limitation, tracked in issue #378 — true chunked streaming will
+    follow once Azure Functions Python HTTP streaming is fully stable. See the
+    "Streaming: buffered SSE and the true-streaming migration" section of
+    ``DESIGN.md`` for the constraints and migration path.
     """
     if not reg.stream_enabled:
         return _error_response(501, f"Graph {reg.name!r} is configured as invoke-only")

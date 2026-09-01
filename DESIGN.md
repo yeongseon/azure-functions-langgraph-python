@@ -171,6 +171,55 @@ src/azure_functions_langgraph/
 - Coverage threshold enforced at 95% (`fail_under = 95`)
 
 
+## Streaming: buffered SSE and the true-streaming migration (#378)
+
+The `/stream` endpoints — native `POST /api/graphs/{name}/stream` and the
+Platform-compatible `POST /threads/{id}/runs/stream` and `POST /runs/stream` —
+return **buffered** SSE. Chunks emitted by the graph are collected during
+execution and flushed as SSE events *after the run completes*; clients never
+receive partial tokens incrementally. This is a deliberate design choice, not a
+bug and not an Azure platform limitation. It is tracked for future migration in
+[issue #378](https://github.com/yeongseon/azure-functions-langgraph-python/issues/378).
+
+### Why buffered today
+
+This package registers **classic** `HttpRequest`/`HttpResponse` routes via the
+Azure Functions Python v2 `FunctionApp` programming model. In that model a
+handler returns a single, fully-formed `HttpResponse`, so the SSE body must be
+assembled in memory before it is returned. `max_stream_response_bytes` is only a
+safety cap on that in-memory buffer — it does not enable incremental delivery.
+
+### The concrete constraint
+
+Azure Functions Python *does* support true HTTP streaming (runtime **4.34.1+**)
+through the `azurefunctions-extensions-http-fastapi` extension. That extension
+switches the **entire function app** to the FastAPI/ASGI model: routes become
+ASGI routes served by a FastAPI/Starlette app rather than classic
+`HttpRequest`/`HttpResponse` handlers. The two models **cannot be mixed** within
+one function app, so adopting true streaming is an app-wide architectural change,
+not a per-endpoint toggle.
+
+### Design questions for the migration (tracked in #378)
+
+- **Opt-in coexistence.** Can true streaming be offered as an opt-in — e.g. a
+  dedicated ASGI sub-app or a separate streaming entrypoint — without forcing
+  every consumer of this package onto the ASGI model? If not, the migration is a
+  breaking change gated on a major version.
+- **Breaking-change surface.** Moving to ASGI re-touches route registration,
+  per-graph `auth_level` handling (Functions auth vs. ASGI middleware), the
+  health endpoints, and the native-endpoint per-thread locking — each must be
+  re-established under the FastAPI/ASGI model.
+- **Streaming semantics.** Under true streaming, `stream_mode`, backpressure, and
+  the meaning of `max_stream_response_bytes` (a hard buffer cap today) all need
+  redefinition — likely a soft flush threshold or removal.
+- **Release promise.** Core (classic, buffered) vs. Platform-compat streaming
+  guarantees must stay separable so the buffered contract does not silently
+  change under existing users.
+
+Actual implementation of the ASGI migration is **out of scope for #378** — that
+issue establishes the tracker and the design constraints; implementation follows
+in a dedicated issue/PR once an approach is agreed.
+
 ## Sources
 
 - [Azure Functions Python developer reference](https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python)
