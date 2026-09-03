@@ -71,7 +71,7 @@ dev = [
     "pytest",
     "pytest-asyncio>=0.23,<2",
     "pytest-cov",
-    "ruff==0.16.4",
+    "ruff==0.16.5",
     "requests",
     "types-requests",
     # Ceiling <0.4 is NOT ours to lift independently: langgraph core (a runtime
