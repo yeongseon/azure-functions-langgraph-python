@@ -79,7 +79,7 @@ dev = [
     # <0.4.0,>=0.3.0, so the resolver keeps the SDK <0.4 regardless. The 0.4.3
     # wire surface is in fact compatible (see the #368 spike in
     # tests/test_sdk_contracts.py), but the cap stays until langgraph core relaxes.
-    "langgraph-sdk>=0.2.2,<0.4",
+    "langgraph-sdk>=0.2.2,<0.5",
     "langgraph-checkpoint-conformance>=0.0.2,<0.1",
 ]
 docs = [
