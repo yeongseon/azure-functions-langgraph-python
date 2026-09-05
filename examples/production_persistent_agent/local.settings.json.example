@@ -1,0 +1,21 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AZURE_STORAGE_CONNECTION_STRING": "UseDevelopmentStorage=true",
+    "LANGGRAPH_BLOB_CONTAINER": "langgraph-checkpoints",
+    "LANGGRAPH_AUTO_CREATE_STORAGE": "true",
+
+    "_comment_azure_openai": "Fill these in to use a real Azure OpenAI deployment. Leave them unset to run against the deterministic fake model (no credentials needed).",
+    "AZURE_OPENAI_ENDPOINT": "",
+    "AZURE_OPENAI_DEPLOYMENT": "",
+    "AZURE_OPENAI_API_VERSION": "2024-10-21",
+    "AZURE_OPENAI_API_KEY": "",
+    "AZURE_OPENAI_USE_ENTRA_ID": "",
+
+    "_comment_platform": "Set LANGGRAPH_ENABLE_PLATFORM=true to also expose the SDK-compatible thread/run/assistant endpoints backed by an Azure Table thread store. Native persistence does NOT require this.",
+    "LANGGRAPH_ENABLE_PLATFORM": "",
+    "LANGGRAPH_THREADS_TABLE": "langgraphthreads"
+  }
+}
