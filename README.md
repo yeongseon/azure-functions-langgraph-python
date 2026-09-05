@@ -141,6 +141,8 @@ pip install -e .[dev]
 
 > **Need it to remember the conversation?** Then continue to the [**conversation memory example**](examples/conversation_memory/) — the same agent plus a checkpointer, so the same `thread_id` keeps a conversation going across requests.
 
+> **Need the agent to call tools (APIs, DBs, other Functions)?** Continue to the [**tool-calling agent example**](examples/tool_calling_agent/) — the same agent plus a `ToolNode` loop, with the tools as your own code in `tools.py` and an OpenAPI/Swagger bridge wired in.
+
 ```python
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict

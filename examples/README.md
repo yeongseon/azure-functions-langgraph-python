@@ -7,6 +7,7 @@
 | Minimal | [`simple_agent`](simple_agent/) | Two-node greeting agent with sequential edges (deterministic, no LLM). |
 | **Real agent — start here** | [`azure_openai_agent`](azure_openai_agent/) ⭐ | **Recommended after Quick Start.** LangGraph agent backed by a real Azure OpenAI deployment; API-key and Managed Identity paths, deterministic fake-model fallback for CI. |
 | Stateful conversation | [`conversation_memory`](conversation_memory/) ⭐ | **The stateful delta after `azure_openai_agent`.** Same graph plus a checkpointer — same `thread_id` continues a conversation, a different `thread_id` is isolated. In-memory backend, fake-model fallback for CI. |
+| Tool-calling agent | [`tool_calling_agent`](tool_calling_agent/) ⭐ | **The tool-calling delta after `conversation_memory`.** Same agent plus a `ToolNode` loop; tools are your own code in `tools.py`. OpenAPI/Swagger bridge wired in. Deterministic scripted fake-model fallback for CI. |
 | Platform SDK | [`platform_compat_sdk`](platform_compat_sdk/) ⭐ | `platform_compat=True` host driven by the official `langgraph-sdk` client. |
 | Persistent storage | [`persistent_agent_blob_table`](persistent_agent_blob_table/) | End-to-end Azure Blob checkpointer + Azure Table thread store, runnable on Azurite. |
 | DB checkpoint (local) | [`sqlite_checkpoint_local`](sqlite_checkpoint_local/) | LangGraph SQLite checkpointer wired via `create_sqlite_checkpointer()` for local dev. |
@@ -36,6 +37,7 @@ Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` wh
 - **Just want it running (no LLM)?** → `simple_agent`
 - **Want a real Azure OpenAI agent? (start here after Quick Start)** → `azure_openai_agent`
 - **Want conversation memory (same `thread_id` continues a chat)?** → `conversation_memory`
+- **Want the agent to call tools (APIs, DBs, other Functions)?** → `tool_calling_agent`
 - **Switching from LangGraph Cloud / using `langgraph-sdk`?** → `platform_compat_sdk`
 - **Need state to survive restarts and scale-out?** → `persistent_agent_blob_table`
 - **Deploying to Azure with Managed Identity (no secrets in App Settings)?** → `managed_identity_storage`
