@@ -126,7 +126,6 @@ def build_chat_model() -> Any:
 try:
     from langgraph.graph import END, START, StateGraph
     from langgraph.graph.message import add_messages
-    from langgraph.prebuilt import ToolNode, tools_condition
 except ImportError as exc:  # pragma: no cover - defensive import guard
     raise ImportError(
         "langgraph and langchain-core are required for this example. Install with: "
@@ -142,12 +141,15 @@ class AgentState(TypedDict):
 # import errors (if that path is configured) propagate with their own message.
 _model = build_chat_model()
 
+# name -> tool, so the tool node can dispatch whichever tool the model chose.
+_TOOLS_BY_NAME = {t.name: t for t in TOOLS}
+
 
 def agent(state: AgentState) -> dict[str, Any]:
     """Agent node: prepend the system prompt and let the model decide.
 
     The model may return a plain answer or an ``AIMessage`` with ``tool_calls``;
-    ``tools_condition`` routes to the tool node in the latter case.
+    ``route_after_agent`` sends the latter to the tool node.
     """
     from langchain_core.messages import SystemMessage
 
@@ -155,13 +157,41 @@ def agent(state: AgentState) -> dict[str, Any]:
     return {"messages": [response]}
 
 
+def tools(state: AgentState) -> dict[str, Any]:
+    """Tool node: run every tool the agent requested, append the results.
+
+    This is a hand-rolled equivalent of ``langgraph.prebuilt.ToolNode`` — it is
+    intentionally spelled out so you can see exactly how a tool call becomes a
+    ``ToolMessage``, and so the example works across the whole supported
+    ``langgraph>=1.0`` range without depending on the prebuilt package. On newer
+    langgraph you can replace this whole function with ``ToolNode(TOOLS)``.
+    """
+    from langchain_core.messages import ToolMessage
+
+    last = state["messages"][-1]
+    outputs: list[Any] = []
+    for call in last.tool_calls:
+        tool = _TOOLS_BY_NAME[call["name"]]
+        result = tool.invoke(call["args"])
+        outputs.append(
+            ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"])
+        )
+    return {"messages": outputs}
+
+
+def route_after_agent(state: AgentState) -> str:
+    """If the last AIMessage requested tools -> \"tools\", else end the run."""
+    last = state["messages"][-1]
+    if getattr(last, "tool_calls", None):
+        return "tools"
+    return END
+
+
 builder = StateGraph(AgentState)
 builder.add_node("agent", agent)
-# ToolNode executes whichever tool the model chose and appends a ToolMessage.
-builder.add_node("tools", ToolNode(TOOLS))
+builder.add_node("tools", tools)
 builder.add_edge(START, "agent")
-# If the last AIMessage requested tools -> "tools", else -> END.
-builder.add_conditional_edges("agent", tools_condition)
+builder.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
 # After the tool runs, hand the result back to the agent to produce the answer.
 builder.add_edge("tools", "agent")
 

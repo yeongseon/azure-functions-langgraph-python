@@ -6,17 +6,24 @@ real Azure OpenAI agent and how to give it memory. This example adds the next
 capability real agents need: **calling tools**.
 
 The agent decides — per request — whether a question needs a tool. If it does,
-LangGraph routes to a `ToolNode` that executes the chosen tool from
+LangGraph routes to a **tool node** that executes the chosen tool from
 [`tools.py`](tools.py), feeds the result back to the agent, and the agent phrases
 the final answer. If it doesn't, the agent just answers directly.
 
 ```text
 HTTP request
   -> agent node        (Azure OpenAI decides: tool or direct answer?)
-  -> tools node        (ToolNode runs the chosen tool from tools.py)
+  -> tools node        (runs the chosen tool from tools.py)
   -> agent node        (reads the tool result, writes the final answer)
   -> HTTP response
 ```
+
+> The tool node here is **hand-rolled** in [`graph.py`](graph.py) (a small loop
+> that turns each `tool_call` into a `ToolMessage`) so the example works across
+> the whole supported `langgraph>=1.0` range and you can see exactly how a tool
+> call is executed. On newer langgraph you can replace it with the prebuilt
+> `from langgraph.prebuilt import ToolNode` — `ToolNode(TOOLS)` is the drop-in
+> convenience for the same behaviour.
 
 ## The tools are YOUR code, not the adapter's
 
