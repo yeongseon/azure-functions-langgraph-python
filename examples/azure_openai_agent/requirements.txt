@@ -1,0 +1,13 @@
+# Do not include azure-functions-worker in this file
+# The Python Worker is managed by the Azure Functions platform
+#
+# langchain-openai + azure-identity are example-only dependencies. They are NOT
+# part of the base azure-functions-langgraph install — the package stays a
+# deployment adapter and does not pull in model SDKs.
+
+azure-functions
+azure-functions-langgraph>=0.8,<0.9
+langgraph>=1.0,<2.0
+langchain-core>=1.0,<2.0
+langchain-openai>=0.3,<1.0
+azure-identity>=1.19,<2.0
