@@ -14,6 +14,7 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("conversation_memory", "compiled_graph"),
     ("platform_compat_sdk", "compiled_graph"),
     ("openapi_bridge", "compiled_graph"),
+    ("tool_calling_agent", "compiled_graph"),
     ("production_auth", "private_graph"),
     ("production_auth", "public_graph"),
     ("managed_identity_storage", "compiled_graph"),
@@ -65,6 +66,7 @@ EXAMPLE_DIRS = (
     "persistent_agent_blob_table",
     "managed_identity_storage",
     "openapi_bridge",
+    "tool_calling_agent",
     "production_auth",
     "cosmos_checkpoint_azure",
 )
