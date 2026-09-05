@@ -139,6 +139,8 @@ pip install -e .[dev]
 
 > **Want a real agent, not an echo?** After the Quick Start, jump to the [**Azure OpenAI agent example**](examples/azure_openai_agent/) — a deployable LangGraph agent backed by a real Azure OpenAI deployment, with API-key and Managed Identity paths.
 
+> **Need it to remember the conversation?** Then continue to the [**conversation memory example**](examples/conversation_memory/) — the same agent plus a checkpointer, so the same `thread_id` keeps a conversation going across requests.
+
 ```python
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
