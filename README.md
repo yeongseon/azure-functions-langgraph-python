@@ -143,6 +143,8 @@ pip install -e .[dev]
 
 > **Need the agent to call tools (APIs, DBs, other Functions)?** Continue to the [**tool-calling agent example**](examples/tool_calling_agent/) — the same agent plus a `ToolNode` loop, with the tools as your own code in `tools.py` and an OpenAPI/Swagger bridge wired in.
 
+> **Ready for production — memory that survives restarts and scale-out?** Finish the path with the [**production persistent agent example**](examples/production_persistent_agent/) — the same real Azure OpenAI agent whose per-`thread_id` memory is made durable on an Azure Blob checkpointer, wired with Managed Identity in production and Azurite locally. This is the four-step adoption path (real agent → memory → tools → durable production persistence) end to end.
+
 ```python
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
