@@ -9,7 +9,7 @@ from graph import compiled_graph
 from azure_functions_langgraph import LangGraphApp
 
 # Default auth_level is AuthLevel.FUNCTION — deployed endpoints require a
-# function key. See README for the anonymous local-dev opt-in.
+# function key (`?code=<FUNCTION_KEY>` or the `x-functions-key` header).
 langgraph_app = LangGraphApp()
 langgraph_app.register(
     graph=compiled_graph,

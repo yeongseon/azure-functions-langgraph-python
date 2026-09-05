@@ -111,8 +111,9 @@ Identity in production — do not store the key in App Settings).
 
 ## CI / credential-free runs
 
-When `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_DEPLOYMENT` are unset, `graph.py`
-builds a deterministic `GenericFakeChatModel` instead of calling Azure OpenAI.
+Unless Azure OpenAI is **fully** configured — endpoint, deployment, **and** an
+auth method (`AZURE_OPENAI_API_KEY`, or `AZURE_OPENAI_USE_ENTRA_ID=true`) —
+`graph.py` builds a deterministic `GenericFakeChatModel` instead of calling Azure OpenAI.
 This keeps the example importable and smoke-testable in CI without any cloud
 credentials, and the fake path never imports `langchain_openai`. Configure the
 `AZURE_OPENAI_*` variables to use a real deployment.
