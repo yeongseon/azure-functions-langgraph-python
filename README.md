@@ -137,13 +137,18 @@ pip install -e .[dev]
 
 > **New to this package?** Follow the [**Deploy a LangGraph agent to Azure Functions in 5 minutes**](docs/tutorial-5-min.md) tutorial — a genuinely runnable, CI-smoke-tested walkthrough from a compiled graph to live HTTP endpoints, locally and on Azure.
 
-> **Want a real agent, not an echo?** After the Quick Start, jump to the [**Azure OpenAI agent example**](examples/azure_openai_agent/) — a deployable LangGraph agent backed by a real Azure OpenAI deployment, with API-key and Managed Identity paths.
+### Recommended learning path
 
-> **Need it to remember the conversation?** Then continue to the [**conversation memory example**](examples/conversation_memory/) — the same agent plus a checkpointer, so the same `thread_id` keeps a conversation going across requests.
+Once the Quick Start echo agent runs, follow these four examples in order. Each one is the **minimal delta** over the previous step, so you add exactly one production concern at a time — real LLM → memory → tools → durable persistence:
 
-> **Need the agent to call tools (APIs, DBs, other Functions)?** Continue to the [**tool-calling agent example**](examples/tool_calling_agent/) — the same agent plus a `ToolNode` loop, with the tools as your own code in `tools.py` and an OpenAPI/Swagger bridge wired in.
+| Step | Example | What it adds |
+| --- | --- | --- |
+| 1 | [**`azure_openai_agent`**](examples/azure_openai_agent/) | A real agent, not an echo — a deployable LangGraph agent backed by a real Azure OpenAI deployment, with API-key and Managed Identity paths. |
+| 2 | [**`conversation_memory`**](examples/conversation_memory/) | Memory — the same agent plus a checkpointer, so the same `thread_id` keeps a conversation going across requests. |
+| 3 | [**`tool_calling_agent`**](examples/tool_calling_agent/) | Tools — the same agent plus a `ToolNode` loop, with the tools as your own code in `tools.py` and an OpenAPI/Swagger bridge wired in. |
+| 4 | [**`production_persistent_agent`**](examples/production_persistent_agent/) | Durable production persistence — the same real agent whose per-`thread_id` memory is made durable on an Azure Blob checkpointer, wired with Managed Identity in production and Azurite locally. |
 
-> **Ready for production — memory that survives restarts and scale-out?** Finish the path with the [**production persistent agent example**](examples/production_persistent_agent/) — the same real Azure OpenAI agent whose per-`thread_id` memory is made durable on an Azure Blob checkpointer, wired with Managed Identity in production and Azurite locally. This is the four-step adoption path (real agent → memory → tools → durable production persistence) end to end.
+This `azure_openai_agent → conversation_memory → tool_calling_agent → production_persistent_agent` progression takes you from a real agent to a durable, production-ready one end to end. Every example is a standalone Azure Functions app with a deterministic fake-model fallback, so all four pass CI without any cloud credentials.
 
 ```python
 from langgraph.graph import END, START, StateGraph
