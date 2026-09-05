@@ -10,6 +10,7 @@ EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
 GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("simple_agent", "compiled_graph"),
+    ("azure_openai_agent", "compiled_graph"),
     ("platform_compat_sdk", "compiled_graph"),
     ("openapi_bridge", "compiled_graph"),
     ("production_auth", "private_graph"),
@@ -57,6 +58,7 @@ REQUIRED_FILES = (
 
 EXAMPLE_DIRS = (
     "simple_agent",
+    "azure_openai_agent",
     "platform_compat_sdk",
     "persistent_agent_blob_table",
     "managed_identity_storage",

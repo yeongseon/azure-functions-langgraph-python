@@ -137,6 +137,8 @@ pip install -e .[dev]
 
 > **New to this package?** Follow the [**Deploy a LangGraph agent to Azure Functions in 5 minutes**](docs/tutorial-5-min.md) tutorial — a genuinely runnable, CI-smoke-tested walkthrough from a compiled graph to live HTTP endpoints, locally and on Azure.
 
+> **Want a real agent, not an echo?** After the Quick Start, jump to the [**Azure OpenAI agent example**](examples/azure_openai_agent/) — a deployable LangGraph agent backed by a real Azure OpenAI deployment, with API-key and Managed Identity paths.
+
 ```python
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
