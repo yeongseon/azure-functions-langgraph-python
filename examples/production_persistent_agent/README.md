@@ -157,14 +157,20 @@ Consumption / Elastic Premium your app runs on **many instances**, so also mind:
 
 - **Single-writer checkpointer.** `AzureBlobCheckpointSaver` is a single-writer
   store. Concurrent writes to the **same `thread_id`** from different instances
-  can race. The native endpoints take an **in-process** per-thread lock, which
-  does **not** coordinate across instances.
-- **Distributed locking.** For multi-instance safety, either wire a distributed
-  `ThreadLock` (the package ships `AzureBlobLeaseThreadLock`, backed by Azure
-  Blob leases) **or** route through Platform-compatible runs
-  (`LANGGRAPH_ENABLE_PLATFORM=true`) with `AzureTableThreadStore`, which uses
-  ETag-based atomic run locks. Set `AZFUNC_LANGGRAPH_LOCK_BACKEND=distributed`
-  to fail-fast at startup if you forgot. See
+  can race. The default in-process per-thread lock does **not** coordinate
+  across instances, so this example wires a distributed lock (below).
+- **Distributed locking (wired by default).** `function_app.py` constructs an
+  `AzureBlobLeaseThreadLock` (Azure Blob lease CAS, with background lease
+  renewal) and passes it as `thread_lock=...`, reusing the **same** checkpoint
+  container — its marker blobs live under a `thread-locks/` prefix, so no extra
+  infrastructure is needed. The native endpoints therefore serialize per-
+  `thread_id` writes across Function instances out of the box. Set
+  `LANGGRAPH_ENABLE_DISTRIBUTED_LOCK=false` to fall back to the in-process lock
+  for single-instance/local runs. Alternatively, route through Platform-
+  compatible runs (`LANGGRAPH_ENABLE_PLATFORM=true`) with `AzureTableThreadStore`,
+  which uses ETag-based atomic run locks. Set
+  `AZFUNC_LANGGRAPH_LOCK_BACKEND=distributed` to fail-fast at startup if a
+  distributed backend is ever not wired. See
   [README → Distributed thread locking](../../README.md#distributed-thread-locking-v06)
   and [`docs/production-guide.md`](../../docs/production-guide.md#distributed-thread-locking).
 - **Functions timeout.** A graph run must finish inside the Functions execution
