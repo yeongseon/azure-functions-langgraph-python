@@ -9,6 +9,7 @@ Issue: #41
 
 from __future__ import annotations
 
+from importlib.metadata import version as _pkg_version
 import json
 import operator
 from typing import Annotated, Any, TypedDict
@@ -16,8 +17,27 @@ from typing import Annotated, Any, TypedDict
 import azure.functions as func
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
+import pytest
 
 from azure_functions_langgraph.app import LangGraphApp
+
+
+def _langgraph_supports_v2() -> bool:
+    """``version='v2'`` requires langgraph>=1.1 (GraphOutput / StreamPart)."""
+    parts = _pkg_version("langgraph").split(".")
+    try:
+        major, minor = int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):  # pragma: no cover - defensive
+        return False
+    return (major, minor) >= (1, 1)
+
+
+_requires_v2 = pytest.mark.skipif(
+    not _langgraph_supports_v2(),
+    reason="langgraph<1.1 does not support version='v2'",
+)
+
+
 
 # ---------------------------------------------------------------------------
 # Graph state & deterministic nodes
@@ -462,6 +482,7 @@ class TestNativeStreamState:
 class TestNativeVersionPassthrough:
     """Forwarding the optional ``version`` field to invoke/stream (#423)."""
 
+    @_requires_v2
     def test_invoke_v2_returns_graph_output_envelope(self) -> None:
         """version='v2' invoke returns the GraphOutput {value, interrupts} shape."""
         saver = MemorySaver()
@@ -510,6 +531,7 @@ class TestNativeVersionPassthrough:
         assert output["last_reply"] == "Hello, Alice!"
         assert output["turn_count"] == 1
 
+    @_requires_v2
     def test_stream_v2_emits_streampart_frames(self) -> None:
         """version='v2' stream yields StreamPart dicts (type/ns/data/interrupts)."""
         saver = MemorySaver()
