@@ -74,12 +74,13 @@ dev = [
     "ruff==0.16.5",
     "requests",
     "types-requests",
-    # Ceiling <0.4 is NOT ours to lift independently: langgraph core (a runtime
-    # dep, langgraph>=1.0,<2.0 -> currently 1.1.x) itself pins langgraph-sdk
-    # <0.4.0,>=0.3.0, so the resolver keeps the SDK <0.4 regardless. The 0.4.3
-    # wire surface is in fact compatible (see the #368 spike in
-    # tests/test_sdk_contracts.py), but the cap stays until langgraph core relaxes.
-    "langgraph-sdk>=0.2.2,<0.4",
+    # langgraph core 1.2.9+ pins langgraph-sdk >=0.4.2,<0.5, so the resolver now
+    # pulls the 0.4.x line by default. The 0.4.x wire surface this package mirrors
+    # is compatible (verified by the #368 spike in tests/test_sdk_contracts.py and
+    # the full suite green under langgraph 1.2.11 + langgraph-sdk 0.4.4 in the
+    # `langgraph-latest` CI lane, #421). The floor stays at 0.2.2 so the
+    # `langgraph-min` lane (langgraph==1.0.0 -> langgraph-sdk 0.2.2) still resolves.
+    "langgraph-sdk>=0.2.2,<0.5",
     "langgraph-checkpoint-conformance>=0.0.2,<0.1",
 ]
 docs = [

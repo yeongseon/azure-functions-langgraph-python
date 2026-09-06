@@ -4,14 +4,32 @@
 
 | Package | Supported Versions | Notes |
 |---|---|---|
-| `langgraph` | `>=1.0,<2.0` | Runtime dependency. CI covers the minimum supported 1.x release (1.0.0) plus the latest resolved 1.x release on every Python version (3.10–3.14). |
-| `langgraph-sdk` | `>=0.2.2,<0.4` | Platform compat layer mirrors this SDK version's REST API shapes. The floor tracks the minimum supported `langgraph` (1.0.0), which resolves `langgraph-sdk 0.2.2`. |
+| `langgraph` | `>=1.0,<2.0` | Runtime dependency. CI certifies both ends of the supported window on a rolling basis: the `langgraph-min` lane pins the minimum supported 1.x release (1.0.0), and the `langgraph-latest` lane pins the latest certified 1.2.x. The coverage-gated matrix (Python 3.10–3.14) resolves the newest compatible 1.x by default. |
+| `langgraph-sdk` | `>=0.2.2,<0.5` | Platform compat layer mirrors this SDK version's REST API shapes. The floor tracks the minimum supported `langgraph` (1.0.0 -> `langgraph-sdk 0.2.2`); the ceiling was lifted to `<0.5` once `langgraph` core 1.2.9+ moved to `langgraph-sdk >=0.4.2,<0.5`. The 0.4.x wire surface is certified identical to 0.3.x (issue #368 spike + `langgraph-latest` lane, #421). |
 | `pydantic` | `>=2.0` | Required for request/response models. |
 | `azure-functions` | `>=1.17` | Azure Functions Python v2 programming model. |
 
+### Rolling minimum-version window
+
+This package tracks a **rolling window** of supported LangGraph releases rather
+than freezing a single pinned version. The window has two ends, both enforced in
+CI (`.github/workflows/ci-test.yml`):
+
+- **Minimum** — the lowest LangGraph release the package promises to run on. The
+  `langgraph-min` lane pins `langgraph==1.0.0` (which resolves `langgraph-sdk
+  0.2.2`) and runs the suite against it.
+- **Latest certified** — the newest LangGraph line proven compatible. The
+  `langgraph-latest` lane pins `langgraph>=1.2.9,<2` + `langgraph-sdk>=0.4.2,<0.5`.
+
+As the ecosystem moves, the minimum is advanced deliberately (tied to this
+package's own version milestones) and the latest-certified lane is bumped to the
+newest proven LangGraph line. The default, coverage-gated test matrix resolves
+the newest compatible release automatically, so a regression in the latest line
+is caught by the gate, not silently shipped.
+
 ## Platform Compatibility Layer
 
-The `platform/` subpackage mirrors the LangGraph Platform REST API as understood by `langgraph-sdk >=0.2.2,<0.4`. This means:
+The `platform/` subpackage mirrors the LangGraph Platform REST API as understood by `langgraph-sdk >=0.2.2,<0.5`. This means:
 
 1. **Response shapes** — JSON response structures match what `langgraph-sdk` expects. Required fields, types, and nesting are tested via contract tests in `tests/test_sdk_contracts.py`.
 
