@@ -452,3 +452,164 @@ class TestNativeStreamState:
         assert state_data["values"]["history"] == ["Hello, Streamer!"]
         assert state_data["values"]["last_reply"] == "Hello, Streamer!"
         assert state_data["next"] == []
+
+
+# ---------------------------------------------------------------------------
+# Tests — version pass-through (#423)
+# ---------------------------------------------------------------------------
+
+
+class TestNativeVersionPassthrough:
+    """Forwarding the optional ``version`` field to invoke/stream (#423)."""
+
+    def test_invoke_v2_returns_graph_output_envelope(self) -> None:
+        """version='v2' invoke returns the GraphOutput {value, interrupts} shape."""
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post(
+            "/api/graphs/agent/invoke",
+            {
+                "input": {"user_text": "Alice", "history": [], "turn_count": 0},
+                "config": {"configurable": {"thread_id": "v2-t1"}},
+                "version": "v2",
+            },
+        )
+        resp = handler(req)
+        assert resp.status_code == 200
+        output = json.loads(resp.get_body())["output"]
+
+        # v2 wraps the state in a GraphOutput envelope, unlike the default shape.
+        assert set(output.keys()) == {"value", "interrupts"}
+        assert output["value"]["last_reply"] == "Hello, Alice!"
+        assert output["value"]["turn_count"] == 1
+        assert output["interrupts"] == []
+
+    def test_invoke_default_shape_unchanged(self) -> None:
+        """Omitting version keeps the flat state dict (no behavior change)."""
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post(
+            "/api/graphs/agent/invoke",
+            {
+                "input": {"user_text": "Alice", "history": [], "turn_count": 0},
+                "config": {"configurable": {"thread_id": "v-default"}},
+            },
+        )
+        resp = handler(req)
+        assert resp.status_code == 200
+        output = json.loads(resp.get_body())["output"]
+
+        # Flat state — no GraphOutput envelope.
+        assert "value" not in output
+        assert output["last_reply"] == "Hello, Alice!"
+        assert output["turn_count"] == 1
+
+    def test_stream_v2_emits_streampart_frames(self) -> None:
+        """version='v2' stream yields StreamPart dicts (type/ns/data/interrupts)."""
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        req = _post(
+            "/api/graphs/agent/stream",
+            {
+                "input": {"user_text": "Bob", "history": [], "turn_count": 0},
+                "config": {"configurable": {"thread_id": "v2-stream"}},
+                "stream_mode": "values",
+                "version": "v2",
+            },
+        )
+        resp = handler(req)
+        assert resp.status_code == 200
+        frames = _parse_sse_frames(resp.get_body().decode())
+        data_frames = [
+            f for f in frames if f["event"] == "data" and isinstance(f["data"], dict)
+        ]
+        assert data_frames
+        for frame in data_frames:
+            # StreamPart shape rather than a bare state snapshot.
+            assert set(frame["data"].keys()) == {"type", "ns", "data", "interrupts"}
+            assert frame["data"]["type"] == "values"
+        final = data_frames[-1]["data"]["data"]
+        assert final["turn_count"] == 1
+        assert final["last_reply"] == "Hello, Bob!"
+
+    def test_invoke_invalid_version_rejected(self) -> None:
+        """An out-of-range version value fails Literal validation with 422."""
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post(
+            "/api/graphs/agent/invoke",
+            {
+                "input": {"user_text": "Alice"},
+                "version": "v9",
+            },
+        )
+        resp = handler(req)
+        assert resp.status_code == 422
+
+
+class TestVersionKwargHelpers:
+    """Unit coverage for the structural version-capability helpers (#423)."""
+
+    def test_method_accepts_explicit_version_param(self) -> None:
+        from azure_functions_langgraph._handlers import _method_accepts_version
+
+        def fn(input: Any, *, version: str | None = None) -> None: ...
+
+        assert _method_accepts_version(fn) is True
+
+    def test_method_accepts_var_keyword(self) -> None:
+        from azure_functions_langgraph._handlers import _method_accepts_version
+
+        def fn(input: Any, **kwargs: Any) -> None: ...
+
+        assert _method_accepts_version(fn) is True
+
+    def test_method_without_version_rejected(self) -> None:
+        from azure_functions_langgraph._handlers import _method_accepts_version
+
+        def fn(input: Any, config: Any = None) -> None: ...
+
+        assert _method_accepts_version(fn) is False
+
+    def test_method_uninspectable_returns_false(self) -> None:
+        from azure_functions_langgraph._handlers import _method_accepts_version
+
+        # ``print`` is a builtin whose signature cannot be introspected.
+        assert _method_accepts_version(print) is False
+
+    def test_resolve_returns_empty_when_no_version(self) -> None:
+        from azure_functions_langgraph._handlers import _resolve_version_kwarg
+
+        def fn(input: Any, **kwargs: Any) -> None: ...
+
+        assert _resolve_version_kwarg(fn, None, "agent") == {}
+
+    def test_resolve_forwards_supported_version(self) -> None:
+        from azure_functions_langgraph._handlers import _resolve_version_kwarg
+
+        def fn(input: Any, **kwargs: Any) -> None: ...
+
+        assert _resolve_version_kwarg(fn, "v2", "agent") == {"version": "v2"}
+
+    def test_resolve_rejects_unsupported_graph(self) -> None:
+        from azure_functions_langgraph._handlers import _resolve_version_kwarg
+
+        def fn(input: Any, config: Any = None) -> None: ...
+
+        result = _resolve_version_kwarg(fn, "v2", "agent")
+        assert isinstance(result, func.HttpResponse)
+        assert result.status_code == 422
+        body = json.loads(result.get_body())
+        assert "version" in body["detail"]

@@ -9,6 +9,7 @@ receives only the explicit dependencies it needs — no reference to
 from __future__ import annotations
 
 import dataclasses
+import inspect
 import json
 import logging
 from typing import Any, Protocol, TypeVar
@@ -67,6 +68,45 @@ def _error_response(status_code: int, detail: str) -> func.HttpResponse:
         status_code=status_code,
     )
 
+
+def _method_accepts_version(method: Any) -> bool:
+    """Return ``True`` if *method* accepts a ``version`` keyword argument.
+
+    Used to decide whether a caller-supplied ``version`` can be forwarded to a
+    structural graph. Matches an explicit ``version`` parameter or a
+    ``**kwargs`` catch-all; returns ``False`` when the signature cannot be
+    introspected (e.g. some C-level callables).
+    """
+    try:
+        sig = inspect.signature(method)
+    except (TypeError, ValueError):
+        return False
+    for param in sig.parameters.values():
+        if param.name == "version" or param.kind is inspect.Parameter.VAR_KEYWORD:
+            return True
+    return False
+
+
+def _resolve_version_kwarg(
+    method: Any, version: str | None, graph_name: str
+) -> dict[str, str] | func.HttpResponse:
+    """Resolve the caller's ``version`` request into forwardable kwargs.
+
+    Returns ``{}`` when no version was requested, ``{"version": version}`` when
+    it can be forwarded, or a ``422`` error response when the caller asked for a
+    version but the target graph method does not accept one. Capability is
+    detected structurally so any ``LangGraphLike`` graph works without requiring
+    ``version`` on the base protocol.
+    """
+    if version is None:
+        return {}
+    if not _method_accepts_version(method):
+        return _error_response(
+            422,
+            f"Graph {graph_name!r} does not accept a 'version' argument "
+            "(requires langgraph>=1.1)",
+        )
+    return {"version": version}
 
 class _ParsableRequest(Protocol):
     """Structural type for the native invoke/stream request bodies."""
@@ -194,6 +234,9 @@ def handle_invoke(
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
         return _error_response(400, cfg_err)
+    version_kwargs = _resolve_version_kwarg(reg.graph.invoke, request.version, reg.name)
+    if isinstance(version_kwargs, func.HttpResponse):
+        return version_kwargs
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
@@ -203,7 +246,7 @@ def handle_invoke(
                 409, f"Thread {thread_id!r} is currently in use by another request"
             )
     try:
-        result = reg.graph.invoke(request.input, config=config)
+        result = reg.graph.invoke(request.input, config=config, **version_kwargs)
     except Exception as exc:
         logger.exception("Graph %s invoke failed", reg.name)
         _ = exc
@@ -266,6 +309,9 @@ def handle_stream(
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
         return _error_response(400, cfg_err)
+    version_kwargs = _resolve_version_kwarg(reg.graph.stream, request.version, reg.name)
+    if isinstance(version_kwargs, func.HttpResponse):
+        return version_kwargs
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
@@ -301,6 +347,7 @@ def handle_stream(
             request.input,
             config=config,
             stream_mode=request.stream_mode,
+            **version_kwargs,
         ):
             serialized = json.dumps(
                 event if isinstance(event, dict) else {"data": str(event)},
