@@ -142,3 +142,63 @@ def test_threads_are_isolated(azurite_container_client: Any) -> None:
     other_state = graph.get_state({"configurable": {"thread_id": "thread-b"}})
     # thread-b has never been written — no checkpoint, empty values.
     assert not other_state.values.get("messages")
+
+
+def _load_example_function_app(container_name: str) -> Any:
+    """Import the example's function_app.py against Azurite (fake-model path).
+
+    Points every storage env var at Azurite and enables auto-create so the
+    module-level wiring (checkpointer + distributed lock) builds cleanly. The
+    module is loaded fresh each call so env changes take effect.
+    """
+    path = EXAMPLE_DIR / "function_app.py"
+    spec = importlib.util.spec_from_file_location(
+        f"_production_persistent_agent_function_app_{uuid.uuid4().hex}", path
+    )
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    sys.path.insert(0, str(EXAMPLE_DIR))
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.pop(0)
+    return mod
+
+
+def test_function_app_wires_distributed_lock(
+    azurite_container_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """function_app.py wires an AzureBlobLeaseThreadLock by default."""
+    from azure_functions_langgraph.locks import AzureBlobLeaseThreadLock
+
+    container_name = azurite_container_client.container_name
+    monkeypatch.setenv("AZURE_STORAGE_CONNECTION_STRING", AZURITE_BLOB_CONNECTION_STRING)
+    monkeypatch.setenv("LANGGRAPH_BLOB_CONTAINER", container_name)
+    monkeypatch.delenv("AZURE_STORAGE_BLOB_ACCOUNT_URL", raising=False)
+    # Container already created by the fixture — no auto-create needed.
+    monkeypatch.delenv("LANGGRAPH_AUTO_CREATE_STORAGE", raising=False)
+
+    mod = _load_example_function_app(container_name)
+    try:
+        assert isinstance(mod.langgraph_app.thread_lock, AzureBlobLeaseThreadLock)
+    finally:
+        # Stop the background lease-renewal daemon thread.
+        mod.langgraph_app.thread_lock.close()
+
+
+def test_function_app_lock_opt_out(
+    azurite_container_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LANGGRAPH_ENABLE_DISTRIBUTED_LOCK=false falls back to the in-process lock."""
+    from azure_functions_langgraph.locks import InProcessThreadLock
+
+    container_name = azurite_container_client.container_name
+    monkeypatch.setenv("AZURE_STORAGE_CONNECTION_STRING", AZURITE_BLOB_CONNECTION_STRING)
+    monkeypatch.setenv("LANGGRAPH_BLOB_CONTAINER", container_name)
+    monkeypatch.setenv("LANGGRAPH_ENABLE_DISTRIBUTED_LOCK", "false")
+    monkeypatch.delenv("AZURE_STORAGE_BLOB_ACCOUNT_URL", raising=False)
+    monkeypatch.delenv("LANGGRAPH_AUTO_CREATE_STORAGE", raising=False)
+
+    mod = _load_example_function_app(container_name)
+    assert isinstance(mod.langgraph_app.thread_lock, InProcessThreadLock)

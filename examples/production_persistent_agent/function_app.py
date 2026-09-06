@@ -9,6 +9,9 @@ Wiring responsibilities live **here**, not in ``graph.py``:
 * Wrap it in ``AzureBlobCheckpointSaver`` so graph state is durable and
   Azure-native.
 * Compile the graph *with* that checkpointer and register it.
+* Wire a distributed ``AzureBlobLeaseThreadLock`` (reusing the same container)
+  so the native endpoints coordinate per-``thread_id`` writes across Function
+  instances — on by default, opt out with ``LANGGRAPH_ENABLE_DISTRIBUTED_LOCK``.
 
 The native invoke/stream/state endpoints alone deliver persistent per-``thread_id``
 state — no Platform layer required. Platform compatibility (``platform_compat``
@@ -29,6 +32,7 @@ import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
+from azure_functions_langgraph.locks import ThreadLock
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +46,19 @@ _CONN_STRING = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
 # Optional Platform-compatibility layer (SDK-compatible thread/run/assistant
 # endpoints). Native persistence works WITHOUT this — see the README.
 _ENABLE_PLATFORM = os.environ.get("LANGGRAPH_ENABLE_PLATFORM", "false").strip().lower() in _TRUTHY
+
+# Distributed thread locking (v0.6+). This example is named *production* and its
+# README promises memory that survives **scale-out**, so it wires a distributed
+# ``AzureBlobLeaseThreadLock`` by default: the native invoke/stream endpoints
+# then coordinate per-``thread_id`` writes across Function instances instead of
+# relying on the in-process default (which cannot protect the single-writer Blob
+# checkpointer across instances). The lock reuses the SAME checkpoint container
+# — its marker blobs live under the lock's own ``thread-locks/`` prefix — so no
+# extra infrastructure is required. Set LANGGRAPH_ENABLE_DISTRIBUTED_LOCK=false to
+# fall back to the in-process lock for single-instance/local runs.
+_ENABLE_DISTRIBUTED_LOCK = (
+    os.environ.get("LANGGRAPH_ENABLE_DISTRIBUTED_LOCK", "true").strip().lower() in _TRUTHY
+)
 _TABLE_ENDPOINT = os.environ.get("AZURE_TABLE_ENDPOINT")
 _THREADS_TABLE = os.environ.get("LANGGRAPH_THREADS_TABLE", "langgraphthreads")
 
@@ -98,11 +115,23 @@ checkpointer = AzureBlobCheckpointSaver(container_client=container_client)
 # Compile the SAME graph definition WITH durable persistence attached.
 compiled_graph = build_graph().compile(checkpointer=checkpointer)
 
+# Build the distributed thread lock (reusing the checkpoint container) before
+# constructing the app, so native endpoints coordinate writes across instances.
+thread_lock: ThreadLock | None = None
+if _ENABLE_DISTRIBUTED_LOCK:
+    from azure_functions_langgraph.locks import AzureBlobLeaseThreadLock
+
+    # The container already exists (pre-created in prod, or bootstrapped above via
+    # LANGGRAPH_AUTO_CREATE_STORAGE); AzureBlobLeaseThreadLock never creates it.
+    thread_lock = AzureBlobLeaseThreadLock(container_client=container_client)
+
 langgraph_app = LangGraphApp(
     platform_compat=_ENABLE_PLATFORM,
     auth_level=func.AuthLevel.FUNCTION,
     # Explicitly protect the health-details inventory in production.
     health_auth_level=func.AuthLevel.FUNCTION,
+    # Distributed per-thread lock (None -> in-process default when disabled).
+    thread_lock=thread_lock,
 )
 
 # Optional Platform layer: attach an Azure Table thread store so the
