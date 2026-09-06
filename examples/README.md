@@ -17,6 +17,7 @@
 | Managed Identity | [`managed_identity_storage`](managed_identity_storage/) | Same backends wired with `DefaultAzureCredential` for production, with Azurite fallback for local dev. |
 | OpenAPI bridge (isolated) | [`openapi_bridge`](openapi_bridge/) | Minimal echo graph showing `register_with_openapi` wiring in isolation. For the bridge on a **real agent**, see `tool_calling_agent`. |
 | Per-graph auth | [`production_auth`](production_auth/) | Public health + anonymous demo graph alongside a function-key-protected graph. |
+| Versioned output | [`versioned_output_agent`](versioned_output_agent/) | Opt into LangGraph's `version="v2"` unified `GraphOutput` / `StreamPart` shapes via the request contract. |
 | Curl helpers | [`local_curl`](local_curl/) | Shell scripts for hitting every Quick Start endpoint locally. |
 | Maintenance timer | [`maintenance_timer`](maintenance_timer/) | Timer Trigger that resets stale run locks on `AzureTableThreadStore`. |
 

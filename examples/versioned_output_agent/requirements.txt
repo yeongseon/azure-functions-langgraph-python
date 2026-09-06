@@ -1,0 +1,8 @@
+# Do not include azure-functions-worker in this file
+# The Python Worker is managed by the Azure Functions platform
+
+azure-functions
+azure-functions-langgraph==0.1.0a0
+# version="v2" pass-through requires langgraph>=1.1
+langgraph>=1.1,<2.0
+langchain-core>=1.0,<2.0

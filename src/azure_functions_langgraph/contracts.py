@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Mapping, Optional, TypeGuard
+from typing import Any, Literal, Mapping, Optional, TypeGuard
 
 from pydantic import BaseModel, Field, create_model
 
+# LangGraph's ``invoke``/``stream`` (and their async twins) accept an optional
+# ``version`` argument since LangGraph 1.1: ``"v2"`` returns the unified
+# ``GraphOutput`` / ``StreamPart`` shapes, while ``"v1"`` preserves the legacy
+# output. We expose this as an opt-in request field — the default (``None``)
+# omits the argument entirely, so existing clients see no behaviour change.
+LangGraphVersion = Literal["v1", "v2"]
 
 class InvokeRequest(BaseModel):
     """Request body for graph invocation."""
@@ -16,6 +22,14 @@ class InvokeRequest(BaseModel):
     config: Optional[dict[str, Any]] = Field(
         default=None,
         description="LangGraph config, e.g. {'configurable': {'thread_id': '...'}}",
+    )
+    version: Optional[LangGraphVersion] = Field(
+        default=None,
+        description=(
+            "Optional LangGraph output version ('v1' or 'v2'). Forwarded to "
+            "graph.invoke(..., version=...) only when set; requires langgraph>=1.1. "
+            "'v2' returns a GraphOutput {'value', 'interrupts'} shape."
+        ),
     )
 
 
@@ -30,6 +44,14 @@ class StreamRequest(BaseModel):
     stream_mode: str = Field(
         default="values",
         description="Stream mode: 'values', 'updates', 'messages', or 'custom'",
+    )
+    version: Optional[LangGraphVersion] = Field(
+        default=None,
+        description=(
+            "Optional LangGraph output version ('v1' or 'v2'). Forwarded to "
+            "graph.stream(..., version=...) only when set; requires langgraph>=1.1. "
+            "'v2' emits unified StreamPart {'type','ns','data','interrupts'} events."
+        ),
     )
 
 
@@ -78,6 +100,16 @@ def build_invoke_request_model(input_model: Optional[type[Any]]) -> type[BaseMod
                     description="LangGraph config, e.g. {'configurable': {'thread_id': '...'}}",
                 ),
             ),
+            version=(
+                Optional[LangGraphVersion],
+                Field(
+                    default=None,
+                    description=(
+                        "Optional LangGraph output version ('v1' or 'v2'); "
+                        "forwarded to graph.invoke only when set (requires langgraph>=1.1)."
+                    ),
+                ),
+            ),
         )
     return InvokeRequest
 
@@ -121,6 +153,16 @@ def build_stream_request_model(input_model: Optional[type[Any]]) -> type[BaseMod
                 Field(
                     default="values",
                     description="Stream mode: 'values', 'updates', 'messages', or 'custom'",
+                ),
+            ),
+            version=(
+                Optional[LangGraphVersion],
+                Field(
+                    default=None,
+                    description=(
+                        "Optional LangGraph output version ('v1' or 'v2'); "
+                        "forwarded to graph.stream only when set (requires langgraph>=1.1)."
+                    ),
                 ),
             ),
         )
