@@ -113,6 +113,41 @@ jobs:
         # this pinned run (a separate job from the coverage-enforcing matrix).
         run: pytest tests/test_sdk_contracts.py tests/test_sdk_compat.py --no-cov -q
 
+  langgraph-latest:
+    name: langgraph compat (latest certified 1.2.x)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install package and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,azure-blob,azure-table]"
+
+      - name: Pin langgraph to the latest certified 1.2.x + langgraph-sdk 0.4.x
+        # Rolling-window certification (issue #421): langgraph core 1.2.9+ pins
+        # langgraph-sdk >=0.4.2,<0.5, a line the default dev resolve now already
+        # picks up. This lane pins the floor of that window explicitly so the
+        # latest supported LangGraph/SDK pair is proven even if a future core
+        # release temporarily regresses the default resolve. The langgraph-min
+        # lane pins langgraph==1.0.0 to hold the other end of the window.
+        run: pip install "langgraph>=1.2.9,<2" "langgraph-sdk>=0.4.2,<0.5"
+
+      - name: Show resolved versions
+        run: pip show langgraph langgraph-sdk | grep -E '^(Name|Version):'
+
+      - name: Run tests against the latest certified langgraph line
+        # Compatibility smoke only: `--no-cov` disables the coverage gate for this
+        # pinned run (a separate job from the coverage-enforcing matrix).
+        run: pytest tests/ --no-cov -q
+
+
   azure-functions-2x:
     name: azure-functions 2.x compat (Py 3.13)
     runs-on: ubuntu-latest

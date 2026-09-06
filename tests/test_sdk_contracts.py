@@ -157,10 +157,10 @@ def _parse_version(raw: str) -> tuple[int, int]:
 
 
 def test_installed_langgraph_sdk_within_supported_range() -> None:
-    """Drift guard: the installed langgraph-sdk must stay within >=0.2.2,<0.4.
+    """Drift guard: the installed langgraph-sdk must stay within >=0.2.2,<0.5.
 
     The ``platform/contracts.py`` response/request models mirror the
-    ``langgraph-sdk >=0.2.2,<0.4`` wire format. This single source of truth is
+    ``langgraph-sdk >=0.2.2,<0.5`` wire format. This single source of truth is
     also pinned in ``pyproject.toml`` (dev extra) and documented in
     ``COMPATIBILITY.md``. If the installed SDK falls outside the range, the
     contract models may silently drift from the real wire format, so fail
@@ -170,13 +170,15 @@ def test_installed_langgraph_sdk_within_supported_range() -> None:
     surface this package mirrors (Assistant, Thread, ThreadState, ThreadTask,
     Run, RunCreate, Checkpoint) is byte-identical to 0.3.x, sse.py/errors.py
     differ only in type-checker-ignore comment style, and 0.4.3 keeps
-    ``Requires-Python >=3.10``. The ``<0.4`` ceiling is therefore NOT a wire
-    limitation — it is transitively enforced by langgraph core (``langgraph``
-    1.1.x pins ``langgraph-sdk<0.4.0,>=0.3.0``). Lifting this package's own cap
-    to ``<0.5`` would be inert (the resolver keeps <0.4 via langgraph core) and
-    harmful if force-installed, so the cap stays put until langgraph core
-    relaxes its own bound.
+    ``Requires-Python >=3.10``.
+
+    Issue #421: langgraph core 1.2.9+ pins ``langgraph-sdk>=0.4.2,<0.5``, so the
+    resolver now pulls the 0.4.x line by default. The full suite is certified
+    against langgraph 1.2.x + langgraph-sdk 0.4.x (see the ``langgraph-latest``
+    CI lane), so this package's dev cap was lifted from ``<0.4`` to ``<0.5`` and
+    the ceiling below tracks that. The ``langgraph-min`` lane still pins
+    langgraph==1.0.0 (which resolves langgraph-sdk 0.2.2) to hold the floor.
     """
     major, minor = _parse_version(importlib_metadata.version("langgraph-sdk"))
     assert (major, minor) >= (0, 2), "langgraph-sdk below supported floor >=0.2.2"
-    assert (major, minor) < (0, 4), "langgraph-sdk at/above unsupported ceiling <0.4"
+    assert (major, minor) < (0, 5), "langgraph-sdk at/above unsupported ceiling <0.5"
