@@ -18,6 +18,7 @@
 | OpenAPI bridge (isolated) | [`openapi_bridge`](openapi_bridge/) | Minimal echo graph showing `register_with_openapi` wiring in isolation. For the bridge on a **real agent**, see `tool_calling_agent`. |
 | Per-graph auth | [`production_auth`](production_auth/) | Public health + anonymous demo graph alongside a function-key-protected graph. |
 | Versioned output | [`versioned_output_agent`](versioned_output_agent/) | Opt into LangGraph's `version="v2"` unified `GraphOutput` / `StreamPart` shapes via the request contract. |
+| Async agent | [`async_agent`](async_agent/) | Serve a graph with `async def` nodes through the native async path (`async_mode=True` → `await ainvoke`/`astream`). |
 | Curl helpers | [`local_curl`](local_curl/) | Shell scripts for hitting every Quick Start endpoint locally. |
 | Maintenance timer | [`maintenance_timer`](maintenance_timer/) | Timer Trigger that resets stale run locks on `AzureTableThreadStore`. |
 
@@ -51,4 +52,5 @@ Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` wh
 - **Want OpenAPI / Swagger UI on a real agent?** → `tool_calling_agent` (bridge wired into a tool-calling agent); **just the bridge in isolation?** → `openapi_bridge`
 - **Mixing public and private graphs?** → `production_auth`
 - **Verifying a deployed Function App from the terminal?** → `local_curl`
+- **Serving a graph with async nodes (`await` real I/O)?** → `async_agent`
 - **Recovering orphaned run locks automatically?** → `maintenance_timer`

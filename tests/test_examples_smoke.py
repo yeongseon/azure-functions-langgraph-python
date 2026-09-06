@@ -21,6 +21,7 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("cosmos_checkpoint_azure", "compiled_graph"),
     ("production_persistent_agent", "compiled_graph"),
     ("versioned_output_agent", "compiled_graph"),
+    ("async_agent", "compiled_graph"),
 )
 
 
@@ -73,6 +74,7 @@ EXAMPLE_DIRS = (
     "cosmos_checkpoint_azure",
     "production_persistent_agent",
     "versioned_output_agent",
+    "async_agent",
 )
 
 

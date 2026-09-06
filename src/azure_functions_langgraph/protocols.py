@@ -6,7 +6,7 @@ without requiring a hard import of ``langgraph``.
 
 from __future__ import annotations
 
-from typing import Any, Iterator, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Awaitable, Iterator, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -26,6 +26,27 @@ class StreamableGraph(Protocol):
         config: dict[str, Any] | None = ...,
         stream_mode: str = ...,
     ) -> Iterator[Any]: ...
+
+
+@runtime_checkable
+class AsyncInvocableGraph(Protocol):
+    """Protocol for a graph that supports asynchronous invocation."""
+
+    def ainvoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = ...
+    ) -> Awaitable[Any]: ...
+
+
+@runtime_checkable
+class AsyncStreamableGraph(Protocol):
+    """Protocol for a graph that supports asynchronous streaming."""
+
+    def astream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = ...,
+        stream_mode: str = ...,
+    ) -> AsyncIterator[Any]: ...
 
 
 @runtime_checkable
