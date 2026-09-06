@@ -44,3 +44,12 @@ jobs:
 
       - name: Run blob checkpointer conformance (Azurite)
         run: pytest -v -m integration tests/integration/test_checkpoint_conformance.py --no-cov
+
+      - name: Run production_persistent_agent capstone durability test (Azurite)
+        # The learning-path capstone's durability promise (state survives
+        # checkpointer recreation) is proven only here: this is the one job that
+        # provides a live Azurite blob backend for
+        # tests/test_production_persistent_agent_example.py. Without it the test
+        # skips in every other job, leaving the capstone's core claim unverified
+        # in CI (issue #418).
+        run: pytest -v -m integration tests/test_production_persistent_agent_example.py --no-cov
