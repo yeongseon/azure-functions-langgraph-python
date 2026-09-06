@@ -22,6 +22,8 @@ if TYPE_CHECKING:
         StreamRequest,
     )
     from azure_functions_langgraph.protocols import (
+        AsyncInvocableGraph,
+        AsyncStreamableGraph,
         CloneableGraph,
         InvocableGraph,
         LangGraphLike,
@@ -50,7 +52,9 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "RouteMetadata": ("azure_functions_langgraph.contracts", "RouteMetadata"),
     # Protocols
     "InvocableGraph": ("azure_functions_langgraph.protocols", "InvocableGraph"),
+    "AsyncInvocableGraph": ("azure_functions_langgraph.protocols", "AsyncInvocableGraph"),
     "StreamableGraph": ("azure_functions_langgraph.protocols", "StreamableGraph"),
+    "AsyncStreamableGraph": ("azure_functions_langgraph.protocols", "AsyncStreamableGraph"),
     "LangGraphLike": ("azure_functions_langgraph.protocols", "LangGraphLike"),
     "StatefulGraph": ("azure_functions_langgraph.protocols", "StatefulGraph"),
     "CloneableGraph": ("azure_functions_langgraph.protocols", "CloneableGraph"),
@@ -96,7 +100,9 @@ __all__ = [
     "RouteMetadata",
     # Protocols
     "InvocableGraph",
+    "AsyncInvocableGraph",
     "StreamableGraph",
+    "AsyncStreamableGraph",
     "LangGraphLike",
     "StatefulGraph",
     "CloneableGraph",

@@ -9,9 +9,11 @@ Issue: #41
 
 from __future__ import annotations
 
+import asyncio
 from importlib.metadata import version as _pkg_version
 import json
 import operator
+import types
 from typing import Annotated, Any, TypedDict
 
 import azure.functions as func
@@ -19,7 +21,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 import pytest
 
+from azure_functions_langgraph._handlers import handle_stream_async
 from azure_functions_langgraph.app import LangGraphApp
+from azure_functions_langgraph.locks import InProcessThreadLock
 
 
 def _langgraph_supports_v2() -> bool:
@@ -103,6 +107,17 @@ def _post(url: str, body: dict[str, Any], **route_params: str) -> func.HttpReque
         method="POST",
         url=url,
         body=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+        route_params=route_params,
+    )
+
+
+def _raw_post(url: str, raw: bytes, **route_params: str) -> func.HttpRequest:
+    """POST with an arbitrary (possibly malformed) raw body."""
+    return func.HttpRequest(
+        method="POST",
+        url=url,
+        body=raw,
         headers={"Content-Type": "application/json"},
         route_params=route_params,
     )
@@ -635,3 +650,436 @@ class TestVersionKwargHelpers:
         assert result.status_code == 422
         body = json.loads(result.get_body())
         assert "version" in body["detail"]
+
+
+
+# ---------------------------------------------------------------------------
+# Async graph fakes & helpers (#422)
+# ---------------------------------------------------------------------------
+
+
+class _PureAsyncGraph:
+    """Async-only graph: exposes ``ainvoke``/``astream`` but no sync methods."""
+
+    def __init__(self) -> None:
+        self.checkpointer: Any = None
+        self.calls: list[str] = []
+
+    async def ainvoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        await asyncio.sleep(0)
+        self.calls.append("ainvoke")
+        text = input.get("user_text", "")
+        return {"last_reply": f"Async, {text}!", "turn_count": 1}
+
+    async def astream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+        **kwargs: Any,
+    ) -> Any:
+        await asyncio.sleep(0)
+        self.calls.append("astream")
+        text = input.get("user_text", "")
+        yield {"last_reply": f"Async, {text}!"}
+        yield {"turn_count": 1}
+
+
+class _StrictAsyncGraph:
+    """Async-only graph whose ``ainvoke`` does not accept a ``version`` kwarg."""
+
+    def __init__(self) -> None:
+        self.checkpointer: Any = None
+
+    async def ainvoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        await asyncio.sleep(0)
+        return {"ok": True}
+
+    async def astream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+    ) -> Any:
+        await asyncio.sleep(0)
+        yield {"ok": True}
+
+
+class _FailingAsyncGraph:
+    """Async-only graph whose ``ainvoke``/``astream`` raise mid-execution."""
+
+    def __init__(self) -> None:
+        self.checkpointer: Any = None
+
+    async def ainvoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        await asyncio.sleep(0)
+        raise RuntimeError("boom")
+
+    async def astream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+        **kwargs: Any,
+    ) -> Any:
+        await asyncio.sleep(0)
+        yield {"partial": True}
+        raise RuntimeError("boom")
+
+
+class _AsyncInvokeOnlyGraph:
+    """Async invoke but no ``astream`` — the stream endpoint must return 501."""
+
+    def __init__(self) -> None:
+        self.checkpointer: Any = None
+
+    async def ainvoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        await asyncio.sleep(0)
+        return {"ok": True}
+
+
+class _SyncOnlyGraph:
+    """Sync invoke only — ``async_mode=True`` must be rejected."""
+
+    def invoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return {}
+
+
+class _NoInvokeGraph:
+    """Neither ``invoke`` nor ``ainvoke`` — registration must fail."""
+
+    def unrelated(self) -> None: ...
+
+
+def _make_async_app(
+    graph: Any, *, name: str = "agent", async_mode: bool = True, **app_kwargs: Any
+) -> LangGraphApp:
+    """Build a LangGraphApp registering *graph* through the async handler path."""
+    app = LangGraphApp(**app_kwargs)
+    app.register(graph=graph, name=name, async_mode=async_mode)
+    return app
+
+
+# ---------------------------------------------------------------------------
+# Tests — native async invoke/stream (#422)
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncNativeInvoke:
+    """Async invoke handler via ``ainvoke``."""
+
+    async def test_async_invoke_real_graph_envelope(self) -> None:
+        """A real graph registered with async_mode=True awaits ainvoke."""
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post(
+            "/api/graphs/agent/invoke",
+            {
+                "input": {"user_text": "Ada", "history": [], "turn_count": 0},
+                "config": {"configurable": {"thread_id": "a-t1"}},
+            },
+        )
+        resp = await handler(req)
+        assert resp.status_code == 200
+        output = json.loads(resp.get_body())["output"]
+        assert output["last_reply"] == "Hello, Ada!"
+        assert output["turn_count"] == 1
+
+    async def test_pure_async_graph_auto_routes(self) -> None:
+        """A graph with only async methods is auto-routed to the async handler."""
+        graph = _PureAsyncGraph()
+        app = _make_async_app(graph, async_mode=False)  # not opted in
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post("/api/graphs/agent/invoke", {"input": {"user_text": "Bo"}})
+        resp = await handler(req)
+        assert resp.status_code == 200
+        output = json.loads(resp.get_body())["output"]
+        assert output["last_reply"] == "Async, Bo!"
+        assert graph.calls == ["ainvoke"]
+
+    async def test_async_invoke_forwards_version(self) -> None:
+        """``version`` is forwarded when the async graph accepts it."""
+        graph = _PureAsyncGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post(
+            "/api/graphs/agent/invoke",
+            {"input": {"user_text": "Cy"}, "version": "v2"},
+        )
+        resp = await handler(req)
+        assert resp.status_code == 200
+
+    async def test_async_invoke_version_unsupported_graph_422(self) -> None:
+        """A graph whose ainvoke rejects ``version`` yields 422."""
+        graph = _StrictAsyncGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post(
+            "/api/graphs/agent/invoke",
+            {"input": {"user_text": "Di"}, "version": "v2"},
+        )
+        resp = await handler(req)
+        assert resp.status_code == 422
+
+    async def test_async_invoke_graph_failure_returns_500(self) -> None:
+        """An exception from ainvoke maps to a 500 error response."""
+        graph = _FailingAsyncGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post("/api/graphs/agent/invoke", {"input": {"user_text": "Ed"}})
+        resp = await handler(req)
+        assert resp.status_code == 500
+
+    async def test_async_invoke_thread_lock_contention_returns_409(self) -> None:
+        """A held thread lock forces the async invoke to 409."""
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        assert app.thread_lock is not None
+        token = app.thread_lock.acquire("agent", "busy-t")
+        assert token is not None
+        try:
+            req = _post(
+                "/api/graphs/agent/invoke",
+                {
+                    "input": {"user_text": "Fi", "history": [], "turn_count": 0},
+                    "config": {"configurable": {"thread_id": "busy-t"}},
+                },
+            )
+            resp = await handler(req)
+            assert resp.status_code == 409
+        finally:
+            app.thread_lock.release("agent", "busy-t", token)
+
+    async def test_async_invoke_releases_lock(self) -> None:
+        """The async invoke releases the thread lock on success."""
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post(
+            "/api/graphs/agent/invoke",
+            {
+                "input": {"user_text": "Gi", "history": [], "turn_count": 0},
+                "config": {"configurable": {"thread_id": "rel-t"}},
+            },
+        )
+        resp = await handler(req)
+        assert resp.status_code == 200
+        # Lock must be free again after a successful run.
+        assert app.thread_lock is not None
+        token = app.thread_lock.acquire("agent", "rel-t")
+        assert token is not None
+        app.thread_lock.release("agent", "rel-t", token)
+
+
+class TestAsyncNativeStream:
+    """Async stream handler via ``astream``."""
+
+    async def test_async_stream_buffered_sse(self) -> None:
+        """A real graph async_mode=True streams buffered SSE frames."""
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        req = _post(
+            "/api/graphs/agent/stream",
+            {
+                "input": {"user_text": "Hu", "history": [], "turn_count": 0},
+                "config": {"configurable": {"thread_id": "a-stream"}},
+                "stream_mode": "values",
+            },
+        )
+        resp = await handler(req)
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/event-stream"
+        frames = _parse_sse_frames(resp.get_body().decode())
+        data_frames = [f for f in frames if f["data"] and isinstance(f["data"], dict)]
+        assert data_frames
+        final = data_frames[-1]["data"]
+        assert final["turn_count"] == 1
+        assert final["last_reply"] == "Hello, Hu!"
+        assert any(f["event"] == "end" for f in frames)
+
+    async def test_async_stream_invoke_only_returns_501(self) -> None:
+        """A graph without ``astream`` returns 501 on the stream endpoint."""
+        graph = _AsyncInvokeOnlyGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        req = _post(
+            "/api/graphs/agent/stream",
+            {"input": {"user_text": "Io"}, "stream_mode": "values"},
+        )
+        resp = await handler(req)
+        assert resp.status_code == 501
+
+    async def test_async_stream_byte_cap_emits_error_frame(self) -> None:
+        """Exceeding the buffered byte cap emits an SSE error frame."""
+        graph = _PureAsyncGraph()
+        app = _make_async_app(graph, max_stream_response_bytes=10)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        req = _post(
+            "/api/graphs/agent/stream",
+            {"input": {"user_text": "Jo"}, "stream_mode": "values"},
+        )
+        resp = await handler(req)
+        assert resp.status_code == 200
+        frames = _parse_sse_frames(resp.get_body().decode())
+        assert any(f["event"] == "error" for f in frames)
+
+    async def test_async_stream_failure_emits_error_frame(self) -> None:
+        """An exception raised mid-stream emits an SSE error frame."""
+        graph = _FailingAsyncGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        req = _post(
+            "/api/graphs/agent/stream",
+            {"input": {"user_text": "Ka"}, "stream_mode": "values"},
+        )
+        resp = await handler(req)
+        assert resp.status_code == 200
+        frames = _parse_sse_frames(resp.get_body().decode())
+        error_frames = [f for f in frames if f["event"] == "error"]
+        assert error_frames
+        assert "stream processing failed" in error_frames[0]["data"]["error"]
+
+
+class TestAsyncRegistration:
+    """Registration-time validation for the async path (#422)."""
+
+    def test_async_mode_requires_ainvoke(self) -> None:
+        """``async_mode=True`` on a sync-only graph raises TypeError."""
+        with pytest.raises(TypeError, match="ainvoke"):
+            _make_async_app(_SyncOnlyGraph())
+
+    def test_graph_without_any_invoke_rejected(self) -> None:
+        """A graph with neither invoke nor ainvoke raises TypeError."""
+        with pytest.raises(TypeError, match="invoke"):
+            _make_async_app(_NoInvokeGraph(), async_mode=False)
+
+
+class TestAsyncNativeBranchCoverage:
+    """Error-path branch coverage for the async invoke/stream handlers (#422)."""
+
+    async def test_async_invoke_malformed_json_returns_error(self) -> None:
+        """A malformed JSON body short-circuits async invoke with an error."""
+        graph = _PureAsyncGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _raw_post("/api/graphs/agent/invoke", b"{not-json")
+        resp = await handler(req)
+        assert resp.status_code == 400
+
+    async def test_async_invoke_bad_config_returns_400(self) -> None:
+        """A non-object ``config.configurable`` yields 400 on async invoke."""
+        graph = _PureAsyncGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        req = _post(
+            "/api/graphs/agent/invoke",
+            {"input": {"user_text": "La"}, "config": {"configurable": "nope"}},
+        )
+        resp = await handler(req)
+        assert resp.status_code == 400
+
+    async def test_async_stream_malformed_json_returns_error(self) -> None:
+        """A malformed JSON body short-circuits async stream with an error."""
+        graph = _PureAsyncGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        req = _raw_post("/api/graphs/agent/stream", b"{not-json")
+        resp = await handler(req)
+        assert resp.status_code == 400
+
+    async def test_async_stream_bad_config_returns_400(self) -> None:
+        """A non-object ``config.configurable`` yields 400 on async stream."""
+        graph = _PureAsyncGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        req = _post(
+            "/api/graphs/agent/stream",
+            {"input": {"user_text": "Ma"}, "config": {"configurable": "nope"}},
+        )
+        resp = await handler(req)
+        assert resp.status_code == 400
+
+    async def test_async_stream_version_unsupported_graph_422(self) -> None:
+        """A graph whose astream rejects ``version`` yields 422."""
+        graph = _StrictAsyncGraph()
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        req = _post(
+            "/api/graphs/agent/stream",
+            {"input": {"user_text": "Na"}, "version": "v2"},
+        )
+        resp = await handler(req)
+        assert resp.status_code == 422
+
+    async def test_async_stream_invoke_only_reg_returns_501(self) -> None:
+        """A stream-disabled registration returns 501 (direct handler call)."""
+        reg = types.SimpleNamespace(
+            name="agent", stream_enabled=False, graph=_PureAsyncGraph()
+        )
+        req = _post("/api/graphs/agent/stream", {"input": {"user_text": "Ob"}})
+        resp = await handle_stream_async(
+            req,
+            reg,
+            thread_lock=InProcessThreadLock(),
+            max_stream_response_bytes=1_000_000,
+            max_request_body_bytes=1_000_000,
+            max_input_depth=20,
+            max_input_nodes=1_000,
+        )
+        assert resp.status_code == 501
+
+    async def test_async_stream_thread_lock_contention_returns_409(self) -> None:
+        """A held thread lock forces the async stream to 409."""
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_async_app(graph)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        assert app.thread_lock is not None
+        token = app.thread_lock.acquire("agent", "busy-stream")
+        assert token is not None
+        try:
+            req = _post(
+                "/api/graphs/agent/stream",
+                {
+                    "input": {"user_text": "Pa", "history": [], "turn_count": 0},
+                    "config": {"configurable": {"thread_id": "busy-stream"}},
+                },
+            )
+            resp = await handler(req)
+            assert resp.status_code == 409
+        finally:
+            app.thread_lock.release("agent", "busy-stream", token)

@@ -16,8 +16,10 @@ from azure_functions_langgraph._endpoint import (
 )
 from azure_functions_langgraph._handlers import (
     handle_invoke,
-    handle_state,
+    handle_invoke_async,
+handle_state,
     handle_stream,
+    handle_stream_async,
 )
 from azure_functions_langgraph._metadata import (
     LangGraphMetadata,
@@ -40,7 +42,11 @@ RegisteredGraphMetadata,
     build_stream_request_model,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
-from azure_functions_langgraph.protocols import InvocableGraph, StatefulGraph
+from azure_functions_langgraph.protocols import (
+    AsyncInvocableGraph,
+    InvocableGraph,
+    StatefulGraph,
+)
 
 # Route path templates (single source of truth for both function_app and metadata)
 _ROUTE_PREFIX = "/api"
@@ -71,6 +77,7 @@ class _GraphRegistration:
     name: str
     description: Optional[str] = None
     stream_enabled: bool = True
+    async_mode: bool = False
     auth_level: Optional[func.AuthLevel] = None
     request_model: Optional[type[Any]] = None
     response_model: Optional[type[Any]] = None
@@ -299,8 +306,9 @@ class LangGraphApp:
         stream: bool = True,
         auth_level: Optional[func.AuthLevel] = None,
         *,
-        request_model: Optional[type[Any]] = None,
+request_model: Optional[type[Any]] = None,
         response_model: Optional[type[Any]] = None,
+        async_mode: bool = False,
     ) -> None:
         """Register a compiled LangGraph graph.
 
@@ -314,8 +322,15 @@ class LangGraphApp:
                 When ``None`` (default), the app-level ``auth_level`` is used.
             request_model: Optional Pydantic model class for request body
                 (used by the metadata / bridge API, not for runtime validation).
-            response_model: Optional Pydantic model class for response body
+response_model: Optional Pydantic model class for response body
                 (used by the metadata / bridge API, not for runtime validation).
+            async_mode: When ``True``, route this graph's invoke/stream endpoints
+                through async Azure Functions handlers that ``await`` the graph's
+                ``ainvoke`` / ``astream`` methods. Defaults to ``False`` (the sync
+                path), so existing ``CompiledStateGraph`` deployments — which expose
+                both sync and async methods — keep their current behavior. A graph
+                that exposes only async methods is always served async, regardless
+                of this flag.
 
         Raises:
             TypeError: If *graph* does not satisfy the required protocol, or if
@@ -323,8 +338,18 @@ class LangGraphApp:
                 Pydantic ``BaseModel`` subclass.
             ValueError: If *name* is already registered or invalid.
         """
-        if not isinstance(graph, InvocableGraph):
-            raise TypeError(f"Graph must have an invoke() method. Got {type(graph).__name__}")
+        has_sync_invoke = isinstance(graph, InvocableGraph)
+        has_async_invoke = isinstance(graph, AsyncInvocableGraph)
+        if async_mode and not has_async_invoke:
+            raise TypeError(
+                "async_mode=True requires an ainvoke() method. "
+                f"Got {type(graph).__name__}"
+            )
+        if not has_sync_invoke and not has_async_invoke:
+            raise TypeError(
+                "Graph must have an invoke() or ainvoke() method. "
+                f"Got {type(graph).__name__}"
+            )
         _validate_optional_model(request_model, "request_model")
         _validate_optional_model(response_model, "response_model")
         name_err = validate_graph_name(name)
@@ -337,6 +362,7 @@ class LangGraphApp:
             name=name,
             description=description,
             stream_enabled=stream,
+            async_mode=async_mode,
             auth_level=auth_level,
             request_model=request_model,
             response_model=response_model,
@@ -422,15 +448,19 @@ class LangGraphApp:
                 status_code=200,
             )
 
-        # Per-graph endpoints
+# Per-graph endpoints
         for reg in self._registrations.values():
+            is_async = self._is_async(reg)
             self._register_route(
                 app,
                 reg,
                 endpoint="invoke",
                 route_template=_ROUTE_INVOKE,
                 methods=["POST"],
-                handler_impl=self._handle_invoke,
+                handler_impl=(
+                    self._handle_invoke_async if is_async else self._handle_invoke
+                ),
+                is_async=is_async,
             )
             if self._has_stream_route(reg):
                 self._register_route(
@@ -439,7 +469,10 @@ class LangGraphApp:
                     endpoint="stream",
                     route_template=_ROUTE_STREAM,
                     methods=["POST"],
-                    handler_impl=self._handle_stream,
+                    handler_impl=(
+                        self._handle_stream_async if is_async else self._handle_stream
+                    ),
+                    is_async=is_async,
                 )
             if self._has_state_route(reg):
                 self._register_route(
@@ -481,6 +514,16 @@ class LangGraphApp:
         """Whether a graph exposes a thread-state endpoint (single source of truth)."""
         return isinstance(reg.graph, StatefulGraph)
 
+    @staticmethod
+    def _is_async(reg: _GraphRegistration) -> bool:
+        """Whether a graph is served through the async invoke/stream handlers.
+
+        True when the operator opted in with ``async_mode=True`` or when the
+        graph exposes only async methods (no sync ``invoke``), so a pure-async
+        graph is auto-routed to the awaiting handlers.
+        """
+        return reg.async_mode or not isinstance(reg.graph, InvocableGraph)
+
     def _register_route(
         self,
         app: func.FunctionApp,
@@ -489,16 +532,32 @@ class LangGraphApp:
         endpoint: str,
         route_template: str,
         methods: list[str],
-        handler_impl: Callable[[func.HttpRequest, _GraphRegistration], func.HttpResponse],
+        handler_impl: Callable[..., Any],
+        is_async: bool = False,
     ) -> None:
-        """Register one per-graph HTTP route, wiring metadata and auth uniformly."""
+        """Register one per-graph HTTP route, wiring metadata and auth uniformly.
+
+        When *is_async* is ``True``, *handler_impl* is a coroutine function and
+        the registered Azure Functions handler is a real ``async def`` so the
+        worker awaits it on its event loop; otherwise a plain sync handler is
+        registered.
+        """
         route = route_template.format(name=reg.name)
         fn_name = f"aflg_{reg.name}_{endpoint}"
         captured_reg = reg
         effective_auth = self._effective_auth_level(reg)
 
-        def handler(req: func.HttpRequest) -> func.HttpResponse:
-            return handler_impl(req, captured_reg)
+        async def async_handler(req: func.HttpRequest) -> func.HttpResponse:
+            result: func.HttpResponse = await handler_impl(req, captured_reg)
+            return result
+
+        def sync_handler(req: func.HttpRequest) -> func.HttpResponse:
+            result: func.HttpResponse = handler_impl(req, captured_reg)
+            return result
+
+        handler: Callable[[func.HttpRequest], Any] = (
+            async_handler if is_async else sync_handler
+        )
 
         _payload: LangGraphMetadata = {
             "version": 1,
@@ -553,12 +612,45 @@ class LangGraphApp:
             max_input_nodes=self.max_input_nodes,
         )
 
+    async def _handle_invoke_async(
+        self, req: func.HttpRequest, reg: _GraphRegistration
+    ) -> func.HttpResponse:
+        """Handle an invoke request against an async graph via ``ainvoke``."""
+        thread_lock = self.thread_lock
+        if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
+            raise RuntimeError("thread_lock is None; __post_init__ did not run")
+        return await handle_invoke_async(
+            req,
+            reg,
+            thread_lock=thread_lock,
+            max_request_body_bytes=self.max_request_body_bytes,
+            max_input_depth=self.max_input_depth,
+            max_input_nodes=self.max_input_nodes,
+        )
+
     def _handle_stream(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a streaming request."""
         thread_lock = self.thread_lock
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         return handle_stream(
+            req,
+            reg,
+            thread_lock=thread_lock,
+            max_stream_response_bytes=self.max_stream_response_bytes,
+            max_request_body_bytes=self.max_request_body_bytes,
+            max_input_depth=self.max_input_depth,
+            max_input_nodes=self.max_input_nodes,
+        )
+
+    async def _handle_stream_async(
+        self, req: func.HttpRequest, reg: _GraphRegistration
+    ) -> func.HttpResponse:
+        """Handle a streaming request against an async graph via ``astream``."""
+        thread_lock = self.thread_lock
+        if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
+            raise RuntimeError("thread_lock is None; __post_init__ did not run")
+        return await handle_stream_async(
             req,
             reg,
             thread_lock=thread_lock,

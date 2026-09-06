@@ -8,6 +8,7 @@ receives only the explicit dependencies it needs — no reference to
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import inspect
 import json
@@ -29,7 +30,11 @@ from azure_functions_langgraph.contracts import (
     StreamRequest,
 )
 from azure_functions_langgraph.locks import ThreadLock
-from azure_functions_langgraph.protocols import StatefulGraph, StreamableGraph
+from azure_functions_langgraph.protocols import (
+    AsyncStreamableGraph,
+    StatefulGraph,
+    StreamableGraph,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -377,6 +382,183 @@ def handle_stream(
         },
     )
 
+
+# ------------------------------------------------------------------
+# Async invoke handler
+# ------------------------------------------------------------------
+
+
+async def handle_invoke_async(
+    req: func.HttpRequest,
+    reg: Any,
+    *,
+    thread_lock: ThreadLock,
+    max_request_body_bytes: int,
+    max_input_depth: int,
+    max_input_nodes: int,
+) -> func.HttpResponse:
+    """Handle an invoke request against an async graph via ``ainvoke``.
+
+    Mirrors :func:`handle_invoke` exactly (validation, thread-lock, error, and
+    response semantics) but awaits ``reg.graph.ainvoke`` and offloads the sync
+    thread-lock calls to a worker thread so a blocking lock backend (e.g. the
+    Azure Blob lease) never stalls the event loop.
+    """
+    parsed = _parse_native_request(
+        req,
+        InvokeRequest,
+        max_request_body_bytes=max_request_body_bytes,
+        max_input_depth=max_input_depth,
+        max_input_nodes=max_input_nodes,
+    )
+    if isinstance(parsed, func.HttpResponse):
+        return parsed
+    request = parsed
+
+    config = request.config or {}
+    thread_id, cfg_err = _extract_thread_id(config)
+    if cfg_err:
+        return _error_response(400, cfg_err)
+    version_kwargs = _resolve_version_kwarg(reg.graph.ainvoke, request.version, reg.name)
+    if isinstance(version_kwargs, func.HttpResponse):
+        return version_kwargs
+    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    lock_token: str | None = None
+    if has_cp and thread_id:
+        lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
+        if not lock_token:
+            return _error_response(
+                409, f"Thread {thread_id!r} is currently in use by another request"
+            )
+    try:
+        result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
+    except Exception as exc:
+        logger.exception("Graph %s ainvoke failed", reg.name)
+        _ = exc
+        return _error_response(500, "Graph execution failed")
+    finally:
+        if lock_token is not None and thread_id is not None:
+            await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
+
+    output = _serialize_graph_output(result)
+    response = InvokeResponse(output=output)
+    return func.HttpResponse(
+        body=response.model_dump_json(),
+        mimetype="application/json",
+        status_code=200,
+    )
+
+
+# ------------------------------------------------------------------
+# Async stream handler
+# ------------------------------------------------------------------
+
+
+async def handle_stream_async(
+    req: func.HttpRequest,
+    reg: Any,
+    *,
+    thread_lock: ThreadLock,
+    max_stream_response_bytes: int,
+    max_request_body_bytes: int,
+    max_input_depth: int,
+    max_input_nodes: int,
+) -> func.HttpResponse:
+    """Handle a streaming request against an async graph via ``astream``.
+
+    Async counterpart of :func:`handle_stream`: returns the same **buffered**
+    SSE response (issue #378) built by consuming ``reg.graph.astream`` with
+    ``async for``. The byte-size cap is enforced mid-stream, and the thread
+    lock is released in ``finally`` even when the async generator raises.
+    """
+    if not reg.stream_enabled:
+        return _error_response(501, f"Graph {reg.name!r} is configured as invoke-only")
+
+    if not isinstance(reg.graph, AsyncStreamableGraph):
+        return _error_response(501, f"Graph {reg.name!r} does not support streaming")
+
+    parsed = _parse_native_request(
+        req,
+        StreamRequest,
+        max_request_body_bytes=max_request_body_bytes,
+        max_input_depth=max_input_depth,
+        max_input_nodes=max_input_nodes,
+    )
+    if isinstance(parsed, func.HttpResponse):
+        return parsed
+    request = parsed
+
+    config = request.config or {}
+    thread_id, cfg_err = _extract_thread_id(config)
+    if cfg_err:
+        return _error_response(400, cfg_err)
+    version_kwargs = _resolve_version_kwarg(reg.graph.astream, request.version, reg.name)
+    if isinstance(version_kwargs, func.HttpResponse):
+        return version_kwargs
+    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    lock_token: str | None = None
+    if has_cp and thread_id:
+        lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
+        if not lock_token:
+            return _error_response(
+                409, f"Thread {thread_id!r} is currently in use by another request"
+            )
+
+    chunks: list[str] = []
+    buffered_bytes = 0
+
+    def _append_chunk(chunk: str) -> bool:
+        nonlocal buffered_bytes
+        chunk_bytes = len(chunk.encode())
+        if buffered_bytes + chunk_bytes > max_stream_response_bytes:
+            error_payload = json.dumps(
+                {
+                    "error": (
+                        "stream response exceeded max buffered size "
+                        f"({max_stream_response_bytes} bytes)"
+                    )
+                }
+            )
+            chunks.append(f"event: error\ndata: {error_payload}\n\n")
+            return False
+        chunks.append(chunk)
+        buffered_bytes += chunk_bytes
+        return True
+
+    try:
+        async for event in reg.graph.astream(
+            request.input,
+            config=config,
+            stream_mode=request.stream_mode,
+            **version_kwargs,
+        ):
+            serialized = json.dumps(
+                event if isinstance(event, dict) else {"data": str(event)},
+                default=str,
+                allow_nan=False,
+            )
+            if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
+                break
+    except Exception as exc:
+        logger.exception("Graph %s astream failed", reg.name)
+        _ = exc
+        error_payload = json.dumps({"error": "stream processing failed"})
+        _append_chunk(f"event: error\ndata: {error_payload}\n\n")
+    finally:
+        if lock_token is not None and thread_id is not None:
+            await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
+
+    _append_chunk("event: end\ndata: {}\n\n")
+
+    return func.HttpResponse(
+        body="".join(chunks),
+        mimetype="text/event-stream",
+        status_code=200,
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 # ------------------------------------------------------------------
 # State handler
