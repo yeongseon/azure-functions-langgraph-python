@@ -30,6 +30,15 @@ from azure_functions_langgraph.contracts import (
     StreamRequest,
 )
 from azure_functions_langgraph.locks import ThreadLock
+from azure_functions_langgraph.observability import (
+    NOOP_OBSERVER,
+    RunContext,
+    RunObserver,
+    RunRejectedReason,
+    finish_context,
+    new_run_context,
+    safe_observer_call,
+)
 from azure_functions_langgraph.protocols import (
     AsyncStreamableGraph,
     StatefulGraph,
@@ -72,6 +81,17 @@ def _error_response(status_code: int, detail: str) -> func.HttpResponse:
         mimetype="application/json",
         status_code=status_code,
     )
+
+
+def _reject(
+    observer: RunObserver,
+    ctx: RunContext,
+    reason: RunRejectedReason,
+    response: func.HttpResponse,
+) -> func.HttpResponse:
+    """Emit ``on_run_rejected`` for a pre-execution rejection and return *response*."""
+    safe_observer_call(observer, "on_run_rejected", finish_context(ctx), reason)
+    return response
 
 
 def _method_accepts_version(method: Any) -> bool:
@@ -222,8 +242,10 @@ def handle_invoke(
     max_request_body_bytes: int,
     max_input_depth: int,
     max_input_nodes: int,
+    observer: RunObserver = NOOP_OBSERVER,
 ) -> func.HttpResponse:
     """Handle a synchronous invoke request."""
+    ctx = new_run_context(reg.name, "invoke")
     parsed = _parse_native_request(
         req,
         InvokeRequest,
@@ -232,34 +254,42 @@ def handle_invoke(
         max_input_nodes=max_input_nodes,
     )
     if isinstance(parsed, func.HttpResponse):
-        return parsed
+        return _reject(observer, ctx, "invalid_request", parsed)
     request = parsed
 
     config = request.config or {}
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
-        return _error_response(400, cfg_err)
+        return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
+    ctx = dataclasses.replace(ctx, thread_id=thread_id)
     version_kwargs = _resolve_version_kwarg(reg.graph.invoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
-        return version_kwargs
+        return _reject(observer, ctx, "unsupported_version", version_kwargs)
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
         lock_token = thread_lock.acquire(reg.name, thread_id)
         if not lock_token:
-            return _error_response(
-                409, f"Thread {thread_id!r} is currently in use by another request"
+            return _reject(
+                observer,
+                ctx,
+                "lock_contention",
+                _error_response(
+                    409, f"Thread {thread_id!r} is currently in use by another request"
+                ),
             )
+    safe_observer_call(observer, "on_run_started", ctx)
     try:
         result = reg.graph.invoke(request.input, config=config, **version_kwargs)
     except Exception as exc:
         logger.exception("Graph %s invoke failed", reg.name)
-        _ = exc
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
         return _error_response(500, "Graph execution failed")
     finally:
         if lock_token is not None and thread_id is not None:
             thread_lock.release(reg.name, thread_id, lock_token)
 
+    safe_observer_call(observer, "on_run_completed", finish_context(ctx))
     output = _serialize_graph_output(result)
     response = InvokeResponse(output=output)
     return func.HttpResponse(
@@ -283,6 +313,7 @@ def handle_stream(
     max_request_body_bytes: int,
     max_input_depth: int,
     max_input_nodes: int,
+    observer: RunObserver = NOOP_OBSERVER,
 ) -> func.HttpResponse:
     """Handle a streaming request.
 
@@ -293,11 +324,22 @@ def handle_stream(
     "Streaming: buffered SSE and the true-streaming migration" section of
     ``DESIGN.md`` for the constraints and migration path.
     """
+    ctx = new_run_context(reg.name, "stream")
     if not reg.stream_enabled:
-        return _error_response(501, f"Graph {reg.name!r} is configured as invoke-only")
+        return _reject(
+            observer,
+            ctx,
+            "streaming_unsupported",
+            _error_response(501, f"Graph {reg.name!r} is configured as invoke-only"),
+        )
 
     if not isinstance(reg.graph, StreamableGraph):
-        return _error_response(501, f"Graph {reg.name!r} does not support streaming")
+        return _reject(
+            observer,
+            ctx,
+            "streaming_unsupported",
+            _error_response(501, f"Graph {reg.name!r} does not support streaming"),
+        )
 
     parsed = _parse_native_request(
         req,
@@ -307,23 +349,29 @@ def handle_stream(
         max_input_nodes=max_input_nodes,
     )
     if isinstance(parsed, func.HttpResponse):
-        return parsed
+        return _reject(observer, ctx, "invalid_request", parsed)
     request = parsed
 
     config = request.config or {}
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
-        return _error_response(400, cfg_err)
+        return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
+    ctx = dataclasses.replace(ctx, thread_id=thread_id)
     version_kwargs = _resolve_version_kwarg(reg.graph.stream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
-        return version_kwargs
+        return _reject(observer, ctx, "unsupported_version", version_kwargs)
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
         lock_token = thread_lock.acquire(reg.name, thread_id)
         if not lock_token:
-            return _error_response(
-                409, f"Thread {thread_id!r} is currently in use by another request"
+            return _reject(
+                observer,
+                ctx,
+                "lock_contention",
+                _error_response(
+                    409, f"Thread {thread_id!r} is currently in use by another request"
+                ),
             )
 
     chunks: list[str] = []
@@ -347,6 +395,8 @@ def handle_stream(
         buffered_bytes += chunk_bytes
         return True
 
+    stream_error: BaseException | None = None
+    safe_observer_call(observer, "on_run_started", ctx)
     try:
         for event in reg.graph.stream(
             request.input,
@@ -360,10 +410,13 @@ def handle_stream(
                 allow_nan=False,
             )
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
+                stream_error = RuntimeError(
+                    "stream response exceeded max buffered size"
+                )
                 break
     except Exception as exc:
         logger.exception("Graph %s stream failed", reg.name)
-        _ = exc
+        stream_error = exc
         error_payload = json.dumps({"error": "stream processing failed"})
         _append_chunk(f"event: error\ndata: {error_payload}\n\n")
     finally:
@@ -371,6 +424,11 @@ def handle_stream(
             thread_lock.release(reg.name, thread_id, lock_token)
 
     _append_chunk("event: end\ndata: {}\n\n")
+
+    if stream_error is not None:
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), stream_error)
+    else:
+        safe_observer_call(observer, "on_run_completed", finish_context(ctx))
 
     return func.HttpResponse(
         body="".join(chunks),
@@ -396,6 +454,7 @@ async def handle_invoke_async(
     max_request_body_bytes: int,
     max_input_depth: int,
     max_input_nodes: int,
+    observer: RunObserver = NOOP_OBSERVER,
 ) -> func.HttpResponse:
     """Handle an invoke request against an async graph via ``ainvoke``.
 
@@ -404,6 +463,7 @@ async def handle_invoke_async(
     thread-lock calls to a worker thread so a blocking lock backend (e.g. the
     Azure Blob lease) never stalls the event loop.
     """
+    ctx = new_run_context(reg.name, "invoke")
     parsed = _parse_native_request(
         req,
         InvokeRequest,
@@ -412,34 +472,42 @@ async def handle_invoke_async(
         max_input_nodes=max_input_nodes,
     )
     if isinstance(parsed, func.HttpResponse):
-        return parsed
+        return _reject(observer, ctx, "invalid_request", parsed)
     request = parsed
 
     config = request.config or {}
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
-        return _error_response(400, cfg_err)
+        return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
+    ctx = dataclasses.replace(ctx, thread_id=thread_id)
     version_kwargs = _resolve_version_kwarg(reg.graph.ainvoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
-        return version_kwargs
+        return _reject(observer, ctx, "unsupported_version", version_kwargs)
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
         lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
         if not lock_token:
-            return _error_response(
-                409, f"Thread {thread_id!r} is currently in use by another request"
+            return _reject(
+                observer,
+                ctx,
+                "lock_contention",
+                _error_response(
+                    409, f"Thread {thread_id!r} is currently in use by another request"
+                ),
             )
+    safe_observer_call(observer, "on_run_started", ctx)
     try:
         result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
     except Exception as exc:
         logger.exception("Graph %s ainvoke failed", reg.name)
-        _ = exc
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
         return _error_response(500, "Graph execution failed")
     finally:
         if lock_token is not None and thread_id is not None:
             await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
 
+    safe_observer_call(observer, "on_run_completed", finish_context(ctx))
     output = _serialize_graph_output(result)
     response = InvokeResponse(output=output)
     return func.HttpResponse(
@@ -463,6 +531,7 @@ async def handle_stream_async(
     max_request_body_bytes: int,
     max_input_depth: int,
     max_input_nodes: int,
+    observer: RunObserver = NOOP_OBSERVER,
 ) -> func.HttpResponse:
     """Handle a streaming request against an async graph via ``astream``.
 
@@ -471,11 +540,22 @@ async def handle_stream_async(
     ``async for``. The byte-size cap is enforced mid-stream, and the thread
     lock is released in ``finally`` even when the async generator raises.
     """
+    ctx = new_run_context(reg.name, "stream")
     if not reg.stream_enabled:
-        return _error_response(501, f"Graph {reg.name!r} is configured as invoke-only")
+        return _reject(
+            observer,
+            ctx,
+            "streaming_unsupported",
+            _error_response(501, f"Graph {reg.name!r} is configured as invoke-only"),
+        )
 
     if not isinstance(reg.graph, AsyncStreamableGraph):
-        return _error_response(501, f"Graph {reg.name!r} does not support streaming")
+        return _reject(
+            observer,
+            ctx,
+            "streaming_unsupported",
+            _error_response(501, f"Graph {reg.name!r} does not support streaming"),
+        )
 
     parsed = _parse_native_request(
         req,
@@ -485,23 +565,29 @@ async def handle_stream_async(
         max_input_nodes=max_input_nodes,
     )
     if isinstance(parsed, func.HttpResponse):
-        return parsed
+        return _reject(observer, ctx, "invalid_request", parsed)
     request = parsed
 
     config = request.config or {}
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
-        return _error_response(400, cfg_err)
+        return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
+    ctx = dataclasses.replace(ctx, thread_id=thread_id)
     version_kwargs = _resolve_version_kwarg(reg.graph.astream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
-        return version_kwargs
+        return _reject(observer, ctx, "unsupported_version", version_kwargs)
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
         lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
         if not lock_token:
-            return _error_response(
-                409, f"Thread {thread_id!r} is currently in use by another request"
+            return _reject(
+                observer,
+                ctx,
+                "lock_contention",
+                _error_response(
+                    409, f"Thread {thread_id!r} is currently in use by another request"
+                ),
             )
 
     chunks: list[str] = []
@@ -525,6 +611,8 @@ async def handle_stream_async(
         buffered_bytes += chunk_bytes
         return True
 
+    stream_error: BaseException | None = None
+    safe_observer_call(observer, "on_run_started", ctx)
     try:
         async for event in reg.graph.astream(
             request.input,
@@ -538,10 +626,13 @@ async def handle_stream_async(
                 allow_nan=False,
             )
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
+                stream_error = RuntimeError(
+                    "stream response exceeded max buffered size"
+                )
                 break
     except Exception as exc:
         logger.exception("Graph %s astream failed", reg.name)
-        _ = exc
+        stream_error = exc
         error_payload = json.dumps({"error": "stream processing failed"})
         _append_chunk(f"event: error\ndata: {error_payload}\n\n")
     finally:
@@ -549,6 +640,11 @@ async def handle_stream_async(
             await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
 
     _append_chunk("event: end\ndata: {}\n\n")
+
+    if stream_error is not None:
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), stream_error)
+    else:
+        safe_observer_call(observer, "on_run_completed", finish_context(ctx))
 
     return func.HttpResponse(
         body="".join(chunks),

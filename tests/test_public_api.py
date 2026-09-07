@@ -43,6 +43,11 @@ def test_all_exports() -> None:
     assert "LangGraphLike" in azure_functions_langgraph.__all__
     assert "StatefulGraph" in azure_functions_langgraph.__all__
     assert "CloneableGraph" in azure_functions_langgraph.__all__
+    # Observability
+    assert "RunObserver" in azure_functions_langgraph.__all__
+    assert "RunContext" in azure_functions_langgraph.__all__
+    assert "NoOpRunObserver" in azure_functions_langgraph.__all__
+    assert "RunRejectedReason" in azure_functions_langgraph.__all__
 
 
 def test_contracts_importable() -> None:
@@ -149,3 +154,19 @@ def test_azure_table_thread_store_from_table_client_factory() -> None:
     assert callable(AzureTableThreadStore.from_table_client)
     assert hasattr(AzureTableThreadStore, "from_connection_string")
     assert callable(AzureTableThreadStore.from_connection_string)
+
+
+def test_observability_importable_from_package() -> None:
+    from azure_functions_langgraph import (
+        NoOpRunObserver,
+        RunContext,
+        RunObserver,
+        RunRejectedReason,
+    )
+
+    assert RunObserver is not None
+    assert RunContext is not None
+    assert NoOpRunObserver is not None
+    assert RunRejectedReason is not None
+    # NoOpRunObserver satisfies the RunObserver protocol.
+    assert isinstance(NoOpRunObserver(), RunObserver)

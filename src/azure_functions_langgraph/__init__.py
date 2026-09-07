@@ -21,6 +21,12 @@ if TYPE_CHECKING:
         StateResponse,
         StreamRequest,
     )
+    from azure_functions_langgraph.observability import (
+        NoOpRunObserver,
+        RunContext,
+        RunObserver,
+        RunRejectedReason,
+    )
     from azure_functions_langgraph.protocols import (
         AsyncInvocableGraph,
         AsyncStreamableGraph,
@@ -58,6 +64,11 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "LangGraphLike": ("azure_functions_langgraph.protocols", "LangGraphLike"),
     "StatefulGraph": ("azure_functions_langgraph.protocols", "StatefulGraph"),
     "CloneableGraph": ("azure_functions_langgraph.protocols", "CloneableGraph"),
+    # Observability
+    "RunObserver": ("azure_functions_langgraph.observability", "RunObserver"),
+    "RunContext": ("azure_functions_langgraph.observability", "RunContext"),
+    "NoOpRunObserver": ("azure_functions_langgraph.observability", "NoOpRunObserver"),
+    "RunRejectedReason": ("azure_functions_langgraph.observability", "RunRejectedReason"),
 }
 
 # Symbols whose import failure means the optional runtime deps are missing;
@@ -106,4 +117,9 @@ __all__ = [
     "LangGraphLike",
     "StatefulGraph",
     "CloneableGraph",
+    # Observability
+    "RunObserver",
+    "RunContext",
+    "NoOpRunObserver",
+    "RunRejectedReason",
 ]

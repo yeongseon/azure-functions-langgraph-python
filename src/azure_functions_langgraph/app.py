@@ -42,6 +42,7 @@ RegisteredGraphMetadata,
     build_stream_request_model,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
+from azure_functions_langgraph.observability import NoOpRunObserver, RunObserver
 from azure_functions_langgraph.protocols import (
     AsyncInvocableGraph,
     InvocableGraph,
@@ -224,6 +225,7 @@ class LangGraphApp:
     max_input_nodes: int = 10_000
     platform_compat: bool = False
     thread_lock: Optional[ThreadLock] = None
+    observer: Optional[RunObserver] = None
     route_prefix: str = _ROUTE_PREFIX  # metadata-only; must match host.json routePrefix
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
@@ -281,6 +283,8 @@ class LangGraphApp:
         # a custom one. See azure_functions_langgraph.locks for backend details.
         if self.thread_lock is None:
             self.thread_lock = InProcessThreadLock()
+        if self.observer is None:
+            self.observer = NoOpRunObserver()
         # AZFUNC_LANGGRAPH_LOCK_BACKEND is a safety guard that keeps operators
         # from accidentally deploying an in-process lock to a multi-instance
         # Function App. Set it to ``distributed`` (or the exact backend class
@@ -603,6 +607,7 @@ response_model: Optional Pydantic model class for response body
         thread_lock = self.thread_lock
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
+        observer = self.observer or NoOpRunObserver()
         return handle_invoke(
             req,
             reg,
@@ -610,6 +615,7 @@ response_model: Optional Pydantic model class for response body
             max_request_body_bytes=self.max_request_body_bytes,
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
+            observer=observer,
         )
 
     async def _handle_invoke_async(
@@ -619,6 +625,7 @@ response_model: Optional Pydantic model class for response body
         thread_lock = self.thread_lock
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
+        observer = self.observer or NoOpRunObserver()
         return await handle_invoke_async(
             req,
             reg,
@@ -626,6 +633,7 @@ response_model: Optional Pydantic model class for response body
             max_request_body_bytes=self.max_request_body_bytes,
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
+            observer=observer,
         )
 
     def _handle_stream(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
@@ -633,6 +641,7 @@ response_model: Optional Pydantic model class for response body
         thread_lock = self.thread_lock
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
+        observer = self.observer or NoOpRunObserver()
         return handle_stream(
             req,
             reg,
@@ -641,6 +650,7 @@ response_model: Optional Pydantic model class for response body
             max_request_body_bytes=self.max_request_body_bytes,
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
+            observer=observer,
         )
 
     async def _handle_stream_async(
@@ -650,6 +660,7 @@ response_model: Optional Pydantic model class for response body
         thread_lock = self.thread_lock
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
+        observer = self.observer or NoOpRunObserver()
         return await handle_stream_async(
             req,
             reg,
@@ -658,6 +669,7 @@ response_model: Optional Pydantic model class for response body
             max_request_body_bytes=self.max_request_body_bytes,
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
+            observer=observer,
         )
 
     def _handle_state(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
