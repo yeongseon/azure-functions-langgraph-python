@@ -21,7 +21,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 import pytest
 
-from azure_functions_langgraph._handlers import handle_stream_async
+from azure_functions_langgraph._handlers import handle_stream, handle_stream_async
 from azure_functions_langgraph.app import LangGraphApp
 from azure_functions_langgraph.locks import InProcessThreadLock
 
@@ -1083,3 +1083,354 @@ class TestAsyncNativeBranchCoverage:
             assert resp.status_code == 409
         finally:
             app.thread_lock.release("agent", "busy-stream", token)
+
+
+# ---------------------------------------------------------------------------
+# Run-lifecycle observability fakes & helpers (#425)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingObserver:
+    """Observer that records every lifecycle event for assertions."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[Any, ...]] = []
+
+    def on_run_started(self, ctx: Any) -> None:
+        self.events.append(("started", ctx))
+
+    def on_run_completed(self, ctx: Any) -> None:
+        self.events.append(("completed", ctx))
+
+    def on_run_failed(self, ctx: Any, exc: BaseException) -> None:
+        self.events.append(("failed", ctx, exc))
+
+    def on_run_rejected(self, ctx: Any, reason: str) -> None:
+        self.events.append(("rejected", ctx, reason))
+
+    @property
+    def names(self) -> list[str]:
+        return [event[0] for event in self.events]
+
+
+class _RaisingObserver:
+    """Observer whose every callback raises — must never break a run."""
+
+    def on_run_started(self, ctx: Any) -> None:
+        raise RuntimeError("observer started boom")
+
+    def on_run_completed(self, ctx: Any) -> None:
+        raise RuntimeError("observer completed boom")
+
+    def on_run_failed(self, ctx: Any, exc: BaseException) -> None:
+        raise RuntimeError("observer failed boom")
+
+    def on_run_rejected(self, ctx: Any, reason: str) -> None:
+        raise RuntimeError("observer rejected boom")
+
+
+class _SyncGraph:
+    """Sync graph exposing version-capable ``invoke``/``stream``."""
+
+    def __init__(self) -> None:
+        self.checkpointer: Any = None
+
+    def invoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        return {"last_reply": "ok", "turn_count": 1}
+
+    def stream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+        **kwargs: Any,
+    ) -> Any:
+        yield {"last_reply": "ok"}
+        yield {"turn_count": 1}
+
+
+class _StrictSyncGraph:
+    """Sync graph whose ``invoke``/``stream`` do not accept ``version``."""
+
+    def __init__(self) -> None:
+        self.checkpointer: Any = None
+
+    def invoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return {"ok": True}
+
+    def stream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+    ) -> Any:
+        yield {"ok": True}
+
+
+class _FailingSyncGraph:
+    """Sync graph whose ``invoke``/``stream`` raise mid-execution."""
+
+    def __init__(self) -> None:
+        self.checkpointer: Any = None
+
+    def invoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        raise RuntimeError("boom")
+
+    def stream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+        **kwargs: Any,
+    ) -> Any:
+        yield {"partial": True}
+        raise RuntimeError("boom")
+
+
+class _CheckpointedSyncGraph:
+    """Sync graph reporting a checkpointer so the thread lock engages."""
+
+    def __init__(self) -> None:
+        self.checkpointer: Any = object()
+
+    def invoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        return {"ok": True}
+
+
+def _observed_app(graph: Any, observer: Any, **app_kwargs: Any) -> LangGraphApp:
+    """Build a LangGraphApp wired with *observer* and a single registered graph."""
+    app = LangGraphApp(observer=observer, **app_kwargs)
+    app.register(graph=graph, name="agent")
+    return app
+
+
+# ---------------------------------------------------------------------------
+# Tests — run-lifecycle observability (#425)
+# ---------------------------------------------------------------------------
+
+
+class TestObserverSyncInvoke:
+    """Observer emission across the sync invoke handler."""
+
+    def test_success_emits_started_then_completed(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_SyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = handler(_post("/api/graphs/agent/invoke", {"input": {"user_text": "Al"}}))
+        assert resp.status_code == 200
+        assert obs.names == ["started", "completed"]
+        started_ctx = obs.events[0][1]
+        completed_ctx = obs.events[1][1]
+        assert started_ctx.graph_name == "agent"
+        assert started_ctx.endpoint == "invoke"
+        assert started_ctx.run_id == completed_ctx.run_id
+        assert started_ctx.ended_at_ns is None
+        assert completed_ctx.ended_at_ns is not None
+
+    def test_graph_failure_emits_started_then_failed(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_FailingSyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = handler(_post("/api/graphs/agent/invoke", {"input": {"user_text": "Bo"}}))
+        assert resp.status_code == 500
+        assert obs.names == ["started", "failed"]
+        assert isinstance(obs.events[1][2], RuntimeError)
+
+    def test_malformed_json_emits_rejected_only(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_SyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = handler(_raw_post("/api/graphs/agent/invoke", b"{not-json"))
+        assert resp.status_code == 400
+        assert obs.names == ["rejected"]
+        assert obs.events[0][2] == "invalid_request"
+
+    def test_bad_config_emits_rejected_invalid_config(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_SyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = handler(
+            _post(
+                "/api/graphs/agent/invoke",
+                {"input": {"user_text": "Ci"}, "config": {"configurable": "nope"}},
+            )
+        )
+        assert resp.status_code == 400
+        assert obs.names == ["rejected"]
+        assert obs.events[0][2] == "invalid_config"
+
+    def test_unsupported_version_emits_rejected(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_StrictSyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = handler(
+            _post("/api/graphs/agent/invoke", {"input": {"user_text": "Di"}, "version": "v2"})
+        )
+        assert resp.status_code == 422
+        assert obs.names == ["rejected"]
+        assert obs.events[0][2] == "unsupported_version"
+
+    def test_lock_contention_emits_rejected(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_CheckpointedSyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        assert app.thread_lock is not None
+        token = app.thread_lock.acquire("agent", "busy-t")
+        assert token is not None
+        try:
+            resp = handler(
+                _post(
+                    "/api/graphs/agent/invoke",
+                    {
+                        "input": {"user_text": "Ee"},
+                        "config": {"configurable": {"thread_id": "busy-t"}},
+                    },
+                )
+            )
+            assert resp.status_code == 409
+        finally:
+            app.thread_lock.release("agent", "busy-t", token)
+        assert obs.names == ["rejected"]
+        assert obs.events[0][2] == "lock_contention"
+        assert obs.events[0][1].thread_id == "busy-t"
+
+    def test_observer_exceptions_are_isolated(self) -> None:
+        app = _observed_app(_SyncGraph(), _RaisingObserver())
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = handler(_post("/api/graphs/agent/invoke", {"input": {"user_text": "Ef"}}))
+        assert resp.status_code == 200
+
+
+class TestObserverSyncStream:
+    """Observer emission across the sync stream handler."""
+
+    def test_success_emits_started_then_completed(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_SyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        resp = handler(
+            _post(
+                "/api/graphs/agent/stream",
+                {"input": {"user_text": "Fo"}, "stream_mode": "values"},
+            )
+        )
+        assert resp.status_code == 200
+        assert obs.names == ["started", "completed"]
+
+    def test_graph_failure_emits_started_then_failed(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_FailingSyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        resp = handler(
+            _post(
+                "/api/graphs/agent/stream",
+                {"input": {"user_text": "Gu"}, "stream_mode": "values"},
+            )
+        )
+        assert resp.status_code == 200
+        assert obs.names == ["started", "failed"]
+        assert isinstance(obs.events[1][2], RuntimeError)
+
+    def test_byte_cap_emits_started_then_failed(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_SyncGraph(), obs, max_stream_response_bytes=10)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        resp = handler(
+            _post(
+                "/api/graphs/agent/stream",
+                {"input": {"user_text": "Hy"}, "stream_mode": "values"},
+            )
+        )
+        assert resp.status_code == 200
+        assert obs.names == ["started", "failed"]
+
+    def test_streaming_unsupported_emits_rejected_only(self) -> None:
+        obs = _RecordingObserver()
+        reg = types.SimpleNamespace(
+            name="agent", stream_enabled=False, graph=_SyncGraph()
+        )
+        resp = handle_stream(
+            _post("/api/graphs/agent/stream", {"input": {"user_text": "Iz"}}),
+            reg,
+            thread_lock=InProcessThreadLock(),
+            max_stream_response_bytes=1_000_000,
+            max_request_body_bytes=1_000_000,
+            max_input_depth=20,
+            max_input_nodes=1_000,
+            observer=obs,
+        )
+        assert resp.status_code == 501
+        assert obs.names == ["rejected"]
+        assert obs.events[0][2] == "streaming_unsupported"
+
+
+class TestObserverAsync:
+    """Observer emission across the async invoke/stream handlers."""
+
+    async def test_async_invoke_success_emits_started_then_completed(self) -> None:
+        obs = _RecordingObserver()
+        app = LangGraphApp(observer=obs)
+        app.register(graph=_PureAsyncGraph(), name="agent", async_mode=True)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = await handler(_post("/api/graphs/agent/invoke", {"input": {"user_text": "Jo"}}))
+        assert resp.status_code == 200
+        assert obs.names == ["started", "completed"]
+
+    async def test_async_invoke_failure_emits_started_then_failed(self) -> None:
+        obs = _RecordingObserver()
+        app = LangGraphApp(observer=obs)
+        app.register(graph=_FailingAsyncGraph(), name="agent", async_mode=True)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = await handler(_post("/api/graphs/agent/invoke", {"input": {"user_text": "Ko"}}))
+        assert resp.status_code == 500
+        assert obs.names == ["started", "failed"]
+
+    async def test_async_stream_success_emits_completed(self) -> None:
+        obs = _RecordingObserver()
+        app = LangGraphApp(observer=obs)
+        app.register(graph=_PureAsyncGraph(), name="agent", async_mode=True)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        resp = await handler(
+            _post(
+                "/api/graphs/agent/stream",
+                {"input": {"user_text": "Lu"}, "stream_mode": "values"},
+            )
+        )
+        assert resp.status_code == 200
+        assert obs.names == ["started", "completed"]
+
+    async def test_async_stream_byte_cap_emits_failed(self) -> None:
+        obs = _RecordingObserver()
+        app = LangGraphApp(observer=obs, max_stream_response_bytes=10)
+        app.register(graph=_PureAsyncGraph(), name="agent", async_mode=True)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        resp = await handler(
+            _post(
+                "/api/graphs/agent/stream",
+                {"input": {"user_text": "Ma"}, "stream_mode": "values"},
+            )
+        )
+        assert resp.status_code == 200
+        assert obs.names == ["started", "failed"]
