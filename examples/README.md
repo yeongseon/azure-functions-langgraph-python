@@ -20,6 +20,7 @@
 | Versioned output | [`versioned_output_agent`](versioned_output_agent/) | Opt into LangGraph's `version="v2"` unified `GraphOutput` / `StreamPart` shapes via the request contract. |
 | Async agent | [`async_agent`](async_agent/) | Serve a graph with `async def` nodes through the native async path (`async_mode=True` → `await ainvoke`/`astream`). |
 | Run observability | [`run_observer`](run_observer/) | Wire a pluggable `RunObserver` into `LangGraphApp(observer=...)` — logs run started/completed/failed/rejected with correlation ids and timing only (no payloads). |
+| App Insights telemetry | [`observability_app_insights`](observability_app_insights/) | Ship run telemetry to Azure Application Insights with the built-in `LoggingRunObserver` — structured safe fields plus copy-pasteable KQL queries for run count, latency, error rate, and thread correlation. |
 | Curl helpers | [`local_curl`](local_curl/) | Shell scripts for hitting every Quick Start endpoint locally. |
 | Maintenance timer | [`maintenance_timer`](maintenance_timer/) | Timer Trigger that resets stale run locks on `AzureTableThreadStore`. |
 
@@ -55,4 +56,5 @@ Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` wh
 - **Verifying a deployed Function App from the terminal?** → `local_curl`
 - **Serving a graph with async nodes (`await` real I/O)?** → `async_agent`
 - **Observing run lifecycle (started/completed/failed/rejected)?** → `run_observer`
+- **Shipping run telemetry to Application Insights (KQL dashboards)?** → `observability_app_insights`
 - **Recovering orphaned run locks automatically?** → `maintenance_timer`

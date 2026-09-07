@@ -23,6 +23,7 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("versioned_output_agent", "compiled_graph"),
     ("async_agent", "compiled_graph"),
     ("run_observer", "compiled_graph"),
+    ("observability_app_insights", "compiled_graph"),
 )
 
 
@@ -77,6 +78,7 @@ EXAMPLE_DIRS = (
     "versioned_output_agent",
     "async_agent",
     "run_observer",
+    "observability_app_insights",
 )
 
 

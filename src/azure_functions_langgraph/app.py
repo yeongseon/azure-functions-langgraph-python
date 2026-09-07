@@ -498,6 +498,7 @@ response_model: Optional Pydantic model class for response body
             deps = PlatformRouteDeps(
                 registrations=self._registrations,
                 thread_store=self._thread_store,
+                observer=self.observer or NoOpRunObserver(),
                 auth_level=self.auth_level,
                 max_stream_response_bytes=self.max_stream_response_bytes,
                 max_request_body_bytes=self.max_request_body_bytes,

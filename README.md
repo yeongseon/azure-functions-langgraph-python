@@ -288,6 +288,41 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > architectural change (tracked separately). If you need real-time token streaming
 > today, run the graph behind a long-running host (e.g. App Service or AKS) instead.
 
+### Run observability
+
+Wire a [`RunObserver`](src/azure_functions_langgraph/observability.py) to receive
+run-lifecycle signals (`started` / `completed` / `failed` / `rejected`) for every
+native invoke/stream run and every Platform `runs/wait` / `runs/stream` run. Each
+callback receives an immutable `RunContext` of **correlation identifiers and
+timing only** — never input, output, config, headers, or secrets.
+
+The package ships a built-in, dependency-free `LoggingRunObserver` for
+zero-boilerplate telemetry:
+
+```python
+import logging
+from azure_functions_langgraph import LangGraphApp, LoggingRunObserver
+
+logging.getLogger("azure_functions_langgraph.observability.run").setLevel(logging.INFO)
+
+app = LangGraphApp(observer=LoggingRunObserver())
+app.register(graph=graph, name="my_agent")
+```
+
+It emits one structured log record per lifecycle event under a single `extra`
+key (`langgraph_run`) — `graph_name`, `endpoint`, `run_id`, `thread_id`,
+`assistant_id`, `stream_mode`, `transport`, `has_checkpointer`, `lock_backend`,
+`duration_ms`, a derived `status`, and (on failure) the exception `error_type`
+(class name only). Azure Functions' Application Insights integration surfaces
+these under `customDimensions`.
+
+> The package owns the **domain signal** only — not log formatting, App Insights
+> ingestion, OpenTelemetry exporters, sampling, or PII redaction. Observer
+> failures are isolated and never fail a graph run. To write your own observer,
+> see [`examples/run_observer/`](examples/run_observer/); for an App Insights +
+> KQL walkthrough, see
+> [`examples/observability_app_insights/`](examples/observability_app_insights/).
+
 ### Per-graph auth
 
 Override app-level auth settings per graph:
