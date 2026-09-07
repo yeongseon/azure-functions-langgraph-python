@@ -126,14 +126,12 @@ precommit-install = "pre-commit install"
 security = "python -m bandit -r src"
 
 [tool.hatch.envs.cosmos]
-python = "3.10"
 features = ["dev", "cosmos"]
 
 [tool.hatch.envs.cosmos.scripts]
 test = "pytest -v -m integration tests/integration/ --no-cov"
 
 [tool.hatch.envs.table]
-python = "3.10"
 features = ["dev", "azure-table"]
 
 [tool.hatch.envs.table.scripts]
