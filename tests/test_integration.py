@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from importlib.metadata import version as _pkg_version
 import json
+import logging
 import operator
 import types
 from typing import Annotated, Any, TypedDict
@@ -24,6 +25,11 @@ import pytest
 from azure_functions_langgraph._handlers import handle_stream, handle_stream_async
 from azure_functions_langgraph.app import LangGraphApp
 from azure_functions_langgraph.locks import InProcessThreadLock
+from azure_functions_langgraph.observability import (
+    LoggingRunObserver,
+    finish_context,
+    new_run_context,
+)
 
 
 def _langgraph_supports_v2() -> bool:
@@ -1434,3 +1440,181 @@ class TestObserverAsync:
         )
         assert resp.status_code == 200
         assert obs.names == ["started", "failed"]
+
+
+
+# ---------------------------------------------------------------------------
+# Tests — RunContext safe correlation fields (#407)
+# ---------------------------------------------------------------------------
+
+
+class TestObserverContextFields:
+    """The native handlers populate the #407 safe correlation fields on ctx."""
+
+    def test_invoke_ctx_carries_checkpointer_and_lock_backend(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_CheckpointedSyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = handler(
+            _post(
+                "/api/graphs/agent/invoke",
+                {
+                    "input": {"user_text": "Na"},
+                    "config": {"configurable": {"thread_id": "ctx-1"}},
+                },
+            )
+        )
+        assert resp.status_code == 200
+        started_ctx = obs.events[0][1]
+        assert started_ctx.has_checkpointer is True
+        assert started_ctx.lock_backend == "InProcessThreadLock"
+        assert started_ctx.thread_id == "ctx-1"
+        assert started_ctx.transport == "buffered"
+
+    def test_invoke_ctx_without_checkpointer(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_SyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        resp = handler(_post("/api/graphs/agent/invoke", {"input": {"user_text": "No"}}))
+        assert resp.status_code == 200
+        started_ctx = obs.events[0][1]
+        assert started_ctx.has_checkpointer is False
+        assert started_ctx.lock_backend == "InProcessThreadLock"
+        assert started_ctx.stream_mode is None
+
+    def test_stream_ctx_carries_stream_mode(self) -> None:
+        obs = _RecordingObserver()
+        app = _observed_app(_SyncGraph(), obs)
+        handler = _get_fn(app.function_app, "aflg_agent_stream")
+
+        resp = handler(
+            _post(
+                "/api/graphs/agent/stream",
+                {"input": {"user_text": "Pi"}, "stream_mode": "updates"},
+            )
+        )
+        assert resp.status_code == 200
+        started_ctx = obs.events[0][1]
+        assert started_ctx.stream_mode == "updates"
+        assert started_ctx.endpoint == "stream"
+
+
+# ---------------------------------------------------------------------------
+# Tests — LoggingRunObserver (#407)
+# ---------------------------------------------------------------------------
+
+
+_LANGGRAPH_RUN_KEY = "langgraph_run"
+
+
+class TestLoggingRunObserver:
+    """The built-in LoggingRunObserver emits safe, structured log records."""
+
+    def test_started_and_completed_emit_info_with_safe_fields(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        app = _observed_app(_SyncGraph(), LoggingRunObserver())
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        with caplog.at_level(logging.INFO):
+            resp = handler(
+                _post("/api/graphs/agent/invoke", {"input": {"user_text": "Qu"}})
+            )
+        assert resp.status_code == 200
+
+        records = [
+            rec for rec in caplog.records if hasattr(rec, _LANGGRAPH_RUN_KEY)
+        ]
+        assert [rec.levelno for rec in records] == [logging.INFO, logging.INFO]
+        started, completed = (getattr(rec, _LANGGRAPH_RUN_KEY) for rec in records)
+        assert started["status"] == "started"
+        assert started["graph_name"] == "agent"
+        assert started["endpoint"] == "invoke"
+        assert started["duration_ms"] is None
+        assert completed["status"] == "completed"
+        assert completed["duration_ms"] is not None
+        # No payload/config/secret keys must ever leak into the structured fields.
+        forbidden = {"input", "output", "config", "messages", "headers", "result"}
+        assert forbidden.isdisjoint(started.keys())
+        assert forbidden.isdisjoint(completed.keys())
+
+    def test_failure_emits_error_with_error_type(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        app = _observed_app(_FailingSyncGraph(), LoggingRunObserver())
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        with caplog.at_level(logging.INFO):
+            resp = handler(
+                _post("/api/graphs/agent/invoke", {"input": {"user_text": "Re"}})
+            )
+        assert resp.status_code == 500
+
+        records = [
+            rec for rec in caplog.records if hasattr(rec, _LANGGRAPH_RUN_KEY)
+        ]
+        failed = getattr(records[-1], _LANGGRAPH_RUN_KEY)
+        assert records[-1].levelno == logging.ERROR
+        assert failed["status"] == "failed"
+        assert failed["error_type"] == "RuntimeError"
+
+    def test_rejected_emits_reason(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        app = _observed_app(_SyncGraph(), LoggingRunObserver())
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        with caplog.at_level(logging.INFO):
+            resp = handler(_raw_post("/api/graphs/agent/invoke", b"{not-json"))
+        assert resp.status_code == 400
+
+        records = [
+            rec for rec in caplog.records if hasattr(rec, _LANGGRAPH_RUN_KEY)
+        ]
+        rejected = getattr(records[-1], _LANGGRAPH_RUN_KEY)
+        assert rejected["status"] == "rejected"
+        assert rejected["reason"] == "invalid_request"
+
+    def test_custom_logger_and_level_are_honored(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        custom = logging.getLogger("tests.custom.langgraph.run")
+        app = _observed_app(
+            _SyncGraph(), LoggingRunObserver(custom, level=logging.DEBUG)
+        )
+        handler = _get_fn(app.function_app, "aflg_agent_invoke")
+
+        with caplog.at_level(logging.DEBUG, logger="tests.custom.langgraph.run"):
+            resp = handler(
+                _post("/api/graphs/agent/invoke", {"input": {"user_text": "Sy"}})
+            )
+        assert resp.status_code == 200
+        records = [
+            rec
+            for rec in caplog.records
+            if rec.name == "tests.custom.langgraph.run"
+            and hasattr(rec, _LANGGRAPH_RUN_KEY)
+        ]
+        assert records
+        assert all(rec.levelno == logging.DEBUG for rec in records)
+
+
+class TestObservabilityHelpers:
+    """Direct unit coverage for the #407 helper functions."""
+
+    def test_new_run_context_normalizes_list_stream_mode(self) -> None:
+        ctx = new_run_context(
+            "agent", "stream", stream_mode=["values", "updates"]
+        )
+        assert ctx.stream_mode == ("values", "updates")
+        assert ctx.transport == "buffered"
+        assert ctx.ended_at_ns is None
+
+    def test_finish_context_stamps_ended_at(self) -> None:
+        ctx = new_run_context("agent", "invoke")
+        finished = finish_context(ctx)
+        assert finished.ended_at_ns is not None
+        assert finished.ended_at_ns >= finished.started_at_ns
+        assert finished.run_id == ctx.run_id

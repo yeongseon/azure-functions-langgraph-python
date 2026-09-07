@@ -15,6 +15,7 @@ from azure_functions_langgraph._validation import (
     validate_graph_name,
     validate_input_structure,
 )
+from azure_functions_langgraph.observability import NOOP_OBSERVER, RunObserver
 from azure_functions_langgraph.platform._sse import format_end_event, format_error_event
 from azure_functions_langgraph.platform.contracts import (
     Assistant,
@@ -522,6 +523,7 @@ class PlatformRouteDeps:
     __slots__ = (
         "registrations",
         "thread_store",
+        "observer",
         "auth_level",
         "max_stream_response_bytes",
         "max_request_body_bytes",
@@ -534,6 +536,7 @@ class PlatformRouteDeps:
         *,
         registrations: dict[str, Any],
         thread_store: ThreadStore,
+        observer: RunObserver = NOOP_OBSERVER,
         auth_level: func.AuthLevel,
         max_stream_response_bytes: int,
         max_request_body_bytes: int = 1024 * 1024,
@@ -542,6 +545,7 @@ class PlatformRouteDeps:
     ) -> None:
         self.registrations = registrations
         self.thread_store = thread_store
+        self.observer = observer
         self.auth_level = auth_level
         self.max_stream_response_bytes = max_stream_response_bytes
         self.max_request_body_bytes = max_request_body_bytes

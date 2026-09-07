@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 # exporters can switch on a stable, closed set of values.
 EndpointName = Literal["invoke", "stream"]
 
+# The transport used to deliver a run's result. ``"buffered"`` is the only
+# transport today (buffered SSE / single JSON response); ``"streaming"`` is
+# reserved so opt-in true HTTP streaming (issue #406) can adopt this contract
+# without a breaking change.
+RunTransport = Literal["buffered", "streaming"]
+
 # Why a run never reached graph execution. Every value corresponds to a
 # pre-execution failure path in the native handlers; execution-time failures
 # use :meth:`RunObserver.on_run_failed` instead.
@@ -51,6 +57,18 @@ class RunContext:
     thread_id: str | None
     started_at_ns: int
     ended_at_ns: int | None = None
+
+    # --- Optional safe correlation metadata (issue #407) -----------------
+    # Every field below is defaulted so the context stays constructible from
+    # positional identifiers alone, and each carries only non-sensitive
+    # correlation data — never payloads, config, headers, or secrets.
+    assistant_id: str | None = None
+    invocation_id: str | None = None
+    stream_mode: str | tuple[str, ...] | None = None
+    transport: RunTransport = "buffered"
+    has_checkpointer: bool | None = None
+    lock_backend: str | None = None
+
 
 
 @runtime_checkable
@@ -103,18 +121,52 @@ class NoOpRunObserver:
 NOOP_OBSERVER: RunObserver = NoOpRunObserver()
 
 
+def _normalize_stream_mode(
+    stream_mode: str | list[str] | tuple[str, ...] | None,
+) -> str | tuple[str, ...] | None:
+    """Coerce a stream-mode value into an immutable, context-safe form.
+
+    Lists are converted to tuples so :class:`RunContext` stays hashable/frozen;
+    strings and ``None`` pass through unchanged.
+    """
+    if isinstance(stream_mode, list):
+        return tuple(stream_mode)
+    return stream_mode
+
+
 def new_run_context(
-    graph_name: str, endpoint: EndpointName, *, thread_id: str | None = None
+    graph_name: str,
+    endpoint: EndpointName,
+    *,
+    run_id: str | None = None,
+    thread_id: str | None = None,
+    assistant_id: str | None = None,
+    invocation_id: str | None = None,
+    stream_mode: str | list[str] | tuple[str, ...] | None = None,
+    transport: RunTransport = "buffered",
+    has_checkpointer: bool | None = None,
+    lock_backend: str | None = None,
 ) -> RunContext:
-    """Create a fresh :class:`RunContext` with a unique run id and start time."""
+    """Create a fresh :class:`RunContext` with a unique run id and start time.
+
+    All keyword arguments are optional safe correlation metadata; unavailable
+    fields simply stay ``None`` (or their default). Pass ``run_id`` to reuse an
+    externally generated id (e.g. a Platform run id) instead of a new one.
+    """
     from uuid import uuid4
 
     return RunContext(
         graph_name=graph_name,
         endpoint=endpoint,
-        run_id=uuid4().hex,
+        run_id=run_id or uuid4().hex,
         thread_id=thread_id,
         started_at_ns=time.monotonic_ns(),
+        assistant_id=assistant_id,
+        invocation_id=invocation_id,
+        stream_mode=_normalize_stream_mode(stream_mode),
+        transport=transport,
+        has_checkpointer=has_checkpointer,
+        lock_backend=lock_backend,
     )
 
 
@@ -133,3 +185,112 @@ def safe_observer_call(observer: RunObserver, method: str, *args: object) -> Non
         getattr(observer, method)(*args)
     except Exception:  # noqa: BLE001 - observer isolation is intentional
         logger.exception("RunObserver.%s raised; ignoring", method)
+
+
+def _duration_ms(ctx: RunContext) -> float | None:
+    """Return the run's elapsed wall time in milliseconds, if terminated."""
+    if ctx.ended_at_ns is None:
+        return None
+    return (ctx.ended_at_ns - ctx.started_at_ns) / 1_000_000
+
+
+def _safe_fields(ctx: RunContext, **extra: object) -> dict[str, object]:
+    """Build the safe, structured field set logged for a run.
+
+    Contains only correlation identifiers, timing, and run metadata — never
+    input, output, config, headers, or secrets. Extra derived fields (status,
+    error_type) are merged in by the caller.
+    """
+    fields: dict[str, object] = {
+        "graph_name": ctx.graph_name,
+        "endpoint": ctx.endpoint,
+        "run_id": ctx.run_id,
+        "thread_id": ctx.thread_id,
+        "assistant_id": ctx.assistant_id,
+        "invocation_id": ctx.invocation_id,
+        "stream_mode": ctx.stream_mode,
+        "transport": ctx.transport,
+        "has_checkpointer": ctx.has_checkpointer,
+        "lock_backend": ctx.lock_backend,
+        "duration_ms": _duration_ms(ctx),
+    }
+    fields.update(extra)
+    return fields
+
+
+class LoggingRunObserver:
+    """A dependency-free :class:`RunObserver` backed by stdlib ``logging``.
+
+    Emits one log record per lifecycle event carrying only safe correlation
+    metadata (graph/run/thread/assistant ids, endpoint, transport, stream mode,
+    checkpointer/lock backend, timing) plus a derived ``status`` — and, for
+    failures, the exception ``error_type`` (class name only). It deliberately
+    logs **no** request/response payloads, config, headers, or secrets.
+
+    The observer owns neither log formatting nor handler/exporter configuration:
+    it writes structured fields under a single ``extra`` key so operators can
+    route them to Application Insights / OpenTelemetry / any sink via their own
+    logging configuration (e.g. the companion ``azure-functions-logging``
+    package). See ``examples/observability_app_insights/`` for a KQL walkthrough.
+
+    Args:
+        logger: Logger to emit on. Defaults to
+            ``azure_functions_langgraph.observability.run``.
+        level: Level for non-error events (started/completed/rejected).
+            Failures are always logged at ``logging.ERROR``.
+    """
+
+    _EXTRA_KEY = "langgraph_run"
+
+    def __init__(
+        self,
+        logger: logging.Logger | None = None,
+        *,
+        level: int = logging.INFO,
+    ) -> None:
+        self._logger = logger or logging.getLogger(f"{__name__}.run")
+        self._level = level
+
+    def _emit(
+        self, level: int, message: str, ctx: RunContext, **extra: object
+    ) -> None:
+        self._logger.log(
+            level,
+            message,
+            self._safe_message_args(ctx, extra),
+            extra={self._EXTRA_KEY: _safe_fields(ctx, **extra)},
+        )
+
+    @staticmethod
+    def _safe_message_args(ctx: RunContext, extra: dict[str, object]) -> dict[str, object]:
+        # Compact human-readable summary interpolated into the log message.
+        return {
+            "graph_name": ctx.graph_name,
+            "endpoint": ctx.endpoint,
+            "run_id": ctx.run_id,
+            **extra,
+        }
+
+    def on_run_started(self, ctx: RunContext) -> None:
+        self._emit(self._level, "langgraph.run.started %s", ctx, status="started")
+
+    def on_run_completed(self, ctx: RunContext) -> None:
+        self._emit(self._level, "langgraph.run.completed %s", ctx, status="completed")
+
+    def on_run_failed(self, ctx: RunContext, exc: BaseException) -> None:
+        self._emit(
+            logging.ERROR,
+            "langgraph.run.failed %s",
+            ctx,
+            status="failed",
+            error_type=type(exc).__name__,
+        )
+
+    def on_run_rejected(self, ctx: RunContext, reason: RunRejectedReason) -> None:
+        self._emit(
+            self._level,
+            "langgraph.run.rejected %s",
+            ctx,
+            status="rejected",
+            reason=reason,
+        )

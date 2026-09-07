@@ -9,6 +9,11 @@ import azure.functions as func
 from azure_functions_langgraph._validation import (
     validate_thread_id,
 )
+from azure_functions_langgraph.observability import (
+    finish_context,
+    new_run_context,
+    safe_observer_call,
+)
 from azure_functions_langgraph.platform._common import (
     PlatformRouteDeps,
     _build_sse_response,
@@ -82,6 +87,16 @@ def register_run_routes(
         if isinstance(reg, func.HttpResponse):
             return reg
 
+        run_id = str(uuid.uuid4())
+        ctx = new_run_context(
+            reg.name,
+            "invoke",
+            run_id=run_id,
+            thread_id=thread_id,
+            assistant_id=run_req.assistant_id,
+            has_checkpointer=getattr(reg.graph, "checkpointer", None) is not None,
+        )
+
         try:
             locked = deps.thread_store.try_acquire_run_lock(
                 thread_id,
@@ -92,6 +107,9 @@ def register_run_routes(
         except ValueError as exc:
             return _platform_error(409, str(exc))
         if locked is None:
+            safe_observer_call(
+                deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
+            )
             return _platform_error(
                 409,
                 f"Thread {thread_id!r} is already busy. "
@@ -101,21 +119,23 @@ def register_run_routes(
         config = _build_threaded_config(run_req, thread_id)
 
         graph_input = run_req.input or {}
+        safe_observer_call(deps.observer, "on_run_started", ctx)
         try:
             result = reg.graph.invoke(graph_input, config=config)
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Graph %s invoke failed for thread %s",
                 run_req.assistant_id,
                 thread_id,
             )
             _release_thread_run_lock(deps, thread_id, status="error")
+            safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             return _platform_error(500, "Graph execution failed")
 
         output = result if isinstance(result, dict) else {"result": result}
         _release_thread_run_lock(deps, thread_id, status="idle", values=output)
+        safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
-        run_id = str(uuid.uuid4())
         return func.HttpResponse(
             body=json.dumps(output, default=str),
             mimetype="application/json",
@@ -158,6 +178,16 @@ def register_run_routes(
                 f"Graph {run_req.assistant_id!r} does not support streaming",
             )
 
+        run_id = str(uuid.uuid4())
+        ctx = new_run_context(
+            reg.name,
+            "stream",
+            run_id=run_id,
+            thread_id=thread_id,
+            assistant_id=run_req.assistant_id,
+            has_checkpointer=getattr(reg.graph, "checkpointer", None) is not None,
+            stream_mode=stream_mode,
+        )
         try:
             locked = deps.thread_store.try_acquire_run_lock(
                 thread_id,
@@ -168,6 +198,9 @@ def register_run_routes(
         except ValueError as exc:
             return _platform_error(409, str(exc))
         if locked is None:
+            safe_observer_call(
+                deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
+            )
             return _platform_error(
                 409,
                 f"Thread {thread_id!r} is already busy. "
@@ -176,7 +209,6 @@ def register_run_routes(
 
         config = _build_threaded_config(run_req, thread_id)
 
-        run_id = str(uuid.uuid4())
 
         graph_input = run_req.input or {}
         chunks: list[str] = []
@@ -186,9 +218,16 @@ def register_run_routes(
         meta_chunk = format_metadata_event(run_id)
         chunks.append(meta_chunk)
         buffered_bytes += len(meta_chunk.encode())
+        safe_observer_call(deps.observer, "on_run_started", ctx)
 
         if _check_stream_overflow(chunks, buffered_bytes, 0, max_bytes):
             _release_thread_run_lock(deps, thread_id, status="error")
+            safe_observer_call(
+                deps.observer,
+                "on_run_failed",
+                finish_context(ctx),
+                RuntimeError("stream response exceeded max buffered size"),
+            )
             return _build_sse_response(
                 chunks,
                 content_location=f"/api/threads/{thread_id}/runs/{run_id}",
@@ -203,19 +242,26 @@ def register_run_routes(
                 chunk_bytes = len(chunk.encode())
                 if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
                     _release_thread_run_lock(deps, thread_id, status="error")
+                    safe_observer_call(
+                        deps.observer,
+                        "on_run_failed",
+                        finish_context(ctx),
+                        RuntimeError("stream response exceeded max buffered size"),
+                    )
                     return _build_sse_response(
                         chunks,
                         content_location=f"/api/threads/{thread_id}/runs/{run_id}",
                     )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Graph %s stream failed for thread %s",
                 run_req.assistant_id,
                 thread_id,
             )
             _release_thread_run_lock(deps, thread_id, status="error")
+            safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             chunks.append(format_error_event("stream processing failed"))
             chunks.append(format_end_event())
             return _build_sse_response(
@@ -226,6 +272,7 @@ def register_run_routes(
         chunks.append(format_end_event())
 
         _release_thread_run_lock(deps, thread_id, status="idle")
+        safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
         return _build_sse_response(
             chunks,
@@ -256,19 +303,29 @@ def register_run_routes(
         if isinstance(config, func.HttpResponse):
             return config
 
+        run_id = str(uuid.uuid4())
+        ctx = new_run_context(
+            reg.name,
+            "invoke",
+            run_id=run_id,
+            assistant_id=run_req.assistant_id,
+            has_checkpointer=False,
+        )
         graph_input = run_req.input or {}
+        safe_observer_call(deps.observer, "on_run_started", ctx)
         try:
             result = exec_graph.invoke(graph_input, config=config)
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Graph %s invoke failed (threadless)",
                 run_req.assistant_id,
             )
+            safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             return _platform_error(500, "Graph execution failed")
 
         output = result if isinstance(result, dict) else {"result": result}
+        safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
-        run_id = str(uuid.uuid4())
         return func.HttpResponse(
             body=json.dumps(output, default=str),
             mimetype="application/json",
@@ -311,6 +368,14 @@ def register_run_routes(
             return config
 
         run_id = str(uuid.uuid4())
+        ctx = new_run_context(
+            reg.name,
+            "stream",
+            run_id=run_id,
+            assistant_id=run_req.assistant_id,
+            has_checkpointer=False,
+            stream_mode=stream_mode,
+        )
 
         graph_input = run_req.input or {}
         chunks: list[str] = []
@@ -320,8 +385,15 @@ def register_run_routes(
         meta_chunk = format_metadata_event(run_id)
         chunks.append(meta_chunk)
         buffered_bytes += len(meta_chunk.encode())
+        safe_observer_call(deps.observer, "on_run_started", ctx)
 
         if _check_stream_overflow(chunks, buffered_bytes, 0, max_bytes):
+            safe_observer_call(
+                deps.observer,
+                "on_run_failed",
+                finish_context(ctx),
+                RuntimeError("stream response exceeded max buffered size"),
+            )
             return _build_sse_response(
                 chunks,
                 content_location=f"/api/runs/{run_id}",
@@ -335,18 +407,25 @@ def register_run_routes(
                 chunk = format_data_event(stream_mode, event)
                 chunk_bytes = len(chunk.encode())
                 if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
+                    safe_observer_call(
+                        deps.observer,
+                        "on_run_failed",
+                        finish_context(ctx),
+                        RuntimeError("stream response exceeded max buffered size"),
+                    )
                     return _build_sse_response(
                         chunks,
                         content_location=f"/api/runs/{run_id}",
                     )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Graph %s stream failed (threadless)",
                 run_req.assistant_id,
             )
             chunks.append(format_error_event("stream processing failed"))
+            safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             chunks.append(format_end_event())
             return _build_sse_response(
                 chunks,
@@ -354,6 +433,7 @@ def register_run_routes(
             )
 
         chunks.append(format_end_event())
+        safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
         return _build_sse_response(
             chunks,

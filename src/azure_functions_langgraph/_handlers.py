@@ -245,7 +245,13 @@ def handle_invoke(
     observer: RunObserver = NOOP_OBSERVER,
 ) -> func.HttpResponse:
     """Handle a synchronous invoke request."""
-    ctx = new_run_context(reg.name, "invoke")
+    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    ctx = new_run_context(
+        reg.name,
+        "invoke",
+        has_checkpointer=has_cp,
+        lock_backend=type(thread_lock).__name__,
+    )
     parsed = _parse_native_request(
         req,
         InvokeRequest,
@@ -265,7 +271,6 @@ def handle_invoke(
     version_kwargs = _resolve_version_kwarg(reg.graph.invoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
-    has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
         lock_token = thread_lock.acquire(reg.name, thread_id)
@@ -324,7 +329,13 @@ def handle_stream(
     "Streaming: buffered SSE and the true-streaming migration" section of
     ``DESIGN.md`` for the constraints and migration path.
     """
-    ctx = new_run_context(reg.name, "stream")
+    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    ctx = new_run_context(
+        reg.name,
+        "stream",
+        has_checkpointer=has_cp,
+        lock_backend=type(thread_lock).__name__,
+    )
     if not reg.stream_enabled:
         return _reject(
             observer,
@@ -356,11 +367,10 @@ def handle_stream(
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
-    ctx = dataclasses.replace(ctx, thread_id=thread_id)
+    ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
     version_kwargs = _resolve_version_kwarg(reg.graph.stream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
-    has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
         lock_token = thread_lock.acquire(reg.name, thread_id)
@@ -463,7 +473,13 @@ async def handle_invoke_async(
     thread-lock calls to a worker thread so a blocking lock backend (e.g. the
     Azure Blob lease) never stalls the event loop.
     """
-    ctx = new_run_context(reg.name, "invoke")
+    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    ctx = new_run_context(
+        reg.name,
+        "invoke",
+        has_checkpointer=has_cp,
+        lock_backend=type(thread_lock).__name__,
+    )
     parsed = _parse_native_request(
         req,
         InvokeRequest,
@@ -483,7 +499,6 @@ async def handle_invoke_async(
     version_kwargs = _resolve_version_kwarg(reg.graph.ainvoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
-    has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
         lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
@@ -540,7 +555,13 @@ async def handle_stream_async(
     ``async for``. The byte-size cap is enforced mid-stream, and the thread
     lock is released in ``finally`` even when the async generator raises.
     """
-    ctx = new_run_context(reg.name, "stream")
+    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    ctx = new_run_context(
+        reg.name,
+        "stream",
+        has_checkpointer=has_cp,
+        lock_backend=type(thread_lock).__name__,
+    )
     if not reg.stream_enabled:
         return _reject(
             observer,
@@ -572,11 +593,10 @@ async def handle_stream_async(
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
-    ctx = dataclasses.replace(ctx, thread_id=thread_id)
+    ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
     version_kwargs = _resolve_version_kwarg(reg.graph.astream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
-    has_cp = getattr(reg.graph, "checkpointer", None) is not None
     lock_token: str | None = None
     if has_cp and thread_id:
         lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)

@@ -62,9 +62,10 @@ def _make_platform_app(
     *,
     store: InMemoryThreadStore | None = None,
     name: str = "agent",
+    observer: Any = None,
 ) -> LangGraphApp:
     """Build a LangGraphApp with platform_compat=True."""
-    app = LangGraphApp(platform_compat=True)
+    app = LangGraphApp(platform_compat=True, observer=observer)
     if store is not None:
         app._thread_store = store
     app.register(graph=graph, name=name)
@@ -332,3 +333,136 @@ class TestPlatformState:
         state_req = _get(f"/api/threads/{tid}/state", thread_id=tid)
         state_resp = state_fn(state_req)
         assert state_resp.status_code == 409
+
+
+
+# ---------------------------------------------------------------------------
+# Tests — Platform run-lifecycle observer parity (#407)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingObserver:
+    """Records every lifecycle event for assertions."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[Any, ...]] = []
+
+    def on_run_started(self, ctx: Any) -> None:
+        self.events.append(("started", ctx))
+
+    def on_run_completed(self, ctx: Any) -> None:
+        self.events.append(("completed", ctx))
+
+    def on_run_failed(self, ctx: Any, exc: BaseException) -> None:
+        self.events.append(("failed", ctx, exc))
+
+    def on_run_rejected(self, ctx: Any, reason: str) -> None:
+        self.events.append(("rejected", ctx, reason))
+
+    @property
+    def names(self) -> list[str]:
+        return [event[0] for event in self.events]
+
+
+def _boom(state: ChatState) -> dict[str, Any]:
+    raise RuntimeError("platform boom")
+
+
+def _build_failing_graph(*, checkpointer: Any = None) -> Any:
+    builder = StateGraph(ChatState)
+    builder.add_node("boom", _boom)
+    builder.add_edge(START, "boom")
+    builder.add_edge("boom", END)
+    return builder.compile(checkpointer=checkpointer)
+
+
+class TestPlatformObserver:
+    """Platform run endpoints emit lifecycle events through the observer."""
+
+    def _create_thread(self, fa: func.FunctionApp) -> str:
+        create_fn = _get_fn(fa, "aflg_platform_threads_create")
+        resp = create_fn(_post("/api/threads", {}))
+        tid: str = json.loads(resp.get_body())["thread_id"]
+        return tid
+
+    def test_runs_wait_emits_started_then_completed(self) -> None:
+        obs = _RecordingObserver()
+        graph = _build_graph(checkpointer=MemorySaver())
+        store = InMemoryThreadStore(id_factory=lambda: "po-1")
+        app = _make_platform_app(graph, store=store, observer=obs)
+        fa = app.function_app
+        tid = self._create_thread(fa)
+
+        wait_fn = _get_fn(fa, "aflg_platform_runs_wait")
+        resp = wait_fn(
+            _post(
+                f"/api/threads/{tid}/runs/wait",
+                {"assistant_id": "agent", "input": {"user_text": "Ob"}},
+                thread_id=tid,
+            )
+        )
+        assert resp.status_code == 200
+        assert obs.names == ["started", "completed"]
+        assert obs.events[0][1].endpoint == "invoke"
+
+    def test_runs_wait_emits_failed_on_graph_error(self) -> None:
+        obs = _RecordingObserver()
+        graph = _build_failing_graph(checkpointer=MemorySaver())
+        store = InMemoryThreadStore(id_factory=lambda: "po-2")
+        app = _make_platform_app(graph, store=store, observer=obs)
+        fa = app.function_app
+        tid = self._create_thread(fa)
+
+        wait_fn = _get_fn(fa, "aflg_platform_runs_wait")
+        resp = wait_fn(
+            _post(
+                f"/api/threads/{tid}/runs/wait",
+                {"assistant_id": "agent", "input": {"user_text": "Er"}},
+                thread_id=tid,
+            )
+        )
+        assert resp.status_code == 500
+        assert obs.names == ["started", "failed"]
+        assert isinstance(obs.events[1][2], BaseException)
+
+    def test_runs_stream_emits_started_then_completed(self) -> None:
+        obs = _RecordingObserver()
+        graph = _build_graph(checkpointer=MemorySaver())
+        store = InMemoryThreadStore(id_factory=lambda: "po-3")
+        app = _make_platform_app(graph, store=store, observer=obs)
+        fa = app.function_app
+        tid = self._create_thread(fa)
+
+        stream_fn = _get_fn(fa, "aflg_platform_runs_stream")
+        resp = stream_fn(
+            _post(
+                f"/api/threads/{tid}/runs/stream",
+                {
+                    "assistant_id": "agent",
+                    "input": {"user_text": "St"},
+                    "stream_mode": "values",
+                },
+                thread_id=tid,
+            )
+        )
+        assert resp.status_code == 200
+        assert obs.names == ["started", "completed"]
+        assert obs.events[0][1].endpoint == "stream"
+        assert obs.events[0][1].stream_mode == "values"
+
+    def test_runs_wait_threadless_emits_started_then_completed(self) -> None:
+        obs = _RecordingObserver()
+        graph = _build_graph()
+        app = _make_platform_app(graph, observer=obs)
+        fa = app.function_app
+
+        wait_fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+        resp = wait_fn(
+            _post(
+                "/api/runs/wait",
+                {"assistant_id": "agent", "input": {"user_text": "Tl"}},
+            )
+        )
+        assert resp.status_code == 200
+        assert obs.names == ["started", "completed"]
+        assert obs.events[0][1].has_checkpointer is False

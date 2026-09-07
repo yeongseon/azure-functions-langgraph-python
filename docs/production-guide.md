@@ -73,16 +73,54 @@ This creates a layered security model: edge auth and governance in APIM, key-bas
 - [Azure Functions authentication and authorization](https://learn.microsoft.com/en-us/azure/azure-functions/security-concepts)
 
 ## Observability
-### Logging integration (recommended operator instrumentation)
+### Run telemetry with the built-in `RunObserver` (recommended)
 
-This package does not emit structured log fields automatically.
-The following are recommended practices for production observability when building your Function App:
+The package emits **run-lifecycle domain signals** through a pluggable
+[`RunObserver`](../src/azure_functions_langgraph/observability.py). Every native
+invoke/stream run (and every Platform `runs/wait` / `runs/stream` run) notifies
+the observer on `started`, `completed`, `failed`, and `rejected`, carrying an
+immutable `RunContext` of **correlation identifiers and timing only** — never
+input, output, config, headers, or secrets.
+
+For zero-boilerplate telemetry, wire the built-in, dependency-free
+`LoggingRunObserver`:
+
+```python
+import logging
+from azure_functions_langgraph import LangGraphApp, LoggingRunObserver
+
+logging.getLogger("azure_functions_langgraph.observability.run").setLevel(logging.INFO)
+
+app = LangGraphApp(observer=LoggingRunObserver())
+```
+
+It emits one structured log record per lifecycle event under a single `extra`
+key (`langgraph_run`) containing `graph_name`, `endpoint`, `run_id`,
+`thread_id`, `assistant_id`, `stream_mode`, `transport`, `has_checkpointer`,
+`lock_backend`, `duration_ms`, a derived `status`, and — on failure — the
+exception `error_type` (class name only). Azure Functions' native Application
+Insights integration surfaces these fields under `customDimensions`. See
+[`examples/observability_app_insights/`](../examples/observability_app_insights/)
+for a full KQL walkthrough (run count, latency percentiles, error rate, and
+per-thread correlation).
+
+**Boundary.** The package owns the *domain signal* only. It does **not** own log
+formatting, App Insights ingestion, OpenTelemetry exporters, tracer-provider
+setup, sampling policy, or PII redaction — those stay in your logging
+configuration. Observer failures are isolated and can never fail a graph run.
+To write your own observer instead, see
+[`examples/run_observer/`](../examples/run_observer/).
+
+### Custom logging integration
+
+If you also instrument your own nodes, these practices pair well with the
+observer above:
 
 - Emit structured fields (`graph_name`, `thread_id`, `assistant_id`, `run_id`, `status_code`, `duration_ms`).
 - Log explicit lifecycle markers: request received, graph started, graph completed/failed.
 - Include error categories (`validation_error`, `execution_error`, `storage_error`) to simplify alerting.
 
-[`azure-functions-logging-python`](https://github.com/yeongseon/azure-functions-logging-python) provides structured logging helpers that pair well with this package.
+[`azure-functions-logging-python`](https://github.com/yeongseon/azure-functions-logging-python) provides structured logging helpers that pair well with this package — use it to *route/format* the records the observer produces.
 
 ### Application Insights correlation
 

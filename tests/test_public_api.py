@@ -48,6 +48,8 @@ def test_all_exports() -> None:
     assert "RunContext" in azure_functions_langgraph.__all__
     assert "NoOpRunObserver" in azure_functions_langgraph.__all__
     assert "RunRejectedReason" in azure_functions_langgraph.__all__
+    assert "LoggingRunObserver" in azure_functions_langgraph.__all__
+    assert "RunTransport" in azure_functions_langgraph.__all__
 
 
 def test_contracts_importable() -> None:
@@ -158,6 +160,7 @@ def test_azure_table_thread_store_from_table_client_factory() -> None:
 
 def test_observability_importable_from_package() -> None:
     from azure_functions_langgraph import (
+        LoggingRunObserver,
         NoOpRunObserver,
         RunContext,
         RunObserver,
@@ -168,5 +171,8 @@ def test_observability_importable_from_package() -> None:
     assert RunContext is not None
     assert NoOpRunObserver is not None
     assert RunRejectedReason is not None
+    assert LoggingRunObserver is not None
+    # LoggingRunObserver satisfies the RunObserver protocol.
+    assert isinstance(LoggingRunObserver(), RunObserver)
     # NoOpRunObserver satisfies the RunObserver protocol.
     assert isinstance(NoOpRunObserver(), RunObserver)
