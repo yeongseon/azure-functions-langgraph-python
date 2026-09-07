@@ -71,6 +71,17 @@ class MockBlobClient:
 
     def upload_blob(self, data: bytes, overwrite: bool = False) -> None:
         if self._name in self._container.blobs:
+            # Faithful to Azure: a conditional (``overwrite=False``) upload
+            # against an existing blob that is currently leased by another
+            # holder is rejected with a lease conflict (412 ``LeaseIdMissing``),
+            # NOT ``ResourceExistsError``. This is the cross-host path that
+            # ``_ensure_marker`` must tolerate.
+            if self._active_lease is not None and not self._active_lease.released:
+                raise FakeHttpResponseError(
+                    "LeaseIdMissing",
+                    error_code="LeaseIdMissing",
+                    status_code=412,
+                )
             if not overwrite:
                 raise FakeResourceExistsError(self._name)
         self._container.blobs[self._name] = data
@@ -285,6 +296,44 @@ class TestAcquireRelease:
             assert challenger.acquire("graph", "t1", timeout=0.0) is None
         finally:
             holder.release("graph", "t1", holder_token)
+
+    def test_leased_marker_upload_conflict_does_not_raise(self) -> None:
+        """Regression (#333/#386): a challenger whose marker upload hits the
+        holder's lease must NOT crash — it must fall through to acquire_lease
+        and report contention as ``None`` (mapped to HTTP 409 by the handler).
+
+        Before the fix, ``_ensure_marker`` caught only ``ResourceExistsError``,
+        so the 412 ``LeaseIdMissing`` from uploading over a leased marker
+        propagated out of ``acquire()`` and surfaced as an empty-body 500.
+        """
+        container = MockContainerClient()
+        holder = _make_lock(container)
+        holder_token = holder.acquire("graph", "t1")
+        assert holder_token
+        try:
+            challenger = _make_lock(container)
+            # Must return None (contention) rather than raising.
+            assert challenger.acquire("graph", "t1") is None
+        finally:
+            holder.release("graph", "t1", holder_token)
+
+    def test_ensure_marker_propagates_non_lease_http_error(self) -> None:
+        """A non-lease HTTP error (e.g. 403 auth/RBAC) on marker upload must
+        still propagate — it is a genuine failure, not benign contention."""
+        container = MockContainerClient()
+        lock = _make_lock(container)
+        blob_client = container.get_blob_client("marker")
+
+        def _boom(data: bytes, overwrite: bool = False) -> None:
+            raise FakeHttpResponseError(
+                "AuthorizationFailure",
+                error_code="AuthorizationFailure",
+                status_code=403,
+            )
+
+        blob_client.upload_blob = _boom  # type: ignore[method-assign]
+        with pytest.raises(FakeHttpResponseError):
+            lock._ensure_marker(blob_client)
 
     def test_marker_reused_across_acquires(self) -> None:
         """Marker blob is created once, then reused (idempotent)."""

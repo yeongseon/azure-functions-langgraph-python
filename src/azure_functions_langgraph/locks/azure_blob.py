@@ -342,6 +342,18 @@ class AzureBlobLeaseThreadLock:
             # Expected on every acquire after the first — the marker blob is
             # created once and reused for every subsequent lease attempt.
             return
+        except self._http_response_error as exc:
+            # The marker already exists AND is currently leased by another
+            # host. A conditional (``overwrite=False``) upload against a leased
+            # blob is rejected by Azure with a lease-conflict error (e.g. 412
+            # ``LeaseIdMissing`` / 409) rather than ``ResourceExistsError``.
+            # A leased blob provably already exists, so this is equivalent to
+            # the existing-marker case: swallow it and let the caller proceed
+            # to ``acquire_lease`` (which will report contention as ``None``).
+            # Any non-lease HTTP error (auth/RBAC/network) still propagates.
+            if self._is_lease_conflict(exc):
+                return
+            raise
 
     def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> str | None:
         """Attempt to hold an Azure Blob lease for ``(graph_name, thread_id)``.
