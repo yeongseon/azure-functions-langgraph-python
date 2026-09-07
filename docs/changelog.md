@@ -8,6 +8,8 @@ For the full changelog, see [CHANGELOG.md](https://github.com/yeongseon/azure-fu
 
 ## Unreleased
 
+## 0.8.2 (2026-08-14)
+
 ### Breaking Changes
 
 - **`LangGraphApp(auth_level=...)` now defaults to `AuthLevel.FUNCTION`** (was `AuthLevel.ANONYMOUS`). Deployed endpoints require a function key by default. Existing code that relied on the anonymous default must pass `auth_level=func.AuthLevel.ANONYMOUS` explicitly. (#240)
