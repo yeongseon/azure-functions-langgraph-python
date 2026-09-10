@@ -1874,3 +1874,40 @@ async def test_aget_tuple_ignores_malformed_latest(
     result = await saver.aget_tuple(_config(thread_id="t-bad"))
     assert result is not None
     assert result.checkpoint["id"] == "cp-1"
+
+
+async def test_adelete_thread_native(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, container = async_saver_and_container
+    await saver.aput(
+        _config(thread_id="t-del"),
+        _checkpoint("cp-1", channel_versions={"m": "v1"}, channel_values={"m": [1]}),
+        _metadata(),
+        {"m": "v1"},
+    )
+    assert any("t-del" in name for name in container.blobs)
+    await saver.adelete_thread("t-del")
+    assert not any("t-del" in name for name in container.blobs)
+    assert await saver.aget_tuple(_config(thread_id="t-del")) is None
+
+
+async def test_adelete_thread_fallback_warns_once(
+    fallback_saver_and_container: tuple[Any, MockContainerClient],
+    caplog: Any,
+) -> None:
+    saver, container = fallback_saver_and_container
+    await saver.aput(
+        _config(thread_id="t-del-fb"),
+        _checkpoint("cp-1", channel_versions={"m": "v1"}, channel_values={"m": [1]}),
+        _metadata(),
+        {"m": "v1"},
+    )
+    assert any("t-del-fb" in name for name in container.blobs)
+    with caplog.at_level("WARNING"):
+        await saver.adelete_thread("t-del-fb")
+    assert not any("t-del-fb" in name for name in container.blobs)
+    warnings = [
+        r for r in caplog.records if "aio_container_client" in r.getMessage()
+    ]
+    assert len(warnings) == 1

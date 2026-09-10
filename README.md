@@ -498,11 +498,12 @@ For a complete runnable example (Managed Identity in prod, Azurite + connection 
 
 #### Native async checkpoint I/O
 
-By default `AzureBlobCheckpointSaver` only implements synchronous checkpoint
-I/O. When a graph is driven through the async endpoints (`graph.ainvoke` /
-`graph.astream`), the saver's async methods (`aget_tuple`, `alist`, `aput`,
-`aput_writes`) fall back to running the synchronous implementation in a thread
-executor and emit a one-time warning — correct, but not truly non-blocking.
+By default `AzureBlobCheckpointSaver` is configured with a synchronous
+`ContainerClient`. Its async methods (`aget_tuple`, `alist`, `aput`,
+`aput_writes`, `adelete_thread`) remain fully available: when a graph is driven
+through the async endpoints (`graph.ainvoke` / `graph.astream`) without an aio
+client, they run the synchronous implementation in a thread executor and emit a
+one-time warning — correct, but not truly non-blocking.
 
 To get **native, non-blocking** blob I/O on the async path, pass an
 `azure.storage.blob.aio.ContainerClient` as `aio_container_client` alongside the

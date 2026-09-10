@@ -1559,3 +1559,15 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                     "task_path": quote(task_path, safe=""),
                 },
             )
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        """Asynchronously delete all blobs for a thread (native aio when available)."""
+        if self._aio_container_client is None:
+            self._warn_sync_fallback("adelete_thread")
+            await asyncio.to_thread(self.delete_thread, thread_id)
+            return
+
+        container = self._require_aio_container_client()
+        thread_prefix = self._thread_prefix(thread_id)
+        async for blob in container.list_blobs(name_starts_with=thread_prefix):
+            await container.get_blob_client(blob.name).delete_blob()
