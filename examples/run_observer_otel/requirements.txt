@@ -1,0 +1,11 @@
+# Do not include azure-functions-worker in this file
+# The Python Worker is managed by the Azure Functions platform
+
+azure-functions
+# OpenTelemetry observer lives behind the [otel] extra
+azure-functions-langgraph[otel]==0.1.0a0
+# The OTel SDK + an exporter are operator-owned; installed here for the local demo
+opentelemetry-sdk>=1.20,<2
+# run observability contract works on any supported LangGraph version
+langgraph>=1.1,<2.0
+langchain-core>=1.0,<2.0

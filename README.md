@@ -329,6 +329,38 @@ these under `customDimensions`.
 > KQL walkthrough, see
 > [`examples/observability_app_insights/`](examples/observability_app_insights/).
 
+#### OpenTelemetry observer (optional `otel` extra)
+
+For distributed-tracing backends, the package ships an optional
+`OTelRunObserver` that maps each run's lifecycle to a single OpenTelemetry
+span. It is gated behind the `otel` extra:
+
+```bash
+pip install azure-functions-langgraph[otel]
+```
+
+```python
+from azure_functions_langgraph import LangGraphApp, OTelRunObserver
+
+# Uses whatever TracerProvider the operator has already installed.
+app = LangGraphApp(observer=OTelRunObserver())
+app.register(graph=graph, name="my_agent")
+```
+
+`on_run_started` opens a span (keyed by `run_id`); the terminal event
+(`completed` / `failed` / `rejected`) closes it with the matching
+`StatusCode`, a `langgraph.status`, and a `langgraph.duration_ms`. Span
+attributes come **only** from the safe `RunContext` correlation fields — never
+input, output, config, headers, or secrets — and failures record the exception
+*type* only.
+
+> Consistent with the observability boundary above, `OTelRunObserver` **does
+> not** configure a `TracerProvider`, exporters, sampling, or resource
+> attributes — the operator owns all SDK/exporter wiring. The observer only
+> acquires a tracer via `opentelemetry.trace.get_tracer(...)` and emits spans
+> onto whatever provider is installed. For a runnable local demo with a console
+> exporter, see [`examples/run_observer_otel/`](examples/run_observer_otel/).
+
 ### Per-graph auth
 
 Override app-level auth settings per graph:

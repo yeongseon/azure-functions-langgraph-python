@@ -60,6 +60,9 @@ sqlite = [
 cosmos = [
     "langgraph-checkpoint-cosmosdb>=0.2.0,<0.3",
 ]
+otel = [
+    "opentelemetry-api>=1.20,<2",
+]
 dev = [
     "bandit==1.9.4",
     "build",
@@ -82,6 +85,10 @@ dev = [
     # `langgraph-min` lane (langgraph==1.0.0 -> langgraph-sdk 0.2.2) still resolves.
     "langgraph-sdk>=0.2.2,<0.5",
     "langgraph-checkpoint-conformance>=0.0.2,<0.1",
+    # OpenTelemetry for the optional OTelRunObserver (otel extra) test suite.
+    # SDK + in-memory exporter are test-only; the runtime extra needs only the API.
+    "opentelemetry-api>=1.20,<2",
+    "opentelemetry-sdk>=1.20,<2",
 ]
 docs = [
     "mkdocs<2.0",

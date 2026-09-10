@@ -49,6 +49,7 @@ def test_all_exports() -> None:
     assert "NoOpRunObserver" in azure_functions_langgraph.__all__
     assert "RunRejectedReason" in azure_functions_langgraph.__all__
     assert "LoggingRunObserver" in azure_functions_langgraph.__all__
+    assert "OTelRunObserver" in azure_functions_langgraph.__all__
     assert "RunTransport" in azure_functions_langgraph.__all__
 
 

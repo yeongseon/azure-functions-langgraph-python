@@ -73,11 +73,18 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "RunRejectedReason": ("azure_functions_langgraph.observability", "RunRejectedReason"),
     "RunTransport": ("azure_functions_langgraph.observability", "RunTransport"),
     "LoggingRunObserver": ("azure_functions_langgraph.observability", "LoggingRunObserver"),
+    "OTelRunObserver": ("azure_functions_langgraph.observability_otel", "OTelRunObserver"),
 }
 
 # Symbols whose import failure means the optional runtime deps are missing;
 # surface a friendly install hint instead of the raw ImportError.
 _REQUIRES_RUNTIME_DEPS = frozenset({"LangGraphApp"})
+
+# Symbols whose import failure means an optional extra is missing; surface an
+# install hint naming the extra instead of the raw ImportError.
+_REQUIRES_EXTRA: dict[str, str] = {
+    "OTelRunObserver": "otel",
+}
 
 
 def __getattr__(name: str) -> object:
@@ -92,6 +99,12 @@ def __getattr__(name: str) -> object:
             raise ImportError(
                 "LangGraphApp requires 'azure-functions' and 'langgraph'. "
                 "Install them with: pip install azure-functions-langgraph"
+            ) from exc
+        extra = _REQUIRES_EXTRA.get(name)
+        if extra is not None:
+            raise ImportError(
+                f"{name} requires the optional {extra!r} extra. "
+                f"Install it with: pip install azure-functions-langgraph[{extra}]"
             ) from exc
         raise
     return getattr(module, attr)
@@ -128,4 +141,5 @@ __all__ = [
     "RunRejectedReason",
     "RunTransport",
     "LoggingRunObserver",
+    "OTelRunObserver",
 ]
