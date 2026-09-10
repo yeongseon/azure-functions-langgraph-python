@@ -95,6 +95,61 @@ class TestRegistration:
         app.register(graph=fake_invoke_only_graph, name="invoke_only")
         assert "invoke_only" in app._registrations
 
+    def test_register_async_only_graph_allowed_without_platform_compat(self) -> None:
+        """An async-only graph registers fine on the native (non-platform) app."""
+
+        class _AsyncOnlyGraph:
+            checkpointer = None
+
+            async def ainvoke(
+                self, input: dict[str, Any], config: dict[str, Any] | None = None
+            ) -> dict[str, Any]:
+                return {"ok": True}
+
+            async def astream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Any:
+                yield {"ok": True}
+
+        app = LangGraphApp()
+        app.register(graph=_AsyncOnlyGraph(), name="async_only")
+        assert "async_only" in app._registrations
+
+    def test_register_async_only_graph_rejected_with_platform_compat(self) -> None:
+        """platform_compat rejects async-only graphs: Platform runs call sync invoke()."""
+
+        class _AsyncOnlyGraph:
+            checkpointer = None
+
+            async def ainvoke(
+                self, input: dict[str, Any], config: dict[str, Any] | None = None
+            ) -> dict[str, Any]:
+                return {"ok": True}
+
+            async def astream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Any:
+                yield {"ok": True}
+
+        app = LangGraphApp(platform_compat=True)
+        with pytest.raises(TypeError, match="only async methods"):
+            app.register(graph=_AsyncOnlyGraph(), name="async_only")
+        assert "async_only" not in app._registrations
+
+    def test_register_sync_graph_allowed_with_platform_compat(
+        self, fake_graph: FakeCompiledGraph
+    ) -> None:
+        """A graph exposing sync invoke() is accepted under platform_compat."""
+        app = LangGraphApp(platform_compat=True)
+        app.register(graph=fake_graph, name="agent")
+        assert "agent" in app._registrations
+
     def test_register_with_auth_level_override(self, fake_graph: FakeCompiledGraph) -> None:
         app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
         app.register(graph=fake_graph, name="agent", auth_level=func.AuthLevel.ADMIN)

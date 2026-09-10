@@ -354,6 +354,17 @@ response_model: Optional Pydantic model class for response body
                 "Graph must have an invoke() or ainvoke() method. "
                 f"Got {type(graph).__name__}"
             )
+        if self.platform_compat and has_async_invoke and not has_sync_invoke:
+            raise TypeError(
+                f"Graph {name!r} exposes only async methods (ainvoke/astream), "
+                "but platform_compat=True. LangGraph Platform-compatible runs "
+                "(/runs/wait, /runs/stream, /threads/{id}/runs/*) execute graphs "
+                "through synchronous invoke()/stream() calls, so an async-only "
+                "graph cannot be served on the Platform surface. Provide a graph "
+                "that also exposes invoke()/stream() (e.g. a standard compiled "
+                "LangGraph graph), or register it on a LangGraphApp without "
+                "platform_compat=True to use the native async endpoints."
+            )
         _validate_optional_model(request_model, "request_model")
         _validate_optional_model(response_model, "response_model")
         name_err = validate_graph_name(name)
