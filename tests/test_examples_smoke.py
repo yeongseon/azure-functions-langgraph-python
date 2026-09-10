@@ -24,6 +24,7 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("async_agent", "compiled_graph"),
     ("run_observer", "compiled_graph"),
     ("observability_app_insights", "compiled_graph"),
+    ("run_observer_otel", "compiled_graph"),
 )
 
 
@@ -79,6 +80,7 @@ EXAMPLE_DIRS = (
     "async_agent",
     "run_observer",
     "observability_app_insights",
+    "run_observer_otel",
 )
 
 
