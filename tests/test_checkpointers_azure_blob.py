@@ -159,11 +159,91 @@ class MockContainerClient:
         ]
 
 
+class _AsyncMockDownloadStream:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    async def readall(self) -> bytes:
+        return self._data
+
+
+class AsyncMockBlobClient:
+    def __init__(self, container: MockContainerClient, blob_name: str) -> None:
+        self._container = container
+        self._blob_name = blob_name
+
+    async def upload_blob(
+        self, data: bytes, metadata: dict[str, str], overwrite: bool
+    ) -> None:
+        if not overwrite and self._blob_name in self._container.blobs:
+            raise ValueError("Blob already exists")
+        existing = self._container.blobs.get(self._blob_name)
+        last_modified = (
+            existing.last_modified if existing is not None else _DEFAULT_BLOB_LAST_MODIFIED
+        )
+        self._container.blobs[self._blob_name] = _BlobRecord(
+            data=data, metadata=dict(metadata), last_modified=last_modified
+        )
+
+    async def download_blob(self) -> _AsyncMockDownloadStream:
+        record = self._container.blobs.get(self._blob_name)
+        if record is None:
+            raise FakeResourceNotFoundError(self._blob_name)
+        return _AsyncMockDownloadStream(record.data)
+
+    async def get_blob_properties(self) -> _MockBlobProperties:
+        record = self._container.blobs.get(self._blob_name)
+        if record is None:
+            raise FakeResourceNotFoundError(self._blob_name)
+        return _MockBlobProperties(metadata=dict(record.metadata))
+
+    async def delete_blob(self) -> None:
+        if self._blob_name not in self._container.blobs:
+            raise FakeResourceNotFoundError(self._blob_name)
+        del self._container.blobs[self._blob_name]
+
+
+class _AsyncBlobItemPaged:
+    def __init__(self, items: list[_BlobItem]) -> None:
+        self._items = items
+
+    async def __aiter__(self) -> Any:
+        for item in self._items:
+            yield item
+
+
+class AsyncMockContainerClient:
+    """Async mock backed by a (possibly shared) :class:`MockContainerClient`."""
+
+    def __init__(self, backing: MockContainerClient | None = None) -> None:
+        self._backing = backing if backing is not None else MockContainerClient()
+
+    @property
+    def blobs(self) -> dict[str, _BlobRecord]:
+        return self._backing.blobs
+
+    def get_blob_client(self, blob: str) -> AsyncMockBlobClient:
+        return AsyncMockBlobClient(self._backing, blob)
+
+    def list_blobs(self, name_starts_with: str = "") -> _AsyncBlobItemPaged:
+        return _AsyncBlobItemPaged(
+            [
+                _BlobItem(name=name, last_modified=record.last_modified)
+                for name, record in sorted(self._backing.blobs.items())
+                if name.startswith(name_starts_with)
+            ]
+        )
+
+
 @pytest.fixture(autouse=True)  # type: ignore[untyped-decorator]
 def _install_fake_azure_modules(monkeypatch: Any) -> None:
     azure_mod = types.ModuleType("azure")
     azure_storage_mod = types.ModuleType("azure.storage")
     azure_blob_mod = types.ModuleType("azure.storage.blob")
+    setattr(azure_blob_mod, "ContainerClient", MockContainerClient)
+    azure_blob_aio_mod = types.ModuleType("azure.storage.blob.aio")
+    setattr(azure_blob_aio_mod, "ContainerClient", AsyncMockContainerClient)
+    setattr(azure_blob_mod, "aio", azure_blob_aio_mod)
     setattr(azure_blob_mod, "ContainerClient", MockContainerClient)
 
     azure_core_mod = types.ModuleType("azure.core")
@@ -173,6 +253,7 @@ def _install_fake_azure_modules(monkeypatch: Any) -> None:
     monkeypatch.setitem(sys.modules, "azure", azure_mod)
     monkeypatch.setitem(sys.modules, "azure.storage", azure_storage_mod)
     monkeypatch.setitem(sys.modules, "azure.storage.blob", azure_blob_mod)
+    monkeypatch.setitem(sys.modules, "azure.storage.blob.aio", azure_blob_aio_mod)
     monkeypatch.setitem(sys.modules, "azure.core", azure_core_mod)
     monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions_mod)
 
@@ -183,6 +264,28 @@ def saver_and_container() -> tuple[_CheckpointSaverProtocol, MockContainerClient
     module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
     saver_cls = getattr(module, "AzureBlobCheckpointSaver")
     saver = cast(_CheckpointSaverProtocol, saver_cls(container_client=container))
+    return saver, container
+
+
+@pytest.fixture  # type: ignore[untyped-decorator]
+def async_saver_and_container() -> tuple[Any, MockContainerClient]:
+    """Saver wired with both sync and aio clients over one shared store."""
+    container = MockContainerClient()
+    aio_container = AsyncMockContainerClient(backing=container)
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    saver_cls = getattr(module, "AzureBlobCheckpointSaver")
+    saver = saver_cls(container_client=container, aio_container_client=aio_container)
+    return saver, container
+
+
+@pytest.fixture  # type: ignore[untyped-decorator]
+def fallback_saver_and_container() -> tuple[Any, MockContainerClient]:
+    """Saver with no aio client — async methods use the executor fallback."""
+    container = MockContainerClient()
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    saver_cls = getattr(module, "AzureBlobCheckpointSaver")
+    saver = saver_cls(container_client=container)
+    return saver, container
     return saver, container
 
 
@@ -1460,3 +1563,351 @@ async def test_conformance_base_capabilities() -> None:
         assert result.passed, (
             f"base capability {cap!r} failed conformance: {result.failures!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Native async API tests
+# ---------------------------------------------------------------------------
+async def _collect(aiter: Any) -> list[Any]:
+    items = []
+    async for item in aiter:
+        items.append(item)
+    return items
+
+
+def test_aio_container_client_type_error() -> None:
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    saver_cls = getattr(module, "AzureBlobCheckpointSaver")
+    with pytest.raises(TypeError, match="aio_container_client"):
+        saver_cls(
+            container_client=MockContainerClient(),
+            aio_container_client=object(),
+        )
+
+
+async def test_aput_and_aget_tuple_native(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    cfg = _config(thread_id="t-async", checkpoint_ns="")
+    checkpoint = _checkpoint(
+        "cp-001",
+        channel_values={"messages": ["hi"]},
+        channel_versions={"messages": "v1"},
+    )
+    saved_config = await saver.aput(cfg, checkpoint, _metadata(), {"messages": "v1"})
+    result = await saver.aget_tuple(saved_config)
+
+    assert result is not None
+    assert result.config == saved_config
+    assert result.checkpoint["id"] == "cp-001"
+    assert result.checkpoint["channel_values"] == {"messages": ["hi"]}
+    assert result.metadata["run_id"] == "run-1"
+
+
+async def test_aget_tuple_missing_returns_none(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    assert await saver.aget_tuple(_config(thread_id="nope")) is None
+
+
+async def test_aget_tuple_by_explicit_checkpoint_id(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    cfg = _config(thread_id="t-id")
+    checkpoint = _checkpoint(
+        "cp-xyz",
+        channel_values={"messages": ["a"]},
+        channel_versions={"messages": "v1"},
+    )
+    await saver.aput(cfg, checkpoint, _metadata(), {"messages": "v1"})
+    by_id = _config(thread_id="t-id", checkpoint_id="cp-xyz")
+    result = await saver.aget_tuple(by_id)
+    assert result is not None
+    assert result.checkpoint["id"] == "cp-xyz"
+
+
+async def test_aget_tuple_stale_hint_falls_back_to_scan(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, container = async_saver_and_container
+    cfg = _config(thread_id="t-stale")
+    await saver.aput(
+        cfg,
+        _checkpoint("cp-1", channel_versions={"m": "v1"}, channel_values={"m": [1]}),
+        _metadata(step=1),
+        {"m": "v1"},
+    )
+    cfg2 = _config(thread_id="t-stale", checkpoint_id="cp-1")
+    await saver.aput(
+        cfg2,
+        _checkpoint("cp-2", channel_versions={"m": "v2"}, channel_values={"m": [2]}),
+        _metadata(step=2),
+        {"m": "v2"},
+    )
+    # Corrupt the latest hint target: delete cp-2's commit marker so the hint
+    # is stale and the scan must fall back to cp-1.
+    marker = [n for n in container.blobs if n.endswith("cp-2/checkpoint.bin")]
+    assert marker
+    del container.blobs[marker[0]]
+
+    result = await saver.aget_tuple(_config(thread_id="t-stale"))
+    assert result is not None
+    assert result.checkpoint["id"] == "cp-1"
+
+
+async def test_aput_writes_and_pending_writes(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    cfg = _config(thread_id="t-w")
+    await saver.aput(
+        cfg,
+        _checkpoint("cp-w", channel_versions={"m": "v1"}, channel_values={"m": [1]}),
+        _metadata(),
+        {"m": "v1"},
+    )
+    write_cfg = _config(thread_id="t-w", checkpoint_id="cp-w")
+    await saver.aput_writes(write_cfg, [("out", {"ok": True})], task_id="task-1")
+    # Idempotent no-op re-write on same index is skipped.
+    await saver.aput_writes(write_cfg, [("out", {"ok": True})], task_id="task-1")
+
+    result = await saver.aget_tuple(write_cfg)
+    assert result is not None
+    assert ("task-1", "out", {"ok": True}) in result.pending_writes
+
+
+async def test_aput_writes_requires_checkpoint_id(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    with pytest.raises(ValueError, match="checkpoint_id is required"):
+        await saver.aput_writes(_config(thread_id="t"), [("c", 1)], task_id="tk")
+
+
+async def test_aput_empty_channel_value(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    cfg = _config(thread_id="t-empty")
+    # new_versions references a channel absent from channel_values -> 'empty'.
+    await saver.aput(
+        cfg,
+        _checkpoint("cp-e", channel_versions={"m": "v1"}),
+        _metadata(),
+        {"m": "v1"},
+    )
+    result = await saver.aget_tuple(_config(thread_id="t-empty"))
+    assert result is not None
+    assert result.checkpoint["channel_values"] == {}
+
+
+async def test_alist_native_filter_before_limit(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    cfg = _config(thread_id="t-list")
+    prev = cfg
+    for i in range(1, 4):
+        prev = await saver.aput(
+            prev,
+            _checkpoint(
+                f"cp-{i:03d}",
+                channel_versions={"m": f"v{i}"},
+                channel_values={"m": [i]},
+            ),
+            _metadata(step=i),
+            {"m": f"v{i}"},
+        )
+
+    all_tuples = await _collect(saver.alist(_config(thread_id="t-list")))
+    assert [t.checkpoint["id"] for t in all_tuples] == ["cp-003", "cp-002", "cp-001"]
+
+    limited = await _collect(saver.alist(_config(thread_id="t-list"), limit=1))
+    assert [t.checkpoint["id"] for t in limited] == ["cp-003"]
+
+    before = await _collect(
+        saver.alist(
+            _config(thread_id="t-list"),
+            before=_config(thread_id="t-list", checkpoint_id="cp-003"),
+        )
+    )
+    assert [t.checkpoint["id"] for t in before] == ["cp-002", "cp-001"]
+
+    filtered = await _collect(
+        saver.alist(_config(thread_id="t-list"), filter={"step": 2})
+    )
+    assert [t.checkpoint["id"] for t in filtered] == ["cp-002"]
+
+
+async def test_alist_no_config_scans_all_threads(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    for thread in ("a", "b"):
+        await saver.aput(
+            _config(thread_id=thread),
+            _checkpoint("cp-1", channel_versions={"m": "v1"}, channel_values={"m": [1]}),
+            _metadata(),
+            {"m": "v1"},
+        )
+    tuples = await _collect(saver.alist(None))
+    threads = {t.config["configurable"]["thread_id"] for t in tuples}
+    assert threads == {"a", "b"}
+
+
+async def test_cross_compat_sync_write_async_read(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    cfg = _config(thread_id="t-x1")
+    checkpoint = _checkpoint(
+        "cp-sync",
+        channel_values={"messages": ["written-sync"]},
+        channel_versions={"messages": "v1"},
+    )
+    saved = saver.put(cfg, checkpoint, _metadata(), {"messages": "v1"})
+    saver.put_writes(
+        _config(thread_id="t-x1", checkpoint_id="cp-sync"),
+        [("out", {"n": 1})],
+        task_id="tk",
+    )
+
+    result = await saver.aget_tuple(saved)
+    assert result is not None
+    assert result.checkpoint["channel_values"] == {"messages": ["written-sync"]}
+    assert ("tk", "out", {"n": 1}) in result.pending_writes
+
+
+async def test_cross_compat_async_write_sync_read(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    cfg = _config(thread_id="t-x2")
+    checkpoint = _checkpoint(
+        "cp-async",
+        channel_values={"messages": ["written-async"]},
+        channel_versions={"messages": "v1"},
+    )
+    saved = await saver.aput(cfg, checkpoint, _metadata(), {"messages": "v1"})
+    await saver.aput_writes(
+        _config(thread_id="t-x2", checkpoint_id="cp-async"),
+        [("out", {"n": 2})],
+        task_id="tk",
+    )
+
+    result = saver.get_tuple(saved)
+    assert result is not None
+    assert result.checkpoint["channel_values"] == {"messages": ["written-async"]}
+    assert ("tk", "out", {"n": 2}) in result.pending_writes
+
+
+async def test_async_fallback_runs_sync_and_warns_once(
+    fallback_saver_and_container: tuple[Any, MockContainerClient],
+    caplog: Any,
+) -> None:
+    saver, _ = fallback_saver_and_container
+    cfg = _config(thread_id="t-fb")
+    checkpoint = _checkpoint(
+        "cp-fb",
+        channel_values={"messages": ["fb"]},
+        channel_versions={"messages": "v1"},
+    )
+    with caplog.at_level("WARNING"):
+        saved = await saver.aput(cfg, checkpoint, _metadata(), {"messages": "v1"})
+        result = await saver.aget_tuple(saved)
+        await saver.aput_writes(
+            _config(thread_id="t-fb", checkpoint_id="cp-fb"),
+            [("out", 1)],
+            task_id="tk",
+        )
+        listed = await _collect(saver.alist(_config(thread_id="t-fb")))
+
+    assert result is not None
+    assert result.checkpoint["channel_values"] == {"messages": ["fb"]}
+    assert [t.checkpoint["id"] for t in listed] == ["cp-fb"]
+    # Warning is emitted exactly once despite multiple async calls.
+    fallback_warnings = [
+        r for r in caplog.records if "aio_container_client" in r.getMessage()
+    ]
+    assert len(fallback_warnings) == 1
+
+
+async def test_aput_out_of_order_does_not_regress_latest(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, _ = async_saver_and_container
+    # Write cp-2 first, then an older cp-1: latest.json must still point at cp-2.
+    await saver.aput(
+        _config(thread_id="t-ord"),
+        _checkpoint("cp-2", channel_versions={"m": "v2"}, channel_values={"m": [2]}),
+        _metadata(step=2),
+        {"m": "v2"},
+    )
+    await saver.aput(
+        _config(thread_id="t-ord"),
+        _checkpoint("cp-1", channel_versions={"m": "v1"}, channel_values={"m": [1]}),
+        _metadata(step=1),
+        {"m": "v1"},
+    )
+    result = await saver.aget_tuple(_config(thread_id="t-ord"))
+    assert result is not None
+    assert result.checkpoint["id"] == "cp-2"
+
+
+async def test_aget_tuple_ignores_malformed_latest(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, container = async_saver_and_container
+    await saver.aput(
+        _config(thread_id="t-bad"),
+        _checkpoint("cp-1", channel_versions={"m": "v1"}, channel_values={"m": [1]}),
+        _metadata(),
+        {"m": "v1"},
+    )
+    latest = [n for n in container.blobs if n.endswith("latest.json")]
+    assert latest
+    container.blobs[latest[0]] = _BlobRecord(data=b"not-json", metadata={})
+    # Malformed hint is ignored; authoritative scan still resolves cp-1.
+    result = await saver.aget_tuple(_config(thread_id="t-bad"))
+    assert result is not None
+    assert result.checkpoint["id"] == "cp-1"
+
+
+async def test_adelete_thread_native(
+    async_saver_and_container: tuple[Any, MockContainerClient],
+) -> None:
+    saver, container = async_saver_and_container
+    await saver.aput(
+        _config(thread_id="t-del"),
+        _checkpoint("cp-1", channel_versions={"m": "v1"}, channel_values={"m": [1]}),
+        _metadata(),
+        {"m": "v1"},
+    )
+    assert any("t-del" in name for name in container.blobs)
+    await saver.adelete_thread("t-del")
+    assert not any("t-del" in name for name in container.blobs)
+    assert await saver.aget_tuple(_config(thread_id="t-del")) is None
+
+
+async def test_adelete_thread_fallback_warns_once(
+    fallback_saver_and_container: tuple[Any, MockContainerClient],
+    caplog: Any,
+) -> None:
+    saver, container = fallback_saver_and_container
+    await saver.aput(
+        _config(thread_id="t-del-fb"),
+        _checkpoint("cp-1", channel_versions={"m": "v1"}, channel_values={"m": [1]}),
+        _metadata(),
+        {"m": "v1"},
+    )
+    assert any("t-del-fb" in name for name in container.blobs)
+    with caplog.at_level("WARNING"):
+        await saver.adelete_thread("t-del-fb")
+    assert not any("t-del-fb" in name for name in container.blobs)
+    warnings = [
+        r for r in caplog.records if "aio_container_client" in r.getMessage()
+    ]
+    assert len(warnings) == 1

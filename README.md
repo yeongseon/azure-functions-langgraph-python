@@ -496,6 +496,49 @@ Required role assignments on the storage account (or narrower scopes):
 
 For a complete runnable example (Managed Identity in prod, Azurite + connection string locally), see [`examples/managed_identity_storage/`](examples/managed_identity_storage/).
 
+#### Native async checkpoint I/O
+
+By default `AzureBlobCheckpointSaver` is configured with a synchronous
+`ContainerClient`. Its async methods (`aget_tuple`, `alist`, `aput`,
+`aput_writes`, `adelete_thread`) remain fully available: when a graph is driven
+through the async endpoints (`graph.ainvoke` / `graph.astream`) without an aio
+client, they run the synchronous implementation in a thread executor and emit a
+one-time warning — correct, but not truly non-blocking.
+
+To get **native, non-blocking** blob I/O on the async path, pass an
+`azure.storage.blob.aio.ContainerClient` as `aio_container_client` alongside the
+synchronous `container_client`. Both clients share the same container; the sync
+methods use the sync client and the async methods use the aio client, so
+checkpoints written by one path are readable by the other:
+
+```python
+from azure.identity import DefaultAzureCredential
+from azure.identity.aio import DefaultAzureCredential as AioDefaultAzureCredential
+from azure.storage.blob import ContainerClient
+from azure.storage.blob.aio import ContainerClient as AioContainerClient
+
+container_client = ContainerClient(
+    account_url="https://<account>.blob.core.windows.net",
+    container_name="langgraph-checkpoints",
+    credential=DefaultAzureCredential(),
+)
+aio_container_client = AioContainerClient(
+    account_url="https://<account>.blob.core.windows.net",
+    container_name="langgraph-checkpoints",
+    credential=AioDefaultAzureCredential(),
+)
+
+checkpointer = AzureBlobCheckpointSaver(
+    container_client=container_client,
+    aio_container_client=aio_container_client,
+)
+```
+
+> The caller owns the lifecycle of both clients (open/close), exactly as with
+> the synchronous client. `aio_container_client` is fully optional and
+> backward-compatible — omitting it preserves the previous executor-fallback
+> behaviour.
+
 #### Checkpoint store security
 
 The checkpointer backends persist graph state using LangGraph's default

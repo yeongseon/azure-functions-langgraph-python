@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+import asyncio
+from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import importlib
@@ -100,6 +101,28 @@ class _ContainerClientProtocol(Protocol):
     def list_blobs(self, name_starts_with: str = "") -> Sequence[_BlobItemProtocol]: ...
 
 
+class _AsyncBlobDownloadProtocol(Protocol):
+    async def readall(self) -> bytes: ...
+
+
+class _AsyncBlobClientProtocol(Protocol):
+    async def upload_blob(
+        self, data: bytes, metadata: dict[str, str], overwrite: bool
+    ) -> None: ...
+
+    async def download_blob(self) -> _AsyncBlobDownloadProtocol: ...
+
+    async def get_blob_properties(self) -> _BlobPropertiesProtocol: ...
+
+    async def delete_blob(self) -> None: ...
+
+
+class _AsyncContainerClientProtocol(Protocol):
+    def get_blob_client(self, blob: str) -> _AsyncBlobClientProtocol: ...
+
+    def list_blobs(self, name_starts_with: str = "") -> AsyncIterator[_BlobItemProtocol]: ...
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,9 +140,26 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         self,
         *,
         container_client: _ContainerClientProtocol,
+        aio_container_client: _AsyncContainerClientProtocol | None = None,
         serde: SerializerProtocol | None = None,
     ) -> None:
-        """Create a saver bound to an Azure Blob container client."""
+        """Create a saver bound to an Azure Blob container client.
+
+        Parameters
+        ----------
+        container_client:
+            Synchronous ``azure.storage.blob.ContainerClient`` used by every
+            synchronous method.
+        aio_container_client:
+            Optional asynchronous ``azure.storage.blob.aio.ContainerClient``.
+            When provided, the async methods (:meth:`aget_tuple`,
+            :meth:`alist`, :meth:`aput`, :meth:`aput_writes`) perform native
+            non-blocking blob I/O through it. When omitted, those methods fall
+            back to running the synchronous implementation in a thread executor
+            and emit a one-time warning.
+        serde:
+            Optional serializer protocol; defaults to LangGraph's serializer.
+        """
         try:
             azure_blob_module = importlib.import_module("azure.storage.blob")
         except ImportError as exc:
@@ -157,6 +197,32 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             type[BaseException],
             resource_not_found_error,
         )
+
+        if aio_container_client is not None:
+            try:
+                azure_blob_aio_module = importlib.import_module("azure.storage.blob.aio")
+            except ImportError as exc:
+                raise ImportError(
+                    "AzureBlobCheckpointSaver async support requires optional "
+                    "dependency 'azure-storage-blob'. Install with: "
+                    "pip install azure-functions-langgraph[azure-blob]"
+                ) from exc
+            azure_aio_container_client = getattr(
+                azure_blob_aio_module, "ContainerClient", None
+            )
+            if azure_aio_container_client is None or not isinstance(
+                aio_container_client, azure_aio_container_client
+            ):
+                raise TypeError(
+                    "aio_container_client must be an instance of "
+                    "azure.storage.blob.aio.ContainerClient"
+                )
+        self._aio_container_client: _AsyncContainerClientProtocol | None = (
+            cast(_AsyncContainerClientProtocol, aio_container_client)
+            if aio_container_client is not None
+            else None
+        )
+        self._sync_fallback_warned = False
 
     def get_next_version(self, current: str | None, channel: None) -> str:
         """Return the next monotonic channel version string."""
@@ -996,3 +1062,512 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
     def _escape(self, segment: str) -> str:
         return quote(segment, safe="")
+
+    # ------------------------------------------------------------------
+    # Native async API
+    #
+    # These mirror the synchronous methods above but perform blob I/O
+    # through ``aio_container_client`` (``azure.storage.blob.aio``). When no
+    # aio client was provided the public methods fall back to running the
+    # synchronous implementation in a thread executor (with a one-time
+    # warning) so a graph driven by ``ainvoke``/``astream`` still works.
+    # ------------------------------------------------------------------
+    def _require_aio_container_client(self) -> _AsyncContainerClientProtocol:
+        client = self._aio_container_client
+        if client is None:  # pragma: no cover - guarded by public methods
+            raise RuntimeError("aio_container_client is not configured")
+        return client
+
+    def _warn_sync_fallback(self, method: str) -> None:
+        if not self._sync_fallback_warned:
+            self._sync_fallback_warned = True
+            logger.warning(
+                "AzureBlobCheckpointSaver.%s was called without an "
+                "'aio_container_client'; falling back to running the "
+                "synchronous implementation in a thread executor. Pass "
+                "'aio_container_client' for native async blob I/O.",
+                method,
+            )
+
+    async def _adownload_blob(self, blob_path: str) -> bytes | None:
+        client = self._require_aio_container_client().get_blob_client(blob_path)
+        try:
+            downloader = await client.download_blob()
+            return await downloader.readall()
+        except self._not_found_error:
+            return None
+
+    async def _ablob_metadata(self, blob_path: str) -> dict[str, str]:
+        client = self._require_aio_container_client().get_blob_client(blob_path)
+        try:
+            properties = await client.get_blob_properties()
+        except self._not_found_error:
+            return {}
+        metadata = properties.metadata
+        return metadata if metadata is not None else {}
+
+    async def _adownload_typed_blob(
+        self, blob_path: str
+    ) -> tuple[str, bytes, dict[str, str]] | None:
+        """Async twin of :meth:`_download_typed_blob`."""
+        payload = await self._adownload_blob(blob_path)
+        if payload is None:
+            return None
+
+        metadata = await self._ablob_metadata(blob_path)
+        serde_type = metadata.get("serde_type")
+        if not serde_type:
+            logger.warning("Blob missing serde_type metadata: %s", blob_path)
+            return None
+
+        return (serde_type, payload, metadata)
+
+    async def _ablob_exists(self, blob_path: str) -> bool:
+        client = self._require_aio_container_client().get_blob_client(blob_path)
+        try:
+            await client.get_blob_properties()
+        except self._not_found_error:
+            return False
+        return True
+
+    async def _aupload_blob(
+        self, blob_path: str, payload: bytes, metadata: dict[str, str]
+    ) -> None:
+        client = self._require_aio_container_client().get_blob_client(blob_path)
+        await client.upload_blob(payload, metadata=metadata, overwrite=True)
+
+    async def _alist_blob_items(self, prefix: str) -> List[_BlobItemProtocol]:
+        container = self._require_aio_container_client()
+        items: List[_BlobItemProtocol] = []
+        async for blob in container.list_blobs(name_starts_with=prefix):
+            items.append(blob)
+        return items
+
+    async def _aread_latest_checkpoint_id(
+        self, thread_id: str, checkpoint_ns: str
+    ) -> str | None:
+        latest_path = self._latest_blob_path(thread_id, checkpoint_ns)
+        latest_payload = await self._adownload_blob(latest_path)
+        if latest_payload is None:
+            return None
+
+        try:
+            data = json.loads(latest_payload.decode())
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            logger.warning("Ignoring malformed latest.json at %s", latest_path)
+            return None
+
+        if not isinstance(data, dict):
+            return None
+
+        checkpoint_id = data.get("checkpoint_id")
+        if isinstance(checkpoint_id, str):
+            return checkpoint_id
+        return None
+
+    async def _afind_latest_checkpoint_id(
+        self, thread_id: str, checkpoint_ns: str
+    ) -> str | None:
+        checkpoint_ids = await self._alist_checkpoint_ids(thread_id, checkpoint_ns)
+        if not checkpoint_ids:
+            return None
+        return checkpoint_ids[0]
+
+    async def _alist_checkpoint_ids(
+        self, thread_id: str, checkpoint_ns: str
+    ) -> List[str]:
+        checkpoints_prefix = self._checkpoints_prefix(thread_id, checkpoint_ns)
+        checkpoint_ids: set[str] = set()
+
+        for blob in await self._alist_blob_items(checkpoints_prefix):
+            if not blob.name.endswith("/checkpoint.bin"):
+                continue
+
+            path_parts = blob.name.split("/")
+            if len(path_parts) != 7:
+                continue
+
+            checkpoint_ids.add(unquote(path_parts[5]))
+
+        return sorted(checkpoint_ids, reverse=True)
+
+    async def _alist_thread_ids(self) -> List[str]:
+        thread_ids: set[str] = set()
+        for blob in await self._alist_blob_items("threads/"):
+            path_parts = blob.name.split("/")
+            if len(path_parts) >= 2 and path_parts[0] == "threads":
+                thread_ids.add(unquote(path_parts[1]))
+        return sorted(thread_ids)
+
+    async def _alist_checkpoint_namespaces(self, thread_id: str) -> List[str]:
+        namespace_prefix = f"{self._thread_prefix(thread_id)}ns/"
+        checkpoint_namespaces: set[str] = set()
+
+        for blob in await self._alist_blob_items(namespace_prefix):
+            path_parts = blob.name.split("/")
+            if len(path_parts) >= 4 and path_parts[2] == "ns":
+                checkpoint_namespaces.add(unquote(path_parts[3]))
+
+        return sorted(checkpoint_namespaces)
+
+    async def _aload_channel_values(
+        self,
+        *,
+        thread_id: str,
+        checkpoint_ns: str,
+        channel_versions: ChannelVersions,
+    ) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        for channel, version in channel_versions.items():
+            typed_blob = await self._adownload_typed_blob(
+                self._value_blob_path(thread_id, checkpoint_ns, channel, version)
+            )
+            if typed_blob is None:
+                continue
+            if typed_blob[0] == "empty":
+                continue
+            values[channel] = self.serde.loads_typed((typed_blob[0], typed_blob[1]))
+        return values
+
+    async def _aload_pending_writes(
+        self, thread_id: str, checkpoint_ns: str, checkpoint_id: str
+    ) -> List[tuple[str, str, Any]]:
+        writes_prefix = self._writes_prefix(thread_id, checkpoint_ns, checkpoint_id)
+        loaded: List[tuple[str, int, str, Any]] = []
+
+        for blob in await self._alist_blob_items(writes_prefix):
+            if not blob.name.startswith(writes_prefix):
+                continue
+            relative = blob.name[len(writes_prefix) :]
+            rel_parts = relative.split("/")
+            if len(rel_parts) != 2:
+                continue
+
+            task_id = unquote(rel_parts[0])
+            file_name = rel_parts[1]
+            if not file_name.endswith(".bin"):
+                continue
+
+            try:
+                write_index = int(unquote(file_name.removesuffix(".bin")))
+            except ValueError:
+                continue
+            typed_blob_result = await self._adownload_typed_blob(blob.name)
+            if typed_blob_result is None:
+                continue
+
+            blob_meta = typed_blob_result[2]
+            raw_channel = blob_meta.get("channel")
+            raw_metadata_task_id = blob_meta.get("task_id")
+            if raw_channel is None:
+                continue
+            channel = unquote(raw_channel)
+            resolved_task_id = (
+                unquote(raw_metadata_task_id) if raw_metadata_task_id else task_id
+            )
+
+            value = self.serde.loads_typed((typed_blob_result[0], typed_blob_result[1]))
+            loaded.append((resolved_task_id, write_index, channel, value))
+
+        loaded.sort(key=lambda item: (item[0], item[1]))
+        return [(task_id, channel, value) for task_id, _idx, channel, value in loaded]
+
+    async def _abuild_tuple(
+        self,
+        *,
+        thread_id: str,
+        checkpoint_ns: str,
+        checkpoint_id: str,
+        return_config: RunnableConfig,
+    ) -> CheckpointTuple | None:
+        checkpoint_blob_path = self._checkpoint_blob_path(
+            thread_id, checkpoint_ns, checkpoint_id
+        )
+        checkpoint_blob_result = await self._adownload_typed_blob(checkpoint_blob_path)
+        if checkpoint_blob_result is None:
+            return None
+
+        serde_type, payload, checkpoint_blob_metadata = checkpoint_blob_result
+        raw_parent_id = checkpoint_blob_metadata.get("parent_id")
+        parent_checkpoint_id = unquote(raw_parent_id) if raw_parent_id else None
+        checkpoint_data: Checkpoint = self.serde.loads_typed((serde_type, payload))
+        channel_values = await self._aload_channel_values(
+            thread_id=thread_id,
+            checkpoint_ns=checkpoint_ns,
+            channel_versions=checkpoint_data["channel_versions"],
+        )
+
+        metadata_blob_result = await self._adownload_typed_blob(
+            self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id)
+        )
+        if metadata_blob_result is None:
+            return None
+        checkpoint_metadata: CheckpointMetadata = self.serde.loads_typed(
+            (metadata_blob_result[0], metadata_blob_result[1])
+        )
+
+        return CheckpointTuple(
+            config=return_config,
+            checkpoint={**checkpoint_data, "channel_values": channel_values},
+            metadata=checkpoint_metadata,
+            parent_config=(
+                self._checkpoint_config(thread_id, checkpoint_ns, parent_checkpoint_id)
+                if parent_checkpoint_id
+                else None
+            ),
+            pending_writes=await self._aload_pending_writes(
+                thread_id, checkpoint_ns, checkpoint_id
+            ),
+        )
+
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        """Asynchronously fetch a checkpoint tuple (native aio when available)."""
+        if self._aio_container_client is None:
+            self._warn_sync_fallback("aget_tuple")
+            return await asyncio.to_thread(self.get_tuple, config)
+
+        thread_id = self._config_thread_id(config)
+        checkpoint_ns = self._config_checkpoint_ns(config)
+        requested_checkpoint_id = get_checkpoint_id(config)
+
+        if requested_checkpoint_id:
+            return await self._abuild_tuple(
+                thread_id=thread_id,
+                checkpoint_ns=checkpoint_ns,
+                checkpoint_id=requested_checkpoint_id,
+                return_config=config,
+            )
+
+        latest_hint = await self._aread_latest_checkpoint_id(thread_id, checkpoint_ns)
+        if latest_hint is not None:
+            hint_tuple = await self._abuild_tuple(
+                thread_id=thread_id,
+                checkpoint_ns=checkpoint_ns,
+                checkpoint_id=latest_hint,
+                return_config=self._checkpoint_config(
+                    thread_id, checkpoint_ns, latest_hint
+                ),
+            )
+            if hint_tuple is not None:
+                return hint_tuple
+
+        actual_latest = await self._afind_latest_checkpoint_id(thread_id, checkpoint_ns)
+        if actual_latest is None:
+            return None
+
+        return await self._abuild_tuple(
+            thread_id=thread_id,
+            checkpoint_ns=checkpoint_ns,
+            checkpoint_id=actual_latest,
+            return_config=self._checkpoint_config(
+                thread_id, checkpoint_ns, actual_latest
+            ),
+        )
+
+    async def alist(
+        self,
+        config: RunnableConfig | None,
+        *,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
+    ) -> AsyncIterator[CheckpointTuple]:
+        """Asynchronously list checkpoints (native aio when available)."""
+        if self._aio_container_client is None:
+            self._warn_sync_fallback("alist")
+            items = await asyncio.to_thread(
+                lambda: list(
+                    self.list(config, filter=filter, before=before, limit=limit)
+                )
+            )
+            for item in items:
+                yield item
+            return
+
+        remaining = limit
+        config_checkpoint_ns = self._config_checkpoint_ns(config) if config else None
+        config_checkpoint_id = get_checkpoint_id(config) if config else None
+        before_checkpoint_id = get_checkpoint_id(before) if before else None
+
+        thread_ids = (
+            [self._config_thread_id(config)]
+            if config
+            else await self._alist_thread_ids()
+        )
+        for thread_id in thread_ids:
+            checkpoint_namespaces = (
+                [config_checkpoint_ns]
+                if config_checkpoint_ns is not None
+                else await self._alist_checkpoint_namespaces(thread_id)
+            )
+            for checkpoint_ns in checkpoint_namespaces:
+                checkpoint_ids = await self._alist_checkpoint_ids(
+                    thread_id, checkpoint_ns
+                )
+                for checkpoint_id in checkpoint_ids:
+                    if (
+                        config_checkpoint_id is not None
+                        and checkpoint_id != config_checkpoint_id
+                    ):
+                        continue
+                    if (
+                        before_checkpoint_id is not None
+                        and checkpoint_id >= before_checkpoint_id
+                    ):
+                        continue
+
+                    checkpoint_tuple = await self._abuild_tuple(
+                        thread_id=thread_id,
+                        checkpoint_ns=checkpoint_ns,
+                        checkpoint_id=checkpoint_id,
+                        return_config=self._checkpoint_config(
+                            thread_id,
+                            checkpoint_ns,
+                            checkpoint_id,
+                        ),
+                    )
+                    if checkpoint_tuple is None:
+                        continue
+
+                    if filter and not all(
+                        query_value == checkpoint_tuple.metadata.get(query_key)
+                        for query_key, query_value in filter.items()
+                    ):
+                        continue
+
+                    if remaining is not None:
+                        if remaining <= 0:
+                            return
+                        remaining -= 1
+
+                    yield checkpoint_tuple
+
+    async def aput(
+        self,
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> RunnableConfig:
+        """Asynchronously store a checkpoint (native aio when available)."""
+        if self._aio_container_client is None:
+            self._warn_sync_fallback("aput")
+            return await asyncio.to_thread(
+                self.put, config, checkpoint, metadata, new_versions
+            )
+
+        thread_id = self._config_thread_id(config)
+        checkpoint_ns = self._config_checkpoint_ns(config)
+        checkpoint_id = checkpoint["id"]
+        parent_checkpoint_id = get_checkpoint_id(config)
+
+        checkpoint_data: dict[str, Any] = dict(checkpoint)
+        channel_values: dict[str, Any] = checkpoint_data.pop("channel_values", {})
+
+        # 1. Channel value blobs
+        for channel, version in new_versions.items():
+            value_blob_path = self._value_blob_path(
+                thread_id, checkpoint_ns, channel, version
+            )
+            if channel in channel_values:
+                serde_type, payload = self.serde.dumps_typed(channel_values[channel])
+            else:
+                serde_type, payload = "empty", b""
+            await self._aupload_blob(value_blob_path, payload, {"serde_type": serde_type})
+
+        # 2. Metadata blob (before commit marker)
+        metadata_payload_type, metadata_payload = self.serde.dumps_typed(
+            get_checkpoint_metadata(config, metadata)
+        )
+        await self._aupload_blob(
+            self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id),
+            metadata_payload,
+            {"serde_type": metadata_payload_type},
+        )
+
+        # 3. Checkpoint blob (commit marker — existence = valid checkpoint)
+        checkpoint_serde_type, checkpoint_payload = self.serde.dumps_typed(
+            checkpoint_data
+        )
+        checkpoint_blob_metadata: dict[str, str] = {"serde_type": checkpoint_serde_type}
+        if parent_checkpoint_id is not None:
+            checkpoint_blob_metadata["parent_id"] = quote(parent_checkpoint_id, safe="")
+        await self._aupload_blob(
+            self._checkpoint_blob_path(thread_id, checkpoint_ns, checkpoint_id),
+            checkpoint_payload,
+            checkpoint_blob_metadata,
+        )
+
+        # 4. Monotonic latest.json hint (best-effort, after commit marker)
+        current_latest = await self._aread_latest_checkpoint_id(
+            thread_id, checkpoint_ns
+        )
+        if current_latest is None or checkpoint_id >= current_latest:
+            latest_payload = json.dumps(
+                {"checkpoint_id": checkpoint_id},
+                separators=(",", ":"),
+            ).encode()
+            await self._aupload_blob(
+                self._latest_blob_path(thread_id, checkpoint_ns),
+                latest_payload,
+                {},
+            )
+        return self._checkpoint_config(thread_id, checkpoint_ns, checkpoint_id)
+
+    async def aput_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        """Asynchronously store task writes (native aio when available)."""
+        if self._aio_container_client is None:
+            self._warn_sync_fallback("aput_writes")
+            await asyncio.to_thread(
+                self.put_writes, config, writes, task_id, task_path
+            )
+            return
+
+        thread_id = self._config_thread_id(config)
+        checkpoint_ns = self._config_checkpoint_ns(config)
+        checkpoint_id = get_checkpoint_id(config)
+        if checkpoint_id is None:
+            raise ValueError("checkpoint_id is required in config to store writes")
+
+        for index, (channel, value) in enumerate(writes):
+            write_index = WRITES_IDX_MAP.get(channel, index)
+            write_blob_path = self._write_blob_path(
+                thread_id,
+                checkpoint_ns,
+                checkpoint_id,
+                task_id,
+                write_index,
+            )
+
+            if write_index >= 0 and await self._ablob_exists(write_blob_path):
+                continue
+
+            serde_type, payload = self.serde.dumps_typed(value)
+            await self._aupload_blob(
+                write_blob_path,
+                payload,
+                {
+                    "serde_type": serde_type,
+                    "channel": quote(channel, safe=""),
+                    "task_id": quote(task_id, safe=""),
+                    "task_path": quote(task_path, safe=""),
+                },
+            )
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        """Asynchronously delete all blobs for a thread (native aio when available)."""
+        if self._aio_container_client is None:
+            self._warn_sync_fallback("adelete_thread")
+            await asyncio.to_thread(self.delete_thread, thread_id)
+            return
+
+        container = self._require_aio_container_client()
+        thread_prefix = self._thread_prefix(thread_id)
+        async for blob in container.list_blobs(name_starts_with=thread_prefix):
+            await container.get_blob_client(blob.name).delete_blob()
