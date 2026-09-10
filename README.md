@@ -18,7 +18,13 @@
 
 Read this in: [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
-> **Alpha Notice** — This package is under active development. The `Development Status :: 3 - Alpha` classifier in `pyproject.toml` is the source of truth: expect breaking changes between minor versions until v1.0. Please report issues on GitHub.
+> **Stability — rolling 0.x, per surface.** This package follows a rolling 0.x development model rather than a single "everything breaks until v1.0" contract. Core adapter APIs aim for backward compatibility across minor releases, while newer surfaces may still evolve. The per-surface stability table below is the single source of truth for what you can rely on; the `Development Status :: 3 - Alpha` classifier in `pyproject.toml` reflects the youngest surfaces, not the stable core. Please report issues on GitHub.
+>
+> | Surface | Tier | What it means |
+> | --- | --- | --- |
+> | Core — `LangGraphApp` construction, native invoke / stream / state HTTP endpoints, auth levels | **Stable** | API frozen; a breaking change warrants a major bump |
+> | Checkpoint backends, thread locking, native async runtime (`ainvoke`/`astream`), `version="v2"` pass-through, `RunObserver` contract | **Beta** | Shape settled; may be refined before v1.0 |
+> | LangGraph Platform compatibility, true HTTP streaming, Azure Service Bus trigger, Durable async run lifecycle | **Experimental** | May change or be removed between minor releases |
 
 Deploy [LangGraph](https://github.com/langchain-ai/langgraph) graphs as **Azure Functions** HTTP endpoints with minimal boilerplate.
 

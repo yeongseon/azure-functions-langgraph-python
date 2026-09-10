@@ -8,6 +8,15 @@
 4. **Azure Functions Native** — Use the v2 programming model directly, no intermediate web framework.
 5. **Checkpointer Agnostic** — Users bring their own checkpointer; we pass config through.
 
+## Stability policy
+
+This project follows a **rolling 0.x** development model: core adapter APIs aim
+for backward compatibility across minor releases while newer surfaces may still
+evolve. The canonical **per-surface stability table** (Stable / Beta /
+Experimental) lives near the top of [`README.md`](README.md) and is the single
+source of truth; the `Development Status :: 3 - Alpha` classifier reflects the
+youngest surfaces, not the stable core.
+
 ## Architecture
 
 ```mermaid
