@@ -38,6 +38,11 @@ if TYPE_CHECKING:
         StatefulGraph,
         StreamableGraph,
     )
+    from azure_functions_langgraph.triggers.service_bus import (
+        ServiceBusMessageLike,
+        ThreadContentionError,
+        default_message_mapper,
+    )
 
 
 # Maps a public attribute name to the (module_path, attribute) it lazily imports.
@@ -74,6 +79,19 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "RunTransport": ("azure_functions_langgraph.observability", "RunTransport"),
     "LoggingRunObserver": ("azure_functions_langgraph.observability", "LoggingRunObserver"),
     "OTelRunObserver": ("azure_functions_langgraph.observability_otel", "OTelRunObserver"),
+    # Triggers (issue #409)
+    "default_message_mapper": (
+        "azure_functions_langgraph.triggers.service_bus",
+        "default_message_mapper",
+    ),
+    "ServiceBusMessageLike": (
+        "azure_functions_langgraph.triggers.service_bus",
+        "ServiceBusMessageLike",
+    ),
+    "ThreadContentionError": (
+        "azure_functions_langgraph.triggers.service_bus",
+        "ThreadContentionError",
+    ),
 }
 
 # Symbols whose import failure means the optional runtime deps are missing;
@@ -142,4 +160,8 @@ __all__ = [
     "RunTransport",
     "LoggingRunObserver",
     "OTelRunObserver",
+    # Triggers
+    "default_message_mapper",
+    "ServiceBusMessageLike",
+    "ThreadContentionError",
 ]

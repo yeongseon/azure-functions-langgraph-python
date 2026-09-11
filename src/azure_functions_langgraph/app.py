@@ -228,6 +228,7 @@ class LangGraphApp:
     observer: Optional[RunObserver] = None
     route_prefix: str = _ROUTE_PREFIX  # metadata-only; must match host.json routePrefix
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
+    _sb_registrations: dict[str, Any] = field(default_factory=dict)
     _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
     _thread_store: Any = field(default=None, init=False, repr=False)
 
@@ -385,6 +386,115 @@ response_model: Optional Pydantic model class for response body
         # Reset cached function app so routes are re-generated
         self._function_app = None
 
+    def register_service_bus(
+        self,
+        graph: Any,
+        name: str,
+        *,
+        connection: str,
+        queue_name: Optional[str] = None,
+        topic_name: Optional[str] = None,
+        subscription_name: Optional[str] = None,
+        input_mapper: Optional[Callable[[Any], Any]] = None,
+        thread_id_factory: Optional[Callable[[Any], Optional[str]]] = None,
+        result_handler: Optional[Callable[[Any, Any], None]] = None,
+        async_mode: bool = False,
+        binding_kwargs: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Register a compiled graph to be driven by an Azure Service Bus message.
+
+        Wires a Service Bus **queue** trigger (pass ``queue_name``) or a
+        **topic subscription** trigger (pass both ``topic_name`` and
+        ``subscription_name``) that maps each incoming message to a graph
+        ``invoke``/``ainvoke`` call. This is independent of the HTTP endpoints:
+        a graph may be registered on both surfaces.
+
+        Args:
+            graph: Any object satisfying :class:`~protocols.LangGraphLike`.
+            name: Unique trigger name (also the Azure Functions function name).
+            connection: App-setting name holding the Service Bus connection
+                string / fully-qualified namespace (passed to the binding).
+            queue_name: Queue to bind. Mutually exclusive with topic binding.
+            topic_name: Topic to bind (requires ``subscription_name``).
+            subscription_name: Subscription on ``topic_name``.
+            input_mapper: Maps a message to the graph ``input``. Defaults to
+                :func:`~triggers.service_bus.default_message_mapper`.
+            thread_id_factory: Optional factory deriving a checkpoint
+                ``thread_id`` from a message; ``None`` (default) keeps runs
+                threadless. When it returns a value **and** the graph has a
+                checkpointer, the app-level ``thread_lock`` guards the run.
+            result_handler: Optional sink called with ``(result, message)``
+                after a successful run. Its exceptions propagate and fail the
+                message; this package ships no Service Bus output binding.
+            async_mode: Route through an async handler that awaits
+                ``ainvoke``. Required for async-only graphs.
+            binding_kwargs: Extra keyword arguments forwarded verbatim to the
+                underlying Azure Functions trigger decorator (escape hatch for
+                sessions, cardinality, access rights, etc.).
+
+        Raises:
+            TypeError: If *graph* does not satisfy the required protocol, or if
+                ``async_mode=True`` but the graph has no ``ainvoke``.
+            ValueError: If *name* is already registered, invalid, or the
+                queue/topic binding arguments are not a valid combination.
+        """
+        from azure_functions_langgraph.triggers.service_bus import (
+            _ServiceBusRegistration,
+            default_message_mapper,
+        )
+
+        has_sync_invoke = isinstance(graph, InvocableGraph)
+        has_async_invoke = isinstance(graph, AsyncInvocableGraph)
+        if async_mode and not has_async_invoke:
+            raise TypeError(
+                "async_mode=True requires an ainvoke() method. "
+                f"Got {type(graph).__name__}"
+            )
+        if not has_sync_invoke and not has_async_invoke:
+            raise TypeError(
+                "Graph must have an invoke() or ainvoke() method. "
+                f"Got {type(graph).__name__}"
+            )
+        name_err = validate_graph_name(name)
+        if name_err:
+            raise ValueError(name_err)
+        if name in self._sb_registrations:
+            raise ValueError(f"Service Bus trigger {name!r} is already registered")
+
+        is_queue = queue_name is not None
+        is_topic = topic_name is not None or subscription_name is not None
+        if is_queue and is_topic:
+            raise ValueError(
+                "Provide either queue_name or (topic_name + subscription_name), "
+                "not both"
+            )
+        if not is_queue and not is_topic:
+            raise ValueError(
+                "Provide queue_name for a queue trigger, or both topic_name and "
+                "subscription_name for a topic-subscription trigger"
+            )
+        if is_topic and (topic_name is None or subscription_name is None):
+            raise ValueError(
+                "A topic trigger requires both topic_name and subscription_name"
+            )
+
+        effective_async = async_mode or not has_sync_invoke
+        self._sb_registrations[name] = _ServiceBusRegistration(
+            graph=graph,
+            name=name,
+            connection=connection,
+            queue_name=queue_name,
+            topic_name=topic_name,
+            subscription_name=subscription_name,
+            input_mapper=input_mapper or default_message_mapper,
+            thread_id_factory=thread_id_factory,
+            result_handler=result_handler,
+            async_mode=effective_async,
+            binding_kwargs=dict(binding_kwargs or {}),
+        )
+        # Reset cached function app so routes are re-generated.
+        self._function_app = None
+
     @property
     def function_app(self) -> func.FunctionApp:
         """Return an ``azure.functions.FunctionApp`` with all routes registered."""
@@ -499,6 +609,11 @@ response_model: Optional Pydantic model class for response body
                     handler_impl=self._handle_state,
                 )
 
+        # Service Bus trigger routes (issue #409)
+        for sb_reg in self._sb_registrations.values():
+            self._register_service_bus_trigger(app, sb_reg)
+
+        # Platform API compatibility routes
         # Platform API compatibility routes
         if self.platform_compat:
             from azure_functions_langgraph.platform.routes import (
@@ -519,6 +634,71 @@ response_model: Optional Pydantic model class for response body
             register_platform_routes(app, deps)
 
         return app
+
+    def _register_service_bus_trigger(
+        self,
+        app: func.FunctionApp,
+        sb_reg: Any,
+    ) -> None:
+        """Wire one Service Bus queue/topic trigger to a graph invocation.
+
+        Builds a queue or topic-subscription trigger whose handler maps each
+        message through the registration and drives the graph. Async
+        registrations get a real ``async def`` handler that awaits the graph;
+        sync registrations get a plain handler. Graph and result-handler
+        exceptions propagate so the Service Bus runtime abandons / dead-letters
+        the message per its retry policy.
+        """
+        from azure_functions_langgraph.triggers.service_bus import (
+            process_service_bus_message,
+            process_service_bus_message_async,
+        )
+
+        thread_lock = self.thread_lock
+        if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
+            raise RuntimeError("thread_lock is None; __post_init__ did not run")
+        observer = self.observer or NoOpRunObserver()
+        captured = sb_reg
+        fn_name = f"aflg_sb_{sb_reg.name}"
+
+        if sb_reg.is_topic:
+            trigger = app.service_bus_topic_trigger(
+                arg_name="msg",
+                connection=sb_reg.connection,
+                topic_name=sb_reg.topic_name,
+                subscription_name=sb_reg.subscription_name,
+                **sb_reg.binding_kwargs,
+            )
+        else:
+            trigger = app.service_bus_queue_trigger(
+                arg_name="msg",
+                connection=sb_reg.connection,
+                queue_name=sb_reg.queue_name,
+                **sb_reg.binding_kwargs,
+            )
+
+        if sb_reg.async_mode:
+
+            async def sb_async_handler(msg: Any) -> None:
+                await process_service_bus_message_async(
+                    captured,
+                    msg,
+                    thread_lock=thread_lock,
+                    observer=observer,
+                )
+
+            app.function_name(name=fn_name)(trigger(sb_async_handler))
+        else:
+
+            def sb_handler(msg: Any) -> None:
+                process_service_bus_message(
+                    captured,
+                    msg,
+                    thread_lock=thread_lock,
+                    observer=observer,
+                )
+
+            app.function_name(name=fn_name)(trigger(sb_handler))
 
     @staticmethod
     def _has_stream_route(reg: _GraphRegistration) -> bool:

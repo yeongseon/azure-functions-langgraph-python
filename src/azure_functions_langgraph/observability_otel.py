@@ -68,6 +68,7 @@ def _safe_attributes(ctx: RunContext) -> dict[str, AttributeValue]:
         f"{_ATTR_PREFIX}.transport": ctx.transport,
         f"{_ATTR_PREFIX}.has_checkpointer": ctx.has_checkpointer,
         f"{_ATTR_PREFIX}.lock_backend": ctx.lock_backend,
+        f"{_ATTR_PREFIX}.trigger_type": ctx.trigger_type,
     }
     return {key: value for key, value in raw.items() if value is not None}
 

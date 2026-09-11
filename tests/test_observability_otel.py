@@ -187,6 +187,7 @@ class TestSafeAttributes:
             "transport",
             "has_checkpointer",
             "lock_backend",
+            "trigger_type",
         }
         for key in attrs:
             assert key.split(".", 1)[1] in allowed_suffixes
