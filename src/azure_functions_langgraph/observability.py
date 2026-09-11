@@ -68,6 +68,11 @@ class RunContext:
     transport: RunTransport = "buffered"
     has_checkpointer: bool | None = None
     lock_backend: str | None = None
+    # Generic trigger classification (issue #409). ``None`` for HTTP invoke/stream
+    # runs; set to e.g. ``"service_bus"`` for event-driven trigger adapters so
+    # exporters can distinguish transport-agnostic run sources. Carries no
+    # payload — only a stable, low-cardinality trigger label.
+    trigger_type: str | None = None
 
 
 
@@ -146,6 +151,7 @@ def new_run_context(
     transport: RunTransport = "buffered",
     has_checkpointer: bool | None = None,
     lock_backend: str | None = None,
+    trigger_type: str | None = None,
 ) -> RunContext:
     """Create a fresh :class:`RunContext` with a unique run id and start time.
 
@@ -167,6 +173,7 @@ def new_run_context(
         transport=transport,
         has_checkpointer=has_checkpointer,
         lock_backend=lock_backend,
+        trigger_type=trigger_type,
     )
 
 
@@ -212,6 +219,7 @@ def _safe_fields(ctx: RunContext, **extra: object) -> dict[str, object]:
         "transport": ctx.transport,
         "has_checkpointer": ctx.has_checkpointer,
         "lock_backend": ctx.lock_backend,
+        "trigger_type": ctx.trigger_type,
         "duration_ms": _duration_ms(ctx),
     }
     fields.update(extra)

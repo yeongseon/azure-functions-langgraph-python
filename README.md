@@ -361,6 +361,73 @@ input, output, config, headers, or secrets — and failures record the exception
 > onto whatever provider is installed. For a runnable local demo with a console
 > exporter, see [`examples/run_observer_otel/`](examples/run_observer_otel/).
 
+### Service Bus trigger (experimental)
+
+Beyond the HTTP surface, a compiled graph can be driven directly from an
+**Azure Service Bus** message via `register_service_bus`. Each delivered
+message is mapped to a single `invoke` (or `ainvoke`) call — useful for
+background jobs and decoupled pipelines where work arrives as messages rather
+than synchronous HTTP requests. A graph may be registered on **both** surfaces.
+
+```python
+from azure_functions_langgraph import LangGraphApp
+
+app = LangGraphApp()
+
+# Queue trigger
+app.register_service_bus(
+    graph=graph,
+    name="jobs_agent",
+    connection="ServiceBusConnection",  # app-setting name
+    queue_name="langgraph-jobs",
+)
+
+# Or a topic subscription trigger
+app.register_service_bus(
+    graph=graph,
+    name="events_agent",
+    connection="ServiceBusConnection",
+    topic_name="events",
+    subscription_name="langgraph",
+)
+
+func_app = app.function_app
+```
+
+#### HTTP vs Service Bus
+
+| | HTTP (`register`) | Service Bus (`register_service_bus`) |
+|---|---|---|
+| Invocation | Synchronous `POST /api/graphs/{name}/invoke` | One graph run per queue/topic message |
+| Caller gets result | Yes — in the HTTP response | No — use `result_handler` to route output |
+| Delivery | At-most-once (caller retries) | At-least-once (binding abandons/retries) |
+| Backpressure | Caller-driven | Queue buffers + Functions scale-out |
+| Best for | Interactive request/response | Background jobs, decoupled pipelines |
+| Errors | Returned to caller | **Not swallowed** → message abandoned/retried |
+
+**Message mapping.** By default the message body is decoded as UTF-8 and parsed
+as JSON: a JSON object is passed through as the graph input verbatim; any other
+value (or non-JSON text) is wrapped as
+`{"messages": [{"role": "human", "content": <text>}]}`. Pass `input_mapper=...`
+to customize.
+
+**Thread state and locking.** Runs are **threadless** by default. Pass
+`thread_id_factory=...` to derive a checkpoint `thread_id` from a message; when
+it returns a value **and** the graph has a checkpointer, the app-level
+`thread_lock` guards the run so concurrent deliveries for the same logical
+thread do not mutate checkpoints concurrently. If the lock cannot be acquired a
+`ThreadContentionError` is raised so the binding abandons and retries.
+
+**Error handling and telemetry.** Graph exceptions are **not swallowed** — a
+failing run propagates so the message is retried / dead-lettered per your
+queue's policy. This package ships **no** Service Bus output binding; pass a
+`result_handler(result, msg)` to publish results. Message bodies and
+application-property values are **never** included in telemetry; runs carry a
+`trigger_type="service_bus"` correlation field so they are distinguishable from
+HTTP runs in your observer. See
+[`examples/service_bus_agent/`](examples/service_bus_agent/) for a full wiring.
+
+
 ### Per-graph auth
 
 Override app-level auth settings per graph:

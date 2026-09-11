@@ -52,6 +52,11 @@ def test_all_exports() -> None:
     assert "OTelRunObserver" in azure_functions_langgraph.__all__
     assert "RunTransport" in azure_functions_langgraph.__all__
 
+    # Service Bus trigger public surface
+    assert "default_message_mapper" in azure_functions_langgraph.__all__
+    assert "ServiceBusMessageLike" in azure_functions_langgraph.__all__
+    assert "ThreadContentionError" in azure_functions_langgraph.__all__
+
 
 def test_contracts_importable() -> None:
     from azure_functions_langgraph.contracts import (

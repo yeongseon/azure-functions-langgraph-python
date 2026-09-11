@@ -23,6 +23,7 @@
 | App Insights telemetry | [`observability_app_insights`](observability_app_insights/) | Ship run telemetry to Azure Application Insights with the built-in `LoggingRunObserver` — structured safe fields plus copy-pasteable KQL queries for run count, latency, error rate, and thread correlation. |
 | Curl helpers | [`local_curl`](local_curl/) | Shell scripts for hitting every Quick Start endpoint locally. |
 | Maintenance timer | [`maintenance_timer`](maintenance_timer/) | Timer Trigger that resets stale run locks on `AzureTableThreadStore`. |
+| Service Bus trigger | [`service_bus_agent`](service_bus_agent/) | Drive a graph from an Azure Service Bus **queue** message via `register_service_bus` — one `invoke` per message, exceptions not swallowed. |
 
 ## Conventions
 
@@ -58,3 +59,4 @@ Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` wh
 - **Observing run lifecycle (started/completed/failed/rejected)?** → `run_observer`
 - **Shipping run telemetry to Application Insights (KQL dashboards)?** → `observability_app_insights`
 - **Recovering orphaned run locks automatically?** → `maintenance_timer`
+- **Driving a graph from Service Bus messages (background jobs, decoupled pipelines)?** → `service_bus_agent`
