@@ -57,6 +57,15 @@ def test_all_exports() -> None:
     assert "ServiceBusMessageLike" in azure_functions_langgraph.__all__
     assert "ThreadContentionError" in azure_functions_langgraph.__all__
 
+    # True streaming transport public surface
+    assert "StreamingLangGraphApp" in azure_functions_langgraph.__all__
+
+
+def test_streaming_app_importable() -> None:
+    from azure_functions_langgraph import StreamingLangGraphApp
+
+    assert StreamingLangGraphApp.__name__ == "StreamingLangGraphApp"
+
 
 def test_contracts_importable() -> None:
     from azure_functions_langgraph.contracts import (

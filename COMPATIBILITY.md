@@ -146,7 +146,7 @@ Functions and talk to them with `langgraph-sdk`." If your application relies
 on any of the following, **prefer LangGraph Platform** (or another long-running
 host) over this package:
 
-- True token-level streaming (vs. buffered SSE)
+- True token-level streaming on the **Platform-compatible** endpoints (vs. buffered SSE) — note the native `StreamingLangGraphApp` does offer true incremental SSE, but only on its native `/api/graphs/{name}/stream` route, not the Platform-compatible surface
 - `interrupt_before` / `interrupt_after` flows
 - Webhook callbacks on run completion
 - Resumption from a specific `checkpoint_id` or via `command`

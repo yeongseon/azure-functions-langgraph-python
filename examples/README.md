@@ -24,6 +24,7 @@
 | Curl helpers | [`local_curl`](local_curl/) | Shell scripts for hitting every Quick Start endpoint locally. |
 | Maintenance timer | [`maintenance_timer`](maintenance_timer/) | Timer Trigger that resets stale run locks on `AzureTableThreadStore`. |
 | Service Bus trigger | [`service_bus_agent`](service_bus_agent/) | Drive a graph from an Azure Service Bus **queue** message via `register_service_bus` — one `invoke` per message, exceptions not swallowed. |
+| True HTTP streaming | [`true_streaming_agent`](true_streaming_agent/) | Opt into **true** incremental SSE with `StreamingLangGraphApp` — each `event: data` frame flushed as the graph produces it, over the FastAPI/ASGI transport (`streaming` extra, runtime 4.34.1+). |
 
 ## Conventions
 
@@ -60,3 +61,4 @@ Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` wh
 - **Shipping run telemetry to Application Insights (KQL dashboards)?** → `observability_app_insights`
 - **Recovering orphaned run locks automatically?** → `maintenance_timer`
 - **Driving a graph from Service Bus messages (background jobs, decoupled pipelines)?** → `service_bus_agent`
+- **Need true incremental token streaming (not buffered SSE)?** → `true_streaming_agent`
