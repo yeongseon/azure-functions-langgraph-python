@@ -1,0 +1,9 @@
+# Do not include azure-functions-worker in this file
+# The Python Worker is managed by the Azure Functions platform
+
+# True HTTP streaming requires the 'streaming' extra
+# (azurefunctions-extensions-http-fastapi) and Azure Functions runtime 4.34.1+.
+azure-functions
+azure-functions-langgraph[streaming]>=0.8,<0.9
+langgraph>=1.1,<2.0
+langchain-core>=1.0,<2.0

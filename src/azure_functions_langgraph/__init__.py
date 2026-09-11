@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         StatefulGraph,
         StreamableGraph,
     )
+    from azure_functions_langgraph.streaming import StreamingLangGraphApp
     from azure_functions_langgraph.triggers.service_bus import (
         ServiceBusMessageLike,
         ThreadContentionError,
@@ -92,6 +93,11 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
         "azure_functions_langgraph.triggers.service_bus",
         "ThreadContentionError",
     ),
+    # Streaming transport (issue #406)
+    "StreamingLangGraphApp": (
+        "azure_functions_langgraph.streaming",
+        "StreamingLangGraphApp",
+    ),
 }
 
 # Symbols whose import failure means the optional runtime deps are missing;
@@ -102,6 +108,7 @@ _REQUIRES_RUNTIME_DEPS = frozenset({"LangGraphApp"})
 # install hint naming the extra instead of the raw ImportError.
 _REQUIRES_EXTRA: dict[str, str] = {
     "OTelRunObserver": "otel",
+    "StreamingLangGraphApp": "streaming",
 }
 
 
@@ -164,4 +171,6 @@ __all__ = [
     "default_message_mapper",
     "ServiceBusMessageLike",
     "ThreadContentionError",
+    # Streaming
+    "StreamingLangGraphApp",
 ]

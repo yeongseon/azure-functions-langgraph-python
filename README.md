@@ -46,7 +46,7 @@ This package provides a focused adapter for serving LangGraph graphs on Azure Fu
 
 - **Zero-boilerplate deployment** — register a compiled graph, get HTTP endpoints automatically
 - **Invoke endpoint** — `POST /api/graphs/{name}/invoke` for synchronous execution
-- **Stream endpoint** — `POST /api/graphs/{name}/stream` for buffered SSE responses
+- **Stream endpoint** — `POST /api/graphs/{name}/stream` for buffered SSE responses (opt into true incremental streaming with `StreamingLangGraphApp`)
 - **Health endpoints** — anonymous `GET /api/health` liveness probe (`{"status": "ok"}`, no graph inventory) plus protected `GET /api/health/details` listing registered graphs with checkpointer status
 - **Checkpointer pass-through** — thread-based conversation state works via LangGraph's native config
 - **State endpoint** — `GET /api/graphs/{name}/threads/{thread_id}/state` for thread state inspection (when supported)
@@ -64,7 +64,7 @@ This package provides a focused adapter for serving LangGraph graphs on Azure Fu
 | Runs | Built-in | Threaded + threadless runs (v0.4+) |
 | State read/update | Built-in | get_state + update_state (v0.4+) |
 | State history | Built-in | Checkpoint history with filtering (v0.4+) |
-| Streaming | True SSE | Buffered SSE |
+| Streaming | True SSE | Buffered SSE (opt-in true SSE via `StreamingLangGraphApp`) |
 | Persistent storage | Built-in | Azure Blob + Table Storage (v0.4+) |
 | Infrastructure | Managed | Azure Functions (serverless) |
 | Cost model | Per-seat/usage | Azure Functions pricing |
@@ -279,20 +279,41 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 
 ### Streaming behavior
 
-> **Important:** All `/stream` endpoints (both the native `POST /api/graphs/{name}/stream`
-> and the Platform-compatible `POST /threads/{id}/runs/stream` and `POST /runs/stream`)
+> **Default (`LangGraphApp`): buffered SSE.** All `/stream` endpoints on the classic
+> `LangGraphApp` (the native `POST /api/graphs/{name}/stream` and the
+> Platform-compatible `POST /threads/{id}/runs/stream` and `POST /runs/stream`)
 > return **buffered SSE**. Chunks emitted by the graph are collected during execution
 > and flushed as SSE events **after the run completes** — this is **not** true
 > token-level streaming, and clients will not receive partial tokens incrementally.
+> Buffered SSE is the classic adapter's deliberate implementation choice, because the
+> classic `HttpRequest`/`HttpResponse` model it is built on cannot flush a response
+> incrementally.
 >
-> Buffered SSE is **this adapter's current implementation choice**, not an Azure
-> Functions platform limitation. Azure Functions Python v2 *does* support true HTTP
-> streaming (runtime 4.34.1+) via the `azurefunctions-extensions-http-fastapi`
-> extension, but enabling it switches the **entire function app** to the FastAPI/ASGI
-> streaming model, which cannot be mixed with the classic `HttpRequest`/`HttpResponse`
-> routes this package is built on. Adopting true streaming is therefore an app-wide
-> architectural change (tracked separately). If you need real-time token streaming
-> today, run the graph behind a long-running host (e.g. App Service or AKS) instead.
+> **Opt-in true streaming: `StreamingLangGraphApp` (experimental).** For genuine
+> incremental delivery — each `event: data` frame flushed **as the graph produces
+> it** — use the separate `StreamingLangGraphApp`. It serves the graph over the
+> FastAPI/ASGI transport provided by the `azurefunctions-extensions-http-fastapi`
+> extension (Azure Functions runtime **4.34.1+**), gated behind the `streaming` extra:
+>
+> ```bash
+> pip install "azure-functions-langgraph[streaming]"
+> ```
+>
+> ```python
+> from azure_functions_langgraph import StreamingLangGraphApp
+>
+> app = StreamingLangGraphApp()
+> app.register(graph=graph, name="my_agent")
+> func_app = app.function_app
+> ```
+>
+> Enabling true streaming converts the **entire** function app to the ASGI model, so
+> it cannot be mixed with classic `LangGraphApp` routes in the same app — deploy a
+> separate app if you also need the classic buffered surface, and note the classic
+> `max_stream_response_bytes` byte guard is replaced by `max_stream_events` (a frame
+> count cap) because a true stream is never buffered. `LangGraphApp` is unchanged and
+> remains the default. See [`examples/true_streaming_agent/`](examples/true_streaming_agent/)
+> for a runnable `curl -N` walkthrough that proves incremental arrival.
 
 ### Run observability
 
@@ -469,7 +490,7 @@ to `""` to remove the prefix entirely.
 ### What you get
 
 - `POST /api/graphs/echo_agent/invoke` — invoke the agent
-- `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE, not true token streaming)
+- `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE; opt into true incremental streaming with `StreamingLangGraphApp`)
 - `GET /api/graphs/echo_agent/threads/{thread_id}/state` — inspect thread state
 - `GET /api/health` — liveness probe (`{"status": "ok"}`)
 - `GET /api/health/details` — registered-graph inventory (protected by default)

@@ -63,6 +63,9 @@ cosmos = [
 otel = [
     "opentelemetry-api>=1.20,<2",
 ]
+streaming = [
+    "azurefunctions-extensions-http-fastapi>=1.0,<2",
+]
 dev = [
     "bandit==1.9.4",
     "build",
@@ -89,6 +92,9 @@ dev = [
     # SDK + in-memory exporter are test-only; the runtime extra needs only the API.
     "opentelemetry-api>=1.20,<2",
     "opentelemetry-sdk>=1.20,<2",
+    # True HTTP streaming transport (StreamingLangGraphApp) — the streaming extra,
+    # installed here so CI covers the ASGI/FastAPI extension import path.
+    "azurefunctions-extensions-http-fastapi>=1.0,<2",
 ]
 docs = [
     "mkdocs<2.0",
