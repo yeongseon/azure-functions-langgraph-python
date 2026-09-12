@@ -449,6 +449,39 @@ HTTP runs in your observer. See
 [`examples/service_bus_agent/`](examples/service_bus_agent/) for a full wiring.
 
 
+### Durable async run lifecycle (experimental)
+
+For long-running graphs, opt into an **experimental** Durable Functions-backed
+async run control plane with `LangGraphApp(async_runs="durable")`. This adds a
+create / poll / cancel HTTP surface on top of the classic invoke/stream routes:
+
+```python
+from azure_functions_langgraph import LangGraphApp
+
+app = LangGraphApp(async_runs="durable")  # requires the `durable` extra
+app.register(graph=graph, name="my_agent")
+func_app = app.function_app
+```
+
+```bash
+pip install "azure-functions-langgraph[durable]"
+```
+
+| Route | Purpose |
+|---|---|
+| `POST /api/graphs/{name}/runs` | Start a run — returns `202` with a `run_id` and `pending` status |
+| `GET /api/runs/{run_id}` | Poll normalized run status (`pending` / `running` / `completed` / `failed` / `canceled`) |
+| `POST /api/runs/{run_id}/cancel` | Terminate an in-flight run |
+
+The graph executes inside a Durable **activity**, never the orchestrator, so
+Durable replay determinism is preserved — no LLM, tool, network, clock, random,
+or graph user code runs in the orchestrator. Durable history is **not** a
+replacement for LangGraph checkpoints; reuse a checkpointer for conversation
+state as usual. Durable dependencies stay optional behind the `durable` extra.
+See [`examples/durable_async_agent/`](examples/durable_async_agent/) for a full
+create → poll → result → cancel walkthrough.
+
+
 ### Per-graph auth
 
 Override app-level auth settings per graph:

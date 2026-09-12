@@ -131,6 +131,23 @@ Derived from `_preflight_run_create()` in `platform/_common.py`.
 | `threads.update_state` | ✅ Full | Requires the graph to satisfy `UpdatableStateGraph`. |
 | `threads.get_history` | ✅ Full | Requires `StateHistoryGraph`. Filtering by `metadata`, `before`, `checkpoint`, and `limit` is supported. |
 
+### Durable async run lifecycle (experimental, non-SDK)
+
+Independent of the Platform-compat SDK layer, `LangGraphApp(async_runs="durable")`
+adds a Durable Functions-backed async run control plane (`durable` extra). These
+are **native** routes, not `langgraph-sdk` calls:
+
+| Route | Support | Notes |
+|---|---|---|
+| `POST /api/graphs/{name}/runs` | ✅ | Starts a Durable orchestration; returns `202` with `run_id` + `pending`. Unknown graph → `404`; oversized/invalid body → `400`. |
+| `GET /api/runs/{run_id}` | ✅ | Normalized status (`pending`/`running`/`completed`/`failed`/`canceled`). Unknown id → `404`. |
+| `POST /api/runs/{run_id}/cancel` | ✅ | Terminates the orchestration. |
+
+Graph user code runs only in a Durable **activity**, never the orchestrator, so
+replay determinism holds. Durable history does **not** replace LangGraph
+checkpoints. See the README "Durable async run lifecycle" section and
+[`examples/durable_async_agent/`](examples/durable_async_agent/).
+
 ### Webhooks, cron, store
 
 | Area | Support |

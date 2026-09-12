@@ -27,6 +27,7 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("run_observer_otel", "compiled_graph"),
     ("service_bus_agent", "compiled_graph"),
     ("true_streaming_agent", "compiled_graph"),
+    ("durable_async_agent", "compiled_graph"),
 )
 
 
@@ -85,6 +86,7 @@ EXAMPLE_DIRS = (
     "run_observer_otel",
     "service_bus_agent",
     "true_streaming_agent",
+    "durable_async_agent",
 )
 
 
