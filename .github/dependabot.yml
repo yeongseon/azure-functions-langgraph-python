@@ -38,9 +38,6 @@ updates:
     # bypass cooldown and stay on the fast path. See issue #381.
     cooldown:
       default-days: 7
-      semver-major-days: 30
-      semver-minor-days: 7
-      semver-patch-days: 3
       include:
         - "*"
     # actions/upload-artifact + actions/download-artifact are deliberately held
