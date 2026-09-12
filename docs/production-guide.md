@@ -193,13 +193,30 @@ Graph execution is synchronous from the HTTP handler perspective.
 `graph.invoke()` and `graph.stream()` run until completion (or failure).
 
 - No package-level timeout wrapper is applied around graph calls.
-- No built-in cancellation endpoint is provided for long-running graph runs.
+- No package-level timeout wrapper is applied around graph calls on the synchronous HTTP path. For a built-in async run lifecycle with a cancellation endpoint, see "Async runs via Durable Functions" below.
 
 ⚠️ If a graph exceeds platform timeout, the request fails at the Functions host boundary.
 
 ⚠️ **HTTP response ceiling**: Azure Functions enforces a hard **230-second** limit on HTTP response time regardless of `functionTimeout`.
 Graph invocations that exceed 230 seconds will fail with a gateway timeout even if `functionTimeout` allows longer execution.
 For workloads approaching this limit, consider async patterns (queue trigger + status polling) instead of synchronous HTTP.
+
+### Async runs via Durable Functions (experimental)
+
+For workloads that exceed the synchronous HTTP ceiling, opt into the built-in
+Durable Functions-backed async run lifecycle with
+`LangGraphApp(async_runs="durable")` (requires the `durable` extra). This adds a
+create / poll / cancel control plane so callers no longer hold an HTTP
+connection open for the duration of the run:
+
+- `POST /api/graphs/{name}/runs` — start a run, returns `202` with a `run_id`
+- `GET /api/runs/{run_id}` — poll normalized status
+- `POST /api/runs/{run_id}/cancel` — terminate an in-flight run
+
+The graph executes inside a Durable **activity**, never the orchestrator, so
+replay determinism is preserved. Durable history is not a replacement for
+LangGraph checkpoints. See the README "Durable async run lifecycle" section and
+[`examples/durable_async_agent/`](../examples/durable_async_agent/).
 
 ### Configure timeout explicitly
 

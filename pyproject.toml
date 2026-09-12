@@ -66,6 +66,9 @@ otel = [
 streaming = [
     "azurefunctions-extensions-http-fastapi>=1.0,<2",
 ]
+durable = [
+    "azure-functions-durable>=1.2,<2",
+]
 dev = [
     "bandit==1.9.4",
     "build",
@@ -95,6 +98,9 @@ dev = [
     # True HTTP streaming transport (StreamingLangGraphApp) — the streaming extra,
     # installed here so CI covers the ASGI/FastAPI extension import path.
     "azurefunctions-extensions-http-fastapi>=1.0,<2",
+    # Durable Functions async-run control plane (durable extra) — installed here
+    # so CI exercises the DFApp/orchestrator/activity import + wiring path.
+    "azure-functions-durable>=1.2,<2",
 ]
 docs = [
     "mkdocs<2.0",

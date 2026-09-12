@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 from types import MappingProxyType
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 import warnings
 
 import azure.functions as func
@@ -56,6 +56,11 @@ _ROUTE_HEALTH_DETAILS = "health/details"
 _ROUTE_INVOKE = "graphs/{name}/invoke"
 _ROUTE_STREAM = "graphs/{name}/stream"
 _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
+
+# Async-run mode selector. ``False`` (default) serves only the synchronous HTTP
+# surface; ``"durable"`` additionally wires the optional Durable Functions
+# create/get/cancel async-run lifecycle (requires the ``durable`` extra, #408).
+AsyncRunsMode = Literal[False, "durable"]
 
 
 # Environment markers set by the Azure Functions host at runtime. Their presence
@@ -224,6 +229,7 @@ class LangGraphApp:
     max_input_depth: int = 32
     max_input_nodes: int = 10_000
     platform_compat: bool = False
+    async_runs: AsyncRunsMode = False
     thread_lock: Optional[ThreadLock] = None
     observer: Optional[RunObserver] = None
     route_prefix: str = _ROUTE_PREFIX  # metadata-only; must match host.json routePrefix
@@ -533,7 +539,7 @@ response_model: Optional Pydantic model class for response body
     # ------------------------------------------------------------------
 
     def _build_function_app(self) -> func.FunctionApp:
-        app = func.FunctionApp(http_auth_level=self.auth_level)
+        app = self._new_function_app()
 
         # Health endpoints.
         #
@@ -633,7 +639,46 @@ response_model: Optional Pydantic model class for response body
             )
             register_platform_routes(app, deps)
 
+        # Durable async-run control plane (issue #408)
+        if self.async_runs == "durable":
+            self._register_durable_runtime(app)
+
         return app
+
+    def _new_function_app(self) -> func.FunctionApp:
+        """Construct the underlying Functions app.
+
+        Returns a plain ``func.FunctionApp`` normally, or a Durable-aware
+        ``df.DFApp`` (typed as ``func.FunctionApp``) when ``async_runs="durable"``
+        so the same route registrations apply and the durable bindings are also
+        available. Building the DFApp requires the optional ``durable`` extra.
+        """
+        if self.async_runs == "durable":
+            from azure_functions_langgraph.durable._runtime import (
+                create_durable_function_app,
+            )
+
+            return create_durable_function_app(self.auth_level)
+        return func.FunctionApp(http_auth_level=self.auth_level)
+
+    def _register_durable_runtime(self, app: func.FunctionApp) -> None:
+        """Wire the Durable async-run orchestrator, activity, and HTTP routes."""
+        from azure_functions_langgraph.durable._runtime import (
+            DurableRuntimeDeps,
+            register_durable_runtime,
+        )
+
+        thread_lock = self.thread_lock
+        if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
+            raise RuntimeError("thread_lock is None; __post_init__ did not run")
+
+        deps = DurableRuntimeDeps(
+            registry=self._registrations,
+            thread_lock=thread_lock,
+            observer=self.observer or NoOpRunObserver(),
+            max_request_body_bytes=self.max_request_body_bytes,
+        )
+        register_durable_runtime(app, deps)
 
     def _register_service_bus_trigger(
         self,
