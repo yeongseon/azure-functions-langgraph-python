@@ -255,18 +255,30 @@ jobs:
 
 
   azure-functions-2x:
-    name: azure-functions 2.x compat (Py 3.13)
+    name: azure-functions 2.x compat (Py ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # azure-functions 2.x declares Requires-Python >=3.13, so this proof
+        # lane runs on the Azure-GA interpreters that can host the 2.x worker:
+        # Python 3.13 and 3.14 (both GA for Azure Functions; #350). 3.14 is a
+        # non-blocking cell (continue-on-error below) only because transitive
+        # dependency wheels for 3.14 may still be landing - the azure-functions
+        # 2.x surface itself is certified as GA, not exploratory.
+        python-version: ["3.13", "3.14"]
+    # 3.14 is informational until the full transitive-dependency wheel set is
+    # published for 3.14; a red 3.14 cell must not block a PR. 3.13 stays
+    # blocking.
+    continue-on-error: ${{ matrix.python-version == '3.14' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Python 3.13
-        # azure-functions 2.x declares Requires-Python >=3.13, so this proof
-        # lane must run on 3.13 (3.14 stays exploratory until Azure supports it).
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
 
       - name: Build wheel
         # Issue #350 requires proving 2.x against a WHEEL-installed build, not an
