@@ -29,6 +29,7 @@ nav:
   - Examples:
       - Simple Agent: examples/simple_agent.md
   - API Reference: api.md
+  - Roadmap: roadmap.md
   - Contributing:
       - Development: development.md
       - Testing: testing.md

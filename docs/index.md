@@ -59,6 +59,7 @@ This gives you:
 - [Quickstart](getting-started.md) — build your first agent endpoint
 - [Usage Guide](usage.md) — detailed endpoint reference
 - [API Reference](api.md) — full API documentation
+- [Roadmap](roadmap.md) — adoption-first rolling roadmap and current status
 
 ## Ecosystem
 
