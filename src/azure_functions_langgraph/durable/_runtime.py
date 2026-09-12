@@ -162,9 +162,8 @@ async def create_run_http(
         return _json_response(404, {"error": f"no graph registered under name {graph_name!r}"})
 
     body, error = _parse_body(req, max_bytes=max_request_body_bytes)
-    if error is not None:
-        return _json_response(400, {"error": error})
-    assert body is not None  # for type-checkers; error is None here
+    if error is not None or body is None:
+        return _json_response(400, {"error": error or "invalid request body"})
 
     status_code, result = await create_run_impl(
         client, orchestrator_name, body, graph_name=graph_name
