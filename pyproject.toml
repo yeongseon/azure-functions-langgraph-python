@@ -23,13 +23,17 @@ classifiers = [
 ]
 
 dependencies = [
-    # Cap below 2.0.0 pending real-Azure certification of azure-functions 2.x.
-    # 2.x requires Python >=3.13 and may change worker function-indexing. A CI
-    # proof lane (ci-test.yml: "azure-functions 2.x compat (Py 3.13)") already
-    # verifies the adapter surface holds against a wheel-installed 2.x build; the
-    # cap is lifted only after e2e-azure.yml certifies 2.x on real Azure (#350).
-    # See knowledge#46 / dx#8.
-    "azure-functions>=1.17,<2.0.0",
+    # azure-functions 2.x drops Python < 3.13, so the constraint is split by
+    # interpreter (following sibling azure-functions-openapi #529/#552): Python
+    # < 3.13 stays capped at <2.0.0 (2.x is uninstallable there — the current
+    # Linux Consumption default target, still on the certified 1.x line), while
+    # Python >= 3.13 is allowed onto the 2.x line but capped below <3.0.0 so an
+    # uncertified azure-functions 3.x is never pulled in silently. The 2.x path
+    # is proven by the wheel-based "azure-functions 2.x compat" matrix in
+    # ci-test.yml (real Python 3.13/3.14 interpreters) and certified against
+    # real Azure via e2e-azure.yml; see #350.
+    "azure-functions>=1.17,<2.0.0; python_version < '3.13'",
+    "azure-functions>=1.17,<3.0.0; python_version >= '3.13'",
     "langgraph>=1.0,<2.0",
     "pydantic>=2.0,<3.0",
 ]
