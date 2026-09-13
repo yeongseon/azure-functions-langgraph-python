@@ -15,19 +15,24 @@ minimum/latest window instead of freezing a single pinned stack.
 > Reach an **expansion checkpoint** after Service Bus + Durable and re-evaluate
 > toward v1.0 stabilization.
 
-## Current status (2026-09-12)
+## Current status (2026-09-13)
 
-The adoption-first sequence is effectively complete. Every example phase,
-runtime-fidelity phase, observability phase, true streaming, and the Azure-native
-event-driven entrypoint have shipped. **Only two roadmap items remain open:**
+The adoption-first sequence is complete. Every example phase, runtime-fidelity
+phase, observability phase, true streaming, the Azure-native event-driven
+entrypoint, and the Durable async run lifecycle have shipped. The project is now
+at its **expansion checkpoint** — no new feature family is added automatically.
+**Only one roadmap item remains open:**
 
 | Item | Phase | Status | Why it is still open |
 | --- | --- | --- | --- |
 | [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — `azure-functions` 2.x certification / cap removal | Phase 0 (P0) | **In progress** | CI authoring is merged (Py 3.13/3.14 compat matrix + drafted Flex Consumption e2e). The remaining step is a **real-Azure** certification run before the `<2.0.0` cap is raised. |
-| [\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408) — Durable Functions-backed async run lifecycle | Phase 6 (P2) | **Deferred** | Intentionally deferred; also depends on the modern dependency line from #350. |
 
-Once #350 certifies and #408 lands (or is explicitly dropped), the project is at
-its **expansion checkpoint** — no new feature family is added automatically.
+[\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408)
+(Durable Functions-backed async run lifecycle) landed in
+[\#453](https://github.com/yeongseon/azure-functions-langgraph-python/pull/453).
+With Service Bus (#409) and Durable async runs (#408) both shipped, the next step
+is the **expansion checkpoint review**, not another feature family — new surfaces
+require concrete external demand per the checkpoint criteria below.
 
 ## Guiding principles
 
@@ -155,7 +160,7 @@ Queue trigger; explicit message → graph input and correlation/session →
 
 ### Phase 6 — asynchronous run lifecycle — **P2**
 
-12. Optional Durable Functions-backed async runs — [ ] [\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408) *(deferred)*
+12. Optional Durable Functions-backed async runs — [x] [\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408)
 
 **Not** a Durable reimplementation of LangGraph topology and not a replacement
 for `azure-functions-durable-graph`. Create async run, poll status/result,
@@ -242,7 +247,7 @@ install
 - [x] [\#407](https://github.com/yeongseon/azure-functions-langgraph-python/issues/407) — Application Insights / OpenTelemetry integration / #407b (P2)
 - [x] [\#406](https://github.com/yeongseon/azure-functions-langgraph-python/issues/406) — true HTTP streaming (P2)
 - [x] [\#409](https://github.com/yeongseon/azure-functions-langgraph-python/issues/409) — Service Bus trigger (P2)
-- [ ] [\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408) — Durable async run lifecycle (P2, deferred)
+- [x] [\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408) — Durable async run lifecycle (P2)
 - [x] [\#426](https://github.com/yeongseon/azure-functions-langgraph-python/issues/426) — rolling 0.x version-stability policy (P2)
 - [ ] Expansion checkpoint → v1.0 stabilization / adoption phase; no automatic feature expansion
 
