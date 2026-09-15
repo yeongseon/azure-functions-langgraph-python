@@ -91,6 +91,13 @@ test: ensure-hatch
 	@echo "Running tests..."
 	@$(HATCH) run test
 
+.PHONY: worker-compat-2x
+worker-compat-2x: bootstrap
+	@echo "azure-functions 2.x requires Python >= 3.13; .venv must use a 3.13+ interpreter (run 'make clean-all' first if it was created on an older Python)."
+	@$(PIP) install -e ".[dev,azure-blob,azure-table]" > /dev/null
+	@$(PIP) install --no-deps --force-reinstall 'azure-functions>=2,<3'
+	@$(PYTHON) -m pytest -m 'not e2e' -o addopts='' tests -v
+
 .PHONY: test-cosmos
 test-cosmos: ensure-hatch
 	@set -e; \

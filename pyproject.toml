@@ -23,7 +23,12 @@ classifiers = [
 ]
 
 dependencies = [
-    # Cap below 2.0.0: azure-functions v2 may change worker function-indexing
+    # Cap-lift criteria (see #350): keep <2.0.0 until the advisory
+    # `worker-compat-2x` lane is green AND a real-Azure split-hosting
+    # certification passes (Y1 Consumption caps at Python 3.12 / AF1; AF2
+    # requires 3.13+ on Flex/Premium/Dedicated), then lift in a separate PR.
+    # azure-functions 2.x requires Python >= 3.13, so the lane runs only on
+    # 3.13/3.14. Original concern: AF2 may change worker function-indexing
     # behavior this package relies on. See knowledge#46 / dx#8.
     "azure-functions>=1.17,<2.0.0",
     "langgraph>=1.0,<2.0",

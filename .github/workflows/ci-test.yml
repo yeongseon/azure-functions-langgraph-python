@@ -80,3 +80,29 @@ jobs:
         # it is a separate job from the coverage-enforcing matrix above, it
         # cannot mask coverage regressions -- the matrix job still enforces 95%.
         run: pytest tests/ --no-cov -q
+
+  # Advisory lane (non-blocking): prove the suite runs against the real, GA
+  # azure-functions 2.x SDK. AF2 requires Python >= 3.13, so this runs only on
+  # 3.13/3.14 (interpreter-split per #350). It installs directly on the matrix
+  # interpreter rather than the 3.10-pinned hatch env, which cannot resolve AF2.
+  # Kept out of ci-required until green; together with a real-Azure split-hosting
+  # certification it documents readiness to lift the <2.0.0 cap.
+  worker-compat-2x:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run azure-functions 2.x compatibility lane
+        run: make worker-compat-2x
