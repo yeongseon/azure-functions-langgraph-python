@@ -2,7 +2,7 @@
 
 > **Canonical tracker:** [#410 — adoption-first rolling roadmap](https://github.com/yeongseon/azure-functions-langgraph-python/issues/410).
 > This page mirrors that issue for readers browsing the docs. When the two
-> disagree, the issue is authoritative. Last synced: **2026-09-12**.
+> disagree, the issue is authoritative. Last synced: **2026-09-15**.
 
 `azure-functions-langgraph` deploys already-built LangGraph graphs as Azure
 Functions HTTP endpoints. This roadmap is deliberately **adoption-first** and
@@ -15,7 +15,7 @@ minimum/latest window instead of freezing a single pinned stack.
 > Reach an **expansion checkpoint** after Service Bus + Durable and re-evaluate
 > toward v1.0 stabilization.
 
-## Current status (2026-09-13)
+## Current status (2026-09-15)
 
 The adoption-first sequence is complete. Every example phase, runtime-fidelity
 phase, observability phase, true streaming, the Azure-native event-driven
@@ -25,7 +25,7 @@ at its **expansion checkpoint** — no new feature family is added automatically
 
 | Item | Phase | Status | Why it is still open |
 | --- | --- | --- | --- |
-| [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — `azure-functions` 2.x certification / cap removal | Phase 0 (P0) | **In progress** | CI authoring is merged (Py 3.13/3.14 compat matrix + drafted Flex Consumption e2e). The remaining step is a **real-Azure** certification run before the `<2.0.0` cap is raised. |
+| [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — `azure-functions` 2.x certification / cap removal | Phase 0 (P0) | **In progress** | The `<2.0.0` cap has been **lifted on Python 3.13+** via [\#457](https://github.com/yeongseon/azure-functions-langgraph-python/pull/457) (interpreter-split constraint; Python < 3.13 stays on the certified 1.x line). The wheel-based `azure-functions` 2.x compat lanes (real Py 3.13/3.14) are green. The only remaining step is dispatching the **real-Azure** Flex Consumption certification (`e2e-azure.yml`), which needs maintainer Azure credentials. |
 
 [\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408)
 (Durable Functions-backed async run lifecycle) landed in
