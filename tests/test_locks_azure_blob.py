@@ -11,9 +11,7 @@ import warnings
 
 import pytest
 
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:.*auto_renew=False.*:UserWarning"
-)
+pytestmark = pytest.mark.filterwarnings("ignore:.*auto_renew=False.*:UserWarning")
 
 # ------------------------------------------------------------------
 # Fake azure.storage.blob + azure.core.exceptions used by the tests.
@@ -399,6 +397,7 @@ class TestAcquireRelease:
             lock.release("graph", "t1", "foreign-token")
         assert any("owner mismatch" in rec.getMessage() for rec in caplog.records)
         lock.release("graph", "t1", token)
+
     def test_release_swallows_azure_errors(
         self,
         caplog: pytest.LogCaptureFixture,
@@ -496,7 +495,6 @@ class TestErrorPropagation:
     def test_non_lease_http_error_is_re_raised(self) -> None:
         """A 500-class HttpResponseError (not a lease conflict) must propagate."""
 
-
         # Force acquire_lease to raise a non-lease-conflict error.
         class BrokenClient(MockContainerClient):
             def get_blob_client(self, blob: str) -> MockBlobClient:
@@ -537,7 +535,6 @@ class TestErrorPropagation:
         )
 
 
-
 # ------------------------------------------------------------------
 # Non-renewal warning
 # ------------------------------------------------------------------
@@ -555,12 +552,10 @@ class TestFiniteLeaseWarning:
             matching = [
                 r
                 for r in records
-                if issubclass(r.category, UserWarning)
-                and "auto_renew=False" in str(r.message)
+                if issubclass(r.category, UserWarning) and "auto_renew=False" in str(r.message)
             ]
             assert not matching, (
-                "Default (auto_renew=True) must not warn; got "
-                f"{[str(r.message) for r in matching]}"
+                f"Default (auto_renew=True) must not warn; got {[str(r.message) for r in matching]}"
             )
         finally:
             lock.close()
@@ -595,12 +590,10 @@ class TestFiniteLeaseWarning:
             matching = [
                 r
                 for r in records
-                if issubclass(r.category, UserWarning)
-                and "auto_renew" in str(r.message)
+                if issubclass(r.category, UserWarning) and "auto_renew" in str(r.message)
             ]
             assert not matching, (
-                "Infinite lease must not warn; got "
-                f"{[str(r.message) for r in matching]}"
+                f"Infinite lease must not warn; got {[str(r.message) for r in matching]}"
             )
         finally:
             lock_a.close()
@@ -645,8 +638,7 @@ class TestAutoRenewal:
             assert lock._renewal_thread is None
             assert lock._auto_renew is False
             assert any(
-                issubclass(r.category, UserWarning)
-                and "auto_renew=False" in str(r.message)
+                issubclass(r.category, UserWarning) and "auto_renew=False" in str(r.message)
                 for r in records
             )
         finally:
@@ -694,9 +686,7 @@ class TestAutoRenewal:
 
             state.lease.renew = _flaky
 
-            with caplog.at_level(
-                "WARNING", logger="azure_functions_langgraph.locks.azure_blob"
-            ):
+            with caplog.at_level("WARNING", logger="azure_functions_langgraph.locks.azure_blob"):
                 lock._renew_all_once()
 
             # Kept, not dropped; one transient failure recorded.
@@ -731,9 +721,7 @@ class TestAutoRenewal:
             state = lock._active_leases[key]
 
             def _always_transient() -> None:
-                raise FakeHttpResponseError(
-                    "ServerBusy", error_code="ServerBusy", status_code=503
-                )
+                raise FakeHttpResponseError("ServerBusy", error_code="ServerBusy", status_code=503)
 
             state.lease.renew = _always_transient
 
@@ -744,8 +732,7 @@ class TestAutoRenewal:
             assert key in lock._active_leases
             assert lock._active_leases[key].lost is True
             assert (
-                lock._active_leases[key].consecutive_failures
-                >= _MAX_CONSECUTIVE_RENEWAL_FAILURES
+                lock._active_leases[key].consecutive_failures >= _MAX_CONSECUTIVE_RENEWAL_FAILURES
             )
             # A lost entry still blocks reacquire of the same key.
             assert lock.acquire("graph", "t1") is None
@@ -764,15 +751,11 @@ class TestAutoRenewal:
             state = lock._active_leases[key]
 
             def _lease_lost() -> None:
-                raise FakeHttpResponseError(
-                    "LeaseLost", error_code="LeaseLost", status_code=409
-                )
+                raise FakeHttpResponseError("LeaseLost", error_code="LeaseLost", status_code=409)
 
             state.lease.renew = _lease_lost
 
-            with caplog.at_level(
-                "WARNING", logger="azure_functions_langgraph.locks.azure_blob"
-            ):
+            with caplog.at_level("WARNING", logger="azure_functions_langgraph.locks.azure_blob"):
                 lock._renew_all_once()
 
             # Marked lost on the FIRST definitive failure, but kept occupied.
@@ -781,8 +764,7 @@ class TestAutoRenewal:
             assert lock._active_leases[key].consecutive_failures == 0
             assert lock.acquire("graph", "t1") is None
             assert any(
-                "is lost (definitive lease-loss" in rec.getMessage()
-                for rec in caplog.records
+                "is lost (definitive lease-loss" in rec.getMessage() for rec in caplog.records
             )
 
             # A subsequent renewal tick skips the lost entry.
@@ -801,9 +783,7 @@ class TestAutoRenewal:
             state = lock._active_leases[key]
 
             def _lease_lost() -> None:
-                raise FakeHttpResponseError(
-                    "LeaseLost", error_code="LeaseLost", status_code=409
-                )
+                raise FakeHttpResponseError("LeaseLost", error_code="LeaseLost", status_code=409)
 
             state.lease.renew = _lease_lost
             lock._renew_all_once()
@@ -861,9 +841,7 @@ class TestAutoRenewal:
                 if lease.renew_count >= 3:
                     break
                 time.sleep(0.02)
-            assert lease.renew_count >= 3, (
-                f"Expected ≥3 renewals, got {lease.renew_count}"
-            )
+            assert lease.renew_count >= 3, f"Expected ≥3 renewals, got {lease.renew_count}"
         finally:
             lock.close()
 
@@ -899,9 +877,7 @@ class TestAutoRenewal:
         lock.close()  # third call must not raise
         assert lock._closed is True
 
-    def test_close_swallows_release_errors(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_close_swallows_release_errors(self, caplog: pytest.LogCaptureFixture) -> None:
         """close() swallows exceptions from individual lease.release() calls."""
         container = MockContainerClient()
         lock = _make_lock(container)
@@ -912,13 +888,9 @@ class TestAutoRenewal:
             raise RuntimeError("simulated release failure during close")
 
         lease.release = _raise
-        with caplog.at_level(
-            "DEBUG", logger="azure_functions_langgraph.locks.azure_blob"
-        ):
+        with caplog.at_level("DEBUG", logger="azure_functions_langgraph.locks.azure_blob"):
             lock.close()  # must not raise
-        assert any(
-            "during close" in rec.getMessage() for rec in caplog.records
-        )
+        assert any("during close" in rec.getMessage() for rec in caplog.records)
 
 
 class TestPerLeaseRenewalIsolation:
@@ -1024,3 +996,21 @@ class TestPerLeaseRenewalIsolation:
             assert state.lost is False
         finally:
             lock.close()
+
+    def test_acquire_after_close_raises(self) -> None:
+        """acquire() after close() raises RuntimeError — the lock is terminal."""
+        lock = _make_lock()
+        lock.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            lock.acquire("graph", "t1")
+
+    def test_release_after_close_is_safe(self) -> None:
+        """release() after close() is a no-op and never raises."""
+        container = MockContainerClient()
+        lock = _make_lock(container)
+        token = lock.acquire("graph", "t1")
+        assert token is not None
+        lock.close()
+        # Key was already popped/released during close(); release() must be safe.
+        lock.release("graph", "t1", token)
+        assert not lock._active_leases

@@ -373,6 +373,10 @@ class AzureBlobLeaseThreadLock:
         # Fast local check — do not hammer Azure if we already track a lease
         # (a lost-but-unreleased entry still counts as occupied).
         with self._active_leases_guard:
+            if self._closed:
+                raise RuntimeError(
+                    "AzureBlobLeaseThreadLock is closed and cannot acquire new leases"
+                )
             if key in self._active_leases:
                 return None
 
@@ -488,9 +492,7 @@ class AzureBlobLeaseThreadLock:
         """
         with self._active_leases_guard:
             snapshot = [
-                (key, state)
-                for key, state in self._active_leases.items()
-                if not state.lost
+                (key, state) for key, state in self._active_leases.items() if not state.lost
             ]
         if not snapshot:
             return
@@ -528,14 +530,10 @@ class AzureBlobLeaseThreadLock:
             self._handle_renew_failure(
                 key,
                 state,
-                TimeoutError(
-                    "lease renew() exceeded the client-side renewal timeout"
-                ),
+                TimeoutError("lease renew() exceeded the client-side renewal timeout"),
             )
 
-    def _record_renew_success(
-        self, key: tuple[str, str], state: _LeaseState
-    ) -> None:
+    def _record_renew_success(self, key: tuple[str, str], state: _LeaseState) -> None:
         """Reset failure tracking for a lease that just renewed successfully."""
         with self._active_leases_guard:
             if self._active_leases.get(key) is state:
@@ -598,10 +596,11 @@ class AzureBlobLeaseThreadLock:
         """Stop the renewal thread and release every active lease.
 
         Idempotent and safe to call from any thread. After :meth:`close`,
-        further :meth:`acquire` calls still work but will not be
-        auto-renewed even if ``auto_renew=True`` was passed to the
-        constructor. Entries already marked ``lost`` are dropped without a
-        service-side release (their lease is gone).
+        any :meth:`acquire` call raises :class:`RuntimeError` — the lock is
+        terminal and cannot take new leases. :meth:`release` remains safe
+        (it is a no-op for keys that are no longer tracked). Entries already
+        marked ``lost`` are dropped without a service-side release (their
+        lease is gone).
         """
         if self._closed:
             return
