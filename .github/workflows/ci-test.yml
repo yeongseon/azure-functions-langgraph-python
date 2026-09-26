@@ -58,9 +58,9 @@ jobs:
         # The full test suite runs against the declared dependency contract
         # (azure-functions>=1.17,<2.0.0). That 1.x line is only installable on
         # Python 3.10-3.12 (recent 1.x releases pin requires-python <3.13), so
-        # the matrix stops at 3.12. Python 3.13/3.14 are exercised by the
-        # `azure-functions-2x` wheel lane below - running the full suite there
-        # would require the 2.x worker path, which this contract does not pin.
+        # the matrix stops at 3.12. On Python 3.13/3.14 the interpreter-split
+        # constraint resolves to the 2.x line instead, which the dedicated
+        # `azure-functions-2x` wheel lane below covers.
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
@@ -292,11 +292,13 @@ jobs:
         run: pip install "$(ls dist/azure_functions_langgraph-*.whl)[dev,azure-blob,azure-table]"
 
       - name: Upgrade azure-functions to the 2.x line
-        # pyproject caps azure-functions <2.0.0 until 2.x is certified on real
-        # Azure (issue #350). This lane deliberately overrides that cap to PROVE
-        # the adapter surface (FunctionApp route discovery, HttpRequest.get_json,
-        # HttpResponse status/headers/body, buffered-SSE stream) holds under 2.x.
-        # pip warns about the intentional override; that is expected.
+        # pyproject caps azure-functions below 2.0.0 only under Python 3.13;
+        # #457 lifted the cap on 3.13+, so on the interpreters this lane runs
+        # the 2.x line is already permitted. Pinning >=2,<3 fixes the line
+        # under test to PROVE the adapter surface (FunctionApp route discovery,
+        # HttpRequest.get_json, HttpResponse status/headers/body, buffered-SSE
+        # stream) holds under 2.x. Real-Azure certification (#350) is still
+        # outstanding, which is why this lane is not a required check.
         run: pip install "azure-functions>=2,<3"
 
       - name: Show resolved versions
