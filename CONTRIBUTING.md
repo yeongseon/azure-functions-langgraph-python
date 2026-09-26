@@ -43,6 +43,11 @@ make cov         # Run tests with coverage
 make check-all   # Run the full local gate
 ```
 
+Before opening a PR, run `ruff format --check <changed-python-files>` (or
+`ruff format <changed-python-files>` to fix them). `make format-check` checks
+the entire repository without changing files. CI runs the full style check and
+also reports formatting failures on changed Python files in a dedicated step.
+
 Integration tests (Azurite, Cosmos) require docker-compose services. The
 Cosmos emulator is known-flaky on GitHub-hosted runners, so CI does not run
 it on push or pull_request: it runs nightly on a schedule and on manual
