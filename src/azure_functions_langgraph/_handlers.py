@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 # Shared helper
 # ------------------------------------------------------------------
 
+
 def _extract_thread_id(config: dict[str, Any]) -> tuple[str | None, str | None]:
     """Extract thread_id from config, returning (thread_id, error_message).
 
@@ -128,10 +129,10 @@ def _resolve_version_kwarg(
     if not _method_accepts_version(method):
         return _error_response(
             422,
-            f"Graph {graph_name!r} does not accept a 'version' argument "
-            "(requires langgraph>=1.1)",
+            f"Graph {graph_name!r} does not accept a 'version' argument (requires langgraph>=1.1)",
         )
     return {"version": version}
+
 
 class _ParsableRequest(Protocol):
     """Structural type for the native invoke/stream request bodies."""
@@ -194,7 +195,6 @@ def _parse_native_request(
     return request
 
 
-
 def _serialize_graph_output(result: Any) -> dict[str, Any]:
     """Convert a graph invoke result to a JSON-serializable dict.
 
@@ -228,6 +228,7 @@ def _serialize_graph_output(result: Any) -> dict[str, Any]:
         type(result).__name__,
     )
     return {"result": str(result)}
+
 
 # ------------------------------------------------------------------
 # Invoke handler
@@ -420,9 +421,7 @@ def handle_stream(
                 allow_nan=False,
             )
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
-                stream_error = RuntimeError(
-                    "stream response exceeded max buffered size"
-                )
+                stream_error = RuntimeError("stream response exceeded max buffered size")
                 break
     except Exception as exc:
         logger.exception("Graph %s stream failed", reg.name)
@@ -646,9 +645,7 @@ async def handle_stream_async(
                 allow_nan=False,
             )
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
-                stream_error = RuntimeError(
-                    "stream response exceeded max buffered size"
-                )
+                stream_error = RuntimeError("stream response exceeded max buffered size")
                 break
     except Exception as exc:
         logger.exception("Graph %s astream failed", reg.name)
@@ -675,6 +672,7 @@ async def handle_stream_async(
             "X-Accel-Buffering": "no",
         },
     )
+
 
 # ------------------------------------------------------------------
 # State handler

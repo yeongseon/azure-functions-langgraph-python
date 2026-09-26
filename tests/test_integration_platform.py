@@ -335,7 +335,6 @@ class TestPlatformState:
         assert state_resp.status_code == 409
 
 
-
 # ---------------------------------------------------------------------------
 # Tests — Platform run-lifecycle observer parity (#407)
 # ---------------------------------------------------------------------------

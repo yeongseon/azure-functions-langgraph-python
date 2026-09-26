@@ -75,7 +75,6 @@ class RunContext:
     trigger_type: str | None = None
 
 
-
 @runtime_checkable
 class RunObserver(Protocol):
     """Observer notified across a native run's lifecycle.
@@ -259,9 +258,7 @@ class LoggingRunObserver:
         self._logger = logger or logging.getLogger(f"{__name__}.run")
         self._level = level
 
-    def _emit(
-        self, level: int, message: str, ctx: RunContext, **extra: object
-    ) -> None:
+    def _emit(self, level: int, message: str, ctx: RunContext, **extra: object) -> None:
         self._logger.log(
             level,
             message,

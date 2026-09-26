@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, create_model
 # omits the argument entirely, so existing clients see no behaviour change.
 LangGraphVersion = Literal["v1", "v2"]
 
+
 class InvokeRequest(BaseModel):
     """Request body for graph invocation."""
 
@@ -59,6 +60,7 @@ class InvokeResponse(BaseModel):
     """Response body for graph invocation."""
 
     output: dict[str, Any] = Field(description="Graph output state")
+
 
 # ------------------------------------------------------------------
 # Transport-envelope model builders (issue #349)
@@ -167,6 +169,7 @@ def build_stream_request_model(input_model: Optional[type[Any]]) -> type[BaseMod
             ),
         )
     return StreamRequest
+
 
 class GraphInfo(BaseModel):
     """Information about a registered graph."""

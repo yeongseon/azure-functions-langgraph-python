@@ -68,7 +68,6 @@ class TestNormalizeStreamMode:
         assert err.status_code == 501
 
 
-
 class TestUnknownRequestFields:
     def test_returns_empty_for_non_dict_body(self) -> None:
         assert _unknown_request_fields(ThreadUpdate, ["not", "a", "dict"]) == []

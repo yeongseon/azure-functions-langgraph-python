@@ -209,7 +209,6 @@ def register_run_routes(
 
         config = _build_threaded_config(run_req, thread_id)
 
-
         graph_input = run_req.input or {}
         chunks: list[str] = []
         buffered_bytes = 0

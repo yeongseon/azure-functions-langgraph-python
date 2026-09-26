@@ -9,8 +9,8 @@ from azure_functions_langgraph._validation import validate_body_size
 from azure_functions_langgraph.platform._common import (
     PlatformRouteDeps,
     _check_unknown_platform_fields,
-_platform_error,
-_registration_to_assistant,
+    _platform_error,
+    _registration_to_assistant,
 )
 from azure_functions_langgraph.platform.contracts import (
     Assistant,

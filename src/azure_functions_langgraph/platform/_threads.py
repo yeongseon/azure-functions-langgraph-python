@@ -14,7 +14,7 @@ from azure_functions_langgraph.platform._common import (
     PlatformRouteDeps,
     _build_checkpoint_config,
     _check_unknown_platform_fields,
-_platform_error,
+    _platform_error,
     _read_json_body,
     _resolve_thread_graph,
     _snapshot_to_thread_state,

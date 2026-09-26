@@ -86,9 +86,7 @@ class TestEndpointNamespaceOnHandlers:
         assert payload["version"] == ENDPOINT_METADATA_VERSION
         # The wire contract is the transport envelope ({input, config} ->
         # {output}), not the bare user model; see issue #349.
-        assert payload["request_body"] == build_invoke_request_model(
-            RequestBody
-        ).model_json_schema(
+        assert payload["request_body"] == build_invoke_request_model(RequestBody).model_json_schema(
             by_alias=True, ref_template="#/$defs/{model}", mode="validation"
         )
         # ``input`` is always required -> request body required.
@@ -272,13 +270,15 @@ class TestResolveEndpointSpec:
         spec = _resolve_endpoint_spec(reg, "invoke")
         # invoke wraps the models in the transport envelope (issue #349).
         assert spec.request_model is not None
-        assert spec.request_model.model_json_schema() == build_invoke_request_model(
-            RequestBody
-        ).model_json_schema()
+        assert (
+            spec.request_model.model_json_schema()
+            == build_invoke_request_model(RequestBody).model_json_schema()
+        )
         assert spec.response_model is not None
-        assert spec.response_model.model_json_schema() == build_invoke_response_model(
-            ResponseBody
-        ).model_json_schema()
+        assert (
+            spec.response_model.model_json_schema()
+            == build_invoke_response_model(ResponseBody).model_json_schema()
+        )
         assert spec.parameters == ()
 
     def test_stream_spec(self) -> None:
@@ -286,9 +286,10 @@ class TestResolveEndpointSpec:
         spec = _resolve_endpoint_spec(reg, "stream")
         # stream wraps the request in the transport envelope (issue #349).
         assert spec.request_model is not None
-        assert spec.request_model.model_json_schema() == build_stream_request_model(
-            RequestBody
-        ).model_json_schema()
+        assert (
+            spec.request_model.model_json_schema()
+            == build_stream_request_model(RequestBody).model_json_schema()
+        )
         assert spec.response_model is None
         assert spec.parameters == ()
 

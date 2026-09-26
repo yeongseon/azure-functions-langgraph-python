@@ -93,6 +93,7 @@ def _create_saver(target: tuple[str, str, str, str]) -> CheckpointSaver:
         ),
     )
 
+
 def test_create_cosmos_checkpointer_creates_saver(
     cosmos_emulator_target: tuple[str, str, str, str],
 ) -> None:
@@ -139,6 +140,7 @@ def test_deprecated_credential_param_still_works(
 ) -> None:
     """The deprecated credential= param should still work with a string key."""
     import warnings
+
     endpoint, key, database_name, container_name = cosmos_emulator_target
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")

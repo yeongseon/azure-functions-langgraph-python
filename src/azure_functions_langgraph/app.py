@@ -17,7 +17,7 @@ from azure_functions_langgraph._endpoint import (
 from azure_functions_langgraph._handlers import (
     handle_invoke,
     handle_invoke_async,
-handle_state,
+    handle_state,
     handle_stream,
     handle_stream_async,
 )
@@ -31,10 +31,10 @@ from azure_functions_langgraph._validation import (
 )
 from azure_functions_langgraph.contracts import (
     AppMetadata,
-GraphInfo,
-HealthResponse,
-HealthStatus,
-RegisteredGraphMetadata,
+    GraphInfo,
+    HealthResponse,
+    HealthStatus,
+    RegisteredGraphMetadata,
     RouteMetadata,
     _is_model_type,
     build_invoke_request_model,
@@ -145,9 +145,7 @@ def _validate_optional_model(model: Optional[type[Any]], label: str) -> None:
     model as a generic envelope.
     """
     if model is not None and not _is_model_type(model):
-        raise TypeError(
-            f"{label} must be a Pydantic BaseModel subclass, got {model!r}"
-        )
+        raise TypeError(f"{label} must be a Pydantic BaseModel subclass, got {model!r}")
 
 
 @dataclass
@@ -317,7 +315,7 @@ class LangGraphApp:
         stream: bool = True,
         auth_level: Optional[func.AuthLevel] = None,
         *,
-request_model: Optional[type[Any]] = None,
+        request_model: Optional[type[Any]] = None,
         response_model: Optional[type[Any]] = None,
         async_mode: bool = False,
     ) -> None:
@@ -333,7 +331,7 @@ request_model: Optional[type[Any]] = None,
                 When ``None`` (default), the app-level ``auth_level`` is used.
             request_model: Optional Pydantic model class for request body
                 (used by the metadata / bridge API, not for runtime validation).
-response_model: Optional Pydantic model class for response body
+            response_model: Optional Pydantic model class for response body
                 (used by the metadata / bridge API, not for runtime validation).
             async_mode: When ``True``, route this graph's invoke/stream endpoints
                 through async Azure Functions handlers that ``await`` the graph's
@@ -353,13 +351,11 @@ response_model: Optional Pydantic model class for response body
         has_async_invoke = isinstance(graph, AsyncInvocableGraph)
         if async_mode and not has_async_invoke:
             raise TypeError(
-                "async_mode=True requires an ainvoke() method. "
-                f"Got {type(graph).__name__}"
+                f"async_mode=True requires an ainvoke() method. Got {type(graph).__name__}"
             )
         if not has_sync_invoke and not has_async_invoke:
             raise TypeError(
-                "Graph must have an invoke() or ainvoke() method. "
-                f"Got {type(graph).__name__}"
+                f"Graph must have an invoke() or ainvoke() method. Got {type(graph).__name__}"
             )
         if self.platform_compat and has_async_invoke and not has_sync_invoke:
             raise TypeError(
@@ -453,13 +449,11 @@ response_model: Optional Pydantic model class for response body
         has_async_invoke = isinstance(graph, AsyncInvocableGraph)
         if async_mode and not has_async_invoke:
             raise TypeError(
-                "async_mode=True requires an ainvoke() method. "
-                f"Got {type(graph).__name__}"
+                f"async_mode=True requires an ainvoke() method. Got {type(graph).__name__}"
             )
         if not has_sync_invoke and not has_async_invoke:
             raise TypeError(
-                "Graph must have an invoke() or ainvoke() method. "
-                f"Got {type(graph).__name__}"
+                f"Graph must have an invoke() or ainvoke() method. Got {type(graph).__name__}"
             )
         name_err = validate_graph_name(name)
         if name_err:
@@ -471,8 +465,7 @@ response_model: Optional Pydantic model class for response body
         is_topic = topic_name is not None or subscription_name is not None
         if is_queue and is_topic:
             raise ValueError(
-                "Provide either queue_name or (topic_name + subscription_name), "
-                "not both"
+                "Provide either queue_name or (topic_name + subscription_name), not both"
             )
         if not is_queue and not is_topic:
             raise ValueError(
@@ -480,9 +473,7 @@ response_model: Optional Pydantic model class for response body
                 "subscription_name for a topic-subscription trigger"
             )
         if is_topic and (topic_name is None or subscription_name is None):
-            raise ValueError(
-                "A topic trigger requires both topic_name and subscription_name"
-            )
+            raise ValueError("A topic trigger requires both topic_name and subscription_name")
 
         effective_async = async_mode or not has_sync_invoke
         self._sb_registrations[name] = _ServiceBusRegistration(
@@ -579,7 +570,7 @@ response_model: Optional Pydantic model class for response body
                 status_code=200,
             )
 
-# Per-graph endpoints
+        # Per-graph endpoints
         for reg in self._registrations.values():
             is_async = self._is_async(reg)
             self._register_route(
@@ -588,9 +579,7 @@ response_model: Optional Pydantic model class for response body
                 endpoint="invoke",
                 route_template=_ROUTE_INVOKE,
                 methods=["POST"],
-                handler_impl=(
-                    self._handle_invoke_async if is_async else self._handle_invoke
-                ),
+                handler_impl=(self._handle_invoke_async if is_async else self._handle_invoke),
                 is_async=is_async,
             )
             if self._has_stream_route(reg):
@@ -600,9 +589,7 @@ response_model: Optional Pydantic model class for response body
                     endpoint="stream",
                     route_template=_ROUTE_STREAM,
                     methods=["POST"],
-                    handler_impl=(
-                        self._handle_stream_async if is_async else self._handle_stream
-                    ),
+                    handler_impl=(self._handle_stream_async if is_async else self._handle_stream),
                     is_async=is_async,
                 )
             if self._has_state_route(reg):
@@ -796,9 +783,7 @@ response_model: Optional Pydantic model class for response body
             result: func.HttpResponse = handler_impl(req, captured_reg)
             return result
 
-        handler: Callable[[func.HttpRequest], Any] = (
-            async_handler if is_async else sync_handler
-        )
+        handler: Callable[[func.HttpRequest], Any] = async_handler if is_async else sync_handler
 
         _payload: LangGraphMetadata = {
             "version": 1,

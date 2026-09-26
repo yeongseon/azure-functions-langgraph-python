@@ -145,6 +145,7 @@ def _normalize_stream_mode(
         )
     return raw_mode, None
 
+
 def _check_stream_overflow(
     chunks: list[str],
     buffered_bytes: int,
@@ -160,9 +161,7 @@ def _check_stream_overflow(
     """
     if buffered_bytes + chunk_bytes > max_bytes:
         chunks.append(
-            format_error_event(
-                f"stream response exceeded max buffered size ({max_bytes} bytes)"
-            )
+            format_error_event(f"stream response exceeded max buffered size ({max_bytes} bytes)")
         )
         chunks.append(format_end_event())
         return True

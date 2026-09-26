@@ -172,9 +172,7 @@ class AsyncMockBlobClient:
         self._container = container
         self._blob_name = blob_name
 
-    async def upload_blob(
-        self, data: bytes, metadata: dict[str, str], overwrite: bool
-    ) -> None:
+    async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
         if not overwrite and self._blob_name in self._container.blobs:
             raise ValueError("Blob already exists")
         existing = self._container.blobs.get(self._blob_name)
@@ -384,10 +382,7 @@ def test_get_next_version(
     for _ in range(1000):
         current = saver.get_next_version(previous, None)
         assert re.fullmatch(r"\d{32}\.0\.\d+", current) is not None
-        assert (
-            int(current.split(".", maxsplit=1)[0])
-            == int(previous.split(".", maxsplit=1)[0]) + 1
-        )
+        assert int(current.split(".", maxsplit=1)[0]) == int(previous.split(".", maxsplit=1)[0]) + 1
         previous = current
 
 
@@ -1493,6 +1488,7 @@ except ImportError:  # pragma: no cover - exercised only without the optional de
     async def _validate(*args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("langgraph-checkpoint-conformance not installed")
 
+
 _azure_blob_saver_cls = getattr(
     importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob"),
     "AzureBlobCheckpointSaver",
@@ -1560,9 +1556,7 @@ async def test_conformance_base_capabilities() -> None:
     for cap in base_capabilities:
         result = report.results[cap]
         assert result.detected, f"base capability {cap!r} was not detected"
-        assert result.passed, (
-            f"base capability {cap!r} failed conformance: {result.failures!r}"
-        )
+        assert result.passed, f"base capability {cap!r} failed conformance: {result.failures!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -1736,9 +1730,7 @@ async def test_alist_native_filter_before_limit(
     )
     assert [t.checkpoint["id"] for t in before] == ["cp-002", "cp-001"]
 
-    filtered = await _collect(
-        saver.alist(_config(thread_id="t-list"), filter={"step": 2})
-    )
+    filtered = await _collect(saver.alist(_config(thread_id="t-list"), filter={"step": 2}))
     assert [t.checkpoint["id"] for t in filtered] == ["cp-002"]
 
 
@@ -1829,9 +1821,7 @@ async def test_async_fallback_runs_sync_and_warns_once(
     assert result.checkpoint["channel_values"] == {"messages": ["fb"]}
     assert [t.checkpoint["id"] for t in listed] == ["cp-fb"]
     # Warning is emitted exactly once despite multiple async calls.
-    fallback_warnings = [
-        r for r in caplog.records if "aio_container_client" in r.getMessage()
-    ]
+    fallback_warnings = [r for r in caplog.records if "aio_container_client" in r.getMessage()]
     assert len(fallback_warnings) == 1
 
 
@@ -1907,7 +1897,5 @@ async def test_adelete_thread_fallback_warns_once(
     with caplog.at_level("WARNING"):
         await saver.adelete_thread("t-del-fb")
     assert not any("t-del-fb" in name for name in container.blobs)
-    warnings = [
-        r for r in caplog.records if "aio_container_client" in r.getMessage()
-    ]
+    warnings = [r for r in caplog.records if "aio_container_client" in r.getMessage()]
     assert len(warnings) == 1

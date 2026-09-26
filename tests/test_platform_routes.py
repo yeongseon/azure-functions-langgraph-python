@@ -2764,7 +2764,6 @@ class TestStreamSSEWireFormat:
         _parts = _decode_sse_body(resp.get_body().decode())
 
 
-
 class TestCoverageBoostRunsThreads:
     def test_runs_wait_invalid_thread_id_returns_400(self, store: InMemoryThreadStore) -> None:
         app = _build_platform_app(graphs={"agent": FakeCompiledGraph()}, store=store)
@@ -3418,6 +3417,7 @@ class TestThreadsStateUpdate:
         resp = fn(req)
         assert resp.status_code == 400
         assert "node" in json.loads(resp.get_body())["detail"].lower()
+
 
 # ---------------------------------------------------------------------------
 # POST /threads/{thread_id}/history — Issue #58

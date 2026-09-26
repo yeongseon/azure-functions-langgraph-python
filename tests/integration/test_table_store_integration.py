@@ -227,9 +227,7 @@ def test_reset_stale_locks_delete_race_is_skipped(
                 .from_connection_string(conn_str=AZURITE_TABLE_CONNECTION_STRING)
                 .get_table_client(azurite_table_client.table_name),
             )
-            table_client.delete_entity(
-                partition_key="thread", row_key=thread.thread_id
-            )
+            table_client.delete_entity(partition_key="thread", row_key=thread.thread_id)
         return cast(Any, original_update_entity)(*args, **kwargs)
 
     monkeypatch.setattr(azurite_table_client, "update_entity", wrapped_update_entity)
