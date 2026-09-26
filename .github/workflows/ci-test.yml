@@ -292,7 +292,7 @@ jobs:
         run: pip install "$(ls dist/azure_functions_langgraph-*.whl)[dev,azure-blob,azure-table]"
 
       - name: Upgrade azure-functions to the 2.x line
-        # pyproject caps azure-functions below 2.0.0 only under Python 3.13;
+        # pyproject caps azure-functions below 2.0.0 only on Python <3.13;
         # #457 lifted the cap on 3.13+, so on the interpreters this lane runs
         # the 2.x line is already permitted. Pinning >=2,<3 fixes the line
         # under test to PROVE the adapter surface (FunctionApp route discovery,
