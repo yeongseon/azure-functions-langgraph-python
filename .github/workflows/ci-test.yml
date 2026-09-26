@@ -59,8 +59,8 @@ jobs:
         # (azure-functions>=1.17,<2.0.0). That 1.x line is only installable on
         # Python 3.10-3.12 (recent 1.x releases pin requires-python <3.13), so
         # the matrix stops at 3.12. Python 3.13/3.14 are exercised by the
-        # non-blocking `azure-functions-2x` wheel lane below (Py 3.13) - running
-        # the full suite there would require the (uncertified) 2.x worker path.
+        # `azure-functions-2x` wheel lane below - running the full suite there
+        # would require the 2.x worker path, which this contract does not pin.
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
