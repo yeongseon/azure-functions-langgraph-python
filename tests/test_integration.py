@@ -48,7 +48,6 @@ _requires_v2 = pytest.mark.skipif(
 )
 
 
-
 # ---------------------------------------------------------------------------
 # Graph state & deterministic nodes
 # ---------------------------------------------------------------------------
@@ -572,9 +571,7 @@ class TestNativeVersionPassthrough:
         resp = handler(req)
         assert resp.status_code == 200
         frames = _parse_sse_frames(resp.get_body().decode())
-        data_frames = [
-            f for f in frames if f["event"] == "data" and isinstance(f["data"], dict)
-        ]
+        data_frames = [f for f in frames if f["event"] == "data" and isinstance(f["data"], dict)]
         assert data_frames
         for frame in data_frames:
             # StreamPart shape rather than a bare state snapshot.
@@ -656,7 +653,6 @@ class TestVersionKwargHelpers:
         assert result.status_code == 422
         body = json.loads(result.get_body())
         assert "version" in body["detail"]
-
 
 
 # ---------------------------------------------------------------------------
@@ -755,9 +751,7 @@ class _AsyncInvokeOnlyGraph:
 class _SyncOnlyGraph:
     """Sync invoke only — ``async_mode=True`` must be rejected."""
 
-    def invoke(
-        self, input: dict[str, Any], config: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
         return {}
 
 
@@ -1052,9 +1046,7 @@ class TestAsyncNativeBranchCoverage:
 
     async def test_async_stream_invoke_only_reg_returns_501(self) -> None:
         """A stream-disabled registration returns 501 (direct handler call)."""
-        reg = types.SimpleNamespace(
-            name="agent", stream_enabled=False, graph=_PureAsyncGraph()
-        )
+        reg = types.SimpleNamespace(name="agent", stream_enabled=False, graph=_PureAsyncGraph())
         req = _post("/api/graphs/agent/stream", {"input": {"user_text": "Ob"}})
         resp = await handle_stream_async(
             req,
@@ -1163,9 +1155,7 @@ class _StrictSyncGraph:
     def __init__(self) -> None:
         self.checkpointer: Any = None
 
-    def invoke(
-        self, input: dict[str, Any], config: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
         return {"ok": True}
 
     def stream(
@@ -1370,9 +1360,7 @@ class TestObserverSyncStream:
 
     def test_streaming_unsupported_emits_rejected_only(self) -> None:
         obs = _RecordingObserver()
-        reg = types.SimpleNamespace(
-            name="agent", stream_enabled=False, graph=_SyncGraph()
-        )
+        reg = types.SimpleNamespace(name="agent", stream_enabled=False, graph=_SyncGraph())
         resp = handle_stream(
             _post("/api/graphs/agent/stream", {"input": {"user_text": "Iz"}}),
             reg,
@@ -1440,7 +1428,6 @@ class TestObserverAsync:
         )
         assert resp.status_code == 200
         assert obs.names == ["started", "failed"]
-
 
 
 # ---------------------------------------------------------------------------
@@ -1519,14 +1506,10 @@ class TestLoggingRunObserver:
         handler = _get_fn(app.function_app, "aflg_agent_invoke")
 
         with caplog.at_level(logging.INFO):
-            resp = handler(
-                _post("/api/graphs/agent/invoke", {"input": {"user_text": "Qu"}})
-            )
+            resp = handler(_post("/api/graphs/agent/invoke", {"input": {"user_text": "Qu"}}))
         assert resp.status_code == 200
 
-        records = [
-            rec for rec in caplog.records if hasattr(rec, _LANGGRAPH_RUN_KEY)
-        ]
+        records = [rec for rec in caplog.records if hasattr(rec, _LANGGRAPH_RUN_KEY)]
         assert [rec.levelno for rec in records] == [logging.INFO, logging.INFO]
         started, completed = (getattr(rec, _LANGGRAPH_RUN_KEY) for rec in records)
         assert started["status"] == "started"
@@ -1540,29 +1523,21 @@ class TestLoggingRunObserver:
         assert forbidden.isdisjoint(started.keys())
         assert forbidden.isdisjoint(completed.keys())
 
-    def test_failure_emits_error_with_error_type(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_failure_emits_error_with_error_type(self, caplog: pytest.LogCaptureFixture) -> None:
         app = _observed_app(_FailingSyncGraph(), LoggingRunObserver())
         handler = _get_fn(app.function_app, "aflg_agent_invoke")
 
         with caplog.at_level(logging.INFO):
-            resp = handler(
-                _post("/api/graphs/agent/invoke", {"input": {"user_text": "Re"}})
-            )
+            resp = handler(_post("/api/graphs/agent/invoke", {"input": {"user_text": "Re"}}))
         assert resp.status_code == 500
 
-        records = [
-            rec for rec in caplog.records if hasattr(rec, _LANGGRAPH_RUN_KEY)
-        ]
+        records = [rec for rec in caplog.records if hasattr(rec, _LANGGRAPH_RUN_KEY)]
         failed = getattr(records[-1], _LANGGRAPH_RUN_KEY)
         assert records[-1].levelno == logging.ERROR
         assert failed["status"] == "failed"
         assert failed["error_type"] == "RuntimeError"
 
-    def test_rejected_emits_reason(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_rejected_emits_reason(self, caplog: pytest.LogCaptureFixture) -> None:
         app = _observed_app(_SyncGraph(), LoggingRunObserver())
         handler = _get_fn(app.function_app, "aflg_agent_invoke")
 
@@ -1570,32 +1545,23 @@ class TestLoggingRunObserver:
             resp = handler(_raw_post("/api/graphs/agent/invoke", b"{not-json"))
         assert resp.status_code == 400
 
-        records = [
-            rec for rec in caplog.records if hasattr(rec, _LANGGRAPH_RUN_KEY)
-        ]
+        records = [rec for rec in caplog.records if hasattr(rec, _LANGGRAPH_RUN_KEY)]
         rejected = getattr(records[-1], _LANGGRAPH_RUN_KEY)
         assert rejected["status"] == "rejected"
         assert rejected["reason"] == "invalid_request"
 
-    def test_custom_logger_and_level_are_honored(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_custom_logger_and_level_are_honored(self, caplog: pytest.LogCaptureFixture) -> None:
         custom = logging.getLogger("tests.custom.langgraph.run")
-        app = _observed_app(
-            _SyncGraph(), LoggingRunObserver(custom, level=logging.DEBUG)
-        )
+        app = _observed_app(_SyncGraph(), LoggingRunObserver(custom, level=logging.DEBUG))
         handler = _get_fn(app.function_app, "aflg_agent_invoke")
 
         with caplog.at_level(logging.DEBUG, logger="tests.custom.langgraph.run"):
-            resp = handler(
-                _post("/api/graphs/agent/invoke", {"input": {"user_text": "Sy"}})
-            )
+            resp = handler(_post("/api/graphs/agent/invoke", {"input": {"user_text": "Sy"}}))
         assert resp.status_code == 200
         records = [
             rec
             for rec in caplog.records
-            if rec.name == "tests.custom.langgraph.run"
-            and hasattr(rec, _LANGGRAPH_RUN_KEY)
+            if rec.name == "tests.custom.langgraph.run" and hasattr(rec, _LANGGRAPH_RUN_KEY)
         ]
         assert records
         assert all(rec.levelno == logging.DEBUG for rec in records)
@@ -1605,9 +1571,7 @@ class TestObservabilityHelpers:
     """Direct unit coverage for the #407 helper functions."""
 
     def test_new_run_context_normalizes_list_stream_mode(self) -> None:
-        ctx = new_run_context(
-            "agent", "stream", stream_mode=["values", "updates"]
-        )
+        ctx = new_run_context("agent", "stream", stream_mode=["values", "updates"])
         assert ctx.stream_mode == ("values", "updates")
         assert ctx.transport == "buffered"
         assert ctx.ended_at_ns is None

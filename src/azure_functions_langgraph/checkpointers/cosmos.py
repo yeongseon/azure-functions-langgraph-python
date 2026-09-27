@@ -165,14 +165,10 @@ def create_cosmos_checkpointer(
                 saver.client = CosmosClientCls(
                     url=endpoint, credential=resolved_key, connection_verify=False
                 )
-                saver.database = saver.client.create_database_if_not_exists(
-                    id=database_name
-                )
+                saver.database = saver.client.create_database_if_not_exists(id=database_name)
                 saver.container = saver.database.create_container_if_not_exists(
                     id=container_name,
-                    partition_key=getattr(cosmos_sdk, "PartitionKey")(
-                        path="/partition_key"
-                    ),
+                    partition_key=getattr(cosmos_sdk, "PartitionKey")(path="/partition_key"),
                 )
         finally:
             # Restore original env vars

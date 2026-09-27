@@ -106,9 +106,7 @@ class _AsyncBlobDownloadProtocol(Protocol):
 
 
 class _AsyncBlobClientProtocol(Protocol):
-    async def upload_blob(
-        self, data: bytes, metadata: dict[str, str], overwrite: bool
-    ) -> None: ...
+    async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None: ...
 
     async def download_blob(self) -> _AsyncBlobDownloadProtocol: ...
 
@@ -207,9 +205,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                     "dependency 'azure-storage-blob'. Install with: "
                     "pip install azure-functions-langgraph[azure-blob]"
                 ) from exc
-            azure_aio_container_client = getattr(
-                azure_blob_aio_module, "ContainerClient", None
-            )
+            azure_aio_container_client = getattr(azure_blob_aio_module, "ContainerClient", None)
             if azure_aio_container_client is None or not isinstance(
                 aio_container_client, azure_aio_container_client
             ):
@@ -704,9 +700,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 )
                 return None
             try:
-                checkpoint_data: Checkpoint = self.serde.loads_typed(
-                    (typed_blob[0], typed_blob[1])
-                )
+                checkpoint_data: Checkpoint = self.serde.loads_typed((typed_blob[0], typed_blob[1]))
                 channel_versions = checkpoint_data["channel_versions"]
             except Exception:
                 logger.warning(
@@ -741,7 +735,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         values_prefix = f"{self._namespace_prefix(thread_id, checkpoint_ns)}values/"
         if not blob_path.startswith(values_prefix):
             return None
-        relative = blob_path[len(values_prefix):]
+        relative = blob_path[len(values_prefix) :]
         parts = relative.split("/")
         if len(parts) != 2 or not parts[1].endswith(".bin"):
             return None
@@ -1130,9 +1124,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             return False
         return True
 
-    async def _aupload_blob(
-        self, blob_path: str, payload: bytes, metadata: dict[str, str]
-    ) -> None:
+    async def _aupload_blob(self, blob_path: str, payload: bytes, metadata: dict[str, str]) -> None:
         client = self._require_aio_container_client().get_blob_client(blob_path)
         await client.upload_blob(payload, metadata=metadata, overwrite=True)
 
@@ -1143,9 +1135,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             items.append(blob)
         return items
 
-    async def _aread_latest_checkpoint_id(
-        self, thread_id: str, checkpoint_ns: str
-    ) -> str | None:
+    async def _aread_latest_checkpoint_id(self, thread_id: str, checkpoint_ns: str) -> str | None:
         latest_path = self._latest_blob_path(thread_id, checkpoint_ns)
         latest_payload = await self._adownload_blob(latest_path)
         if latest_payload is None:
@@ -1165,17 +1155,13 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             return checkpoint_id
         return None
 
-    async def _afind_latest_checkpoint_id(
-        self, thread_id: str, checkpoint_ns: str
-    ) -> str | None:
+    async def _afind_latest_checkpoint_id(self, thread_id: str, checkpoint_ns: str) -> str | None:
         checkpoint_ids = await self._alist_checkpoint_ids(thread_id, checkpoint_ns)
         if not checkpoint_ids:
             return None
         return checkpoint_ids[0]
 
-    async def _alist_checkpoint_ids(
-        self, thread_id: str, checkpoint_ns: str
-    ) -> List[str]:
+    async def _alist_checkpoint_ids(self, thread_id: str, checkpoint_ns: str) -> List[str]:
         checkpoints_prefix = self._checkpoints_prefix(thread_id, checkpoint_ns)
         checkpoint_ids: set[str] = set()
 
@@ -1262,9 +1248,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             if raw_channel is None:
                 continue
             channel = unquote(raw_channel)
-            resolved_task_id = (
-                unquote(raw_metadata_task_id) if raw_metadata_task_id else task_id
-            )
+            resolved_task_id = unquote(raw_metadata_task_id) if raw_metadata_task_id else task_id
 
             value = self.serde.loads_typed((typed_blob_result[0], typed_blob_result[1]))
             loaded.append((resolved_task_id, write_index, channel, value))
@@ -1280,9 +1264,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_id: str,
         return_config: RunnableConfig,
     ) -> CheckpointTuple | None:
-        checkpoint_blob_path = self._checkpoint_blob_path(
-            thread_id, checkpoint_ns, checkpoint_id
-        )
+        checkpoint_blob_path = self._checkpoint_blob_path(thread_id, checkpoint_ns, checkpoint_id)
         checkpoint_blob_result = await self._adownload_typed_blob(checkpoint_blob_path)
         if checkpoint_blob_result is None:
             return None
@@ -1344,9 +1326,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 thread_id=thread_id,
                 checkpoint_ns=checkpoint_ns,
                 checkpoint_id=latest_hint,
-                return_config=self._checkpoint_config(
-                    thread_id, checkpoint_ns, latest_hint
-                ),
+                return_config=self._checkpoint_config(thread_id, checkpoint_ns, latest_hint),
             )
             if hint_tuple is not None:
                 return hint_tuple
@@ -1359,9 +1339,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             thread_id=thread_id,
             checkpoint_ns=checkpoint_ns,
             checkpoint_id=actual_latest,
-            return_config=self._checkpoint_config(
-                thread_id, checkpoint_ns, actual_latest
-            ),
+            return_config=self._checkpoint_config(thread_id, checkpoint_ns, actual_latest),
         )
 
     async def alist(
@@ -1376,9 +1354,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         if self._aio_container_client is None:
             self._warn_sync_fallback("alist")
             items = await asyncio.to_thread(
-                lambda: list(
-                    self.list(config, filter=filter, before=before, limit=limit)
-                )
+                lambda: list(self.list(config, filter=filter, before=before, limit=limit))
             )
             for item in items:
                 yield item
@@ -1389,11 +1365,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         config_checkpoint_id = get_checkpoint_id(config) if config else None
         before_checkpoint_id = get_checkpoint_id(before) if before else None
 
-        thread_ids = (
-            [self._config_thread_id(config)]
-            if config
-            else await self._alist_thread_ids()
-        )
+        thread_ids = [self._config_thread_id(config)] if config else await self._alist_thread_ids()
         for thread_id in thread_ids:
             checkpoint_namespaces = (
                 [config_checkpoint_ns]
@@ -1401,19 +1373,11 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 else await self._alist_checkpoint_namespaces(thread_id)
             )
             for checkpoint_ns in checkpoint_namespaces:
-                checkpoint_ids = await self._alist_checkpoint_ids(
-                    thread_id, checkpoint_ns
-                )
+                checkpoint_ids = await self._alist_checkpoint_ids(thread_id, checkpoint_ns)
                 for checkpoint_id in checkpoint_ids:
-                    if (
-                        config_checkpoint_id is not None
-                        and checkpoint_id != config_checkpoint_id
-                    ):
+                    if config_checkpoint_id is not None and checkpoint_id != config_checkpoint_id:
                         continue
-                    if (
-                        before_checkpoint_id is not None
-                        and checkpoint_id >= before_checkpoint_id
-                    ):
+                    if before_checkpoint_id is not None and checkpoint_id >= before_checkpoint_id:
                         continue
 
                     checkpoint_tuple = await self._abuild_tuple(
@@ -1452,9 +1416,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         """Asynchronously store a checkpoint (native aio when available)."""
         if self._aio_container_client is None:
             self._warn_sync_fallback("aput")
-            return await asyncio.to_thread(
-                self.put, config, checkpoint, metadata, new_versions
-            )
+            return await asyncio.to_thread(self.put, config, checkpoint, metadata, new_versions)
 
         thread_id = self._config_thread_id(config)
         checkpoint_ns = self._config_checkpoint_ns(config)
@@ -1466,9 +1428,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         # 1. Channel value blobs
         for channel, version in new_versions.items():
-            value_blob_path = self._value_blob_path(
-                thread_id, checkpoint_ns, channel, version
-            )
+            value_blob_path = self._value_blob_path(thread_id, checkpoint_ns, channel, version)
             if channel in channel_values:
                 serde_type, payload = self.serde.dumps_typed(channel_values[channel])
             else:
@@ -1486,9 +1446,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         )
 
         # 3. Checkpoint blob (commit marker — existence = valid checkpoint)
-        checkpoint_serde_type, checkpoint_payload = self.serde.dumps_typed(
-            checkpoint_data
-        )
+        checkpoint_serde_type, checkpoint_payload = self.serde.dumps_typed(checkpoint_data)
         checkpoint_blob_metadata: dict[str, str] = {"serde_type": checkpoint_serde_type}
         if parent_checkpoint_id is not None:
             checkpoint_blob_metadata["parent_id"] = quote(parent_checkpoint_id, safe="")
@@ -1499,9 +1457,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         )
 
         # 4. Monotonic latest.json hint (best-effort, after commit marker)
-        current_latest = await self._aread_latest_checkpoint_id(
-            thread_id, checkpoint_ns
-        )
+        current_latest = await self._aread_latest_checkpoint_id(thread_id, checkpoint_ns)
         if current_latest is None or checkpoint_id >= current_latest:
             latest_payload = json.dumps(
                 {"checkpoint_id": checkpoint_id},
@@ -1524,9 +1480,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         """Asynchronously store task writes (native aio when available)."""
         if self._aio_container_client is None:
             self._warn_sync_fallback("aput_writes")
-            await asyncio.to_thread(
-                self.put_writes, config, writes, task_id, task_path
-            )
+            await asyncio.to_thread(self.put_writes, config, writes, task_id, task_path)
             return
 
         thread_id = self._config_thread_id(config)

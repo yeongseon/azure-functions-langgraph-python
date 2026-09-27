@@ -346,6 +346,7 @@ async def _sse_event_stream(
     else:
         safe_observer_call(observer, "on_run_completed", finish_context(ctx))
 
+
 # ------------------------------------------------------------------
 # The app
 # ------------------------------------------------------------------

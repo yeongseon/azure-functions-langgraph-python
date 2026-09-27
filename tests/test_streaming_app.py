@@ -617,7 +617,6 @@ def _lock(app: StreamingLangGraphApp) -> Any:
     return app.thread_lock
 
 
-
 class TestHandleInvoke:
     async def test_sync_success(self) -> None:
         app, reg = _app_with(FakeSyncGraph())

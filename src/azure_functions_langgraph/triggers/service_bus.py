@@ -151,8 +151,6 @@ class ThreadContentionError(RuntimeError):
     """
 
 
-
-
 def process_service_bus_message(
     reg: _ServiceBusRegistration,
     msg: ServiceBusMessageLike,

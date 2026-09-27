@@ -108,6 +108,7 @@ def test_key_param_takes_precedence_over_cosmos_key_env(monkeypatch: Any) -> Non
 
     assert captured_env["COSMOSDB_KEY"] == "param-key"
 
+
 def test_cosmos_key_env_fallback(monkeypatch: Any) -> None:
     captured_env: dict[str, str | None] = {}
 

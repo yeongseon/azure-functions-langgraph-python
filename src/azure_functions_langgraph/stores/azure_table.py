@@ -568,13 +568,9 @@ class AzureTableThreadStore(ThreadStore):
             scan once the SDK returns a usable ETag.
         """
         if older_than_seconds < 0:
-            raise ValueError(
-                f"older_than_seconds must be non-negative, got {older_than_seconds}"
-            )
+            raise ValueError(f"older_than_seconds must be non-negative, got {older_than_seconds}")
         if status not in ("idle", "error"):
-            raise ValueError(
-                f"status must be 'idle' or 'error', got {status!r}"
-            )
+            raise ValueError(f"status must be 'idle' or 'error', got {status!r}")
 
         cutoff = self._now() - timedelta(seconds=older_than_seconds)
         modified_error = self._modified_error
@@ -602,11 +598,7 @@ class AzureTableThreadStore(ThreadStore):
 
             # Extract ETag for CAS
             entity_metadata = getattr(entity, "metadata", None)
-            etag = (
-                entity_metadata.get("etag")
-                if isinstance(entity_metadata, Mapping)
-                else None
-            )
+            etag = entity_metadata.get("etag") if isinstance(entity_metadata, Mapping) else None
             if etag is None:
                 etag = entity.get("etag") if isinstance(entity, dict) else None
             if etag is None:

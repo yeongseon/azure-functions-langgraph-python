@@ -43,9 +43,7 @@ class TestRegistration:
         assert "LangGraphApp(auth_level=func.AuthLevel.FUNCTION)" in message
         assert "Production authentication" in message
 
-    def test_warns_anonymous_regardless_of_env(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_warns_anonymous_regardless_of_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Warning must fire even outside an Azure Functions environment."""
         monkeypatch.delenv("AZURE_FUNCTIONS_ENVIRONMENT", raising=False)
         with pytest.warns(UserWarning, match="ANONYMOUS auth"):
@@ -603,6 +601,7 @@ class TestStreamHandler:
         assert "event: error" in body
         assert "NaN" not in body.split("event: error")[0]  # no raw NaN before error
 
+
 # ------------------------------------------------------------------
 # State handler tests
 # ------------------------------------------------------------------
@@ -1019,7 +1018,6 @@ class TestVersionIsString:
         assert len(__version__) > 0
 
 
-
 class TestCustomRoutePrefix:
     """Test that route_prefix is configurable."""
 
@@ -1084,7 +1082,10 @@ class TestNativeEndpointThreadLock:
                 return {"result": "ok"}
 
             def stream(
-                self, input: Any, config: Any = None, stream_mode: str = "values",
+                self,
+                input: Any,
+                config: Any = None,
+                stream_mode: str = "values",
             ) -> list[Any]:
                 return []
 
@@ -1115,7 +1116,10 @@ class TestNativeEndpointThreadLock:
                 return {"result": "ok"}
 
             def stream(
-                self, input: Any, config: Any = None, stream_mode: str = "values",
+                self,
+                input: Any,
+                config: Any = None,
+                stream_mode: str = "values",
             ) -> list[Any]:
                 return []
 
@@ -1137,7 +1141,10 @@ class TestNativeEndpointThreadLock:
                 return {"result": "ok"}
 
             def stream(
-                self, input: Any, config: Any = None, stream_mode: str = "values",
+                self,
+                input: Any,
+                config: Any = None,
+                stream_mode: str = "values",
             ) -> list[Any]:
                 return []
 
@@ -1165,7 +1172,10 @@ class TestNativeEndpointThreadLock:
                 return {"result": "ok"}
 
             def stream(
-                self, input: Any, config: Any = None, stream_mode: str = "values",
+                self,
+                input: Any,
+                config: Any = None,
+                stream_mode: str = "values",
             ) -> list[dict[str, Any]]:
                 return [{"chunk": 1}]
 
@@ -1182,23 +1192,27 @@ class TestNativeEndpointThreadLock:
         custom_lock.acquire.assert_called_once_with("agent", "t1")
         custom_lock.release.assert_called_once_with("agent", "t1", "tok-456")
 
+
 class TestExtractThreadId:
     """Tests for _extract_thread_id helper."""
 
     def test_no_configurable(self) -> None:
         from azure_functions_langgraph._handlers import _extract_thread_id
+
         tid, err = _extract_thread_id({})
         assert tid is None
         assert err is None
 
     def test_configurable_none(self) -> None:
         from azure_functions_langgraph._handlers import _extract_thread_id
+
         tid, err = _extract_thread_id({"configurable": None})
         assert tid is None
         assert err is None
 
     def test_configurable_not_dict(self) -> None:
         from azure_functions_langgraph._handlers import _extract_thread_id
+
         tid, err = _extract_thread_id({"configurable": "bad-value"})
         assert tid is None
         assert err is not None
@@ -1206,12 +1220,14 @@ class TestExtractThreadId:
 
     def test_configurable_no_thread_id(self) -> None:
         from azure_functions_langgraph._handlers import _extract_thread_id
+
         tid, err = _extract_thread_id({"configurable": {"model": "gpt-4"}})
         assert tid is None
         assert err is None
 
     def test_thread_id_not_string(self) -> None:
         from azure_functions_langgraph._handlers import _extract_thread_id
+
         tid, err = _extract_thread_id({"configurable": {"thread_id": 123}})
         assert tid is None
         assert err is not None
@@ -1219,12 +1235,14 @@ class TestExtractThreadId:
 
     def test_valid_thread_id(self) -> None:
         from azure_functions_langgraph._handlers import _extract_thread_id
+
         tid, err = _extract_thread_id({"configurable": {"thread_id": "t1"}})
         assert tid == "t1"
         assert err is None
 
     def test_empty_thread_id(self) -> None:
         from azure_functions_langgraph._handlers import _extract_thread_id
+
         tid, err = _extract_thread_id({"configurable": {"thread_id": ""}})
         assert tid is None
         assert err is not None
@@ -1250,7 +1268,10 @@ class TestMalformedConfigReturns400:
                 return {"result": "ok"}
 
             def stream(
-                self, input: Any, config: Any = None, stream_mode: str = "values",
+                self,
+                input: Any,
+                config: Any = None,
+                stream_mode: str = "values",
             ) -> list[Any]:
                 return []
 
@@ -1414,17 +1435,13 @@ class TestThreadStoreConfig:
         with pytest.warns(RuntimeWarning, match="in-memory thread store"):
             LangGraphApp(platform_compat=True)
 
-    def test_azure_hosted_site_name_marker_warns(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_azure_hosted_site_name_marker_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._clear_env(monkeypatch)
         monkeypatch.setenv("WEBSITE_SITE_NAME", "my-func-app")
         with pytest.warns(RuntimeWarning, match="in-memory thread store"):
             LangGraphApp(platform_compat=True)
 
-    def test_warning_category_is_runtimewarning(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_warning_category_is_runtimewarning(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The default-store warning is a RuntimeWarning, not a UserWarning."""
         self._clear_env(monkeypatch)
         monkeypatch.setenv("WEBSITE_INSTANCE_ID", "abc123")
@@ -1434,9 +1451,7 @@ class TestThreadStoreConfig:
         categories = {w.category for w in caught}
         assert RuntimeWarning in categories
 
-    def test_non_platform_compat_creates_no_store(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_non_platform_compat_creates_no_store(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._clear_env(monkeypatch)
         monkeypatch.setenv("WEBSITE_INSTANCE_ID", "abc123")
         with warnings.catch_warnings():
@@ -1453,17 +1468,13 @@ class TestThreadStoreConfig:
         with pytest.raises(RuntimeError, match="AZFUNC_LANGGRAPH_THREAD_STORE"):
             LangGraphApp(platform_compat=True)
 
-    def test_env_guard_case_and_whitespace_tolerant(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_guard_case_and_whitespace_tolerant(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._clear_env(monkeypatch)
         monkeypatch.setenv("AZFUNC_LANGGRAPH_THREAD_STORE", "  Distributed  ")
         with pytest.raises(RuntimeError):
             LangGraphApp(platform_compat=True)
 
-    def test_env_guard_inmemory_value_is_allowed(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_guard_inmemory_value_is_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Setting AZFUNC_LANGGRAPH_THREAD_STORE=inmemory is a no-op."""
         self._clear_env(monkeypatch)
         monkeypatch.setenv("AZFUNC_LANGGRAPH_THREAD_STORE", "inmemory")
