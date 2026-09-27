@@ -23,16 +23,26 @@ Span lifetime is threaded across two separate lifecycle callbacks
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 import threading
+from typing import TypeAlias
 
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode, Tracer
-from opentelemetry.util.types import AttributeValue
 
 from azure_functions_langgraph.observability import (
     RunContext,
     RunRejectedReason,
     _duration_ms,
+)
+
+# opentelemetry.util.types declares AttributeValue through a chained assignment
+# (``AnyValue = AttributeValue = ...``), which mypy reads as a variable rather
+# than a type alias, so it cannot be used in an annotation. It also now admits
+# ``None``, which this module explicitly filters out. Declare the non-optional
+# span-attribute contract locally instead.
+AttributeValue: TypeAlias = (
+    str | bool | int | float | Sequence[str] | Sequence[bool] | Sequence[int] | Sequence[float]
 )
 
 # Instrumentation scope name for the tracer acquired by default. Operators can
