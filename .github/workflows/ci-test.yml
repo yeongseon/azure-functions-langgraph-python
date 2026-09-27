@@ -277,7 +277,9 @@ jobs:
         # Python 3.13 and 3.14 (both GA for Azure Functions; #350). 3.14 is a
         # non-blocking cell (continue-on-error below) only because transitive
         # dependency wheels for 3.14 may still be landing - the azure-functions
-        # 2.x surface itself is certified as GA, not exploratory.
+        # 2.x SDK itself is GA upstream, not exploratory. That is a statement
+        # about the SDK, not about this package: real-Azure certification of
+        # our 2.x path is still outstanding (#350).
         python-version: ["3.13", "3.14"]
     # 3.14 is informational until the full transitive-dependency wheel set is
     # published for 3.14; a red 3.14 cell must not block a PR. 3.13 stays
