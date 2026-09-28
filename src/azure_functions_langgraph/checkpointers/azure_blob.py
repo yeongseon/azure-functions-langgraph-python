@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -10,7 +11,7 @@ import importlib
 import json
 import logging
 import random
-from typing import Any, List, Protocol, cast
+from typing import Any, Protocol, cast
 from urllib.parse import quote, unquote
 
 from langchain_core.runnables import RunnableConfig
@@ -715,9 +716,9 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
     def _list_value_blobs(
         self, thread_id: str, checkpoint_ns: str
-    ) -> List[tuple[str, tuple[str, str] | None, datetime | None]]:
+    ) -> builtins.list[tuple[str, tuple[str, str] | None, datetime | None]]:
         values_prefix = f"{self._namespace_prefix(thread_id, checkpoint_ns)}values/"
-        items: List[tuple[str, tuple[str, str] | None, datetime | None]] = []
+        items: list[tuple[str, tuple[str, str] | None, datetime | None]] = []
         for blob in self._container_client.list_blobs(name_starts_with=values_prefix):
             last_modified = getattr(blob, "last_modified", None)
             items.append(
@@ -824,9 +825,9 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         thread_id: str,
         checkpoint_ns: str,
         checkpoint_id: str,
-    ) -> List[tuple[str, str, Any]]:
+    ) -> builtins.list[tuple[str, str, Any]]:
         writes_prefix = self._writes_prefix(thread_id, checkpoint_ns, checkpoint_id)
-        loaded: List[tuple[str, int, str, Any]] = []
+        loaded: list[tuple[str, int, str, Any]] = []
 
         for blob in self._container_client.list_blobs(name_starts_with=writes_prefix):
             # Parse relative to writes_prefix: expect "{task_id}/{idx}.bin"
@@ -871,7 +872,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             return None
         return checkpoint_ids[0]
 
-    def _list_checkpoint_ids(self, thread_id: str, checkpoint_ns: str) -> List[str]:
+    def _list_checkpoint_ids(self, thread_id: str, checkpoint_ns: str) -> builtins.list[str]:
         checkpoints_prefix = self._checkpoints_prefix(thread_id, checkpoint_ns)
         checkpoint_ids: set[str] = set()
 
@@ -887,7 +888,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         return sorted(checkpoint_ids, reverse=True)
 
-    def _list_thread_ids(self) -> List[str]:
+    def _list_thread_ids(self) -> builtins.list[str]:
         thread_ids: set[str] = set()
         for blob in self._container_client.list_blobs(name_starts_with="threads/"):
             path_parts = blob.name.split("/")
@@ -895,7 +896,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 thread_ids.add(unquote(path_parts[1]))
         return sorted(thread_ids)
 
-    def _list_checkpoint_namespaces(self, thread_id: str) -> List[str]:
+    def _list_checkpoint_namespaces(self, thread_id: str) -> builtins.list[str]:
         namespace_prefix = f"{self._thread_prefix(thread_id)}ns/"
         checkpoint_namespaces: set[str] = set()
 
@@ -1128,9 +1129,9 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         client = self._require_aio_container_client().get_blob_client(blob_path)
         await client.upload_blob(payload, metadata=metadata, overwrite=True)
 
-    async def _alist_blob_items(self, prefix: str) -> List[_BlobItemProtocol]:
+    async def _alist_blob_items(self, prefix: str) -> builtins.list[_BlobItemProtocol]:
         container = self._require_aio_container_client()
-        items: List[_BlobItemProtocol] = []
+        items: list[_BlobItemProtocol] = []
         async for blob in container.list_blobs(name_starts_with=prefix):
             items.append(blob)
         return items
@@ -1161,7 +1162,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             return None
         return checkpoint_ids[0]
 
-    async def _alist_checkpoint_ids(self, thread_id: str, checkpoint_ns: str) -> List[str]:
+    async def _alist_checkpoint_ids(self, thread_id: str, checkpoint_ns: str) -> builtins.list[str]:
         checkpoints_prefix = self._checkpoints_prefix(thread_id, checkpoint_ns)
         checkpoint_ids: set[str] = set()
 
@@ -1177,7 +1178,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         return sorted(checkpoint_ids, reverse=True)
 
-    async def _alist_thread_ids(self) -> List[str]:
+    async def _alist_thread_ids(self) -> builtins.list[str]:
         thread_ids: set[str] = set()
         for blob in await self._alist_blob_items("threads/"):
             path_parts = blob.name.split("/")
@@ -1185,7 +1186,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 thread_ids.add(unquote(path_parts[1]))
         return sorted(thread_ids)
 
-    async def _alist_checkpoint_namespaces(self, thread_id: str) -> List[str]:
+    async def _alist_checkpoint_namespaces(self, thread_id: str) -> builtins.list[str]:
         namespace_prefix = f"{self._thread_prefix(thread_id)}ns/"
         checkpoint_namespaces: set[str] = set()
 
@@ -1217,9 +1218,9 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
     async def _aload_pending_writes(
         self, thread_id: str, checkpoint_ns: str, checkpoint_id: str
-    ) -> List[tuple[str, str, Any]]:
+    ) -> builtins.list[tuple[str, str, Any]]:
         writes_prefix = self._writes_prefix(thread_id, checkpoint_ns, checkpoint_id)
-        loaded: List[tuple[str, int, str, Any]] = []
+        loaded: list[tuple[str, int, str, Any]] = []
 
         for blob in await self._alist_blob_items(writes_prefix):
             if not blob.name.startswith(writes_prefix):

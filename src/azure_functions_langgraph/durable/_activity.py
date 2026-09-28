@@ -19,7 +19,8 @@ activity retry). This keeps a single logical run record per ``run_id``.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Mapping, Optional, Protocol, runtime_checkable
+from collections.abc import Mapping
+from typing import Any, Protocol, runtime_checkable
 
 from azure_functions_langgraph.durable._state import DurableRunPayload, DurableRunResult
 from azure_functions_langgraph.locks import ThreadLock
@@ -92,7 +93,7 @@ async def execute_langgraph_run_impl(
         trigger_type=TRIGGER_TYPE,
     )
 
-    lock_token: Optional[str] = None
+    lock_token: str | None = None
     use_lock = bool(thread_id) and has_ckpt
     if use_lock and thread_id is not None:
         lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
@@ -119,7 +120,7 @@ async def execute_langgraph_run_impl(
 
 
 async def _invoke_graph(
-    reg: GraphRegistrationLike, graph_input: Any, config: Optional[dict[str, Any]]
+    reg: GraphRegistrationLike, graph_input: Any, config: dict[str, Any] | None
 ) -> Any:
     """Invoke the graph, using ``ainvoke`` when the registration is async."""
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 import importlib
 import os
-from typing import Callable, Protocol, cast
+from typing import Protocol, cast
 import uuid
 
 import pytest

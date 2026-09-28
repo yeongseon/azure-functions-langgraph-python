@@ -28,9 +28,10 @@ single source of truth for lifecycle status.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import json
-from typing import Any, Mapping
+from typing import Any
 
 import azure.functions as func
 

@@ -50,7 +50,7 @@ class TestProtocols:
 
     def test_copyable_graph_satisfies_cloneable(self) -> None:
         class _Copyable:
-            def copy(self, *, update: dict[str, Any] | None = None) -> "_Copyable":
+            def copy(self, *, update: dict[str, Any] | None = None) -> _Copyable:
                 return _Copyable()
 
         assert isinstance(_Copyable(), CloneableGraph)

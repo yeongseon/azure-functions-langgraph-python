@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Literal, Mapping, Optional, TypeGuard
+from typing import Any, Literal, Optional, TypeGuard
 
 from pydantic import BaseModel, Field, create_model
 
@@ -20,11 +21,11 @@ class InvokeRequest(BaseModel):
     """Request body for graph invocation."""
 
     input: dict[str, Any] = Field(description="Input to the graph")
-    config: Optional[dict[str, Any]] = Field(
+    config: dict[str, Any] | None = Field(
         default=None,
         description="LangGraph config, e.g. {'configurable': {'thread_id': '...'}}",
     )
-    version: Optional[LangGraphVersion] = Field(
+    version: LangGraphVersion | None = Field(
         default=None,
         description=(
             "Optional LangGraph output version ('v1' or 'v2'). Forwarded to "
@@ -38,7 +39,7 @@ class StreamRequest(BaseModel):
     """Request body for graph streaming."""
 
     input: dict[str, Any] = Field(description="Input to the graph")
-    config: Optional[dict[str, Any]] = Field(
+    config: dict[str, Any] | None = Field(
         default=None,
         description="LangGraph config, e.g. {'configurable': {'thread_id': '...'}}",
     )
@@ -46,7 +47,7 @@ class StreamRequest(BaseModel):
         default="values",
         description="Stream mode: 'values', 'updates', 'messages', or 'custom'",
     )
-    version: Optional[LangGraphVersion] = Field(
+    version: LangGraphVersion | None = Field(
         default=None,
         description=(
             "Optional LangGraph output version ('v1' or 'v2'). Forwarded to "
@@ -83,7 +84,7 @@ def _is_model_type(model: object) -> TypeGuard[type[BaseModel]]:
     return isinstance(model, type) and issubclass(model, BaseModel)
 
 
-def build_invoke_request_model(input_model: Optional[type[Any]]) -> type[BaseModel]:
+def build_invoke_request_model(input_model: type[Any] | None) -> type[BaseModel]:
     """Wrap a graph-input model in the ``invoke`` transport envelope.
 
     Returns a model equivalent to ``{"input": <input_model>, "config"?: ...}``.
@@ -96,14 +97,14 @@ def build_invoke_request_model(input_model: Optional[type[Any]]) -> type[BaseMod
             f"InvokeRequest_{input_model.__name__}",
             input=(input_model, Field(description="Input to the graph")),
             config=(
-                Optional[dict[str, Any]],
+                Optional[dict[str, Any]],  # noqa: UP045
                 Field(
                     default=None,
                     description="LangGraph config, e.g. {'configurable': {'thread_id': '...'}}",
                 ),
             ),
             version=(
-                Optional[LangGraphVersion],
+                Optional[LangGraphVersion],  # noqa: UP045
                 Field(
                     default=None,
                     description=(
@@ -116,7 +117,7 @@ def build_invoke_request_model(input_model: Optional[type[Any]]) -> type[BaseMod
     return InvokeRequest
 
 
-def build_invoke_response_model(output_model: Optional[type[Any]]) -> type[BaseModel]:
+def build_invoke_response_model(output_model: type[Any] | None) -> type[BaseModel]:
     """Wrap a graph-output model in the ``invoke`` response envelope.
 
     Returns a model equivalent to ``{"output": <output_model>}``. Falls back to
@@ -131,7 +132,7 @@ def build_invoke_response_model(output_model: Optional[type[Any]]) -> type[BaseM
     return InvokeResponse
 
 
-def build_stream_request_model(input_model: Optional[type[Any]]) -> type[BaseModel]:
+def build_stream_request_model(input_model: type[Any] | None) -> type[BaseModel]:
     """Wrap a graph-input model in the ``stream`` transport envelope.
 
     Returns a model equivalent to
@@ -144,7 +145,7 @@ def build_stream_request_model(input_model: Optional[type[Any]]) -> type[BaseMod
             f"StreamRequest_{input_model.__name__}",
             input=(input_model, Field(description="Input to the graph")),
             config=(
-                Optional[dict[str, Any]],
+                Optional[dict[str, Any]],  # noqa: UP045
                 Field(
                     default=None,
                     description="LangGraph config, e.g. {'configurable': {'thread_id': '...'}}",
@@ -158,7 +159,7 @@ def build_stream_request_model(input_model: Optional[type[Any]]) -> type[BaseMod
                 ),
             ),
             version=(
-                Optional[LangGraphVersion],
+                Optional[LangGraphVersion],  # noqa: UP045
                 Field(
                     default=None,
                     description=(
@@ -175,7 +176,7 @@ class GraphInfo(BaseModel):
     """Information about a registered graph."""
 
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     has_checkpointer: bool = False
 
 
@@ -200,7 +201,7 @@ class ErrorResponse(BaseModel):
     """Error response body."""
 
     error: str
-    detail: Optional[str] = None
+    detail: str | None = None
 
 
 class StateResponse(BaseModel):
@@ -208,7 +209,7 @@ class StateResponse(BaseModel):
 
     values: dict[str, Any] = Field(description="Current state values")
     next: list[str] = Field(default_factory=list, description="Next node(s) to execute")
-    metadata: Optional[dict[str, Any]] = Field(default=None, description="State metadata")
+    metadata: dict[str, Any] | None = Field(default=None, description="State metadata")
 
 
 # ------------------------------------------------------------------
@@ -225,8 +226,8 @@ class RouteMetadata:
     summary: str = ""
     description: str = ""
     parameters: tuple[Mapping[str, Any], ...] = ()
-    request_model: Optional[type[Any]] = None
-    response_model: Optional[type[Any]] = None
+    request_model: type[Any] | None = None
+    response_model: type[Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -237,7 +238,7 @@ class RegisteredGraphMetadata:
     """
 
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     routes: tuple[RouteMetadata, ...] = ()
 
 

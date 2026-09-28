@@ -8,7 +8,7 @@ spec directly from the handler, without importing this package. The payload is a
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -308,7 +308,7 @@ class TestResolveEndpointSpec:
         assert spec == _EndpointSpec()
 
 
-def _make_reg(*, request_model: Optional[type[Any]], response_model: Optional[type[Any]]) -> Any:
+def _make_reg(*, request_model: type[Any] | None, response_model: type[Any] | None) -> Any:
     """Build a LangGraphApp registration record via the public register() API."""
     app = LangGraphApp()
     app.register(

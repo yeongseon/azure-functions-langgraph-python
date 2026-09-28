@@ -14,8 +14,9 @@ unaffected.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Iterator, Sequence
 import importlib
-from typing import Any, AsyncIterator, Iterator, Sequence
+from typing import Any
 import uuid
 
 from langchain_core.runnables import RunnableConfig

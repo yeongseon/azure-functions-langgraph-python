@@ -29,9 +29,10 @@ Design boundaries (issue #409):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 import json
-from typing import Any, Callable, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.observability import (
@@ -62,7 +63,7 @@ class ServiceBusMessageLike(Protocol):
         ...
 
     @property
-    def message_id(self) -> Optional[str]:
+    def message_id(self) -> str | None:
         """Broker-assigned unique message identifier, if present."""
         ...
 
@@ -73,7 +74,7 @@ InputMapper = Callable[[ServiceBusMessageLike], Any]
 
 # Optional factory deriving a ``thread_id`` (checkpointed conversation key) from
 # a message. Returning ``None`` keeps the run threadless.
-ThreadIdFactory = Callable[[ServiceBusMessageLike], Optional[str]]
+ThreadIdFactory = Callable[[ServiceBusMessageLike], str | None]
 
 # Optional sink invoked with ``(result, message)`` after a successful run. Its
 # exceptions propagate (failing the message) so downstream delivery guarantees
@@ -122,12 +123,12 @@ class _ServiceBusRegistration:
     graph: Any
     name: str
     connection: str
-    queue_name: Optional[str] = None
-    topic_name: Optional[str] = None
-    subscription_name: Optional[str] = None
+    queue_name: str | None = None
+    topic_name: str | None = None
+    subscription_name: str | None = None
     input_mapper: InputMapper = default_message_mapper
-    thread_id_factory: Optional[ThreadIdFactory] = None
-    result_handler: Optional[ResultHandler] = None
+    thread_id_factory: ThreadIdFactory | None = None
+    result_handler: ResultHandler | None = None
     async_mode: bool = False
     binding_kwargs: dict[str, Any] = field(default_factory=dict)
 

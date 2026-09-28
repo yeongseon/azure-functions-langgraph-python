@@ -14,9 +14,10 @@ single-process deployments.  For production scale-out, implement
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 import threading
-from typing import Any, Callable, Mapping, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 import uuid
 
 from azure_functions_langgraph.platform.contracts import (
@@ -174,7 +175,7 @@ class InMemoryThreadStore:
     def __init__(
         self,
         *,
-        id_factory: Optional[Callable[[], str]] = None,
+        id_factory: Callable[[], str] | None = None,
     ) -> None:
         self._threads: dict[str, Thread] = {}
         self._lock = threading.RLock()

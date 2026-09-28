@@ -18,8 +18,9 @@ no randomness, no I/O.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, Mapping, Optional, cast
+from typing import Any, Literal, cast
 
 __all__ = [
     "DurableRunStatus",
@@ -62,10 +63,10 @@ class DurableRunPayload:
     run_id: str
     graph_name: str
     input: Any
-    thread_id: Optional[str] = None
+    thread_id: str | None = None
     config: dict[str, Any] = field(default_factory=dict)
-    assistant_id: Optional[str] = None
-    correlation_id: Optional[str] = None
+    assistant_id: str | None = None
+    correlation_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain ``dict`` for Durable orchestration input."""
@@ -107,7 +108,7 @@ class DurableRunResult:
     run_id: str
     activity_status: _ActivityStatus
     result: Any = None
-    error: Optional[dict[str, str]] = None
+    error: dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain ``dict`` for the orchestration output."""
@@ -154,8 +155,8 @@ class DurableRunResult:
 
 
 def normalize_status(
-    runtime_status: Optional[str],
-    output: Optional[Mapping[str, Any]] = None,
+    runtime_status: str | None,
+    output: Mapping[str, Any] | None = None,
 ) -> DurableRunStatus:
     """Map a Durable ``runtime_status`` (+ output) onto :data:`DurableRunStatus`.
 

@@ -16,7 +16,8 @@ Ref: https://github.com/yeongseon/azure-functions-langgraph-python/issues/269
 
 from __future__ import annotations
 
-from typing import Any, Callable, TypedDict, cast
+from collections.abc import Callable
+from typing import Any, TypedDict, cast
 
 #: Convention attribute name shared across all toolkit packages.
 METADATA_ATTR = "_azure_functions_metadata"

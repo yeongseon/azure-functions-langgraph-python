@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import MagicMock
 
 import azure.functions as func
@@ -24,7 +24,7 @@ from azure_functions_langgraph.triggers.service_bus import (
 class FakeServiceBusMessage:
     """Deterministic stand-in for ``azure.functions.ServiceBusMessage``."""
 
-    def __init__(self, body: bytes, *, message_id: Optional[str] = "msg-1") -> None:
+    def __init__(self, body: bytes, *, message_id: str | None = "msg-1") -> None:
         self._body = body
         self.message_id = message_id
 

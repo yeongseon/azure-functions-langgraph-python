@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import importlib
@@ -9,7 +10,7 @@ import json
 import re
 import sys
 import types
-from typing import Any, Iterator, Literal, Protocol, Sequence, cast
+from typing import Any, Literal, Protocol, cast
 from urllib.parse import quote
 
 from langchain_core.runnables import RunnableConfig

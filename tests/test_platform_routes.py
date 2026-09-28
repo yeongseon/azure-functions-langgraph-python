@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import json
-from typing import Any, Iterator
+from typing import Any
 
 import azure.functions as func
 import pytest
@@ -2013,7 +2014,7 @@ class _FakeCopyableCheckpointerGraph:
             {"messages": [{"role": "assistant", "content": "chunk2"}]},
         ]
 
-    def copy(self, *, update: dict[str, Any] | None = None) -> "_FakeCopyableCheckpointerGraph":
+    def copy(self, *, update: dict[str, Any] | None = None) -> _FakeCopyableCheckpointerGraph:
         clone = _FakeCopyableCheckpointerGraph()
         if update and "checkpointer" in update:
             clone.checkpointer = update["checkpointer"]
@@ -2053,7 +2054,7 @@ class _FakeCopyRaisingCheckpointerGraph:
 
     checkpointer = "memory"
 
-    def copy(self, *, update: dict[str, Any] | None = None) -> "_FakeCopyRaisingCheckpointerGraph":
+    def copy(self, *, update: dict[str, Any] | None = None) -> _FakeCopyRaisingCheckpointerGraph:
         raise RuntimeError("copy failed")
 
     def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
