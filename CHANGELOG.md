@@ -1,6 +1,61 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.9.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.8.2...v0.9.0) (2026-09-29)
+
+
+### Features
+
+* **app:** reject async-only graphs under platform_compat ([#445](https://github.com/yeongseon/azure-functions-langgraph-python/issues/445)) ([677c4a8](https://github.com/yeongseon/azure-functions-langgraph-python/commit/677c4a853da80759dd1ee802391324f4fb0895a6)), closes [#442](https://github.com/yeongseon/azure-functions-langgraph-python/issues/442)
+* **checkpointer:** add native async blob I/O to AzureBlobCheckpointSaver ([#440](https://github.com/yeongseon/azure-functions-langgraph-python/issues/440)) ([5ae92f2](https://github.com/yeongseon/azure-functions-langgraph-python/commit/5ae92f2d7e181738412e8a7b00d91c9b7bff3987))
+* **deps:** lift azure-functions &lt;2.0.0 cap on Python 3.13+ ([#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350)) ([#457](https://github.com/yeongseon/azure-functions-langgraph-python/issues/457)) ([2649047](https://github.com/yeongseon/azure-functions-langgraph-python/commit/26490473214add7ad0093481e80080bf5ce483b4))
+* **observability:** add optional OpenTelemetry RunObserver ([#446](https://github.com/yeongseon/azure-functions-langgraph-python/issues/446)) ([86c65c5](https://github.com/yeongseon/azure-functions-langgraph-python/commit/86c65c56c236c292fe45c9783ca807ff24981ecb)), closes [#434](https://github.com/yeongseon/azure-functions-langgraph-python/issues/434)
+* optional Durable Functions async run lifecycle ([#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408)) ([#453](https://github.com/yeongseon/azure-functions-langgraph-python/issues/453)) ([66b9093](https://github.com/yeongseon/azure-functions-langgraph-python/commit/66b909370cd316eaef19ad1db8466eece3e63162))
+* **streaming:** add opt-in true HTTP streaming via StreamingLangGraphApp ([#449](https://github.com/yeongseon/azure-functions-langgraph-python/issues/449)) ([c824020](https://github.com/yeongseon/azure-functions-langgraph-python/commit/c82402024d99702e902ea43fa14cc414793672a8)), closes [#406](https://github.com/yeongseon/azure-functions-langgraph-python/issues/406)
+* **triggers:** add Azure Service Bus trigger adapter ([#409](https://github.com/yeongseon/azure-functions-langgraph-python/issues/409)) ([#448](https://github.com/yeongseon/azure-functions-langgraph-python/issues/448)) ([f402d1f](https://github.com/yeongseon/azure-functions-langgraph-python/commit/f402d1f97febd40fef452f2f83722797749d2a9c))
+
+
+### Bug Fixes
+
+* **ci:** correct the repository guard and align stale.yml with the fleet ([#483](https://github.com/yeongseon/azure-functions-langgraph-python/issues/483)) ([cd1f837](https://github.com/yeongseon/azure-functions-langgraph-python/commit/cd1f837d3023bcf67e2858b38d1f67e6e5a1c35e))
+* **ci:** run the test matrix on each interpreter, not just Python 3.10 ([#436](https://github.com/yeongseon/azure-functions-langgraph-python/issues/436)) ([2963983](https://github.com/yeongseon/azure-functions-langgraph-python/commit/29639833f43fa4bca232e1c98dd510ce8873ce74)), closes [#427](https://github.com/yeongseon/azure-functions-langgraph-python/issues/427)
+* **ci:** stop the changed-file format gate failing open ([#479](https://github.com/yeongseon/azure-functions-langgraph-python/issues/479)) ([cf386b0](https://github.com/yeongseon/azure-functions-langgraph-python/commit/cf386b0bf67a4ee89b6f544cb51229ab59a61d85))
+* **ci:** unbreak main — canonical azure/login pin and observability_otel typing ([#475](https://github.com/yeongseon/azure-functions-langgraph-python/issues/475)) ([061e514](https://github.com/yeongseon/azure-functions-langgraph-python/commit/061e514946642af83a746d1202fd06f9cefff160))
+* **deps:** drop unsupported semver cooldown keys for github-actions ecosystem ([#455](https://github.com/yeongseon/azure-functions-langgraph-python/issues/455)) ([e929d37](https://github.com/yeongseon/azure-functions-langgraph-python/commit/e929d3768775cbf9e7b846eee8a4b02b4b338730))
+* **locks:** make AzureBlobLeaseThreadLock.close() terminal so acquire() after close raises ([#461](https://github.com/yeongseon/azure-functions-langgraph-python/issues/461)) ([b8538ad](https://github.com/yeongseon/azure-functions-langgraph-python/commit/b8538ad33fec7fd1e94bf485c3ae671249b06a5d))
+* **templates:** use Conventional Commit prefixes in issue forms ([#487](https://github.com/yeongseon/azure-functions-langgraph-python/issues/487)) ([e37b636](https://github.com/yeongseon/azure-functions-langgraph-python/commit/e37b6360b7a7abc5f610e2a496b6be4e80cb1b04))
+
+
+### Documentation
+
+* adopt rolling 0.x per-surface stability policy ([#444](https://github.com/yeongseon/azure-functions-langgraph-python/issues/444)) ([2602e06](https://github.com/yeongseon/azure-functions-langgraph-python/commit/2602e062cb5d5289bff634b11649bd591b1333bd)), closes [#426](https://github.com/yeongseon/azure-functions-langgraph-python/issues/426)
+* align the contributor contract with the actual configuration ([#481](https://github.com/yeongseon/azure-functions-langgraph-python/issues/481)) ([6eb369d](https://github.com/yeongseon/azure-functions-langgraph-python/commit/6eb369dfda9211976faedb6745670aa0a602686f))
+* **ci:** state the real azure-functions cap and certification status ([#472](https://github.com/yeongseon/azure-functions-langgraph-python/issues/472)) ([be164c7](https://github.com/yeongseon/azure-functions-langgraph-python/commit/be164c7d69b3b3ac78590554532441b7f3d7f64a))
+* **contributing:** correct the release description ([#485](https://github.com/yeongseon/azure-functions-langgraph-python/issues/485)) ([146b35b](https://github.com/yeongseon/azure-functions-langgraph-python/commit/146b35b43d285efba884820814f5e0254f1f8950)), closes [#484](https://github.com/yeongseon/azure-functions-langgraph-python/issues/484)
+* **roadmap:** add adoption-first rolling roadmap page ([#410](https://github.com/yeongseon/azure-functions-langgraph-python/issues/410)) ([#451](https://github.com/yeongseon/azure-functions-langgraph-python/issues/451)) ([d44d36c](https://github.com/yeongseon/azure-functions-langgraph-python/commit/d44d36cc8bfacb5787f48009788b233bcdfcdbd1))
+* **roadmap:** mark Durable async runs ([#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408)) landed; reach expansion checkpoint ([#456](https://github.com/yeongseon/azure-functions-langgraph-python/issues/456)) ([9a58a82](https://github.com/yeongseon/azure-functions-langgraph-python/commit/9a58a82ad12f2b3612349a716dfc2e9ae9d8ad9a))
+* **roadmap:** reflect [#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) azure-functions 2.x cap lifted on Py 3.13+ via [#457](https://github.com/yeongseon/azure-functions-langgraph-python/issues/457) ([#458](https://github.com/yeongseon/azure-functions-langgraph-python/issues/458)) ([7589694](https://github.com/yeongseon/azure-functions-langgraph-python/commit/7589694db5cfb2b71a4c78654a0c47bac58e5ea6))
+* roll changelog Unreleased into 0.8.2 heading ([ec63741](https://github.com/yeongseon/azure-functions-langgraph-python/commit/ec637419907b41c8c4f14bd4402ef139a3c6db24))
+* stop claiming the azure-functions 2.x path is certified ([#480](https://github.com/yeongseon/azure-functions-langgraph-python/issues/480)) ([f5450d7](https://github.com/yeongseon/azure-functions-langgraph-python/commit/f5450d7a15b6a16ea7495f883cad47147fe0fa7f))
+
+
+### Miscellaneous Tasks
+
+* add hatch-matrix hygiene lint to guard the CI matrix ([#438](https://github.com/yeongseon/azure-functions-langgraph-python/issues/438)) ([8937610](https://github.com/yeongseon/azure-functions-langgraph-python/commit/89376102877c9180c2f1f371d0b1d5c7b0f6de18)), closes [#437](https://github.com/yeongseon/azure-functions-langgraph-python/issues/437)
+* adopt release-please and gate PyPI on in-chain Azure e2e ([#495](https://github.com/yeongseon/azure-functions-langgraph-python/issues/495)) ([12519c2](https://github.com/yeongseon/azure-functions-langgraph-python/commit/12519c2c81f2c77b1d5aa57745dcc4a6881a3711))
+* allow build/ branch prefix in branch-naming validation ([#454](https://github.com/yeongseon/azure-functions-langgraph-python/issues/454)) ([884b5d1](https://github.com/yeongseon/azure-functions-langgraph-python/commit/884b5d131c7802737dbae3b73ddd3a859e8bfcdd))
+* **deps:** align langgraph-sdk max lane to the real &lt;0.5 ceiling ([#443](https://github.com/yeongseon/azure-functions-langgraph-python/issues/443)) ([c84ec2e](https://github.com/yeongseon/azure-functions-langgraph-python/commit/c84ec2e040889b4be2af12461ddd2176109be6a1)), closes [#441](https://github.com/yeongseon/azure-functions-langgraph-python/issues/441)
+* **deps:** bump codecov/codecov-action in the github-actions group ([#467](https://github.com/yeongseon/azure-functions-langgraph-python/issues/467)) ([5c59d6d](https://github.com/yeongseon/azure-functions-langgraph-python/commit/5c59d6db7e4b611bb6b3be88881c5cd0012647a7))
+* **deps:** bump ruff in the python-dependencies group ([#447](https://github.com/yeongseon/azure-functions-langgraph-python/issues/447)) ([0bfb8e6](https://github.com/yeongseon/azure-functions-langgraph-python/commit/0bfb8e6069fab84bc5040d0696876d170bf54063))
+* **deps:** bump ruff in the python-dependencies group ([#462](https://github.com/yeongseon/azure-functions-langgraph-python/issues/462)) ([399c136](https://github.com/yeongseon/azure-functions-langgraph-python/commit/399c136c5e64ac540939ffe8e08a5f06e4909f38))
+* **deps:** bump ruff in the python-dependencies group ([#466](https://github.com/yeongseon/azure-functions-langgraph-python/issues/466)) ([c9de4b6](https://github.com/yeongseon/azure-functions-langgraph-python/commit/c9de4b63fa5da99ac63a048dcd17e05aee73b949))
+* **deps:** bump the github-actions group with 3 updates ([#463](https://github.com/yeongseon/azure-functions-langgraph-python/issues/463)) ([092a90d](https://github.com/yeongseon/azure-functions-langgraph-python/commit/092a90d9843f649ab578d5a23b481adf646367fe))
+* **deps:** certify azure-functions 2.x on Py 3.14 and draft Flex Consumption e2e ([#450](https://github.com/yeongseon/azure-functions-langgraph-python/issues/450)) ([fd814eb](https://github.com/yeongseon/azure-functions-langgraph-python/commit/fd814eb5eeacb8842b0c5d4687ac583d08412905)), closes [#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350)
+* enforce Ruff formatting in PR quality checks ([#470](https://github.com/yeongseon/azure-functions-langgraph-python/issues/470)) ([3cad811](https://github.com/yeongseon/azure-functions-langgraph-python/commit/3cad811c6b64ccf832afda12594319f9d1de0d11))
+* ignore uv.lock ([#491](https://github.com/yeongseon/azure-functions-langgraph-python/issues/491)) ([4e2cb8f](https://github.com/yeongseon/azure-functions-langgraph-python/commit/4e2cb8f0b953512f4980824db3dcc5b7e6dbe492)), closes [#490](https://github.com/yeongseon/azure-functions-langgraph-python/issues/490)
+* modernize typing and pin ruff, complete AGENTS.md, unify Azure e2e auth ([#493](https://github.com/yeongseon/azure-functions-langgraph-python/issues/493)) ([6aeb6b4](https://github.com/yeongseon/azure-functions-langgraph-python/commit/6aeb6b44b3862385c4ac76a2fbd2ee612c0a6a62))
+* wire and harden the hatch default-env-pin lint ([#452](https://github.com/yeongseon/azure-functions-langgraph-python/issues/452)) ([a2fbf12](https://github.com/yeongseon/azure-functions-langgraph-python/commit/a2fbf12a3e5ee03dd0ab978d70b27e52b25c3425))
+
 ## [0.8.2] - 2026-08-14
 
 ### ⚙️ Miscellaneous Tasks
