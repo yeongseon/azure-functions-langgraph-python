@@ -38,15 +38,7 @@ This runs:
 
 ### Commit message format
 
-```
-type(scope): description
-
-Examples:
-feat(app): add support for multiple stream modes
-fix(contracts): handle empty config gracefully
-docs: update quickstart example
-test: add coverage for invoke-only graphs
-```
+Titles for issues, pull requests, and commits follow the **Title Convention** in [`CONTRIBUTING.md`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CONTRIBUTING.md#title-convention), the single source of truth for the format and the allowed types.
 
 ### Development workflow
 
