@@ -36,12 +36,13 @@ delivery.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 import dataclasses
 from dataclasses import dataclass, field
 import json
 import logging
 import os
-from typing import Any, AsyncIterator, Optional
+from typing import Any
 import warnings
 
 import azure.functions as func
@@ -124,15 +125,15 @@ class _StreamRegistration:
 
     graph: Any
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     stream_enabled: bool = True
     async_mode: bool = False
-    auth_level: Optional[func.AuthLevel] = None
-    request_model: Optional[type[Any]] = None
-    response_model: Optional[type[Any]] = None
+    auth_level: func.AuthLevel | None = None
+    request_model: type[Any] | None = None
+    response_model: type[Any] | None = None
 
 
-def _validate_optional_model(model: Optional[type[Any]], label: str) -> None:
+def _validate_optional_model(model: type[Any] | None, label: str) -> None:
     """Reject a non-``BaseModel`` *model* early (mirrors ``app._validate_optional_model``)."""
     if model is not None and not _is_model_type(model):
         raise TypeError(f"{label} must be a Pydantic BaseModel subclass, got {model!r}")
@@ -379,18 +380,18 @@ class StreamingLangGraphApp:
 
     auth_level: func.AuthLevel = func.AuthLevel.FUNCTION
     health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
-    health_details_auth_level: Optional[func.AuthLevel] = None
+    health_details_auth_level: func.AuthLevel | None = None
     max_request_body_bytes: int = 1024 * 1024
     max_input_depth: int = 32
     max_input_nodes: int = 10_000
     # Replaces LangGraphApp.max_stream_response_bytes: a true stream is not
     # buffered, so it is bounded by a per-run event count instead of a body size.
     max_stream_events: int = 100_000
-    thread_lock: Optional[ThreadLock] = None
-    observer: Optional[RunObserver] = None
+    thread_lock: ThreadLock | None = None
+    observer: RunObserver | None = None
     route_prefix: str = "/api"
     _registrations: dict[str, _StreamRegistration] = field(default_factory=dict)
-    _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
+    _function_app: func.FunctionApp | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.auth_level == func.AuthLevel.ANONYMOUS:
@@ -423,12 +424,12 @@ class StreamingLangGraphApp:
         self,
         graph: Any,
         name: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         stream: bool = True,
-        auth_level: Optional[func.AuthLevel] = None,
+        auth_level: func.AuthLevel | None = None,
         *,
-        request_model: Optional[type[Any]] = None,
-        response_model: Optional[type[Any]] = None,
+        request_model: type[Any] | None = None,
+        response_model: type[Any] | None = None,
         async_mode: bool = False,
     ) -> None:
         """Register a compiled LangGraph graph (mirrors ``LangGraphApp.register``).

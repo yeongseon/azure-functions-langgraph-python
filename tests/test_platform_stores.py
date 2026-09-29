@@ -6,8 +6,9 @@ deep-copy isolation, and protocol conformance.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import threading
-from typing import Any, Mapping
+from typing import Any
 
 import pytest
 

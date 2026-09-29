@@ -11,7 +11,7 @@ format (``ErrorResponse`` vs ``_platform_error``).
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Graph-name / assistant-id validation
@@ -22,7 +22,7 @@ from typing import Any, Optional
 _GRAPH_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
 
 
-def validate_graph_name(name: str) -> Optional[str]:
+def validate_graph_name(name: str) -> str | None:
     """Validate a graph registration name or assistant_id.
 
     Returns an error message if invalid, ``None`` if valid.
@@ -49,7 +49,7 @@ _MAX_THREAD_ID_LENGTH = 256
 _PRINTABLE_RE = re.compile(r"^[\x20-\x7e]+$")
 
 
-def validate_thread_id(thread_id: str) -> Optional[str]:
+def validate_thread_id(thread_id: str) -> str | None:
     """Validate a thread_id string (permissive — non-empty printable, max length).
 
     Returns an error message if invalid, ``None`` if valid.
@@ -68,7 +68,7 @@ def validate_thread_id(thread_id: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def validate_body_size(body: bytes, max_bytes: int) -> Optional[str]:
+def validate_body_size(body: bytes, max_bytes: int) -> str | None:
     """Check that *body* does not exceed *max_bytes*.
 
     Returns an error message if too large, ``None`` if within limit.
@@ -90,7 +90,7 @@ def _count_depth_and_nodes(
     max_depth: int,
     node_count: int,
     max_nodes: int,
-) -> tuple[int, Optional[str]]:
+) -> tuple[int, str | None]:
     """Recursively count depth and nodes.
 
     Returns ``(updated_node_count, error_message_or_none)``.
@@ -129,7 +129,7 @@ def validate_input_structure(
     *,
     max_depth: int = 32,
     max_nodes: int = 10_000,
-) -> Optional[str]:
+) -> str | None:
     """Validate nesting depth and total node count of user-supplied data.
 
     Intended for the ``input`` and ``config``/``configurable`` fields —

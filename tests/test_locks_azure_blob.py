@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import sys
 import threading
 import time
 import types
-from typing import Any, Callable
+from typing import Any
 import warnings
 
 import pytest
@@ -40,7 +41,7 @@ class FakeHttpResponseError(Exception):
 class MockBlobLease:
     """Minimal mock of BlobLeaseClient returned by acquire_lease()."""
 
-    def __init__(self, blob: "MockBlobClient") -> None:
+    def __init__(self, blob: MockBlobClient) -> None:
         self._blob = blob
         self.released = False
         self.renew_count = 0
@@ -62,7 +63,7 @@ class MockBlobLease:
 class MockBlobClient:
     """Mock of BlobClient — tracks marker existence and current lease."""
 
-    def __init__(self, container: "MockContainerClient", name: str) -> None:
+    def __init__(self, container: MockContainerClient, name: str) -> None:
         self._container = container
         self._name = name
         self._active_lease: MockBlobLease | None = None

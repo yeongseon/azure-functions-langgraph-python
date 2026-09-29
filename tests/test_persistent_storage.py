@@ -10,6 +10,7 @@ Issue: #61
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 import importlib
@@ -18,7 +19,7 @@ import re
 import sys
 import threading
 import types
-from typing import Annotated, Any, Callable, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import azure.functions as func
 import httpx

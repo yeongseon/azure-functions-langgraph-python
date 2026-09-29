@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 import importlib
-from typing import Callable, Protocol, TypedDict, cast
+from typing import Protocol, TypedDict, cast
 
 import pytest
 

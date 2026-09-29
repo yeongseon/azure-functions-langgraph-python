@@ -16,7 +16,8 @@ state is the single source of truth for lifecycle status.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Protocol, runtime_checkable
+from collections.abc import Mapping
+from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
 
 from azure_functions_langgraph.durable._orchestrator import ACTIVITY_NAME  # noqa: F401
@@ -55,13 +56,13 @@ class DurableClientLike(Protocol):
     async def start_new(
         self,
         orchestration_function_name: str,
-        instance_id: Optional[str] = None,
+        instance_id: str | None = None,
         client_input: Any = None,
     ) -> str:
         """Start a new orchestration; returns the instance id."""
         ...
 
-    async def get_status(self, instance_id: str) -> Optional[OrchestrationStatusLike]:
+    async def get_status(self, instance_id: str) -> OrchestrationStatusLike | None:
         """Return the orchestration status, or a not-found sentinel."""
         ...
 
@@ -70,7 +71,7 @@ class DurableClientLike(Protocol):
         ...
 
 
-def runtime_status_str(status: Optional[OrchestrationStatusLike]) -> Optional[str]:
+def runtime_status_str(status: OrchestrationStatusLike | None) -> str | None:
     """Extract a plain runtime-status string from a status object.
 
     Tolerates both a string ``runtime_status`` and an

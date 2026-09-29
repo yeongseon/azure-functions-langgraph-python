@@ -10,8 +10,9 @@ request/response plumbing are covered here; only the real-Azure proof of
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator, Iterator
 import json
-from typing import Any, AsyncIterator, Iterator
+from typing import Any
 import warnings
 
 import azure.functions as func

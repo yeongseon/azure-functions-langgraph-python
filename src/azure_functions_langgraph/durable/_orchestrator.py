@@ -15,7 +15,8 @@ protocol, so it can be unit-tested by driving the generator with a fake context
 
 from __future__ import annotations
 
-from typing import Any, Generator, Protocol, runtime_checkable
+from collections.abc import Generator
+from typing import Any, Protocol, runtime_checkable
 
 __all__ = [
     "ACTIVITY_NAME",

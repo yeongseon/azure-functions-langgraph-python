@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 import importlib
 import json
 import logging
-from typing import Any, Literal, Mapping, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 import uuid
 
 from ..platform.contracts import Interrupt, Thread, ThreadStatus

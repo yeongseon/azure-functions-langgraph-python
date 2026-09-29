@@ -3,6 +3,14 @@
 ## Purpose
 `azure-functions-langgraph` deploys LangGraph compiled graphs as Azure Functions HTTP endpoints with zero boilerplate.
 
+## Repository Identity
+
+- Project: `azure-functions-langgraph`
+- Project type: Python library
+- Runtime scope: Azure Functions Python v2 programming model
+- Minimum supported Python: `3.10`
+- Packaging: `pyproject.toml` with Hatch
+
 ## Read First
 - `README.md`
 - `CONTRIBUTING.md`
@@ -104,6 +112,55 @@ Unlike the sibling repos, this package has **no** cookbook host-smoke tier. The 
 4. Tag push triggers the **Publish to PyPI** workflow. The `publish` job runs only after `build → lib-tests → wheel-tests → verify-azure-certification` all pass, and it uploads the exact artifact that was built (it never rebuilds). `verify-azure-certification` requires a successful, SHA+version-matched, non-stale (<14 day) certification for the release commit; without it the publish gate fails and the version stays unpublished.
 5. Update `docs/changelog.md` separately if needed (different format from `CHANGELOG.md`).
 6. **Failed-gate recovery (stuck tag).** A git tag is immutable and may already have been consumed, so if the gate fails do **not** move or reuse the tag. Fix forward on `main` and cut the next patch tag (`make release-patch`). The unpublished version number is simply skipped.
+
+## Golden Commands
+
+Use Makefile entry points only. Do not bypass the Makefile in CI or contributor guidance.
+
+| Purpose | Command |
+| --- | --- |
+| Environment setup | `make install` |
+| Format code | `make format` |
+| Check formatting (`src`, `tests`) | `make format-check` |
+| Lint | `make lint` |
+| Type check | `make typecheck` |
+| Tests | `make test` |
+| Coverage | `make cov` |
+| Full validation | `make check-all` |
+| Docs build | `make docs` |
+| Package build | `make build` |
+
+## Commit Rules
+
+Use Conventional Commits:
+
+```text
+<type>: <short imperative summary>
+```
+
+Allowed types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`
+
+## Agent Rules
+
+When using AI-assisted development:
+
+- Prefer small, reviewable changes.
+- Do not guess about behavior that can be verified.
+- Keep repository structure aligned with sibling repositories.
+- Update docs, examples, and tests together when behavior changes.
+
+## Final Rule
+
+If it is not automated, it will drift.
+If it is not documented, it is not a stable rule.
+
+## Merge Policy
+
+- `main` requires a pull request, every required status check green, and all conversations resolved. It requires **zero approving reviews**: `yeongseon` is the only account with push access and GitHub forbids approving your own PR, so a required approval could only ever be met by an administrator bypass. The required checks are what guard `main`.
+- **Never use `gh pr merge --admin` to skip a failing or pending required check.**
+- Review is still expected, just not enforced. An AI review (`COMMENTED`) is not an approval.
+- **Dependabot:** `pip` patch/minor updates auto-merge on green CI. `github-actions` updates never auto-merge — confirm each pinned SHA matches its claimed tag (`git ls-remote --tags <repo>`, compare against the dereferenced `^{}` commit) before merging. `dependabot-automerge.yml` enforces the split.
+- If a second maintainer ever gets push access, raise the approval count back to 1.
 
 ## Branch Hygiene
 

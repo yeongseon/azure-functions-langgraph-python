@@ -13,11 +13,12 @@ unavailable, so the default unit-test run is unaffected.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import importlib
 import importlib.util
 from pathlib import Path
 import sys
-from typing import Any, Iterator
+from typing import Any
 import uuid
 
 import pytest

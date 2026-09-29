@@ -33,7 +33,7 @@ new supported range.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 # Type aliases — match langgraph_sdk.schema
 # ---------------------------------------------------------------------------
 
-Json = Union[dict[str, Any], None]
+Json = Union[dict[str, Any], None]  # noqa: UP007
 """Metadata type alias matching ``langgraph_sdk.schema.Json``."""
 
 RunStatus = Literal["pending", "running", "error", "success", "timeout", "interrupted"]
@@ -63,8 +63,8 @@ class Checkpoint(BaseModel):
 
     thread_id: str
     checkpoint_ns: str = ""
-    checkpoint_id: Optional[str] = None
-    checkpoint_map: Optional[dict[str, Any]] = None
+    checkpoint_id: str | None = None
+    checkpoint_map: dict[str, Any] | None = None
 
 
 class Interrupt(BaseModel):
@@ -89,7 +89,7 @@ class Assistant(BaseModel):
     metadata: Json = None
     version: int = 1
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     updated_at: datetime
     context: dict[str, Any] = Field(default_factory=dict)
 
@@ -103,7 +103,7 @@ class Thread(BaseModel):
     metadata: Json = None
     status: ThreadStatus = "idle"
     values: Json = None
-    assistant_id: Optional[str] = None
+    assistant_id: str | None = None
     interrupts: dict[str, list[Interrupt]] = Field(default_factory=dict)
 
 
@@ -118,22 +118,22 @@ class ThreadTask(BaseModel):
 
     id: str
     name: str
-    error: Optional[str] = None
+    error: str | None = None
     interrupts: list[Interrupt] = Field(default_factory=list)
-    checkpoint: Optional[Checkpoint] = None
-    state: Optional[dict[str, Any]] = None
-    result: Optional[dict[str, Any]] = None
+    checkpoint: Checkpoint | None = None
+    state: dict[str, Any] | None = None
+    result: dict[str, Any] | None = None
 
 
 class ThreadState(BaseModel):
     """Mirrors ``langgraph_sdk.schema.ThreadState``."""
 
-    values: Union[dict[str, Any], list[dict[str, Any]]]
+    values: dict[str, Any] | list[dict[str, Any]]
     next: list[str]
     checkpoint: Checkpoint
     metadata: Json = None
-    created_at: Optional[str] = None
-    parent_checkpoint: Optional[Checkpoint] = None
+    created_at: str | None = None
+    parent_checkpoint: Checkpoint | None = None
     tasks: list[ThreadTask] = Field(default_factory=list)
     interrupts: list[Interrupt] = Field(default_factory=list)
 
@@ -168,22 +168,22 @@ class RunCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     assistant_id: str
-    thread_id: Optional[str] = None
-    input: Optional[dict[str, Any]] = None
-    metadata: Optional[dict[str, Any]] = None
-    config: Optional[dict[str, Any]] = None
-    context: Optional[dict[str, Any]] = None
-    stream_mode: Union[str, list[str]] = "values"
-    interrupt_before: Optional[Union[list[str], Literal["*"]]] = None
-    interrupt_after: Optional[Union[list[str], Literal["*"]]] = None
-    webhook: Optional[str] = None
-    multitask_strategy: Optional[MultitaskStrategy] = None
-    checkpoint_id: Optional[str] = None
-    on_completion: Optional[str] = None
-    after_seconds: Optional[float] = None
-    if_not_exists: Optional[str] = None
-    command: Optional[dict[str, Any]] = None
-    feedback_keys: Optional[list[str]] = None
+    thread_id: str | None = None
+    input: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
+    context: dict[str, Any] | None = None
+    stream_mode: str | list[str] = "values"
+    interrupt_before: list[str] | Literal["*"] | None = None
+    interrupt_after: list[str] | Literal["*"] | None = None
+    webhook: str | None = None
+    multitask_strategy: MultitaskStrategy | None = None
+    checkpoint_id: str | None = None
+    on_completion: str | None = None
+    after_seconds: float | None = None
+    if_not_exists: str | None = None
+    command: dict[str, Any] | None = None
+    feedback_keys: list[str] | None = None
 
 
 class ThreadCreate(BaseModel):
@@ -194,7 +194,7 @@ class ThreadCreate(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    metadata: Optional[dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 class AssistantSearch(BaseModel):
@@ -205,9 +205,9 @@ class AssistantSearch(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    graph_id: Optional[str] = None
-    metadata: Optional[dict[str, Any]] = None
-    name: Optional[str] = None
+    graph_id: str | None = None
+    metadata: dict[str, Any] | None = None
+    name: str | None = None
     limit: int = Field(default=10, ge=1)
     offset: int = Field(default=0, ge=0)
 
@@ -220,9 +220,9 @@ class AssistantCount(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    graph_id: Optional[str] = None
-    metadata: Optional[dict[str, Any]] = None
-    name: Optional[str] = None
+    graph_id: str | None = None
+    metadata: dict[str, Any] | None = None
+    name: str | None = None
 
 
 class ThreadUpdate(BaseModel):
@@ -237,7 +237,7 @@ class ThreadUpdate(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    metadata: Optional[dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 class ThreadSearch(BaseModel):
@@ -248,8 +248,8 @@ class ThreadSearch(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    metadata: Optional[dict[str, Any]] = None
-    status: Optional[ThreadStatus] = None
+    metadata: dict[str, Any] | None = None
+    status: ThreadStatus | None = None
     limit: int = Field(default=10, ge=1)
     offset: int = Field(default=0, ge=0)
 
@@ -262,8 +262,8 @@ class ThreadCount(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    metadata: Optional[dict[str, Any]] = None
-    status: Optional[ThreadStatus] = None
+    metadata: dict[str, Any] | None = None
+    status: ThreadStatus | None = None
 
 
 class ThreadStateUpdate(BaseModel):
@@ -275,10 +275,10 @@ class ThreadStateUpdate(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    values: Union[dict[str, Any], list[dict[str, Any]]]
-    as_node: Optional[str] = None
-    checkpoint_id: Optional[str] = None
-    checkpoint: Optional[dict[str, Any]] = None
+    values: dict[str, Any] | list[dict[str, Any]]
+    as_node: str | None = None
+    checkpoint_id: str | None = None
+    checkpoint: dict[str, Any] | None = None
 
 
 class ThreadHistoryRequest(BaseModel):
@@ -290,9 +290,9 @@ class ThreadHistoryRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     limit: int = Field(default=10, ge=1)
-    before: Optional[Union[str, dict[str, Any]]] = None
-    metadata: Optional[dict[str, Any]] = None
-    checkpoint: Optional[dict[str, Any]] = None
+    before: str | dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+    checkpoint: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------

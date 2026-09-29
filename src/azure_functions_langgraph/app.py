@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 import os
 from types import MappingProxyType
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Literal
 import warnings
 
 import azure.functions as func
@@ -81,20 +82,20 @@ class _GraphRegistration:
 
     graph: InvocableGraph
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     stream_enabled: bool = True
     async_mode: bool = False
-    auth_level: Optional[func.AuthLevel] = None
-    request_model: Optional[type[Any]] = None
-    response_model: Optional[type[Any]] = None
+    auth_level: func.AuthLevel | None = None
+    request_model: type[Any] | None = None
+    response_model: type[Any] | None = None
 
 
 @dataclass(frozen=True)
 class _EndpointSpec:
     """Resolved request/response models and parameters for one route type."""
 
-    request_model: Optional[type[Any]] = None
-    response_model: Optional[type[Any]] = None
+    request_model: type[Any] | None = None
+    response_model: type[Any] | None = None
     parameters: tuple[dict[str, Any], ...] = ()
 
 
@@ -135,7 +136,7 @@ def _resolve_endpoint_spec(reg: _GraphRegistration, endpoint: str) -> _EndpointS
     return _EndpointSpec()  # defensive: unknown endpoint type carries no models
 
 
-def _validate_optional_model(model: Optional[type[Any]], label: str) -> None:
+def _validate_optional_model(model: type[Any] | None, label: str) -> None:
     """Reject a non-``BaseModel`` *model* early, unless it is ``None``.
 
     ``request_model``/``response_model`` are wrapped in the transport envelope
@@ -221,19 +222,19 @@ class LangGraphApp:
 
     auth_level: func.AuthLevel = func.AuthLevel.FUNCTION
     health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
-    health_details_auth_level: Optional[func.AuthLevel] = None
+    health_details_auth_level: func.AuthLevel | None = None
     max_stream_response_bytes: int = 1024 * 1024
     max_request_body_bytes: int = 1024 * 1024
     max_input_depth: int = 32
     max_input_nodes: int = 10_000
     platform_compat: bool = False
     async_runs: AsyncRunsMode = False
-    thread_lock: Optional[ThreadLock] = None
-    observer: Optional[RunObserver] = None
+    thread_lock: ThreadLock | None = None
+    observer: RunObserver | None = None
     route_prefix: str = _ROUTE_PREFIX  # metadata-only; must match host.json routePrefix
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _sb_registrations: dict[str, Any] = field(default_factory=dict)
-    _function_app: Optional[func.FunctionApp] = field(default=None, init=False, repr=False)
+    _function_app: func.FunctionApp | None = field(default=None, init=False, repr=False)
     _thread_store: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -311,12 +312,12 @@ class LangGraphApp:
         self,
         graph: Any,
         name: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         stream: bool = True,
-        auth_level: Optional[func.AuthLevel] = None,
+        auth_level: func.AuthLevel | None = None,
         *,
-        request_model: Optional[type[Any]] = None,
-        response_model: Optional[type[Any]] = None,
+        request_model: type[Any] | None = None,
+        response_model: type[Any] | None = None,
         async_mode: bool = False,
     ) -> None:
         """Register a compiled LangGraph graph.
@@ -394,14 +395,14 @@ class LangGraphApp:
         name: str,
         *,
         connection: str,
-        queue_name: Optional[str] = None,
-        topic_name: Optional[str] = None,
-        subscription_name: Optional[str] = None,
-        input_mapper: Optional[Callable[[Any], Any]] = None,
-        thread_id_factory: Optional[Callable[[Any], Optional[str]]] = None,
-        result_handler: Optional[Callable[[Any, Any], None]] = None,
+        queue_name: str | None = None,
+        topic_name: str | None = None,
+        subscription_name: str | None = None,
+        input_mapper: Callable[[Any], Any] | None = None,
+        thread_id_factory: Callable[[Any], str | None] | None = None,
+        result_handler: Callable[[Any, Any], None] | None = None,
         async_mode: bool = False,
-        binding_kwargs: Optional[dict[str, Any]] = None,
+        binding_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Register a compiled graph to be driven by an Azure Service Bus message.
 

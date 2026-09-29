@@ -6,7 +6,8 @@ without requiring a hard import of ``langgraph``.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Awaitable, Iterator, Protocol, runtime_checkable
+from collections.abc import AsyncIterator, Awaitable, Iterator
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable

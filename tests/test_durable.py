@@ -8,7 +8,7 @@ no Durable Task backend required.
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 import azure.functions as func
 import pytest
@@ -109,21 +109,21 @@ class _Enum:
 
 
 class FakeDurableClient:
-    def __init__(self, status: Optional[FakeStatus] = None) -> None:
+    def __init__(self, status: FakeStatus | None = None) -> None:
         self._status = status
-        self.started: list[tuple[str, Optional[str], Any]] = []
+        self.started: list[tuple[str, str | None, Any]] = []
         self.terminated: list[tuple[str, str]] = []
 
     async def start_new(
         self,
         orchestration_function_name: str,
-        instance_id: Optional[str] = None,
+        instance_id: str | None = None,
         client_input: Any = None,
     ) -> str:
         self.started.append((orchestration_function_name, instance_id, client_input))
         return instance_id or "generated-id"
 
-    async def get_status(self, instance_id: str) -> Optional[FakeStatus]:
+    async def get_status(self, instance_id: str) -> FakeStatus | None:
         return self._status
 
     async def terminate(self, instance_id: str, reason: str) -> None:
