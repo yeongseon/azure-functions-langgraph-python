@@ -1,14 +1,11 @@
 name: e2e-azure
 
-# Azure Release Certification. Dispatch-only: deploys the release commit's own
-# source to a real Azure Functions host, runs the live e2e suite against the
-# native LangGraph routes, and records an azure-cert artifact for the exact
-# release commit + version. The publish-pypi.yml verify-azure-certification gate
-# requires a fresh, matching certification before it will publish.
+# Azure Release Certification: deploys to real Azure, runs the live e2e suite,
+# and records an azure-cert artifact for the exact commit + version.
 #
-# Unlike a PyPI-pinned example, the deployed app installs a wheel built from the
-# checked-out ref (see the "Bundle candidate wheel" step), so this certifies the
-# EXACT candidate under release — not the last-published PyPI version.
+# It runs as a GATE INSIDE publish-pypi.yml (workflow_call), so certification
+# always covers the exact commit being published and no cross-run matching is
+# needed. workflow_dispatch is kept for standalone verification and debugging.
 on:
   workflow_dispatch:
     inputs:
@@ -28,6 +25,28 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      ref:
+        description: "Release commit SHA (or ref) to certify"
+        required: false
+        type: string
+      version:
+        description: "Expected package version (must match source __version__)"
+        required: false
+        type: string
+      certify_2x:
+        description: "Also certify the azure-functions 2.x runtime on Flex Consumption (Python 3.13). Off by default; the 1.x Linux Consumption path is the release-gating certification (#350)."
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
 
 permissions:
   id-token: write
@@ -183,8 +202,8 @@ jobs:
   # Opt-in via the `certify_2x` dispatch input. This is the real-Azure proof for
   # #350: Linux Consumption (Y1) caps at Python 3.12, so the 2.x worker must be
   # certified on Flex Consumption (Py 3.13+). It is INTENTIONALLY not wired into
-  # the publish gate (publish-pypi.yml verify-azure-certification consumes the
-  # 1.x `azure-cert` artifact only) — the pyproject `<2.0.0` cap must NOT be
+  # the publish gate (publish-pypi.yml's azure-e2e runs the 1.x path only;
+  # `certify_2x` stays false there) — the pyproject `<2.0.0` cap must NOT be
   # raised until this lane has been dispatched green at least once.
   #
   # STATUS: unverified scaffold (infra/flex.bicep has never been deployed). The
