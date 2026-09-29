@@ -25,7 +25,7 @@
 - Public APIs must be fully typed.
 - Graph registration must remain protocol-based — accept any object satisfying `LangGraphLike`, not just `CompiledStateGraph`.
 - Keep documentation examples, app behaviour, and tests synchronized.
-- Bumping version is automatic — `make release-patch` updates `__version__`, and the public-API test reads it back via `importlib.metadata.version(...)` so no test edits are needed.
+- Bumping version is automatic — Release Please updates `__version__` in the Release PR, and the public-API test reads it back via `importlib.metadata.version(...)` so no test edits are needed.
 
 ### Documentation & Translations
 - English (`README.md`) is the **canonical** source of truth for all documentation. Translated READMEs (`README.ko.md`, `README.ja.md`, `README.zh-CN.md`) are **best-effort**, community-maintained, and may lag the English source.
@@ -80,38 +80,61 @@ When splitting a large piece of work into focused issues, keep the umbrella open
 - `make build`
 
 ## Release Process
-- Version is managed via `hatch` (dynamic from `src/azure_functions_langgraph/__init__.py`).
-- **Do NOT manually edit version strings.** Use the Makefile targets below. The public-API test reads `__version__` against `importlib.metadata.version(...)`, so no test changes are needed when bumping.
 
-### Commands
-- `make release-patch` — bump patch version, update changelog, tag, and push
-- `make release-minor` — bump minor version, update changelog, tag, and push
-- `make release-major` — bump major version, update changelog, tag, and push
-- `make release VERSION=x.y.z` — set explicit version, update changelog, tag, and push
-- `make tag-release VERSION=x.y.z` — create and push an annotated tag (used internally by release targets)
+Three tools, one job each. Nothing else participates.
+
+| Tool | Owns |
+|---|---|
+| **Release Please** | version decision, `__version__`, `CHANGELOG.md`, Release PR, tag, GitHub Release |
+| **GitHub Actions** | verification, real-Azure e2e, PyPI publish |
+| **Hatch** | building the Python package (reads `__version__` from `src/azure_functions_langgraph/__init__.py`) |
+
+- **Do NOT manually edit version strings, `CHANGELOG.md`, `.release-please-manifest.json`, or tags.** Release Please owns all of them. The public-API test reads `__version__` against `importlib.metadata.version(...)`, so no test changes are needed when bumping.
+- Releases are driven by **Conventional Commits** on `main`: `fix:` → patch, `feat:` → minor, `feat!:`/`fix!:`/`BREAKING CHANGE:` → breaking. While this package is pre-1.0, `bump-minor-pre-major` keeps a breaking change on the `0.x` line.
+- There are **no release Makefile targets**. `make release-*`, `make changelog`, `make tag-release`, and `make publish-pypi` were deleted; a local `hatch publish` would have skipped every gate below.
+
+### Flow
+
+```
+feat:/fix: PR merged into main
+        |
+  Release Please  ->  Release PR (version + CHANGELOG)
+        |  maintainer reviews and merges
+  tag vX.Y.Z + GitHub Release
+        |
+  publish-pypi.yml  (started by the tag)
+        build -> lib-tests -> wheel-tests
+              -> azure-e2e -> PyPI
+```
+
+1. Merge Conventional-Commit PRs into `main`. Release Please keeps an open **Release PR** showing exactly what the next release would be.
+2. Merging that Release PR is the act of cutting a release.
+3. Release Please tags the release commit and publishes the GitHub Release. The tag starts `publish-pypi.yml`.
+4. Every verification tier runs in that one workflow. PyPI upload happens only if all of them pass.
+
+**Certification is an in-chain gate.** `azure-e2e` deploys to real Azure and runs the live e2e suite at the same ref being published, so it covers the exact published commit by construction. There is no separate certification step to dispatch, and no cross-run SHA or freshness matching to get wrong.
+
+**`RELEASE_PLEASE_TOKEN` is load-bearing.** It is a fine-grained PAT stored as a repository secret. The default `GITHUB_TOKEN` cannot trigger other workflows, which would leave the Release PR without the required status checks — permanently unmergeable — and would stop the tag from starting `publish-pypi.yml`. The PAT grants repository write only; PyPI upload uses OIDC Trusted Publishing and cannot be reached with it. **Fine-grained PATs expire**: when it does, no Release PR appears. Regenerate it and update the secret before the expiry date.
 
 ### Tiered runtime verification (what gates a release)
 
-Release verification is layered; each tier is a **pre-publish gate**, not a post-publish check. No version reaches PyPI until every tier passes:
+Every tier runs inside `publish-pypi.yml` on the tag, and **all of them gate the upload**:
 
-| Tier | Runs where | Catches |
-| --- | --- | --- |
-| `lib-tests` | publish-pypi.yml (per publish) | library unit regressions against the **source tree** — this is where the ≥95% coverage gate is enforced |
-| `wheel-tests` | publish-pypi.yml (per publish) | packaging regressions — runs the **same unit suite (including the `examples/` smoke tests) against the *installed built wheel*** (imports resolve from site-packages, not `src/`), so missing wheel files, bad metadata, or install-only import errors fail fast. This is how the examples are exercised against a built wheel, not just the source tree. Coverage is not re-measured here. |
-| `verify-azure-certification` | publish-pypi.yml (per publish) | requires a fresh, SHA+version-matched **real-Azure** certification for the exact release commit |
-| Azure Release Certification (`e2e-azure.yml`) | `workflow_dispatch`, per release | cloud-only drift — deploys this package's own `examples/e2e_app/` to real Azure (Y1 Consumption), runs the native LangGraph HTTP e2e (health/invoke/stream), and records a certification artifact keyed by commit SHA + version. **Certified per release, not per publish.** |
+| Tier | Catches |
+| --- | --- |
+| `build` | tag/`__version__` mismatch; produces the one artifact that is later uploaded |
+| `lib-tests` | library unit regressions against the **source tree** — this is where the ≥95% coverage gate is enforced |
+| `wheel-tests` | packaging regressions — runs the **same unit suite (including the `examples/` smoke tests) against the *installed built wheel*** (imports resolve from site-packages, not `src/`), so missing wheel files, bad metadata, or install-only import errors fail fast. This is how the examples are exercised against a built wheel, not just the source tree. Coverage is not re-measured here. |
+| `azure-e2e` | cloud-only drift — deploys this package's own `examples/e2e_app/` to real Azure (Y1 Consumption), runs the native LangGraph HTTP e2e (health/invoke/stream), and uploads an `azure-cert` record keyed by commit SHA + version. |
+| `publish` | uploads the exact artifact `build` produced; it never rebuilds |
 
 Unlike the sibling repos, this package has **no** cookbook host-smoke tier. The real-Azure e2e deploys this package's own example app and exercises the native LangGraph routes, so it *is* the package-native runtime proof. Critically, the certification builds the candidate **wheel from the release ref** and bundles it into the example app (`examples/e2e_app/wheels/`), so Azure certifies the release commit's source — not the last-published PyPI build.
 
-### Flow
-1. `make release-patch` (or `-minor` / `-major`) on `main`
-2. This runs: `hatch version` → `git commit` → `make changelog` → `git commit` → `git tag` → `git push`
-3. **Real-Azure certification (required once per release, before the final publish).** Before (or immediately after) pushing the release tag, dispatch the **Azure Release Certification** workflow on the exact release commit and version:
-   - `gh workflow run e2e-azure.yml --ref main -f ref=<release-sha> -f version=<x.y.z>`
-   - The run deploys `examples/e2e_app/` (with a wheel built from `<release-sha>`) to real Azure, executes the live e2e suite (health/invoke/stream), and uploads the `azure-cert` artifact (keyed by commit SHA + version).
-4. Tag push triggers the **Publish to PyPI** workflow. The `publish` job runs only after `build → lib-tests → wheel-tests → verify-azure-certification` all pass, and it uploads the exact artifact that was built (it never rebuilds). `verify-azure-certification` requires a successful, SHA+version-matched, non-stale (<14 day) certification for the release commit; without it the publish gate fails and the version stays unpublished.
-5. Update `docs/changelog.md` separately if needed (different format from `CHANGELOG.md`).
-6. **Failed-gate recovery (stuck tag).** A git tag is immutable and may already have been consumed, so if the gate fails do **not** move or reuse the tag. Fix forward on `main` and cut the next patch tag (`make release-patch`). The unpublished version number is simply skipped.
+### Recovery
+- **Any gate failed.** Nothing was uploaded, so the version is still free. Fix the cause and re-run the workflow on the same tag (`gh workflow run publish-pypi.yml --ref main -f tag=vX.Y.Z`), or fix forward on `main` and let the next Release PR cut a new version. Never move or reuse a tag.
+- **A tag exists but was never published.** A valid resting state. Re-run publish, or abandon the version and let the next release take the following number.
+- **Release PR stopped appearing.** First check that `RELEASE_PLEASE_TOKEN` has not expired. Then check for a stale `autorelease: pending` label on an already-merged Release PR — Release Please treats that as a release still in flight and will not open another. This failure is silent: the workflow still reports success.
+- **Break-glass (automation unavailable).** Bump `__version__`, match `.release-please-manifest.json`, commit, tag, and push. The tag starts the same gated workflow — never bypass it.
 
 ## Golden Commands
 
