@@ -1,6 +1,13 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.9.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.0...v0.9.1) (2026-09-30)
+
+
+### Miscellaneous Tasks
+
+* add a PR title check and unify the title convention ([#498](https://github.com/yeongseon/azure-functions-langgraph-python/issues/498)) ([5a800ca](https://github.com/yeongseon/azure-functions-langgraph-python/commit/5a800ca37f6b7f31e170e142b7a7ddff75aaefbb))
+
 ## [0.9.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.8.2...v0.9.0) (2026-09-29)
 
 
