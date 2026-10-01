@@ -24,7 +24,7 @@ in for real awaitable I/O (an async HTTP client, an async DB driver, etc.).
 ## Prerequisites
 
 - [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4+
-- Python 3.11+
+- Python 3.10+
 - `langgraph>=1.1`
 
 ## Run locally

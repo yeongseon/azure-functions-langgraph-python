@@ -57,7 +57,7 @@ the checkpointer alone.
 ## Prerequisites
 
 - [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4+
-- Python 3.11+
+- Python 3.10+
 - [Docker](https://www.docker.com/) (for Azurite locally)
 - *(Optional)* an **Azure OpenAI** resource with a chat deployment. Without one,
   the example runs against a deterministic fake model, so you can still observe

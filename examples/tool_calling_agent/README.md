@@ -49,7 +49,7 @@ the only live service dependency, and only in the real-model path.
 ## Prerequisites
 
 - [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4+
-- Python 3.11+
+- Python 3.10+
 - *(Optional)* an **Azure OpenAI** resource with a chat deployment. Without one,
   the example runs against a deterministic fake model that emits one known tool
   call followed by a final answer — perfect for trying the tool loop locally

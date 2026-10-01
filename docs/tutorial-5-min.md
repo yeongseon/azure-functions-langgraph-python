@@ -21,14 +21,14 @@ A LangGraph graph exposed as Azure Functions HTTP endpoints:
 
 ## Prerequisites
 
-- **Python 3.11+**
+- **Python 3.10+**
 - **[Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4** (`func`)
 - For the deploy step only: an **Azure subscription** and the **[Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)** (`az`)
 
 Verify the tooling is present:
 
 ```bash
-python --version   # 3.11 or newer
+python --version   # 3.10 or newer
 func --version     # 4.x
 ```
 

@@ -48,7 +48,7 @@ If your own graph uses OpenAI or another provider, you will set those API keys i
 | Azure account | [portal.azure.com](https://portal.azure.com) | [Create free account](https://azure.microsoft.com/free/) |
 | Azure CLI | `az --version` | [Install Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) |
 | Azure Functions Core Tools v4 | `func --version` | [Install Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local#install-the-azure-functions-core-tools) |
-| Python 3.11-3.13 | `python --version` | [python.org](https://www.python.org/downloads/) |
+| Python 3.10–3.13 | `python --version` | [python.org](https://www.python.org/downloads/) |
 | `jq` (for JSON parsing in curl examples) | `jq --version` | [stedolan.github.io/jq](https://stedolan.github.io/jq/download/) |
 | Local example working | `func start` → `curl /api/health` returns OK | See [examples/simple_agent](examples/simple_agent.md) |
 

@@ -12,7 +12,7 @@ unified output shapes.
 ## Prerequisites
 
 - [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4+
-- Python 3.11+
+- Python 3.10+
 - `langgraph>=1.1` (required for `version="v2"`)
 
 ## Run locally
