@@ -63,7 +63,7 @@ sqlite = [
     "langgraph-checkpoint-sqlite>=3.0,<4",
 ]
 cosmos = [
-    "langgraph-checkpoint-cosmosdb>=0.2.0,<0.3",
+    "langgraph-checkpoint-cosmosdb>=0.2.0,<0.5",
 ]
 otel = [
     "opentelemetry-api>=1.20,<2",
