@@ -15,7 +15,7 @@ single-process deployments.  For production scale-out, implement
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 import threading
 from typing import Any, Protocol, runtime_checkable
 import uuid
@@ -185,7 +185,7 @@ class InMemoryThreadStore:
 
     @staticmethod
     def _now() -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def _deep_copy(self, thread: Thread) -> Thread:
         """Return a deep copy of a Thread to prevent reference leaks."""

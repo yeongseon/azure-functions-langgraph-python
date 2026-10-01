@@ -6,7 +6,7 @@ enforces required fields, and matches the LangGraph Platform SDK wire shapes.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import ValidationError
 import pytest
@@ -35,7 +35,7 @@ from azure_functions_langgraph.platform.contracts import (
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
 
-_NOW = datetime(2025, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC)
 
 
 def _checkpoint(**overrides: object) -> dict[str, object]:

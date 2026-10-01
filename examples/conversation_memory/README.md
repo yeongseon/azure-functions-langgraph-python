@@ -32,7 +32,7 @@ compiled_graph = builder.compile(checkpointer=InMemorySaver())
 ## Prerequisites
 
 - [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4+
-- Python 3.10+
+- Python 3.11+
 - *(Optional)* an **Azure OpenAI** resource with a chat deployment. Without one,
   the example runs against a deterministic fake model — perfect for trying the
   memory behaviour locally with zero credentials.

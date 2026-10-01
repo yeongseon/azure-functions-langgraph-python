@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 import importlib
 from typing import Any, Protocol, cast
 import uuid
@@ -94,7 +94,7 @@ def test_reset_stale_locks_resets_stale_and_skips_fresh(
     _ = store.try_acquire_run_lock(stale.thread_id)
     _ = store.try_acquire_run_lock(fresh.thread_id)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     _set_updated_at(azurite_table_client, stale.thread_id, now - timedelta(seconds=900))
     _set_updated_at(azurite_table_client, fresh.thread_id, now - timedelta(seconds=30))
 
@@ -119,7 +119,7 @@ def test_reset_stale_locks_uses_projection_rowkey_and_updated_at(
     _set_updated_at(
         azurite_table_client,
         thread.thread_id,
-        datetime.now(timezone.utc) - timedelta(seconds=900),
+        datetime.now(UTC) - timedelta(seconds=900),
     )
 
     seen_select: list[object] = []
@@ -147,7 +147,7 @@ def test_reset_stale_locks_etag_cas_conflict_does_not_stomp(
     _set_updated_at(
         azurite_table_client,
         thread.thread_id,
-        datetime.now(timezone.utc) - timedelta(seconds=900),
+        datetime.now(UTC) - timedelta(seconds=900),
     )
 
     core_module = importlib.import_module("azure.core")
@@ -170,7 +170,7 @@ def test_reset_stale_locks_etag_cas_conflict_does_not_stomp(
                 {
                     "PartitionKey": "thread",
                     "RowKey": thread.thread_id,
-                    "updated_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(UTC),
                 },
                 mode="merge",
             )
@@ -198,7 +198,7 @@ def test_reset_stale_locks_delete_race_is_skipped(
     _set_updated_at(
         azurite_table_client,
         thread.thread_id,
-        datetime.now(timezone.utc) - timedelta(seconds=900),
+        datetime.now(UTC) - timedelta(seconds=900),
     )
 
     original_update_entity = azurite_table_client.update_entity

@@ -4,7 +4,7 @@ This guide walks you through deploying a LangGraph agent as Azure Functions HTTP
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Azure Functions Core Tools installed
 - `azure-functions-langgraph` installed (see [Installation](installation.md))
 
