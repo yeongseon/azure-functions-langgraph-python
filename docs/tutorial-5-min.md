@@ -193,13 +193,13 @@ az group delete --name "$RESOURCE_GROUP" --yes --no-wait
 
 The invoke request/response contract and the health-probe shape shown above are
 asserted against the **real `examples/simple_agent` graph** in CI by
-[`tests/test_tutorial_smoke.py`](../tests/test_tutorial_smoke.py), which drives
+[`tests/test_tutorial_smoke.py`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/tests/test_tutorial_smoke.py), which drives
 the documented payload through the same native HTTP handler the deployed app
 uses. If the example or the endpoint contract changes, that test fails — so the
 commands here cannot silently drift out of date.
 
 For a full local host boot (Core Tools + curl), run
-[`tools/smoke_tutorial.sh`](../tools/smoke_tutorial.sh).
+[`tools/smoke_tutorial.sh`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/tools/smoke_tutorial.sh).
 
 ## Next steps
 

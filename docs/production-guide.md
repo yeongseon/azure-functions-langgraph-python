@@ -76,7 +76,7 @@ This creates a layered security model: edge auth and governance in APIM, key-bas
 ### Run telemetry with the built-in `RunObserver` (recommended)
 
 The package emits **run-lifecycle domain signals** through a pluggable
-[`RunObserver`](../src/azure_functions_langgraph/observability.py). Every native
+[`RunObserver`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/src/azure_functions_langgraph/observability.py). Every native
 invoke/stream run (and every Platform `runs/wait` / `runs/stream` run) notifies
 the observer on `started`, `completed`, `failed`, and `rejected`, carrying an
 immutable `RunContext` of **correlation identifiers and timing only** — never
