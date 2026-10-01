@@ -314,13 +314,13 @@ async def _sse_event_stream(
     released = False
     try:
         async for event in _aiter_graph_events(graph, input_, config, stream_mode, version_kwargs):
-            yield _format_data_event(event)
-            count += 1
             if count >= max_stream_events:
                 stream_error = RuntimeError(f"stream exceeded max events ({max_stream_events})")
                 payload = json.dumps({"error": f"stream exceeded max events ({max_stream_events})"})
                 yield f"event: error\ndata: {payload}\n\n"
                 break
+            yield _format_data_event(event)
+            count += 1
     except asyncio.CancelledError:
         # Client disconnected mid-stream. Release the lock (finally) and report
         # the run as failed, then propagate the cancellation.

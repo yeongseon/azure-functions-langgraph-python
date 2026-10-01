@@ -392,6 +392,31 @@ class TestSseEventStream:
         assert frames[-1] == "event: end\ndata: {}\n\n"
         assert observer.events == ["failed"]
 
+    async def test_exact_max_events_completes_without_error(self) -> None:
+        observer = RecordingObserver()
+        frames = await _collect(
+            _sse_event_stream(
+                graph=FakeSyncGraph(chunks=[{"n": 1}]),
+                graph_name="g",
+                input_={},
+                config={},
+                stream_mode="values",
+                version_kwargs={},
+                thread_id=None,
+                lock_token=None,
+                thread_lock=RecordingLock(),
+                observer=observer,
+                ctx=_ctx(),
+                max_stream_events=1,
+            )
+        )
+
+        assert [frame.split("\n", maxsplit=1)[0] for frame in frames] == [
+            "event: data",
+            "event: end",
+        ]
+        assert observer.events == ["completed"]
+
     async def test_graph_error_after_first_frame(self) -> None:
         observer = RecordingObserver()
         lock = RecordingLock()
