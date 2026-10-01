@@ -90,9 +90,9 @@ No. This package requires the Azure Functions Python **v2 programming model** (t
 
 ## What Python versions are supported?
 
-Python 3.10, 3.11, 3.12, 3.13, and 3.14.
+Python 3.11, 3.12, 3.13, and 3.14.
 
-Python 3.10, 3.11, 3.12, 3.13, and 3.14.
+Python 3.11, 3.12, 3.13, and 3.14.
 
 ## What is the state endpoint?
 

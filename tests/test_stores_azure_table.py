@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 import importlib
 import sys
 import types
@@ -358,7 +358,7 @@ def test_delete_existing_and_missing() -> None:
 
 def test_search_status_metadata_combined_limit_offset_ordering(monkeypatch: Any) -> None:
     store, table_client = _new_store()
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base = datetime(2026, 1, 1, tzinfo=UTC)
     timestamps = iter(base + timedelta(seconds=i) for i in range(16))
     monkeypatch.setattr(store, "_now", lambda: next(timestamps))
 
@@ -738,8 +738,8 @@ def test_internal_helper_branches(monkeypatch: Any, caplog: Any) -> None:
 
     with_values_and_assistant = store._thread_to_entity(
         "thread-2",
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
         metadata={"k": "v"},
         status="idle",
         values={"a": 1},
@@ -752,8 +752,8 @@ def test_internal_helper_branches(monkeypatch: Any, caplog: Any) -> None:
     entity_without_interrupts = {
         "PartitionKey": "thread",
         "RowKey": "thread-3",
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
         "status": "idle",
     }
     thread = store._entity_to_thread(entity_without_interrupts)
@@ -862,7 +862,7 @@ def test_from_connection_string_does_not_leak_class_state(monkeypatch: Any) -> N
 def test_reset_stale_locks_resets_stale_skips_recent(monkeypatch: Any) -> None:
     """Stale busy thread older than threshold is reset; recent busy thread is not."""
     store, table_client = _new_store()
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base = datetime(2026, 1, 1, tzinfo=UTC)
     timestamps = iter(
         [
             base,  # create t1
@@ -891,7 +891,7 @@ def test_reset_stale_locks_resets_stale_skips_recent(monkeypatch: Any) -> None:
 def test_reset_stale_locks_etag_mismatch_skips(monkeypatch: Any) -> None:
     """Concurrent re-acquire during reset: ETag mismatch → skipped, not stomped."""
     store, table_client = _new_store()
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base = datetime(2026, 1, 1, tzinfo=UTC)
     timestamps = iter(
         [
             base,  # create
@@ -928,7 +928,7 @@ def test_reset_stale_locks_empty_store_returns_zero() -> None:
 def test_reset_stale_locks_idle_threads_not_touched(monkeypatch: Any) -> None:
     """Idle threads are not affected by reset_stale_locks."""
     store, _ = _new_store()
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base = datetime(2026, 1, 1, tzinfo=UTC)
     timestamps = iter(
         [
             base,  # create
@@ -967,7 +967,7 @@ def test_reset_stale_locks_invalid_status_raises() -> None:
 def test_reset_stale_locks_status_idle(monkeypatch: Any) -> None:
     """reset_stale_locks with status='idle' sets thread to idle."""
     store, _ = _new_store()
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base = datetime(2026, 1, 1, tzinfo=UTC)
     timestamps = iter(
         [
             base,  # create
@@ -990,7 +990,7 @@ def test_reset_stale_locks_status_idle(monkeypatch: Any) -> None:
 def test_reset_stale_locks_zero_threshold(monkeypatch: Any) -> None:
     """older_than_seconds=0 resets any busy thread (cutoff == now)."""
     store, _ = _new_store()
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base = datetime(2026, 1, 1, tzinfo=UTC)
     timestamps = iter(
         [
             base,  # create
@@ -1012,7 +1012,7 @@ def test_reset_stale_locks_zero_threshold(monkeypatch: Any) -> None:
 def test_reset_stale_locks_deleted_thread_skipped(monkeypatch: Any) -> None:
     """Thread deleted between query and update is skipped, not raised."""
     store, table_client = _new_store()
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base = datetime(2026, 1, 1, tzinfo=UTC)
     timestamps = iter(
         [
             base,  # create
@@ -1064,7 +1064,7 @@ def test_reset_stale_locks_metadata_only_etag(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(table_client, "query_entities", query_metadata_only_etag)
 
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    base = datetime(2026, 1, 1, tzinfo=UTC)
     timestamps = iter(
         [
             base,  # create

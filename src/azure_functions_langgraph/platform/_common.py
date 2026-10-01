@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 import json
 import logging
 import os
@@ -554,7 +554,7 @@ class PlatformRouteDeps:
 
 # Module-level timestamp for stable assistant responses within a process.
 # Re-computed only on import / process restart.
-_PROCESS_START = datetime.now(timezone.utc)
+_PROCESS_START = datetime.now(UTC)
 
 
 def _registration_to_assistant(name: str, reg: Any) -> Assistant:
