@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import importlib
 import json
 import re
@@ -82,7 +82,7 @@ class FakeResourceNotFoundError(Exception):
     """Raised when a mock blob is not present."""
 
 
-_DEFAULT_BLOB_LAST_MODIFIED = datetime(2020, 1, 1, tzinfo=UTC)
+_DEFAULT_BLOB_LAST_MODIFIED = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
 @dataclass
@@ -1110,7 +1110,7 @@ def test_collect_orphaned_values_skips_recent_blobs_inside_grace_window(
         {"k": "v2"},
     )
     saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     for record in container.blobs.values():
         record.last_modified = now
 
@@ -1140,7 +1140,7 @@ def test_collect_orphaned_values_grace_period_zero_disables_recent_guard(
         {"k": "v2"},
     )
     saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     for record in container.blobs.values():
         record.last_modified = now
 
@@ -1210,7 +1210,7 @@ def test_collect_orphaned_values_fails_closed_on_corrupt_survivor(
         {"k": "v2"},
     )
     saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
-    _backdate_value_blobs(container, datetime(2020, 1, 1, tzinfo=UTC))
+    _backdate_value_blobs(container, datetime(2020, 1, 1, tzinfo=timezone.utc))
     surviving_checkpoint_blob = "threads/t-1/ns/ns/checkpoints/cp-002/checkpoint.bin"
     assert surviving_checkpoint_blob in container.blobs
     container.blobs[surviving_checkpoint_blob] = _BlobRecord(
@@ -1248,7 +1248,7 @@ def test_collect_orphaned_values_fails_closed_on_missing_serde_metadata(
         {"k": "v2"},
     )
     saver.delete_old_checkpoints("t-1", keep_last=1, checkpoint_ns="ns")
-    _backdate_value_blobs(container, datetime(2020, 1, 1, tzinfo=UTC))
+    _backdate_value_blobs(container, datetime(2020, 1, 1, tzinfo=timezone.utc))
     surviving_checkpoint_blob = "threads/t-1/ns/ns/checkpoints/cp-002/checkpoint.bin"
     record = container.blobs[surviving_checkpoint_blob]
     stripped_metadata = {k: v for k, v in record.metadata.items() if k != "serde_type"}

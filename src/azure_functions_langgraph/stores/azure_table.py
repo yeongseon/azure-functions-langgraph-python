@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import importlib
 import json
 import logging
@@ -216,13 +216,13 @@ class AzureTableThreadStore(ThreadStore):
 
     @staticmethod
     def _now() -> datetime:
-        return datetime.now(UTC)
+        return datetime.now(timezone.utc)
 
     @staticmethod
     def _normalize_datetime(value: datetime) -> datetime:
         if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value.astimezone(UTC)
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     @staticmethod
     def _json_default(value: Any) -> Any:

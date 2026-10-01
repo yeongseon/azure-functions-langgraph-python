@@ -6,7 +6,6 @@ Every test verifies the exact byte output so that any drift from the
 
 from __future__ import annotations
 
-from datetime import UTC
 import json
 from typing import Any
 
@@ -148,9 +147,9 @@ class TestFormatDataEvent:
 
     def test_non_serializable_uses_default_str(self) -> None:
         """Objects that aren't JSON-serializable should use default=str."""
-        from datetime import datetime
+        from datetime import datetime, timezone
 
-        dt = datetime(2025, 1, 1, tzinfo=UTC)
+        dt = datetime(2025, 1, 1, tzinfo=timezone.utc)
         result = format_data_event("values", {"ts": dt})
         part = _decode_sse_frame(result)
         assert isinstance(part.data["ts"], str)

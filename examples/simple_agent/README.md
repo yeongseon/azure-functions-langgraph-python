@@ -6,7 +6,7 @@ Two nodes (`greet` -> `farewell`) connected sequentially.
 ## Prerequisites
 
 - [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4+
-- Python 3.11+
+- Python 3.10+
 
 ## Run locally
 

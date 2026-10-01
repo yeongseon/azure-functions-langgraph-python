@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.11 or later
+- Python 3.10 or later
 - Azure Functions Core Tools (for local development)
 - An Azure Functions project using the [Python v2 programming model](https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python)
 
