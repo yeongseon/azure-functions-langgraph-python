@@ -15,8 +15,12 @@ updates:
       semver-patch-days: 3
       include:
         - "*"
+    # Runtime dependency bumps change what users receive on install, so they
+    # are typed fix(deps) and cut a release. Development-only bumps stay
+    # chore(deps), a hidden changelog section, and therefore do not.
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "fix(deps)"
+      prefix-development: "chore(deps)"
     labels:
       - "dependencies"
     open-pull-requests-limit: 10
@@ -56,6 +60,7 @@ updates:
       - dependency-name: "actions/download-artifact"
         update-types:
           - "version-update:semver-major"
+    # Action bumps never reach users of the published package.
     commit-message:
       prefix: "chore(deps)"
     labels:
