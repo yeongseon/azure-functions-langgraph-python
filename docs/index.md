@@ -71,4 +71,3 @@ Part of the **Azure Functions Python DX Toolkit**:
 | [azure-functions-openapi-python](https://github.com/yeongseon/azure-functions-openapi-python) | OpenAPI spec and Swagger UI |
 | [azure-functions-logging-python](https://github.com/yeongseon/azure-functions-logging-python) | Structured logging and observability |
 | **azure-functions-langgraph** | LangGraph agent deployment |
-| [azure-functions-durable-graph-python](https://github.com/yeongseon/azure-functions-durable-graph-python) | Manifest-first graph runtime with Durable Functions |
