@@ -432,7 +432,7 @@ def handle_stream(
         if lock_token is not None and thread_id is not None:
             thread_lock.release(reg.name, thread_id, lock_token)
 
-    _append_chunk("event: end\ndata: {}\n\n")
+    chunks.append("event: end\ndata: {}\n\n")
 
     if stream_error is not None:
         safe_observer_call(observer, "on_run_failed", finish_context(ctx), stream_error)
@@ -656,7 +656,7 @@ async def handle_stream_async(
         if lock_token is not None and thread_id is not None:
             await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
 
-    _append_chunk("event: end\ndata: {}\n\n")
+    chunks.append("event: end\ndata: {}\n\n")
 
     if stream_error is not None:
         safe_observer_call(observer, "on_run_failed", finish_context(ctx), stream_error)
