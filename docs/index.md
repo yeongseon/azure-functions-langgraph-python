@@ -7,7 +7,10 @@
 
 Deploy [LangGraph](https://github.com/langchain-ai/langgraph) agents as **Azure Functions** HTTP endpoints with zero boilerplate.
 
-> **Alpha Notice** — This package is in early development (`0.1.0a0`). APIs may change without notice between releases.
+> **Rolling 0.x stability** — Core adapter APIs aim for backward compatibility,
+> while newer surfaces may evolve before 1.0. See the
+> [per-surface stability policy](https://github.com/yeongseon/azure-functions-langgraph-python#azure-functions-langgraph)
+> for details.
 
 ## What it does
 
