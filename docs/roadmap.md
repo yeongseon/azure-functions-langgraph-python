@@ -45,8 +45,8 @@ require concrete external demand per the checkpoint criteria below.
    adapter for already-built LangGraph graphs, not a reimplementation of
    LangGraph Platform.
 4. **Do not duplicate sibling toolkit packages.** Compose with
-   `azure-functions-logging`, `azure-functions-durable-graph`,
-   `azure-functions-openapi`, etc. where their responsibilities already exist.
+   `azure-functions-logging`, `azure-functions-openapi`, etc. where their
+   responsibilities already exist.
 5. **Real Azure certification matters.** Runtime claims that depend on Functions
    behavior must be proven on a wheel-installed deployment, not source-tree
    mocks alone.
@@ -162,12 +162,12 @@ Queue trigger; explicit message → graph input and correlation/session →
 
 12. Optional Durable Functions-backed async runs — [x] [\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408)
 
-**Not** a Durable reimplementation of LangGraph topology and not a replacement
-for `azure-functions-durable-graph`. Create async run, poll status/result,
-cancel with documented semantics, survive disconnect of the initiating HTTP
-request. Deterministic orchestrator; graph/LLM/tool code in activity context;
-reuse checkpointer + thread lock; real Azure timeout/cancellation documented
-from evidence; no "unlimited execution" claim. *(Experimental tier.)*
+**Not** a Durable reimplementation of LangGraph topology. Create async run,
+poll status/result, cancel with documented semantics, survive disconnect of the
+initiating HTTP request. Deterministic orchestrator; graph/LLM/tool code in
+activity context; reuse checkpointer + thread lock; real Azure
+timeout/cancellation documented from evidence; no "unlimited execution" claim.
+*(Experimental tier.)*
 
 ---
 
@@ -261,4 +261,3 @@ install
 
 **Roadmap priority: P1.** Execution priority is defined per phase above; Phase 0
 ([\#333](https://github.com/yeongseon/azure-functions-langgraph-python/issues/333), [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350), [\#421](https://github.com/yeongseon/azure-functions-langgraph-python/issues/421)) is P0.
-

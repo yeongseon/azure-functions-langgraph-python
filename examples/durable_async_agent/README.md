@@ -146,6 +146,4 @@ observer. Input/output payloads are **never** included in telemetry.
   restart. Graph runs should be idempotent (a checkpointer makes replays
   converge on the same thread state).
 - This example runs one activity per run. It does **not** re-express the graph
-  topology as Durable activities — that is intentionally out of scope (see the
-  sibling `azure-functions-durable-graph-python` package for a manifest-first
-  Durable graph runtime).
+  topology as Durable activities; that is intentionally out of scope.
