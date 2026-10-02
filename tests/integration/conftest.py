@@ -16,7 +16,6 @@ EMULATOR_KEY = (
 @pytest.fixture
 def cosmos_emulator_target() -> Iterator[tuple[str, str, str, str]]:
     endpoint = os.getenv("COSMOS_EMULATOR_ENDPOINT", "https://localhost:8081")
-    _ = os.environ.setdefault("COSMOS_DISABLE_SSL", "true")
 
     class _Database(Protocol):
         def create_container_if_not_exists(self, *, id: str, partition_key: object) -> object: ...
@@ -44,7 +43,7 @@ def cosmos_emulator_target() -> Iterator[tuple[str, str, str, str]]:
     try:
         client = cast(
             _Client,
-            CosmosClient(url=endpoint, credential=EMULATOR_KEY, connection_verify=False),
+            CosmosClient(url=endpoint, credential=EMULATOR_KEY),
         )
         _ = list(client.list_databases())
     except Exception as exc:

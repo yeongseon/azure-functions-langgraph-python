@@ -31,6 +31,8 @@ jobs:
     services:
       cosmos-emulator:
         image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator
+        env:
+          AZURE_COSMOS_EMULATOR_IP_ADDRESS_OVERRIDE: "127.0.0.1"
         ports:
           - 8081:8081
           - 10250-10255:10250-10255
@@ -54,8 +56,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,cosmos]"
 
+      - name: Trust Cosmos emulator certificate
+        run: |
+          curl --fail --insecure --retry 5 \
+            https://localhost:8081/_explorer/emulator.pem \
+            --output /tmp/cosmos-emulator.crt
+          sudo cp /tmp/cosmos-emulator.crt \
+            /usr/local/share/ca-certificates/cosmos-emulator.crt
+          sudo update-ca-certificates
+
       - name: Run cosmos integration tests
         env:
           COSMOS_EMULATOR_ENDPOINT: https://localhost:8081
-          COSMOS_DISABLE_SSL: "true"
+          REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
+          SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
         run: pytest -v -m integration tests/integration/ --no-cov
