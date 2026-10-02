@@ -73,7 +73,7 @@ v1.0 does not require every surface to be stable — it requires each surface to
 
 ## Development sequence
 
-### Phase 0 — unblock the modern dependency line — **P0**
+### Phase 0 — unblock the modern dependency line — **priority: high**
 
 New examples and runtime work must not be built on top of intentionally stale
 dependency ceilings or an unproven release pipeline.
@@ -91,7 +91,7 @@ dependency ceilings or an unproven release pipeline.
 
 ---
 
-### Phase 1 — adoption-first examples — **P1**
+### Phase 1 — adoption-first examples — **priority: medium**
 
 These form one obvious learning path in the main README and `examples/README.md`.
 
@@ -110,7 +110,7 @@ These form one obvious learning path in the main README and `examples/README.md`
 
 ---
 
-### Phase 2 — runtime correctness & production fidelity — **P1**
+### Phase 2 — runtime correctness & production fidelity — **priority: medium**
 
 Close the gaps between what the runtime claims and what production users need,
 each shipping with the example that proves it.
@@ -121,7 +121,7 @@ each shipping with the example that proves it.
 
 ---
 
-### Phase 3 — observability foundation — **P2**
+### Phase 3 — observability foundation — **priority: low**
 
 8. Run-lifecycle observer contract — [x] [\#425](https://github.com/yeongseon/azure-functions-langgraph-python/issues/425) (#407a)
 9. Application Insights / OpenTelemetry integration — [x] [\#407](https://github.com/yeongseon/azure-functions-langgraph-python/issues/407) (#407b)
@@ -132,7 +132,7 @@ payload logging.
 
 ---
 
-### Phase 4 — true HTTP streaming — **P2**
+### Phase 4 — true HTTP streaming — **priority: low**
 
 10. Opt-in true streaming transport — [x] [\#406](https://github.com/yeongseon/azure-functions-langgraph-python/issues/406)
 
@@ -145,7 +145,7 @@ completion; deployable streaming example (`examples/true_streaming_agent`).
 
 ---
 
-### Phase 5 — Azure-native event-driven entrypoint — **P2**
+### Phase 5 — Azure-native event-driven entrypoint — **priority: low**
 
 11. Azure Service Bus → LangGraph trigger adapter — [x] [\#409](https://github.com/yeongseon/azure-functions-langgraph-python/issues/409)
 
@@ -158,7 +158,7 @@ Queue trigger; explicit message → graph input and correlation/session →
 
 ---
 
-### Phase 6 — asynchronous run lifecycle — **P2**
+### Phase 6 — asynchronous run lifecycle — **priority: low**
 
 12. Optional Durable Functions-backed async runs — [x] [\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408)
 
@@ -259,5 +259,5 @@ install
 
 ## Priority
 
-**Roadmap priority: P1.** Execution priority is defined per phase above; Phase 0
+**Roadmap priority: medium.** Execution priority is defined per phase above; Phase 0
 ([\#333](https://github.com/yeongseon/azure-functions-langgraph-python/issues/333), [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350), [\#421](https://github.com/yeongseon/azure-functions-langgraph-python/issues/421)) is P0.
