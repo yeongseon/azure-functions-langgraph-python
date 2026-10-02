@@ -75,6 +75,12 @@ def _extract_thread_id(config: dict[str, Any]) -> tuple[str | None, str | None]:
     return thread_id, None
 
 
+def _require_checkpoint_thread_id(has_checkpointer: bool, thread_id: str | None) -> str | None:
+    if has_checkpointer and thread_id is None:
+        return "config.configurable.thread_id is required for checkpointed graphs"
+    return None
+
+
 def _error_response(status_code: int, detail: str) -> func.HttpResponse:
     body = ErrorResponse(error="error", detail=detail)
     return func.HttpResponse(
@@ -268,6 +274,8 @@ def handle_invoke(
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
+    if thread_err := _require_checkpoint_thread_id(has_cp, thread_id):
+        return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id)
     version_kwargs = _resolve_version_kwarg(reg.graph.invoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
@@ -368,6 +376,8 @@ def handle_stream(
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
+    if thread_err := _require_checkpoint_thread_id(has_cp, thread_id):
+        return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
     version_kwargs = _resolve_version_kwarg(reg.graph.stream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
@@ -494,6 +504,8 @@ async def handle_invoke_async(
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
+    if thread_err := _require_checkpoint_thread_id(has_cp, thread_id):
+        return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id)
     version_kwargs = _resolve_version_kwarg(reg.graph.ainvoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
@@ -592,6 +604,8 @@ async def handle_stream_async(
     thread_id, cfg_err = _extract_thread_id(config)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
+    if thread_err := _require_checkpoint_thread_id(has_cp, thread_id):
+        return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
     version_kwargs = _resolve_version_kwarg(reg.graph.astream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
