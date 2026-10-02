@@ -139,17 +139,12 @@ def test_deprecated_credential_param_still_works(
     cosmos_emulator_target: tuple[str, str, str, str],
 ) -> None:
     """The deprecated credential= param should still work with a string key."""
-    import warnings
-
     endpoint, key, database_name, container_name = cosmos_emulator_target
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
+    with pytest.warns(DeprecationWarning):
         saver = create_cosmos_checkpointer(
             endpoint=endpoint,
             credential=key,
             database_name=database_name,
             container_name=container_name,
         )
-    assert len(w) == 1
-    assert issubclass(w[0].category, DeprecationWarning)
     close_cosmos_checkpointer(cast(CheckpointSaver, saver))
