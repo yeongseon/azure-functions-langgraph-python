@@ -7,7 +7,7 @@ import sys
 from typing import TYPE_CHECKING
 import warnings
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 if TYPE_CHECKING:
     from azure_functions_langgraph.app import LangGraphApp, get_langgraph_metadata

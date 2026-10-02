@@ -1,6 +1,15 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.9.2](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.1...v0.9.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* **ci:** trust the Cosmos emulator certificate ([#523](https://github.com/yeongseon/azure-functions-langgraph-python/issues/523)) ([d2b356f](https://github.com/yeongseon/azure-functions-langgraph-python/commit/d2b356fb9f2e31a1d29aacb65662039996123205))
+* **native:** require thread id for checkpointed graphs ([#517](https://github.com/yeongseon/azure-functions-langgraph-python/issues/517)) ([ad225dc](https://github.com/yeongseon/azure-functions-langgraph-python/commit/ad225dcc62fdb58ff95ca00404dc63f37d87db28))
+* **streaming:** preserve overflow terminal framing ([#518](https://github.com/yeongseon/azure-functions-langgraph-python/issues/518)) ([d033656](https://github.com/yeongseon/azure-functions-langgraph-python/commit/d0336561d5bd0280f705ac65a45ad7569a79329b))
+
 ## [0.9.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.0...v0.9.1) (2026-10-01)
 
 
