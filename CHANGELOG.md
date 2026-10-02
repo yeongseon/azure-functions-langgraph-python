@@ -1,6 +1,14 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.9.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.0...v0.9.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **compat:** deprecate Python 3.10 ahead of its removal ([#510](https://github.com/yeongseon/azure-functions-langgraph-python/issues/510)) ([0ba4398](https://github.com/yeongseon/azure-functions-langgraph-python/commit/0ba4398d7b7f1fc52447f795f687fa3acba297ef))
+* **streaming:** allow exactly max_stream_events frames ([#511](https://github.com/yeongseon/azure-functions-langgraph-python/issues/511)) ([7a7cfd3](https://github.com/yeongseon/azure-functions-langgraph-python/commit/7a7cfd310054b93475400bcf75e8c0e7319f71ec))
+
 ## [0.9.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.8.2...v0.9.0) (2026-09-29)
 
 
