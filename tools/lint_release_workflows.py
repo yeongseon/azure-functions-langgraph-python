@@ -36,12 +36,11 @@ import re
 import sys
 
 # --- Fleet-wide canonical pins (action -> (sha, annotation)) ------------------
+# Update this table together with Dependabot GitHub Actions dependency bumps; the
+# drift lint enforces the canonical pins in the release-gate workflows.
 CANONICAL_ACTIONS: dict[str, tuple[str, str]] = {
-    # renovate: datasource=github-tags depName=actions/checkout versioning=github-tags
     "actions/checkout": ("3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1"),
-    # renovate: datasource=github-tags depName=actions/setup-python versioning=github-tags
     "actions/setup-python": ("5fda3b95a4ea91299a34e894583c3862153e4b97", "v7.0.0"),
-    # renovate: datasource=github-tags depName=azure/login versioning=github-tags
     "azure/login": ("a641126d1b8aa4d1fa005f4f92df94a3a4c4c906", "v3.1.0"),
     # actions/upload-artifact + actions/download-artifact are deliberately held
     # as a v4 "canonical pair". Newer majors are NOT adopted automatically:
@@ -50,9 +49,7 @@ CANONICAL_ACTIONS: dict[str, tuple[str, str]] = {
     # the release-gate workflows. Dependabot is configured to ignore major bumps
     # for both (see .github/dependabot.yml); adopt new majors deliberately, in
     # lockstep, and update these SHAs together. See issue #334.
-    # renovate: datasource=github-tags depName=actions/upload-artifact versioning=github-tags
     "actions/upload-artifact": ("ea165f8d65b6e75b540449e92b4886f43607fa02", "v4"),
-    # renovate: datasource=github-tags depName=actions/download-artifact versioning=github-tags
     "actions/download-artifact": ("d3f86a106a0bac45b974a628896c90dbdf5c8093", "v4"),
 }
 
