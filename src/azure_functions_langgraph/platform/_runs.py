@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 import uuid
 
 import azure.functions as func
 
+from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph._validation import (
     validate_thread_id,
 )
@@ -156,7 +156,7 @@ def register_run_routes(
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
         return func.HttpResponse(
-            body=json.dumps(output, default=str),
+            body=dumps(output),
             mimetype="application/json",
             status_code=200,
             headers={"Content-Location": f"/api/threads/{thread_id}/runs/{run_id}"},
@@ -358,7 +358,7 @@ def register_run_routes(
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
         return func.HttpResponse(
-            body=json.dumps(output, default=str),
+            body=dumps(output),
             mimetype="application/json",
             status_code=200,
             headers={"Content-Location": f"/api/runs/{run_id}"},

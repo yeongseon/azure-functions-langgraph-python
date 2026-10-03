@@ -51,6 +51,7 @@ from azure_functions_langgraph._handlers import (
     _method_accepts_version,
     _serialize_graph_output,
 )
+from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph._validation import (
     validate_body_size,
     validate_graph_name,
@@ -268,9 +269,8 @@ async def _aiter_graph_events(
 
 def _format_data_event(event: Any) -> str:
     """Serialize one graph event as an SSE ``data`` frame (native wire format)."""
-    serialized = json.dumps(
+    serialized = dumps(
         event if isinstance(event, dict) else {"data": str(event)},
-        default=str,
         allow_nan=False,
     )
     return f"event: data\ndata: {serialized}\n\n"
