@@ -204,6 +204,9 @@ app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYM
 app.register(graph=private_graph, name="private", auth_level=func.AuthLevel.FUNCTION)
 ```
 
+> **重要：**按图覆盖仅适用于原生图路由。Platform 兼容路由和 Durable 路由使用应用级
+> `auth_level`；公开这些路由前，请参阅[生产指南](docs/production-guide.md)。
+
 使用 Function 密钥的请求示例：
 
 ```bash
