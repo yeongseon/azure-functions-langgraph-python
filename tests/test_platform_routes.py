@@ -2718,6 +2718,33 @@ class TestStreamSSEWireFormat:
         data = json.loads(resp.get_body())
         assert "Multi-stream-mode" in data["detail"]
 
+    @pytest.mark.parametrize("stream_mode", ["bogus", 123, ["bogus"]])
+    def test_unknown_stream_mode_returns_400_before_graph_execution(
+        self, store: InMemoryThreadStore, stream_mode: Any
+    ) -> None:
+        class UncalledGraph(FakeCompiledGraph):
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Iterator[dict[str, Any]]:
+                raise AssertionError("invalid stream mode reached graph execution")
+
+        g = UncalledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        thread = store.create()
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "stream_mode": stream_mode},
+            thread_id=thread.thread_id,
+        )
+
+        resp = fn(req)
+
+        assert 400 <= resp.status_code < 500
+
     def test_stream_mode_empty_list_defaults_to_values(self, store: InMemoryThreadStore) -> None:
         """stream_mode=[] → defaults to 'values'."""
         g = FakeCompiledGraph(stream_results=[{"x": 1}])
