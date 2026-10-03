@@ -206,6 +206,10 @@ app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYM
 app.register(graph=private_graph, name="private", auth_level=func.AuthLevel.FUNCTION)
 ```
 
+> **重要:** グラフごとのオーバーライドはネイティブグラフルートにのみ適用されます。
+> Platform 互換ルートと Durable ルートはアプリレベルの `auth_level` を使用するため、
+> 公開前に[プロダクションガイド](docs/production-guide.md)を確認してください。
+
 Functionキーを使用したリクエスト例:
 
 ```bash
