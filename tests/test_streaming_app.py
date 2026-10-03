@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Iterator
+import importlib
 import json
 from typing import Any
 import warnings
@@ -330,7 +331,10 @@ class TestAiterGraphEvents:
         assert events == [{"n": 1}, {"n": 2}, {"n": 3}]
 
     async def test_sync_mode_uses_stream_with_sqlite_saver(self) -> None:
-        sqlite_module = pytest.importorskip("langgraph.checkpoint.sqlite")
+        try:
+            sqlite_module = importlib.import_module("langgraph.checkpoint.sqlite")
+        except ImportError as exc:
+            pytest.skip(f"installed SQLite saver is incompatible: {exc}")
         builder = StateGraph(MessagesState)
         builder.add_node("reply", lambda _state: {"messages": [("ai", "hello")]})
         builder.add_edge(START, "reply")
