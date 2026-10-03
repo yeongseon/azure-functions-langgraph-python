@@ -16,7 +16,6 @@ from typing import Any
 import warnings
 
 import azure.functions as func
-from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import START, MessagesState, StateGraph
 import pytest
 
@@ -331,11 +330,12 @@ class TestAiterGraphEvents:
         assert events == [{"n": 1}, {"n": 2}, {"n": 3}]
 
     async def test_sync_mode_uses_stream_with_sqlite_saver(self) -> None:
+        sqlite_module = pytest.importorskip("langgraph.checkpoint.sqlite")
         builder = StateGraph(MessagesState)
         builder.add_node("reply", lambda _state: {"messages": [("ai", "hello")]})
         builder.add_edge(START, "reply")
 
-        with SqliteSaver.from_conn_string(":memory:") as saver:
+        with sqlite_module.SqliteSaver.from_conn_string(":memory:") as saver:
             graph = builder.compile(checkpointer=saver)
             events = [
                 event
