@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import operator
+import threading
 from typing import Annotated, Any, TypedDict
 
 import azure.functions as func
@@ -175,6 +176,57 @@ class TestPlatformInvoke:
         assert output["last_reply"] == "Hello, Platform!"
         assert output["turn_count"] == 1
         assert "Hello, Platform!" in output["history"]
+
+    def test_platform_run_contends_with_native_run_on_same_thread(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocking_node(state: ChatState) -> dict[str, Any]:
+            entered.set()
+            assert release.wait(timeout=5)
+            return {"last_reply": state.get("user_text", "")}
+
+        builder = StateGraph(ChatState)
+        builder.add_node("blocking", blocking_node)
+        builder.add_edge(START, "blocking")
+        builder.add_edge("blocking", END)
+        graph = builder.compile(checkpointer=MemorySaver())
+        store = InMemoryThreadStore(id_factory=lambda: "shared-thread")
+        app = _make_platform_app(graph, store=store)
+        function_app = app.function_app
+        thread = store.create()
+        native_fn = _get_fn(function_app, "aflg_agent_invoke")
+        platform_fn = _get_fn(function_app, "aflg_platform_runs_wait")
+        native_response: list[func.HttpResponse] = []
+
+        native_request = _post(
+            "/api/graphs/agent/invoke",
+            {
+                "input": {"user_text": "native"},
+                "config": {"configurable": {"thread_id": thread.thread_id}},
+            },
+            name="agent",
+        )
+        native_thread = threading.Thread(
+            target=lambda: native_response.append(native_fn(native_request))
+        )
+        native_thread.start()
+        assert entered.wait(timeout=5)
+
+        try:
+            platform_response = platform_fn(
+                _post(
+                    f"/api/threads/{thread.thread_id}/runs/wait",
+                    {"assistant_id": "agent", "input": {"user_text": "platform"}},
+                    thread_id=thread.thread_id,
+                )
+            )
+        finally:
+            release.set()
+            native_thread.join(timeout=5)
+
+        assert platform_response.status_code == 409
+        assert native_response[0].status_code == 200
 
     def test_multi_turn_via_platform(self) -> None:
         """Two runs/wait on same thread accumulate state."""

@@ -24,6 +24,7 @@ from azure_functions_langgraph._validation import (
     validate_thread_id,
 )
 from azure_functions_langgraph.app import LangGraphApp
+from azure_functions_langgraph.locks import InProcessThreadLock
 from azure_functions_langgraph.platform.stores import InMemoryThreadStore
 from tests.conftest import FakeCompiledGraph, FakeStatefulGraph
 
@@ -887,6 +888,7 @@ class TestPlatformRouteDepsNewFields:
         deps = PlatformRouteDeps(
             registrations={},
             thread_store=store,
+            thread_lock=InProcessThreadLock(),
             auth_level=func.AuthLevel.ANONYMOUS,
             max_stream_response_bytes=2048,
         )
@@ -900,6 +902,7 @@ class TestPlatformRouteDepsNewFields:
         deps = PlatformRouteDeps(
             registrations={},
             thread_store=store,
+            thread_lock=InProcessThreadLock(),
             auth_level=func.AuthLevel.ANONYMOUS,
             max_stream_response_bytes=2048,
             max_request_body_bytes=512,

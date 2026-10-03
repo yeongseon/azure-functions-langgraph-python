@@ -10,6 +10,7 @@ import azure.functions as func
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp
+from azure_functions_langgraph.locks import InProcessThreadLock
 from azure_functions_langgraph.platform.routes import (
     PlatformRouteDeps,
     _platform_error,
@@ -1799,6 +1800,7 @@ class TestPlatformRouteDeps:
         deps = PlatformRouteDeps(
             registrations={},
             thread_store=store,
+            thread_lock=InProcessThreadLock(),
             auth_level=func.AuthLevel.ANONYMOUS,
             max_stream_response_bytes=1024,
         )
@@ -3939,6 +3941,7 @@ class TestReleaseThreadRunLockSuppression:
         deps = PlatformRouteDeps(
             registrations={},
             thread_store=store,
+            thread_lock=InProcessThreadLock(),
             auth_level=func.AuthLevel.ANONYMOUS,
             max_stream_response_bytes=1024,
         )
@@ -3946,4 +3949,4 @@ class TestReleaseThreadRunLockSuppression:
 
         with patch.object(store, "release_run_lock", side_effect=RuntimeError("boom")):
             # Should NOT raise
-            _release_thread_run_lock(deps, thread.thread_id, status="idle")
+            _release_thread_run_lock(deps, thread.thread_id, "agent", "lock-token", status="idle")
