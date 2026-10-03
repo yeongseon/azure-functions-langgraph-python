@@ -62,8 +62,8 @@ def create_sqlite_checkpointer(
     except ImportError as exc:
         raise ImportError(_EXTRA_HINT) from exc
 
-    SqliteSaver = getattr(sqlite_module, "SqliteSaver", None)
-    if SqliteSaver is None:
+    sqlite_saver = getattr(sqlite_module, "SqliteSaver", None)
+    if sqlite_saver is None:
         raise ImportError(
             "langgraph.checkpoint.sqlite is missing SqliteSaver; "
             "upgrade langgraph-checkpoint-sqlite to >=3.0,<4."
@@ -71,7 +71,7 @@ def create_sqlite_checkpointer(
 
     sqlite3_module = importlib.import_module("sqlite3")
     conn = sqlite3_module.connect(conn_string, check_same_thread=check_same_thread)
-    saver = SqliteSaver(conn)
+    saver: SqliteSaver = sqlite_saver(conn)
     if setup:
         saver.setup()
     return saver

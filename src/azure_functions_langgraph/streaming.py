@@ -240,6 +240,8 @@ async def _aiter_graph_events(
     config: dict[str, Any],
     stream_mode: str,
     version_kwargs: dict[str, str],
+    *,
+    async_mode: bool,
 ) -> AsyncIterator[Any]:
     """Yield graph stream events incrementally for sync or async graphs.
 
@@ -248,7 +250,7 @@ async def _aiter_graph_events(
     :func:`asyncio.to_thread`, so a blocking sync generator never stalls the
     event loop between chunks (preserving incremental delivery).
     """
-    if isinstance(graph, AsyncStreamableGraph):
+    if async_mode and isinstance(graph, AsyncStreamableGraph):
         async for event in graph.astream(
             input_, config=config, stream_mode=stream_mode, **version_kwargs
         ):
@@ -288,6 +290,7 @@ async def _sse_event_stream(
     observer: RunObserver,
     ctx: RunContext,
     max_stream_events: int,
+    async_mode: bool = False,
 ) -> AsyncIterator[str]:
     """Produce a true-streaming SSE body, one frame at a time.
 
@@ -313,7 +316,14 @@ async def _sse_event_stream(
     count = 0
     released = False
     try:
-        async for event in _aiter_graph_events(graph, input_, config, stream_mode, version_kwargs):
+        async for event in _aiter_graph_events(
+            graph,
+            input_,
+            config,
+            stream_mode,
+            version_kwargs,
+            async_mode=async_mode,
+        ):
             if count >= max_stream_events:
                 stream_error = RuntimeError(f"stream exceeded max events ({max_stream_events})")
                 payload = json.dumps({"error": f"stream exceeded max events ({max_stream_events})"})
@@ -771,6 +781,7 @@ class StreamingLangGraphApp:
             observer=observer,
             ctx=ctx,
             max_stream_events=self.max_stream_events,
+            async_mode=is_async,
         )
         return StreamingResponse(
             generator,

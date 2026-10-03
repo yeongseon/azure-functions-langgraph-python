@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Iterator
+import importlib
 import json
 from typing import Any
 import warnings
 
 import azure.functions as func
+from langgraph.graph import START, MessagesState, StateGraph
 import pytest
 
 from azure_functions_langgraph.locks import InProcessThreadLock
@@ -311,12 +313,47 @@ class TestValidateRequest:
 
 class TestAiterGraphEvents:
     async def test_sync_graph(self) -> None:
-        events = [e async for e in _aiter_graph_events(FakeSyncGraph(), {}, {}, "values", {})]
+        events = [
+            e
+            async for e in _aiter_graph_events(
+                FakeSyncGraph(), {}, {}, "values", {}, async_mode=False
+            )
+        ]
         assert len(events) == 2
 
     async def test_async_graph(self) -> None:
-        events = [e async for e in _aiter_graph_events(FakeAsyncGraph(), {}, {}, "values", {})]
+        events = [
+            e
+            async for e in _aiter_graph_events(
+                FakeAsyncGraph(), {}, {}, "values", {}, async_mode=True
+            )
+        ]
         assert events == [{"n": 1}, {"n": 2}, {"n": 3}]
+
+    async def test_sync_mode_uses_stream_with_sqlite_saver(self) -> None:
+        try:
+            sqlite_module = importlib.import_module("langgraph.checkpoint.sqlite")
+        except ImportError as exc:
+            pytest.skip(f"installed SQLite saver is incompatible: {exc}")
+        builder = StateGraph(MessagesState)
+        builder.add_node("reply", lambda _state: {"messages": [("ai", "hello")]})
+        builder.add_edge(START, "reply")
+
+        with sqlite_module.SqliteSaver.from_conn_string(":memory:") as saver:
+            graph = builder.compile(checkpointer=saver)
+            events = [
+                event
+                async for event in _aiter_graph_events(
+                    graph,
+                    {"messages": [("human", "hi")]},
+                    {"configurable": {"thread_id": "sqlite-thread"}},
+                    "values",
+                    {},
+                    async_mode=False,
+                )
+            ]
+
+        assert events[-1]["messages"][-1].content == "hello"
 
 
 # ------------------------------------------------------------------
