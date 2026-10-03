@@ -9,6 +9,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph_sdk.sse import SSEDecoder
 import pytest
 
 from azure_functions_langgraph.platform._sse import (
@@ -158,6 +161,30 @@ class TestFormatDataEvent:
         result = format_data_event("values", {"key": "val"})
         expected = 'event: values\ndata: {"key": "val"}\n\n'
         assert result == expected
+
+    def test_real_sdk_decoder_preserves_langchain_message_dict(self) -> None:
+        builder = StateGraph(MessagesState)
+        builder.add_node("answer", lambda _state: {"messages": [AIMessage(content="hello")]})
+        builder.add_edge(START, "answer")
+        builder.add_edge("answer", END)
+        event = list(
+            builder.compile().stream(
+                {"messages": [HumanMessage(content="hi")]},
+                stream_mode="values",
+            )
+        )[-1]
+        frame = format_data_event("values", event)
+        decoder = SSEDecoder()
+
+        part = None
+        for line in frame.encode().splitlines():
+            decoded = decoder.decode(line)
+            if decoded is not None:
+                part = decoded
+
+        assert part is not None
+        assert part.data["messages"][-1]["type"] == "ai"
+        assert part.data["messages"][-1]["data"]["content"] == "hello"
 
 
 # ---------------------------------------------------------------------------

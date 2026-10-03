@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from azure_functions_langgraph._json import dumps
+
 
 def format_metadata_event(run_id: str) -> str:
     """Format the metadata SSE event (always first in stream).
@@ -42,9 +44,9 @@ def format_data_event(stream_mode: str, payload: Any) -> str:
     'event: values\\ndata: {"messages": []}\\n\\n'
     """
     if isinstance(payload, dict):
-        serialized = json.dumps(payload, default=str, allow_nan=False)
+        serialized = dumps(payload, allow_nan=False)
     else:
-        serialized = json.dumps({"data": payload}, default=str, allow_nan=False)
+        serialized = dumps({"data": payload}, allow_nan=False)
     return f"event: {stream_mode}\ndata: {serialized}\n\n"
 
 

@@ -18,6 +18,7 @@ from typing import Any, Protocol, TypeVar
 import azure.functions as func
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph._validation import (
     validate_body_size,
     validate_input_structure,
@@ -430,9 +431,8 @@ def handle_stream(
             stream_mode=request.stream_mode,
             **version_kwargs,
         ):
-            serialized = json.dumps(
+            serialized = dumps(
                 event if isinstance(event, dict) else {"data": str(event)},
-                default=str,
                 allow_nan=False,
             )
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
@@ -662,9 +662,8 @@ async def handle_stream_async(
             stream_mode=request.stream_mode,
             **version_kwargs,
         ):
-            serialized = json.dumps(
+            serialized = dumps(
                 event if isinstance(event, dict) else {"data": str(event)},
-                default=str,
                 allow_nan=False,
             )
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
