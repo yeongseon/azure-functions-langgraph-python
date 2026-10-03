@@ -494,6 +494,10 @@ app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYM
 app.register(graph=private_graph, name="private", auth_level=func.AuthLevel.FUNCTION)
 ```
 
+> **Important:** Per-graph overrides apply only to native graph routes. Platform-compatible
+> and Durable routes use the app-level `auth_level`; see the
+> [production guide](docs/production-guide.md) before exposing them.
+
 Example request using a function key:
 
 ```bash

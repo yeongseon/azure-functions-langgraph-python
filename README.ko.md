@@ -204,6 +204,10 @@ app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYM
 app.register(graph=private_graph, name="private", auth_level=func.AuthLevel.FUNCTION)
 ```
 
+> **중요:** 그래프별 재정의는 네이티브 그래프 경로에만 적용됩니다. Platform 호환
+> 경로와 Durable 경로는 앱 수준 `auth_level`을 사용하므로, 공개하기 전에
+> [프로덕션 가이드](docs/production-guide.md)를 확인하세요.
+
 Function 키를 사용한 요청 예시:
 
 ```bash
