@@ -8,9 +8,13 @@ no Durable Task backend required.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import azure.functions as func
+from langchain_core.runnables import RunnableLambda
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import START, MessagesState, StateGraph
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp
@@ -134,6 +138,10 @@ def _payload(**kw: Any) -> DurableRunPayload:
     base: dict[str, Any] = {"run_id": "r1", "graph_name": "echo", "input": {"x": 1}}
     base.update(kw)
     return DurableRunPayload(**base)
+
+
+def _fail_sensitive_backend(_state: MessagesState) -> dict[str, Any]:
+    raise RuntimeError("database unavailable at postgresql://user:secret@db.internal/app")
 
 
 # --------------------------------------------------------------------------
@@ -322,6 +330,30 @@ class TestGetRun:
         code, body = await get_run_impl(client, "r1")
         assert code == 200
         assert body["status"] == "running"
+
+    async def test_backend_failure_is_sanitized_and_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        builder = StateGraph(MessagesState)
+        builder.add_node("backend", RunnableLambda(_fail_sensitive_backend))
+        builder.add_edge(START, "backend")
+        result = await execute_langgraph_run_impl(
+            _payload(input={}, thread_id="thread-1"),
+            registry={"echo": FakeReg(builder.compile(checkpointer=MemorySaver()), "echo")},
+            thread_lock=InProcessThreadLock(),
+        )
+        client = FakeDurableClient(status=FakeStatus(_Enum("Completed"), result.to_dict()))
+
+        with caplog.at_level(logging.ERROR):
+            code, body = await get_run_impl(client, "r1")
+
+        assert code == 200
+        assert body["output"]["error"] == {
+            "code": "run_failed",
+            "message": "The run failed.",
+        }
+        assert "postgresql://user:secret@db.internal/app" not in json.dumps(body)
+        assert "postgresql://user:secret@db.internal/app" in caplog.text
 
 
 class TestCancelRun:
