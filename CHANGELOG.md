@@ -1,6 +1,18 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.9.3](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.2...v0.9.3) (2026-10-03)
+
+
+### Bug Fixes
+
+* **durable:** merge thread_id into non-empty run config ([#535](https://github.com/yeongseon/azure-functions-langgraph-python/issues/535)) ([002c713](https://github.com/yeongseon/azure-functions-langgraph-python/commit/002c713242081a81285c93a3612979295de36ffe))
+* **durable:** sanitize backend errors in run status ([#534](https://github.com/yeongseon/azure-functions-langgraph-python/issues/534)) ([589f7dc](https://github.com/yeongseon/azure-functions-langgraph-python/commit/589f7dc600fbfece3006c196b1fd696afc3f01ab))
+* **platform:** reject unknown stream modes ([#537](https://github.com/yeongseon/azure-functions-langgraph-python/issues/537)) ([1c0c6e0](https://github.com/yeongseon/azure-functions-langgraph-python/commit/1c0c6e0913b8bd4bb8195fae618f6bab45c99367))
+* **platform:** share the thread lock with native routes ([#532](https://github.com/yeongseon/azure-functions-langgraph-python/issues/532)) ([ad3af36](https://github.com/yeongseon/azure-functions-langgraph-python/commit/ad3af36894d994f58d415a7fb44db1430b730e20))
+* **streaming:** honor sync mode with SQLite checkpoints ([#536](https://github.com/yeongseon/azure-functions-langgraph-python/issues/536)) ([59dd51d](https://github.com/yeongseon/azure-functions-langgraph-python/commit/59dd51ddf7916d4810526b4836e0728f6c688f00))
+* **streaming:** serialize LangChain messages as JSON objects ([#538](https://github.com/yeongseon/azure-functions-langgraph-python/issues/538)) ([db430fa](https://github.com/yeongseon/azure-functions-langgraph-python/commit/db430fada649b643340532504c5ee313a61847fa))
+
 ## [0.9.2](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.1...v0.9.2) (2026-10-02)
 
 
