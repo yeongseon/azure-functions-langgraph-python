@@ -29,6 +29,10 @@ from azure_functions_langgraph.protocols import CloneableGraph
 
 logger = logging.getLogger(__name__)
 
+_STREAM_MODES = frozenset(
+    {"values", "updates", "checkpoints", "tasks", "debug", "messages", "custom"}
+)
+
 _PLATFORM_STRICT_ENV = "AZFUNC_LANGGRAPH_PLATFORM_STRICT"
 
 
@@ -136,14 +140,19 @@ def _normalize_stream_mode(
     """
     if isinstance(raw_mode, list):
         if len(raw_mode) == 1:
-            return raw_mode[0], None
-        if len(raw_mode) == 0:
+            raw_mode = raw_mode[0]
+        elif len(raw_mode) == 0:
             return "values", None
-        return None, _platform_error(
-            501,
-            "Multi-stream-mode is not supported in this release. "
-            "Provide a single stream_mode string or a one-element list.",
-        )
+        else:
+            return None, _platform_error(
+                501,
+                "Multi-stream-mode is not supported in this release. "
+                "Provide a single stream_mode string or a one-element list.",
+            )
+    if raw_mode is None:
+        return None, None
+    if not isinstance(raw_mode, str) or raw_mode not in _STREAM_MODES:
+        return None, _platform_error(400, "stream_mode must be a supported LangGraph stream mode")
     return raw_mode, None
 
 
