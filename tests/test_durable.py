@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 import azure.functions as func
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 import pytest
@@ -144,6 +144,10 @@ def _fail_sensitive_backend(_state: MessagesState) -> dict[str, Any]:
     raise RuntimeError("database unavailable at postgresql://user:secret@db.internal/app")
 
 
+def _return_thread_id(_state: MessagesState, config: RunnableConfig) -> dict[str, Any]:
+    return {"messages": [("ai", config["configurable"]["thread_id"])]}
+
+
 # --------------------------------------------------------------------------
 # Activity
 # --------------------------------------------------------------------------
@@ -232,6 +236,29 @@ class TestActivity:
             thread_lock=InProcessThreadLock(),
         )
         assert graph.calls[0][1] == cfg
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"tags": ["durable"]},
+            {"configurable": {"thread_id": "conflicting", "extra": "preserved"}},
+        ],
+    )
+    async def test_thread_id_is_merged_into_non_empty_config(self, config: dict[str, Any]) -> None:
+        builder = StateGraph(MessagesState)
+        builder.add_node("capture", RunnableLambda(_return_thread_id))
+        builder.add_edge(START, "capture")
+
+        result = await execute_langgraph_run_impl(
+            _payload(input={"messages": []}, thread_id="thread-from-payload", config=config),
+            registry={
+                "echo": FakeReg(builder.compile(checkpointer=MemorySaver()), "echo"),
+            },
+            thread_lock=InProcessThreadLock(),
+        )
+
+        assert result.activity_status == "success"
+        assert result.result["messages"][-1].content == "thread-from-payload"
 
 
 # --------------------------------------------------------------------------

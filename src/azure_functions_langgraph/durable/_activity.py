@@ -104,7 +104,15 @@ async def execute_langgraph_run_impl(
                 f"Thread {thread_id!r} for graph {reg.name!r} is currently in use",
             )
 
-    config = payload.config or ({"configurable": {"thread_id": thread_id}} if thread_id else None)
+    config = payload.config or None
+    if thread_id is not None:
+        config = {
+            **payload.config,
+            "configurable": {
+                **payload.config.get("configurable", {}),
+                "thread_id": thread_id,
+            },
+        }
     safe_observer_call(observer, "on_run_started", ctx)
     try:
         result = await _invoke_graph(reg, payload.input, config)
