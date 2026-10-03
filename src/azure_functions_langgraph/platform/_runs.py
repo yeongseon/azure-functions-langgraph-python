@@ -40,6 +40,8 @@ from azure_functions_langgraph.protocols import StreamableGraph
 def _release_thread_run_lock(
     deps: PlatformRouteDeps,
     thread_id: str,
+    graph_name: str,
+    lock_token: str,
     *,
     status: ThreadStatus,
     values: dict[str, Any] | None = None,
@@ -58,6 +60,8 @@ def _release_thread_run_lock(
             thread_id,
             status,
         )
+    finally:
+        deps.thread_lock.release(graph_name, thread_id, lock_token)
 
 
 def register_run_routes(
@@ -97,16 +101,29 @@ def register_run_routes(
             has_checkpointer=getattr(reg.graph, "checkpointer", None) is not None,
         )
 
+        lock_token = deps.thread_lock.acquire(reg.name, thread_id)
+        if lock_token is None:
+            safe_observer_call(
+                deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
+            )
+            return _platform_error(
+                409,
+                f"Thread {thread_id!r} is already busy. "
+                f"Concurrent runs are not supported (multitask_strategy=reject).",
+            )
         try:
             locked = deps.thread_store.try_acquire_run_lock(
                 thread_id,
                 assistant_id=run_req.assistant_id,
             )
         except KeyError:
+            deps.thread_lock.release(reg.name, thread_id, lock_token)
             return _platform_error(404, f"Thread {thread_id!r} not found")
         except ValueError as exc:
+            deps.thread_lock.release(reg.name, thread_id, lock_token)
             return _platform_error(409, str(exc))
         if locked is None:
+            deps.thread_lock.release(reg.name, thread_id, lock_token)
             safe_observer_call(
                 deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
             )
@@ -128,12 +145,14 @@ def register_run_routes(
                 run_req.assistant_id,
                 thread_id,
             )
-            _release_thread_run_lock(deps, thread_id, status="error")
+            _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             return _platform_error(500, "Graph execution failed")
 
         output = result if isinstance(result, dict) else {"result": result}
-        _release_thread_run_lock(deps, thread_id, status="idle", values=output)
+        _release_thread_run_lock(
+            deps, thread_id, reg.name, lock_token, status="idle", values=output
+        )
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
         return func.HttpResponse(
@@ -188,16 +207,29 @@ def register_run_routes(
             has_checkpointer=getattr(reg.graph, "checkpointer", None) is not None,
             stream_mode=stream_mode,
         )
+        lock_token = deps.thread_lock.acquire(reg.name, thread_id)
+        if lock_token is None:
+            safe_observer_call(
+                deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
+            )
+            return _platform_error(
+                409,
+                f"Thread {thread_id!r} is already busy. "
+                f"Concurrent runs are not supported (multitask_strategy=reject).",
+            )
         try:
             locked = deps.thread_store.try_acquire_run_lock(
                 thread_id,
                 assistant_id=run_req.assistant_id,
             )
         except KeyError:
+            deps.thread_lock.release(reg.name, thread_id, lock_token)
             return _platform_error(404, f"Thread {thread_id!r} not found")
         except ValueError as exc:
+            deps.thread_lock.release(reg.name, thread_id, lock_token)
             return _platform_error(409, str(exc))
         if locked is None:
+            deps.thread_lock.release(reg.name, thread_id, lock_token)
             safe_observer_call(
                 deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
             )
@@ -220,7 +252,7 @@ def register_run_routes(
         safe_observer_call(deps.observer, "on_run_started", ctx)
 
         if _check_stream_overflow(chunks, buffered_bytes, 0, max_bytes):
-            _release_thread_run_lock(deps, thread_id, status="error")
+            _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
             safe_observer_call(
                 deps.observer,
                 "on_run_failed",
@@ -240,7 +272,7 @@ def register_run_routes(
                 chunk = format_data_event(stream_mode, event)
                 chunk_bytes = len(chunk.encode())
                 if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
-                    _release_thread_run_lock(deps, thread_id, status="error")
+                    _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
                     safe_observer_call(
                         deps.observer,
                         "on_run_failed",
@@ -259,7 +291,7 @@ def register_run_routes(
                 run_req.assistant_id,
                 thread_id,
             )
-            _release_thread_run_lock(deps, thread_id, status="error")
+            _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             chunks.append(format_error_event("stream processing failed"))
             chunks.append(format_end_event())
@@ -270,7 +302,7 @@ def register_run_routes(
 
         chunks.append(format_end_event())
 
-        _release_thread_run_lock(deps, thread_id, status="idle")
+        _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="idle")
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
         return _build_sse_response(

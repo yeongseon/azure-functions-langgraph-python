@@ -615,9 +615,13 @@ class LangGraphApp:
                 register_platform_routes,
             )
 
+            thread_lock = self.thread_lock
+            if thread_lock is None:
+                raise RuntimeError("thread lock is not initialized")
             deps = PlatformRouteDeps(
                 registrations=self._registrations,
                 thread_store=self._thread_store,
+                thread_lock=thread_lock,
                 observer=self.observer or NoOpRunObserver(),
                 auth_level=self.auth_level,
                 max_stream_response_bytes=self.max_stream_response_bytes,
