@@ -17,6 +17,7 @@ state is the single source of truth for lifecycle status.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import logging
 from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
 
@@ -35,6 +36,8 @@ __all__ = [
     "cancel_run_impl",
     "runtime_status_str",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -144,6 +147,18 @@ async def get_run_impl(client: DurableClientLike, run_id: str) -> tuple[int, dic
     output = getattr(status, "output", None)
     output_mapping = output if isinstance(output, Mapping) else None
     normalized: DurableRunStatus = normalize_status(runtime, output_mapping)
+    if normalized == "error" and output_mapping is not None:
+        error = output_mapping.get("error")
+        if isinstance(error, Mapping):
+            logger.error(
+                "Durable run failed: type=%s message=%s",
+                error.get("type", "unknown"),
+                error.get("message", "unknown"),
+            )
+            output = {
+                **output_mapping,
+                "error": {"code": "run_failed", "message": "The run failed."},
+            }
     return 200, {"run_id": run_id, "status": normalized, "output": output}
 
 
