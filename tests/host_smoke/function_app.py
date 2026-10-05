@@ -1,3 +1,5 @@
+from typing import Any
+
 import azure.functions as func
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
@@ -5,7 +7,7 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from azure_functions_langgraph import LangGraphApp
 
 
-def answer(_state: MessagesState) -> MessagesState:
+def answer(_state: MessagesState) -> dict[str, Any]:
     return {"messages": [AIMessage(content="host smoke passed")]}
 
 
