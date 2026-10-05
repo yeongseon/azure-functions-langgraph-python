@@ -15,5 +15,5 @@ builder.add_edge(START, "answer")
 builder.add_edge("answer", END)
 
 langgraph_app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
-langgraph_app.register(graph=builder.compile(), name="smoke", stream=False)
+langgraph_app.register(graph=builder.compile(), name="known_bad", stream=False)
 app = langgraph_app.function_app
