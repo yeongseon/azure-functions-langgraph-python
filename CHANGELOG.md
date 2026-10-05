@@ -1,6 +1,13 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.9.4](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.3...v0.9.4) (2026-10-05)
+
+
+### Bug Fixes
+
+* **deps:** align azure-functions floor at 1.21.0 ([#548](https://github.com/yeongseon/azure-functions-langgraph-python/issues/548)) ([b95b866](https://github.com/yeongseon/azure-functions-langgraph-python/commit/b95b8669d4350c11c4528be93f284277c6d1c895))
+
 ## [0.9.3](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.2...v0.9.3) (2026-10-03)
 
 
