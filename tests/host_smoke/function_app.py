@@ -2,6 +2,7 @@ from typing import Any
 
 import azure.functions as func
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, START, MessagesState, StateGraph
 
 from azure_functions_langgraph import LangGraphApp
@@ -12,7 +13,7 @@ def answer(_state: MessagesState) -> dict[str, Any]:
 
 
 builder = StateGraph(MessagesState)
-builder.add_node("answer", answer)
+builder.add_node("answer", RunnableLambda(answer))
 builder.add_edge(START, "answer")
 builder.add_edge("answer", END)
 
