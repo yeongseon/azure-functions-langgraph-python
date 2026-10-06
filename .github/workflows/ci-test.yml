@@ -153,8 +153,6 @@ jobs:
             "langgraph-sdk==0.2.2" \
             "pydantic==2.7.4" \
             "coverage" \
-            "azure-functions-durable>=1.2,<2" \
-            "azurefunctions-extensions-http-fastapi>=1.0,<2" \
             "opentelemetry-api>=1.20,<2" \
             "opentelemetry-sdk>=1.20,<2" \
             "pytest" \
@@ -191,7 +189,8 @@ jobs:
       - name: Run full suite against declared dependency floors
         run: |
           pytest tests/ --no-cov -q \
-            --ignore=tests/test_sdk_compat.py
+            --ignore=tests/test_sdk_compat.py \
+            --ignore=tests/test_streaming_app.py
           pytest tests/test_sdk_contracts.py --no-cov -q
 
   artifact-build:
