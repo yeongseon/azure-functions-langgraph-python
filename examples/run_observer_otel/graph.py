@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 
 class ChatState(TypedDict, total=False):
