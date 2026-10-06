@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 
 class _State(TypedDict):
