@@ -1,6 +1,6 @@
 // infra/main.bicep
 // Minimal Azure resources for real-Azure e2e certification.
-// Creates: Storage Account + Function App (Consumption / Linux / Python 3.10).
+// Creates: Storage Account + Function App (Consumption / Linux / Python 3.12).
 //
 // The certified example (examples/e2e_app) exercises the native LangGraph
 // routes (/api/health, /api/graphs/<name>/invoke, /api/graphs/<name>/stream),
@@ -124,7 +124,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   properties: {
     serverFarmId: hostingPlan.id
     siteConfig: {
-      linuxFxVersion: 'Python|3.10'
+      linuxFxVersion: 'Python|3.12'
       appSettings: baseAppSettings
     }
     httpsOnly: true
@@ -155,7 +155,7 @@ resource functionAppB 'Microsoft.Web/sites@2023-01-01' = if (functionAppNameB !=
   properties: {
     serverFarmId: hostingPlanB.id
     siteConfig: {
-      linuxFxVersion: 'Python|3.10'
+      linuxFxVersion: 'Python|3.12'
       appSettings: baseAppSettings
     }
     httpsOnly: true
