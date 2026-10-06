@@ -1,7 +1,7 @@
 # Azure Functions LangGraph
 
 [![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph.svg)](https://pypi.org/project/azure-functions-langgraph/)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
+[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
 [![CI](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/LICENSE)
 
@@ -25,7 +25,7 @@ Deploy [LangGraph](https://github.com/langchain-ai/langgraph) agents as **Azure 
 
 ```python
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 from azure_functions_langgraph import LangGraphApp
 

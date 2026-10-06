@@ -19,7 +19,7 @@ flowchart LR
 ## Step 1: Define the state
 
 ```python
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 
 class AgentState(TypedDict):

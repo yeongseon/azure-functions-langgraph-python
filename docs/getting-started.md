@@ -4,14 +4,14 @@ This guide walks you through deploying a LangGraph agent as Azure Functions HTTP
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Azure Functions Core Tools installed
 - `azure-functions-langgraph` installed (see [Installation](installation.md))
 
 ## Step 1: Define your graph state
 
 ```python
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 
 class AgentState(TypedDict):
@@ -59,7 +59,7 @@ In your `function_app.py`:
 ```python
 from azure_functions_langgraph import LangGraphApp
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 
 class AgentState(TypedDict):
