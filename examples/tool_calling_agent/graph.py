@@ -173,9 +173,7 @@ def tools(state: AgentState) -> dict[str, Any]:
     for call in last.tool_calls:
         tool = _TOOLS_BY_NAME[call["name"]]
         result = tool.invoke(call["args"])
-        outputs.append(
-            ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"])
-        )
+        outputs.append(ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"]))
     return {"messages": outputs}
 
 
