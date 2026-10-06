@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import import_module
 import importlib.metadata as importlib_metadata
 import json
@@ -137,12 +137,12 @@ def test_assistant_json_serialization_roundtrip() -> None:
         assistant_id="test",
         graph_id="test",
         config={},
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
         metadata=None,
         version=1,
         name="test",
         description=None,
-        updated_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(UTC),
     )
     dumped = assistant.model_dump(mode="json")
     assert isinstance(dumped["assistant_id"], str)
