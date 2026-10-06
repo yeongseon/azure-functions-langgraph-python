@@ -23,7 +23,7 @@ func_app = app.function_app
 ## Prerequisites
 
 - [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4+
-- Python 3.10+
+- Python 3.11+
 - An **Azure OpenAI** resource with a **chat model deployment** (e.g. `gpt-4o-mini`)
 
 ## Configuration
