@@ -17,7 +17,13 @@
 
 > ℹ️ この翻訳はコミュニティによる参考用であり、最新の [English README](README.md) より古い場合があります。正確な最新情報は英語版を参照してください。
 
-> **アルファ版について** — このパッケージは活発に開発中です。`pyproject.toml` の `Development Status :: 3 - Alpha` 分類が真実の原本です。v1.0 まではマイナーバージョン間で破壊的変更が発生しうることを想定してください。GitHub でイシューを報告してください。
+> **安定性 — サーフェスごとのローリング 0.x。** このパッケージは「v1.0 まですべてが壊れる」という単一の契約ではなく、サーフェスごとのローリング 0.x 開発モデルを採用しています。コアアダプター API はマイナーリリース間の後方互換性を目標とし、新しいサーフェスはまだ変化する可能性があります。何に依存してよいかの唯一の真実の原本は以下のサーフェス別安定性テーブルです。`pyproject.toml` の `Development Status :: 3 - Alpha` 分類は最も新しいサーフェスを反映したものであり、安定したコアを意味しません。イシューは GitHub で報告してください。
+>
+> | サーフェス | ティア | 意味 |
+> | --- | --- | --- |
+> | コア — `LangGraphApp` の構築、ネイティブ invoke / stream / state HTTP エンドポイント、認証レベル | **Stable** | API は凍結。破壊的変更はメジャーバージョン更新に相当 |
+> | チェックポイントバックエンド、スレッドロック、ネイティブ async ランタイム（`ainvoke`/`astream`）、`version="v2"` パススルー、`RunObserver` 契約 | **Beta** | 形は固まっている。v1.0 までに調整される可能性あり |
+> | LangGraph Platform 互換、真の HTTP ストリーミング、Azure Service Bus トリガー、Durable 非同期実行ライフサイクル | **Experimental** | マイナーリリース間で変更・削除される可能性あり |
 
 最小限のボイラープレートで [LangGraph](https://github.com/langchain-ai/langgraph) グラフを **Azure Functions** HTTPエンドポイントとしてデプロイできます。
 
@@ -39,8 +45,8 @@ Azure FunctionsでLangGraphをデプロイするのは、思ったより大変�
 
 - **ボイラープレート不要のデプロイ** — コンパイル済みグラフを登録するだけで、HTTPエンドポイントが自動生成されます
 - **Invokeエンドポイント** — `POST /api/graphs/{name}/invoke` で同期実行
-- **Streamエンドポイント** — `POST /api/graphs/{name}/stream` でバッファリングされたSSEレスポンス
-- **Healthエンドポイント** — `GET /api/health` で登録済みグラフ一覧とチェックポインターの状態を確認
+- **Streamエンドポイント** — `POST /api/graphs/{name}/stream` でバッファリングされたSSEレスポンス（`StreamingLangGraphApp` で真の逐次ストリーミングをオプトイン可能）
+- **Healthエンドポイント** — 匿名の `GET /api/health` ライブネスプローブ（`{"status": "ok"}` のみ、グラフ一覧は含まない）と、保護された `GET /api/health/details`（登録済みグラフとチェックポインターの状態一覧）
 - **チェックポインター転送** — LangGraphネイティブのconfigによるスレッドベースの会話状態管理
 - **Stateエンドポイント** — `GET /api/graphs/{name}/threads/{thread_id}/state` でスレッド状態を検査（サポートされている場合）
 - **グラフごとの認証** — `register(graph, name, auth_level=...)` でアプリレベルの認証をグラフごとにオーバーライド
@@ -57,7 +63,7 @@ Azure FunctionsでLangGraphをデプロイするのは、思ったより大変�
 | ラン | 組み込み | スレッド付き + スレッドレスラン (v0.4+) |
 | ステート読み取り/更新 | 組み込み | get_state + update_state (v0.4+) |
 | ステート履歴 | 組み込み | フィルタリング対応チェックポイント履歴 (v0.4+) |
-| ストリーミング | True SSE | バッファリングSSE |
+| ストリーミング | True SSE | バッファリングSSE（`StreamingLangGraphApp` で真の SSE をオプトイン可能） |
 | 永続ストレージ | 組み込み | Azure Blob + Table Storage (v0.4+) |
 | インフラ | マネージド | Azure Functions（サーバーレス） |
 | コストモデル | 使用量/シートベース | Azure Functions料金プラン |
@@ -191,10 +197,31 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > トークン単位の真のストリーミングではなく、クライアントは部分トークンを逐次的には
 > 受け取れません。
 >
-> 真のチャンクストリーミングはロードマップにあり、Azure Functions Python v2 の
-> streaming response サポートに依存します。リアルタイムなトークンストリーミングが
-> 必要な場合は、長時間稼働するホスト（App Service や AKS など）でグラフを実行する
-> ことを検討してください。
+> **オプトインの真のストリーミング: `StreamingLangGraphApp`（実験的）。** グラフが
+> 生成した各 `event: data` フレームをその場でフラッシュする真の逐次配信が必要な場合は、
+> 別クラスの `StreamingLangGraphApp` を使用してください。
+> `azurefunctions-extensions-http-fastapi` 拡張が提供する FastAPI/ASGI トランスポート
+> （Azure Functions ランタイム **4.34.1+**）上で動作し、`streaming` エクストラで
+> ゲートされています:
+>
+> ```bash
+> pip install "azure-functions-langgraph[streaming]"
+> ```
+>
+> ```python
+> from azure_functions_langgraph import StreamingLangGraphApp
+>
+> app = StreamingLangGraphApp()
+> app.register(graph=graph, name="my_agent")
+> func_app = app.function_app
+> ```
+>
+> 真のストリーミングを有効にすると関数アプリ**全体**が ASGI モデルに切り替わるため、
+> 同一アプリ内でクラシックな `LangGraphApp` ルートと混在させることはできません。
+> クラシックの `max_stream_response_bytes` バイトガードは `max_stream_events`
+> （フレーム数の上限）に置き換わります。`LangGraphApp` は既定のまま変更ありません。
+> 実行可能な `curl -N` の手順は
+> [`examples/true_streaming_agent/`](examples/true_streaming_agent/) を参照してください。
 
 ### グラフごとの認証
 
@@ -241,7 +268,8 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 1. `POST /api/graphs/echo_agent/invoke` — エージェントの呼び出し
 2. `POST /api/graphs/echo_agent/stream` — エージェントレスポンスのストリーミング（バッファリングSSE、真のトークンストリーミングではない）
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — スレッド状態の検査
-4. `GET /api/health` — ヘルスチェック
+4. `GET /api/health` — 匿名のライブネスプローブ（`{"status": "ok"}`）
+5. `GET /api/health/details` — 登録済みグラフのインベントリ（デフォルトで保護）
 
 `platform_compat=True`を設定すると、SDK互換エンドポイントも生成されます:
 
@@ -338,7 +366,16 @@ func_app = app.function_app
 - **プレフィックススキャン** — `AzureBlobCheckpointSaver` は blob プレフィックススキャンでチェックポイントを列挙するため、トランザクション数とレイテンシはスレッドあたりのチェックポイント数に比例して増加します。下記のリテンションヘルパーで境界を保ちましょう。
 - **エンティティサイズ** — Azure Table エンティティは 1 MB が上限で、しきい値の 90% で警告がログに記録されます。
 - **ステールロッククリーンアップの注意点** — `AzureTableThreadStore.reset_stale_locks` はプロジェクションクエリ（`select=["RowKey", "updated_at"]`）を使用し、各ロウの ETag が `entity.metadata["etag"]` または `entity["etag"]` のいずれかで公開されることを要求します。どちらの形でも ETag が得られない行は、CAS に使える ETag なしにステールロックをリセットしないためにスキップされ（DEBUG ログ）、次回のスキャンで再試行されます。
-- **Cosmos DB Managed Identity 未サポート** — アップストリームの `langgraph-checkpoint-cosmosdb` パッケージが `TokenCredential` をサポートしていないため、`create_cosmos_checkpointer` は**キーベース認証のみ**を使用します。ヘルパーはコンストラクタ引数から `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` 環境変数を一時的に設定し、後で復元します。Cosmos DB へのパスワードレス認証が必須の場合は、アップストリームが `TokenCredential` を追加するまで他のチェックポインターバックエンドを選択してください。
+- **Cosmos DB の認証 — ヘルパーはキーベース、Managed Identity はアップストリームで利用可能** — `create_cosmos_checkpointer` はアカウントキーを解決して `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` 環境変数を一時的に設定し、後で復元するため、ヘルパー経由では常に**キーベース認証**になります。ただしアップストリームの `langgraph-checkpoint-cosmosdb`（≥ 0.2.8）はパスワードレス認証をサポートしており、`COSMOSDB_KEY` が**未設定**の場合 `CosmosDBSaver` は `DefaultAzureCredential`（Managed Identity、`az login`、サービスプリンシパル）にフォールバックします。今すぐ Managed Identity を使うには、ヘルパーを使わず `COSMOSDB_ENDPOINT` のみを設定してアップストリームの saver を直接インスタンス化し、Function App の ID に Cosmos DB のデータプレーンロール（例: *Cosmos DB Built-in Data Contributor*）を付与してください。
+>
+> ```python
+> import os
+> from langgraph_checkpoint_cosmosdb import CosmosDBSaver
+>
+> os.environ["COSMOSDB_ENDPOINT"] = "https://<account>.documents.azure.com:443/"
+> # COSMOSDB_KEY unset -> DefaultAzureCredential (Managed Identity)
+> checkpointer = CosmosDBSaver(database_name="langgraph", container_name="checkpoints")
+> ```
 
 #### ネイティブエンドポイントのスレッドロック
 

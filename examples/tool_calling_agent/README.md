@@ -183,7 +183,8 @@ and point it at the same `langgraph_app.function_app`. See the
 > this example's [`requirements.txt`](requirements.txt), never in the base
 > `azure-functions-langgraph` install, and the import stays behind
 > `register_with_openapi`'s `ImportError` guard. The bridge requires
-> `azure-functions-openapi-python >= 0.16.0`.
+> the `azure-functions-openapi` distribution `>= 0.16.0` (published from the
+> `azure-functions-openapi-python` repository).
 
 ## Deploy to Azure
 

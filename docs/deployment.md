@@ -14,7 +14,7 @@ Now you want to deploy it to Azure so it runs in the cloud. This guide assumes y
 After deployment, your agent exposes:
 
 - **Native routes** — `/api/health`, `/api/graphs/{name}/invoke`, `/api/graphs/{name}/stream`
-- **Platform-compatible routes** (opt-in) — `/api/threads`, `/api/runs/wait`, `/api/runs/stream`, and the full [LangGraph Platform API](https://langchain-ai.github.io/langgraph/cloud/reference/api/api_ref.html) surface
+- **Platform-compatible routes** (opt-in) — `/api/threads`, `/api/runs/wait`, `/api/runs/stream`, and a subset of the [LangGraph Platform API](https://docs.langchain.com/langgraph-platform/api-ref) surface. The coverage is partial by design: see [COMPATIBILITY.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md#platform-compatibility-layer) for exactly which endpoints and behaviors are mirrored.
 
 The `simple_agent` example is a two-node greeting graph (`greet` → `farewell`) that does **not** call any LLM.
 If your own graph uses OpenAI or another provider, you will set those API keys in [Step 8](#step-8-configure-app-settings).
@@ -444,7 +444,7 @@ data: {}
 
 ### Step 12 — Verify platform-compatible routes
 
-These routes follow the [LangGraph Platform API](https://langchain-ai.github.io/langgraph/cloud/reference/api/api_ref.html) specification.
+These routes follow the [LangGraph Platform API](https://docs.langchain.com/langgraph-platform/api-ref) specification for the subset listed in [COMPATIBILITY.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md#platform-compatibility-layer).
 
 #### Create a thread
 

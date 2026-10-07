@@ -41,7 +41,7 @@ Any third-party backend (Redis, Cosmos DB, …) that satisfies the protocol can 
 plugged in via `LangGraphApp(thread_lock=...)`.
 
 !!! warning "The default is single-process only"
-    Azure Functions Consumption and Elastic Premium plans scale horizontally.
+    Azure Functions Flex Consumption and Elastic Premium plans scale horizontally.
     Two Function App instances processing requests for the same `thread_id` will
     silently race under the in-process default. **Multi-instance deployments must
     supply a distributed backend.** See the
@@ -121,7 +121,7 @@ leases.
 #### Production checklist
 
 - [ ] Set `AZFUNC_LANGGRAPH_LOCK_BACKEND=distributed` (or pass `thread_lock=`
-      explicitly) on **any** multi-instance plan (Consumption, Elastic Premium).
+      explicitly) on **any** multi-instance plan (Flex Consumption, Elastic Premium).
 - [ ] Provision the lock container ahead of time — the lock never creates it.
 - [ ] Grant the app identity **Storage Blob Data Contributor** on the container.
 - [ ] Choose `lease_duration`: keep the default `60` with `auto_renew=True` for

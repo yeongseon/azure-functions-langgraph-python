@@ -140,20 +140,27 @@ STORAGE="stlanggraph$RANDOM"
 APP="func-langgraph-$RANDOM"
 
 # 3. Create the resource group, storage account, and a Python 3.11 Function App
+#    on Flex Consumption (the recommended plan for new apps).
 az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
 
 az storage account create --name "$STORAGE" --resource-group "$RESOURCE_GROUP" \
   --location "$LOCATION" --sku Standard_LRS
 
 az functionapp create --name "$APP" --resource-group "$RESOURCE_GROUP" \
-  --storage-account "$STORAGE" --consumption-plan-location "$LOCATION" \
-  --runtime python --runtime-version 3.11 --functions-version 4 --os-type Linux
+  --storage-account "$STORAGE" --flexconsumption-location "$LOCATION" \
+  --runtime python --runtime-version 3.11 --functions-version 4
 
 # 4. Publish this example (run from examples/simple_agent)
 func azure functionapp publish "$APP"
 ```
 
 When publishing finishes, `func` prints the deployed function URLs.
+
+> **Why Flex Consumption?** The classic Linux Consumption plan retires on
+> **30 September 2028** and receives no new Python versions (3.12 is the last
+> one it supports), so new apps should start on
+> [Flex Consumption](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan).
+> See [Choose a plan](choose-a-plan.md) for the full comparison.
 
 ### Call the deployed app
 

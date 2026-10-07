@@ -17,7 +17,13 @@
 
 > ℹ️ 本翻译由社区维护，仅供参考，可能落后于最新的 [English README](README.md)。请以英文版为准。
 
-> **Alpha 版本说明** — 此软件包正在积极开发中。`pyproject.toml` 中的 `Development Status :: 3 - Alpha` 分类属于唯一权威来源：在 v1.0 之前，次要版本之间可能会发生破坏性变更。请在 GitHub 上报告问题。
+> **稳定性 — 按表面滚动的 0.x。** 本软件包采用按表面滚动的 0.x 开发模型，而不是“v1.0 之前一切都会破坏”的单一契约。核心适配器 API 以跨次要版本保持向后兼容为目标，较新的表面仍可能演进。下面的按表面稳定性表是你可以依赖哪些内容的唯一权威来源；`pyproject.toml` 中的 `Development Status :: 3 - Alpha` 分类反映的是最年轻的表面，而非稳定的核心。请在 GitHub 上报告问题。
+>
+> | 表面 | 等级 | 含义 |
+> | --- | --- | --- |
+> | 核心 — `LangGraphApp` 构造、原生 invoke / stream / state HTTP 端点、认证级别 | **Stable** | API 已冻结；破坏性变更需要主版本号提升 |
+> | 检查点后端、线程锁、原生 async 运行时（`ainvoke`/`astream`）、`version="v2"` 透传、`RunObserver` 契约 | **Beta** | 形态已确定；在 v1.0 前仍可能微调 |
+> | LangGraph Platform 兼容、真正的 HTTP 流式传输、Azure Service Bus 触发器、Durable 异步运行生命周期 | **Experimental** | 可能在次要版本之间变更或移除 |
 
 以最少的样板代码将 [LangGraph](https://github.com/langchain-ai/langgraph) 图部署为 **Azure Functions** HTTP 端点。
 
@@ -39,8 +45,8 @@
 
 - **零样板代码部署** — 注册编译后的图，自动获得 HTTP 端点
 - **Invoke 端点** — `POST /api/graphs/{name}/invoke` 用于同步执行
-- **Stream 端点** — `POST /api/graphs/{name}/stream` 用于缓冲式 SSE 响应
-- **Health 端点** — `GET /api/health` 列出已注册图及检查点器状态
+- **Stream 端点** — `POST /api/graphs/{name}/stream` 用于缓冲式 SSE 响应（可通过 `StreamingLangGraphApp` 选择启用真正的逐步流式传输）
+- **Health 端点** — 匿名 `GET /api/health` 存活探针（仅返回 `{"status": "ok"}`，不含图清单），以及受保护的 `GET /api/health/details`（列出已注册图及检查点器状态）
 - **检查点器透传** — 通过 LangGraph 原生 config 实现基于线程的对话状态管理
 - **State 端点** — `GET /api/graphs/{name}/threads/{thread_id}/state` 用于线程状态检查（支持时）
 - **按图认证** — `register(graph, name, auth_level=...)` 按图覆盖应用级认证
@@ -57,7 +63,7 @@
 | 运行 | 内置 | 线程化 + 无线程运行 (v0.4+) |
 | 状态读取/更新 | 内置 | get_state + update_state (v0.4+) |
 | 状态历史 | 内置 | 支持过滤的检查点历史 (v0.4+) |
-| 流式传输 | True SSE | 缓冲式 SSE |
+| 流式传输 | True SSE | 缓冲式 SSE（可通过 `StreamingLangGraphApp` 启用真正的 SSE） |
 | 持久存储 | 内置 | Azure Blob + Table Storage (v0.4+) |
 | 基础设施 | 托管服务 | Azure Functions（无服务器） |
 | 成本模型 | 按使用量/座位 | Azure Functions 定价 |
@@ -190,9 +196,28 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > 一次性以 SSE 事件形式发送。这并非真正的逐 token 流式传输，客户端无法增量
 > 接收部分 token。
 >
-> 真正的分块流式传输已列入路线图，依赖于 Azure Functions Python v2 对
-> streaming response 的支持。如果当前确实需要实时 token 级流式传输，建议
-> 在长时间运行的宿主（如 App Service 或 AKS）中运行图。
+> **可选的真正流式传输：`StreamingLangGraphApp`（实验性）。** 如果需要图每产生一帧就
+> 立即下发 `event: data` 的真正增量传输，请使用独立的 `StreamingLangGraphApp`。
+> 它基于 `azurefunctions-extensions-http-fastapi` 扩展提供的 FastAPI/ASGI 传输
+> （Azure Functions 运行时 **4.34.1+**），并由 `streaming` extra 门控：
+>
+> ```bash
+> pip install "azure-functions-langgraph[streaming]"
+> ```
+>
+> ```python
+> from azure_functions_langgraph import StreamingLangGraphApp
+>
+> app = StreamingLangGraphApp()
+> app.register(graph=graph, name="my_agent")
+> func_app = app.function_app
+> ```
+>
+> 启用真正的流式传输会将**整个**函数应用切换为 ASGI 模型，因此无法在同一应用中与
+> 经典的 `LangGraphApp` 路由混用；经典模式下的 `max_stream_response_bytes` 字节
+> 护栏也会被 `max_stream_events`（帧数上限）取代。`LangGraphApp` 保持不变，仍是默认
+> 选择。可运行的 `curl -N` 演练请参见
+> [`examples/true_streaming_agent/`](examples/true_streaming_agent/)。
 
 ### 按图认证
 
@@ -238,7 +263,8 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 1. `POST /api/graphs/echo_agent/invoke` — 调用智能体
 2. `POST /api/graphs/echo_agent/stream` — 流式传输智能体响应（缓冲式 SSE，非真正逐 token 流式传输）
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — 检查线程状态
-4. `GET /api/health` — 健康检查
+4. `GET /api/health` — 匿名存活探针（`{"status": "ok"}`）
+5. `GET /api/health/details` — 已注册图清单（默认受保护）
 
 设置 `platform_compat=True` 时还会生成 SDK 兼容端点：
 
@@ -335,7 +361,16 @@ func_app = app.function_app
 - **前缀扫描** — `AzureBlobCheckpointSaver` 通过 blob 前缀扫描列出检查点，事务数与延迟随每线程检查点数量增长。请使用下文的保留辅助函数加以约束。
 - **实体大小** — Azure Table 实体上限为 1 MB；当达到阈值的 90% 时会记录警告。
 - **锁清理警告** — `AzureTableThreadStore.reset_stale_locks` 使用投影查询（`select=["RowKey", "updated_at"]`），依赖于每行通过 `entity.metadata["etag"]` 或 `entity["etag"]` 中任一暴露 ETag。两种形状都未提供 ETag 的行会被跳过（记录为 DEBUG 日志），以免在没有可写 ETag 的情况下重置锁；下一轮扫描会重试。
-- **Cosmos DB 不支持 Managed Identity** — 上游 `langgraph-checkpoint-cosmosdb` 包未支持 `TokenCredential`，因此 `create_cosmos_checkpointer` **仅使用基于密钥的身份验证**。辅助函数从构造参数临时写入 `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` 环境变量，随后恢复。若平台要求对 Cosmos DB 采用免密码认证，请在上游添加 `TokenCredential` 支持之前选择其他检查点后端。
+- **Cosmos DB 身份验证 — 辅助函数基于密钥，Managed Identity 可在上游使用** — `create_cosmos_checkpointer` 会解析账户密钥并临时写入 `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` 环境变量（随后恢复），因此调用该辅助函数始终使用**基于密钥的身份验证**。不过上游 `langgraph-checkpoint-cosmosdb`（≥ 0.2.8）**确实**支持免密码认证：当 `COSMOSDB_KEY` **未设置**时，`CosmosDBSaver` 会回退到 `DefaultAzureCredential`（Managed Identity、`az login`、服务主体）。若现在就要使用 Managed Identity，请跳过辅助函数，仅设置 `COSMOSDB_ENDPOINT` 并直接实例化上游 saver，并为 Function App 的标识授予 Cosmos DB 数据平面角色（例如 *Cosmos DB Built-in Data Contributor*）。
+>
+> ```python
+> import os
+> from langgraph_checkpoint_cosmosdb import CosmosDBSaver
+>
+> os.environ["COSMOSDB_ENDPOINT"] = "https://<account>.documents.azure.com:443/"
+> # COSMOSDB_KEY unset -> DefaultAzureCredential (Managed Identity)
+> checkpointer = CosmosDBSaver(database_name="langgraph", container_name="checkpoints")
+> ```
 
 #### 原生端点的线程锁
 

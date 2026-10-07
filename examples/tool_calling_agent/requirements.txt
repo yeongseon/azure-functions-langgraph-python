@@ -6,13 +6,14 @@
 # deployment adapter and does not pull in model SDKs. The tools in tools.py are
 # dependency-free demo logic, so they add nothing here.
 #
-# azure-functions-openapi-python is ALSO example-only (used by the OpenAPI
-# bridge in function_app.py). It is never a base-package dependency; the bridge
-# import stays behind register_with_openapi's ImportError guard.
+# azure-functions-openapi (the PyPI distribution published from the
+# azure-functions-openapi-python repository) is ALSO example-only (used by the
+# OpenAPI bridge in function_app.py). It is never a base-package dependency;
+# the bridge import stays behind register_with_openapi's ImportError guard.
 
 azure-functions
-azure-functions-langgraph>=0.8,<0.9
-azure-functions-openapi-python>=0.16.0
+azure-functions-langgraph>=0.10.0,<0.11
+azure-functions-openapi>=0.16.0
 langgraph>=1.0,<2.0
 langchain-core>=1.0,<2.0
 langchain-openai>=0.3,<1.0

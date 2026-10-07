@@ -1,7 +1,7 @@
 # Durable Async Agent — Long-Running Runs with Durable Functions
 
 This example serves a LangGraph graph as an **asynchronous run lifecycle**
-backed by [Azure Durable Functions](https://learn.microsoft.com/azure/azure-functions/durable/),
+backed by [Azure Durable Functions](https://learn.microsoft.com/en-us/azure/azure-functions/durable/durable-functions-overview),
 via `LangGraphApp(async_runs="durable")` (issue #408).
 
 Instead of a single synchronous `POST /invoke` that blocks until the graph

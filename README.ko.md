@@ -17,7 +17,13 @@
 
 > ℹ️ 이 번역은 커뮤니티가 관리하는 참고용 문서로, 최신 [English README](README.md)보다 뒤처질 수 있습니다. 정확한 최신 정보는 영어 원문을 기준으로 하세요.
 
-> **알파 버전 안내** — 이 패키지는 활발히 개발 중입니다. `pyproject.toml`의 `Development Status :: 3 - Alpha` 분류가 진실의 원철입니다. v1.0 이전에는 minor 버전 간 변경될 수 있습니다. GitHub에서 이슈를 보고해 주세요.
+> **안정성 — 표면별 롤링 0.x.** 이 패키지는 "v1.0까지 모든 것이 깨진다"는 단일 계약 대신 표면별 롤링 0.x 개발 모델을 따릅니다. 코어 어댑터 API는 minor 릴리스 간 하위 호환을 목표로 하며, 최신 표면은 아직 변경될 수 있습니다. 의존해도 되는 범위의 유일한 진실의 원천은 아래 표면별 안정성 표입니다. `pyproject.toml`의 `Development Status :: 3 - Alpha` 분류는 가장 어린 표면을 반영할 뿐, 안정된 코어를 뜻하지 않습니다. 이슈는 GitHub에 보고해 주세요.
+>
+> | 표면 | 등급 | 의미 |
+> | --- | --- | --- |
+> | 코어 — `LangGraphApp` 생성, 네이티브 invoke / stream / state HTTP 엔드포인트, 인증 레벨 | **Stable** | API 고정. 파괴적 변경은 major 버전 상승 사유 |
+> | 체크포인트 백엔드, 스레드 잠금, 네이티브 async 런타임(`ainvoke`/`astream`), `version="v2"` 패스스루, `RunObserver` 계약 | **Beta** | 형태는 확정. v1.0 전에 다듬어질 수 있음 |
+> | LangGraph Platform 호환, 진정한 HTTP 스트리밍, Azure Service Bus 트리거, Durable 비동기 실행 수명주기 | **Experimental** | minor 릴리스 사이에 변경되거나 제거될 수 있음 |
 
 [LangGraph](https://github.com/langchain-ai/langgraph) 그래프를 최소한의 보일러플레이트로 **Azure Functions** HTTP 엔드포인트로 배포하세요.
 
@@ -39,8 +45,8 @@ Azure Functions에서 LangGraph를 배포하는 것은 생각보다 어렵습니
 
 - **보일러플레이트 없는 배포** — 컴파일된 그래프를 등록하면 HTTP 엔드포인트가 자동으로 생성됩니다
 - **Invoke 엔드포인트** — `POST /api/graphs/{name}/invoke`로 동기 실행
-- **Stream 엔드포인트** — `POST /api/graphs/{name}/stream`으로 버퍼링된 SSE 응답
-- **Health 엔드포인트** — `GET /api/health`로 등록된 그래프 목록과 체크포인터 상태 확인
+- **Stream 엔드포인트** — `POST /api/graphs/{name}/stream`으로 버퍼링된 SSE 응답 (`StreamingLangGraphApp`으로 진정한 점진적 스트리밍 선택 가능)
+- **Health 엔드포인트** — 익명 `GET /api/health` 라이브니스 프로브(`{"status": "ok"}`만 반환, 그래프 목록 없음)와 보호된 `GET /api/health/details`(등록된 그래프와 체크포인터 상태 목록)
 - **체크포인터 전달** — LangGraph 네이티브 config를 통한 스레드 기반 대화 상태 관리
 - **State 엔드포인트** — `GET /api/graphs/{name}/threads/{thread_id}/state`로 스레드 상태 조회 (지원되는 경우)
 - **그래프별 인증** — `register(graph, name, auth_level=...)`로 앱 수준 인증을 그래프별로 재정의
@@ -57,7 +63,7 @@ Azure Functions에서 LangGraph를 배포하는 것은 생각보다 어렵습니
 | 실행 | 내장 | 스레드 기반 + 스레드리스 실행 (v0.4+) |
 | 상태 읽기/수정 | 내장 | get_state + update_state (v0.4+) |
 | 상태 히스토리 | 내장 | 필터링 지원 체크포인트 히스토리 (v0.4+) |
-| 스트리밍 | True SSE | 버퍼링된 SSE |
+| 스트리밍 | True SSE | 버퍼링된 SSE (`StreamingLangGraphApp`으로 진정한 SSE 선택 가능) |
 | 영구 스토리지 | 내장 | Azure Blob + Table Storage (v0.4+) |
 | 인프라 | 관리형 | Azure Functions (서버리스) |
 | 비용 모델 | 사용량/좌석 기반 | Azure Functions 요금제 |
@@ -190,9 +196,29 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > 실행이 **완료된 후**에 한꺼번에 SSE 이벤트로 전송됩니다. 즉, 진정한 토큰 단위
 > 스트리밍이 아니며, 클라이언트는 부분 토큰을 점진적으로 받지 못합니다.
 >
-> 진정한 청크 스트리밍은 로드맵에 있으며 Azure Functions Python v2의 streaming
-> response 지원에 의존합니다. 실시간 토큰 스트리밍이 필요한 경우, 장시간 실행
-> 호스트(예: App Service 또는 AKS)에서 그래프를 실행하는 것을 권장합니다.
+> **선택적 진정한 스트리밍: `StreamingLangGraphApp` (실험적).** 그래프가 생성하는
+> 즉시 각 `event: data` 프레임을 흘려보내는 진정한 점진적 전송이 필요하면 별도의
+> `StreamingLangGraphApp`을 사용하세요. `azurefunctions-extensions-http-fastapi`
+> 확장이 제공하는 FastAPI/ASGI 전송(Azure Functions 런타임 **4.34.1+**) 위에서
+> 동작하며 `streaming` extra로 게이트됩니다:
+>
+> ```bash
+> pip install "azure-functions-langgraph[streaming]"
+> ```
+>
+> ```python
+> from azure_functions_langgraph import StreamingLangGraphApp
+>
+> app = StreamingLangGraphApp()
+> app.register(graph=graph, name="my_agent")
+> func_app = app.function_app
+> ```
+>
+> 진정한 스트리밍을 켜면 **함수 앱 전체**가 ASGI 모델로 전환되므로 같은 앱에서
+> 클래식 `LangGraphApp` 라우트와 섞어 쓸 수 없습니다. 또한 클래식의
+> `max_stream_response_bytes` 바이트 가드는 `max_stream_events`(프레임 수 상한)로
+> 대체됩니다. `LangGraphApp`은 그대로 기본값으로 남습니다. 실행 가능한 `curl -N`
+> 예제는 [`examples/true_streaming_agent/`](examples/true_streaming_agent/)를 참고하세요.
 
 ### 그래프별 인증
 
@@ -239,7 +265,8 @@ curl -X POST "https://<app>.azurewebsites.net/api/graphs/echo_agent/invoke?code=
 1. `POST /api/graphs/echo_agent/invoke` — 에이전트 호출
 2. `POST /api/graphs/echo_agent/stream` — 에이전트 응답 스트리밍 (버퍼링된 SSE, 진정한 토큰 스트리밍 아님)
 3. `GET /api/graphs/echo_agent/threads/{thread_id}/state` — 스레드 상태 조회
-4. `GET /api/health` — 헬스 체크
+4. `GET /api/health` — 익명 라이브니스 프로브 (`{"status": "ok"}`)
+5. `GET /api/health/details` — 등록된 그래프 인벤토리 (기본적으로 보호됨)
 
 `platform_compat=True` 설정 시 SDK 호환 엔드포인트도 생성됩니다:
 
@@ -336,7 +363,16 @@ func_app = app.function_app
 - **Prefix 스캔** — `AzureBlobCheckpointSaver`는 blob prefix 스캔으로 체크포인트를 나열하므로 트랜잭션 수와 지연이 스레드당 체크포인트 수에 비례하여 증가합니다. 아래 보존 헬퍼로 이를 제한하세요.
 - **엔티티 크기** — Azure Table 엔티티는 1 MB로 제한되며, 임계값의 90%에서 경고가 기록됩니다.
 - **스테일 락 정리 주의** — `AzureTableThreadStore.reset_stale_locks`는 프로젝션 쿼리(`select=["RowKey", "updated_at"]`)를 사용하며, `entity.metadata["etag"]` 또는 `entity["etag"]` 중 하나로도 ETag가 노출되어야 합니다. 두 형태 모두에서 ETag가 없는 행은 CAS용 ETag 없이 스테일 락을 재설정하지 않도록 건너뛰어(DEBUG 로그) 다음 스캔에서 다시 시도됩니다.
-- **Cosmos DB Managed Identity 미지원** — 업스트림 `langgraph-checkpoint-cosmosdb` 패키지가 `TokenCredential`을 지원하지 않으므로 `create_cosmos_checkpointer`는 **키 기반 인증만** 사용합니다. 헬퍼는 생성자 인자로부터 `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` 환경 변수를 일시적으로 설정한 뒤 원복합니다. Cosmos DB에 패스워드리스 인증이 필수라면 업스트림이 `TokenCredential`을 추가할 때까지 다른 체크포인터 백엔드를 사용하세요.
+- **Cosmos DB 인증 — 헬퍼는 키 기반, Managed Identity는 업스트림에서 가능** — `create_cosmos_checkpointer`는 계정 키를 해석해 `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` 환경 변수를 일시적으로 설정한 뒤 원복하므로 헬퍼를 호출하면 항상 **키 기반 인증**을 사용합니다. 다만 업스트림 `langgraph-checkpoint-cosmosdb`(≥ 0.2.8)는 패스워드리스 인증을 지원합니다. `COSMOSDB_KEY`가 **설정되지 않으면** `CosmosDBSaver`가 `DefaultAzureCredential`(Managed Identity, `az login`, 서비스 주체)로 폴백합니다. 지금 Managed Identity를 쓰려면 헬퍼를 건너뛰고 `COSMOSDB_ENDPOINT`만 설정한 채 업스트림 saver를 직접 생성한 뒤, Function App 아이덴티티에 Cosmos DB 데이터 플레인 역할(예: *Cosmos DB Built-in Data Contributor*)을 부여하세요.
+>
+> ```python
+> import os
+> from langgraph_checkpoint_cosmosdb import CosmosDBSaver
+>
+> os.environ["COSMOSDB_ENDPOINT"] = "https://<account>.documents.azure.com:443/"
+> # COSMOSDB_KEY unset -> DefaultAzureCredential (Managed Identity)
+> checkpointer = CosmosDBSaver(database_name="langgraph", container_name="checkpoints")
+> ```
 
 #### 네이티브 엔드포인트 스레드 락
 
