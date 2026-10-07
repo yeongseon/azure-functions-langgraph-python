@@ -36,7 +36,7 @@ import itertools
 import os
 from typing import Annotated, Any
 
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 _TRUTHY = {"1", "true", "yes", "on"}
 

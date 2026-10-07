@@ -1,0 +1,12 @@
+# Requires live Azurite/Cosmos services and their Blob, Table, and Cosmos extras.
+tests/integration
+# Requires the azure-functions-durable optional extra for DFApp registration.
+tests/test_durable.py
+# Exercises newer langgraph-sdk client methods absent from the 0.2.2 floor.
+tests/test_persistent_storage.py
+# Requires the Azure Blob extra and a live Azurite service.
+tests/test_production_persistent_agent_example.py
+# Certifies SDK wire behavior against supported newer SDK lines, not the 0.2.2 floor.
+tests/test_sdk_compat.py
+# Requires the azurefunctions-extensions-http-fastapi streaming extra.
+tests/test_streaming_app.py

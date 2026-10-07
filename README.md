@@ -7,7 +7,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/azure-functions-langgraph.svg)](https://pypi.org/project/azure-functions-langgraph/)
 [![Downloads](https://static.pepy.tech/badge/azure-functions-langgraph/month)](https://pepy.tech/project/azure-functions-langgraph)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
+[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/azure-functions-langgraph/)
 [![CI](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/ci-test.yml)
 [![Release](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/publish-pypi.yml)
 [![Security Scans](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/security.yml/badge.svg)](https://github.com/yeongseon/azure-functions-langgraph-python/actions/workflows/security.yml)
@@ -31,8 +31,6 @@ Deploy [LangGraph](https://github.com/langchain-ai/langgraph) graphs as **Azure 
 ---
 
 Part of the **Azure Functions Python DX Toolkit**
-
-> **Python 3.10 is deprecated.** Support ends in the next minor release — Python 3.10 reaches end of life in October 2026. Importing the package on Python 3.10 emits a `FutureWarning`; upgrade to Python 3.11 or newer.
 
 ## Why this exists
 
@@ -160,7 +158,7 @@ This `azure_openai_agent → conversation_memory → tool_calling_agent → prod
 
 ```python
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 import azure.functions as func
 
@@ -575,7 +573,7 @@ import azure.functions as func
 
 from azure.storage.blob import ContainerClient
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver

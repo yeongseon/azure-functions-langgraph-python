@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import importlib
-import sys
 from typing import TYPE_CHECKING
-import warnings
 
 __version__ = "0.9.4"
 
@@ -176,13 +174,3 @@ __all__ = [
     # Streaming
     "StreamingLangGraphApp",
 ]
-
-
-if sys.version_info < (3, 11):
-    warnings.warn(
-        "azure-functions-langgraph will drop support for Python 3.10 in its next minor release. "
-        "Python 3.10 reaches end of life in October 2026; upgrade to Python 3.11 "
-        "or newer to keep receiving updates.",
-        FutureWarning,
-        stacklevel=2,
-    )

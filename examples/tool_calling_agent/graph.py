@@ -33,7 +33,7 @@ import os
 from typing import Annotated, Any
 
 from tools import TOOLS
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
@@ -173,9 +173,7 @@ def tools(state: AgentState) -> dict[str, Any]:
     for call in last.tool_calls:
         tool = _TOOLS_BY_NAME[call["name"]]
         result = tool.invoke(call["args"])
-        outputs.append(
-            ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"])
-        )
+        outputs.append(ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"]))
     return {"messages": outputs}
 
 

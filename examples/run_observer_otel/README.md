@@ -60,7 +60,7 @@ thread-lock release.
 ## Prerequisites
 
 - [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4+
-- Python 3.10+
+- Python 3.11+
 - `langgraph>=1.1`
 
 ## Run locally

@@ -8,7 +8,7 @@
 #
 #     ./tools/smoke_tutorial.sh
 #
-# Requires: Azure Functions Core Tools v4 (`func`), Python 3.10+, curl.
+# Requires: Azure Functions Core Tools v4 (`func`), Python 3.11+, curl.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

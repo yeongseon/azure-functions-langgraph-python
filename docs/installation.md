@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.10 or later
+- Python 3.11 or later
 - Azure Functions Core Tools (for local development)
 - An Azure Functions project using the [Python v2 programming model](https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python)
 
@@ -16,7 +16,7 @@ This installs the package along with its dependencies:
 
 - `azure-functions` — Azure Functions Python SDK
 - `langgraph` (>= 0.2) — LangGraph graph runtime
-- `pydantic` (>= 2.0, < 3.0) — request/response validation
+- `pydantic` (>= 2.7.4, < 3.0) — request/response validation
 
 ## Add to your requirements
 

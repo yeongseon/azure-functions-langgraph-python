@@ -6,7 +6,7 @@ import asyncio
 import builtins
 from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 import importlib
 import json
 import logging
@@ -684,7 +684,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         return result
 
     def _utcnow(self) -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     def _collect_retained_versions(
         self, thread_id: str, checkpoint_ns: str

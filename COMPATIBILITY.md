@@ -4,9 +4,9 @@
 
 | Package | Supported Versions | Notes |
 |---|---|---|
-| `langgraph` | `>=1.0,<2.0` | Runtime dependency. CI certifies both ends of the supported window on a rolling basis: the `langgraph-min` lane pins the minimum supported 1.x release (1.0.0), and the `langgraph-latest` lane pins the latest certified 1.2.x. The coverage-gated matrix (Python 3.10–3.14) resolves the newest compatible 1.x by default. |
+| `langgraph` | `>=1.0,<2.0` | Runtime dependency. CI certifies both ends of the supported window on a rolling basis: the `langgraph-min` lane pins the minimum supported 1.x release (1.0.0), and the `langgraph-latest` lane pins the latest certified 1.2.x. The coverage-gated matrix (Python 3.11–3.14) resolves the newest compatible 1.x by default. |
 | `langgraph-sdk` | `>=0.2.2,<0.5` | Platform compat layer mirrors this SDK version's REST API shapes. The floor tracks the minimum supported `langgraph` (1.0.0 -> `langgraph-sdk 0.2.2`); the ceiling was lifted to `<0.5` once `langgraph` core 1.2.9+ moved to `langgraph-sdk >=0.4.2,<0.5`. The 0.4.x wire surface is certified identical to 0.3.x (issue #368 spike + `langgraph-latest` lane, #421). |
-| `pydantic` | `>=2.0` | Required for request/response models. |
+| `pydantic` | `>=2.7.4,<3.0` | Required for request/response models. |
 | `azure-functions` | `>=1.17` | Azure Functions Python v2 programming model. |
 
 ### Rolling minimum-version window
@@ -189,6 +189,6 @@ CI tests include:
 
 | Extra | Dependency | Python | Notes |
 |---|---|---|---|
-| `postgres` | `langgraph-checkpoint-postgres>=3.0,<4` | 3.10+ | Production DB checkpoint backend |
-| `sqlite` | `langgraph-checkpoint-sqlite>=3.0,<4` | 3.10+ | Local development |
-| `cosmos` | `langgraph-checkpoint-cosmosdb>=0.2.0,<0.3` | 3.10+ | Azure-native checkpoint backend. The `create_cosmos_checkpointer` helper is key-based; upstream `CosmosDBSaver` (≥0.2.8) also supports Managed Identity via `DefaultAzureCredential` when `COSMOSDB_KEY` is unset (see README). |
+| `postgres` | `langgraph-checkpoint-postgres>=3.0,<4` | 3.11+ | Production DB checkpoint backend |
+| `sqlite` | `langgraph-checkpoint-sqlite>=3.0,<4` | 3.11+ | Local development |
+| `cosmos` | `langgraph-checkpoint-cosmosdb>=0.2.0,<0.3` | 3.11+ | Azure-native checkpoint backend. The `create_cosmos_checkpointer` helper is key-based; upstream `CosmosDBSaver` (≥0.2.8) also supports Managed Identity via `DefaultAzureCredential` when `COSMOSDB_KEY` is unset (see README). |

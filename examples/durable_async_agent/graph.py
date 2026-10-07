@@ -13,7 +13,7 @@ import time
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import TypedDict
+from typing import TypedDict
 
 
 class AgentState(TypedDict):

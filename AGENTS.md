@@ -8,7 +8,7 @@
 - Project: `azure-functions-langgraph`
 - Project type: Python library
 - Runtime scope: Azure Functions Python v2 programming model
-- Minimum supported Python: `3.10`
+- Minimum supported Python: `3.11`
 - Packaging: `pyproject.toml` with Hatch
 
 ## Read First
@@ -21,7 +21,7 @@
 - Maintain test coverage at **95% or above** for committed changes and PRs.
 - Run `hatch run pytest --cov --cov-report=term-missing -q` to verify before submitting changes.
 - Any PR that drops coverage below 95% must include additional tests to compensate.
-- Runtime code must remain compatible with Python 3.10+.
+- Runtime code must remain compatible with Python 3.11+.
 - Public APIs must be fully typed.
 - Graph registration must remain protocol-based — accept any object satisfying `LangGraphLike`, not just `CompiledStateGraph`.
 - Keep documentation examples, app behaviour, and tests synchronized.
