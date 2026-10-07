@@ -151,7 +151,7 @@ jobs:
             "azure-functions==1.21.0" \
             "langgraph==1.0.0" \
             "langgraph-sdk==0.2.2" \
-            "pydantic==2.7.4" \
+            "pydantic==2.9.0" \
             "coverage" \
             "opentelemetry-api>=1.20,<2" \
             "opentelemetry-sdk>=1.20,<2" \
@@ -179,19 +179,22 @@ jobs:
               "azure-functions": "1.21.0",
               "langgraph": "1.0.0",
               "langgraph-sdk": "0.2.2",
-              "pydantic": "2.7.4",
+              "pydantic": "2.9.0",
           }
           PY
 
       - name: Check the minimum dependency environment
         run: python -m pip check
 
-      - name: Run full suite against declared dependency floors
+      - name: Run core suite against declared dependency floors
         run: |
-          pytest tests/ --no-cov -q \
-            --ignore=tests/test_sdk_compat.py \
-            --ignore=tests/test_streaming_app.py
-          pytest tests/test_sdk_contracts.py --no-cov -q
+          mapfile -t optional_tests < tools/minimum_dependency_optional_tests.txt
+          ignore_args=()
+          for test_path in "${optional_tests[@]}"; do
+            ignore_args+=("--ignore=${test_path}")
+          done
+          printf 'deselecting optional test module: %s\n' "${optional_tests[@]}"
+          pytest tests/ --no-cov -q -o addopts='' "${ignore_args[@]}"
 
   artifact-build:
     name: Build compatibility artifacts
