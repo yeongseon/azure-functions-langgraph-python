@@ -89,8 +89,9 @@ class StatefulGraph(Protocol):
 class CloneableGraph(Protocol):
     def copy(self, *, update: dict[str, Any] | None = ...) -> Any: ...
 
-# Also exported: AsyncInvocableGraph (ainvoke), AsyncStreamableGraph (astream),
-# UpdatableStateGraph (update_state), StateHistoryGraph (get_state_history).
+# Also exported: AsyncInvocableGraph (ainvoke), AsyncStreamableGraph (astream).
+# azure_functions_langgraph.protocols also defines UpdatableStateGraph
+# (update_state) and StateHistoryGraph (get_state_history).
 ```
 
 ### Request/Response Contracts
