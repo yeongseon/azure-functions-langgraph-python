@@ -6,7 +6,7 @@
 # deployment adapter and does not pull in model SDKs.
 
 azure-functions
-azure-functions-langgraph>=0.8,<0.9
+azure-functions-langgraph>=0.10.0,<0.11
 langgraph>=1.0,<2.0
 langchain-core>=1.0,<2.0
 langchain-openai>=0.3,<1.0

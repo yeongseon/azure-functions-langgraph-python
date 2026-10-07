@@ -17,6 +17,7 @@ nav:
   - Getting Started:
       - Installation: installation.md
       - Quickstart: getting-started.md
+      - 5-Minute Tutorial: tutorial-5-min.md
       - Configuration: configuration.md
   - User Guide:
       - Usage: usage.md
@@ -34,6 +35,8 @@ nav:
       - Development: development.md
       - Testing: testing.md
       - Guidelines: contributing.md
+      - Release Process: release_process.md
+      - Agent Playbook: agent-playbook.md
   - Troubleshooting: troubleshooting.md
   - FAQ: faq.md
   - Security: security.md

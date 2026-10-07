@@ -850,7 +850,7 @@ Each reset uses ETag CAS so a thread that has been legitimately re-acquired sinc
 
 Native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) use an **in-process per-thread lock** when the graph has a checkpointer and the request includes `config.configurable.thread_id`. This prevents concurrent writes to single-writer checkpointers (e.g. `AzureBlobCheckpointSaver`) within the same Python worker process.
 
-> **Important:** The **default** backend is **in-process only** — it does not coordinate across multiple Function App instances, worker processes, or hosts. Multi-instance deployments (Consumption / Elastic Premium) **must** either use a distributed `ThreadLock` backend (see below) or route through Platform-compatible runs (`platform_compat=True`) with `AzureTableThreadStore`, which provides ETag-based atomic locking.
+> **Important:** The **default** backend is **in-process only** — it does not coordinate across multiple Function App instances, worker processes, or hosts. Multi-instance deployments (Flex Consumption / Elastic Premium) **must** either use a distributed `ThreadLock` backend (see below) or route through Platform-compatible runs (`platform_compat=True`) with `AzureTableThreadStore`, which provides ETag-based atomic locking.
 
 
 #### Distributed thread locking (v0.6+)
@@ -878,7 +878,7 @@ app = LangGraphApp(
 | Backend | Distributed? | Infra required | Use case |
 | --- | --- | --- | --- |
 | `InProcessThreadLock` (default) | No — single Python worker only | None | Local dev, single-instance deployments |
-| `AzureBlobLeaseThreadLock` | Yes — Azure Blob lease CAS | One Blob container | Multi-instance production (Consumption / Elastic Premium) |
+| `AzureBlobLeaseThreadLock` | Yes — Azure Blob lease CAS | One Blob container | Multi-instance production (Flex Consumption / Elastic Premium) |
 | Custom `ThreadLock` implementation | Yours to define | Yours to provide | Redis, Cosmos DB, Postgres advisory locks, etc. |
 
 **Safety guard — `AZFUNC_LANGGRAPH_LOCK_BACKEND`.** Set this environment variable to `distributed` in multi-instance environments to fail-fast at startup if a distributed backend was not wired. When the value is `distributed` (or any non-empty value other than `inprocess`) and `thread_lock` resolves to the default `InProcessThreadLock`, `LangGraphApp.__post_init__` raises `RuntimeError` — this prevents accidentally deploying an in-process lock to a horizontally-scaled Function App. See [`docs/production-guide.md`](docs/production-guide.md#distributed-thread-locking) for the full scale-out matrix.

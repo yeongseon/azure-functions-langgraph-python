@@ -37,7 +37,7 @@ from azure_functions_openapi import setup_swagger  # see openapi package docs
 setup_swagger(langgraph_app.function_app)  # exact API per openapi package version
 ```
 
-The bridge requires `azure-functions-openapi-python >= 0.16.0` (programmatic `register_openapi_metadata` API).
+The bridge requires the `azure-functions-openapi` distribution `>= 0.16.0` (published from the `azure-functions-openapi-python` repository) for the programmatic `register_openapi_metadata` API.
 
 ## Requesting Pydantic-typed routes
 

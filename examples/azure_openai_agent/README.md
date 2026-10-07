@@ -18,7 +18,7 @@ func_app = app.function_app
 > deterministic (echo, no LLM) so it can be smoke-tested without a model. This
 > example uses a real Azure OpenAI deployment so you can evaluate the package
 > against an actual agent. When Azure OpenAI is **not** configured, this graph
-> falls back to a deterministic fake model (see [CI note](#ci--credential-free-runs)).
+> falls back to a deterministic fake model (see [CI note](#ci-and-credential-free-runs)).
 
 ## Prerequisites
 
@@ -109,7 +109,7 @@ Identity in production — do not store the key in App Settings).
 > request to the invoke endpoint consumes tokens against your Azure OpenAI
 > quota.
 
-## CI / credential-free runs
+## CI and credential-free runs
 
 Unless Azure OpenAI is **fully** configured — endpoint, deployment, **and** an
 auth method (`AZURE_OPENAI_API_KEY`, or `AZURE_OPENAI_USE_ENTRA_ID=true`) —

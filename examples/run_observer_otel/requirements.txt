@@ -3,7 +3,7 @@
 
 azure-functions
 # OpenTelemetry observer lives behind the [otel] extra
-azure-functions-langgraph[otel]==0.1.0a0
+azure-functions-langgraph[otel]>=0.10.0,<0.11
 # The OTel SDK + an exporter are operator-owned; installed here for the local demo
 opentelemetry-sdk>=1.20,<2
 # run observability contract works on any supported LangGraph version

@@ -104,5 +104,4 @@ func start --verbose
 
 ## Getting help
 
-- [GitHub Issues](https://github.com/yeongseon/azure-functions-langgraph-python/issues) — bug reports and feature requests
-- [GitHub Discussions](https://github.com/yeongseon/azure-functions-langgraph-python/discussions) — questions and community support
+- [GitHub Issues](https://github.com/yeongseon/azure-functions-langgraph-python/issues) — questions, bug reports, and feature requests
