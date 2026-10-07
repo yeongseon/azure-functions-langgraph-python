@@ -38,13 +38,19 @@ class LangGraphApp:
     auth_level: azure.functions.AuthLevel = AuthLevel.FUNCTION
     health_auth_level: azure.functions.AuthLevel = AuthLevel.ANONYMOUS
     health_details_auth_level: azure.functions.AuthLevel | None = None
+    max_stream_response_bytes: int = 1024 * 1024
+    max_request_body_bytes: int = 1024 * 1024
+    max_input_depth: int = 32
+    max_input_nodes: int = 10_000
     platform_compat: bool = False
     async_runs: AsyncRunsMode = False
-    route_prefix: str = "api"  # metadata-only; host.json is the source of truth
+    thread_lock: ThreadLock | None = None
+    observer: RunObserver | None = None
+    route_prefix: str = "/api"  # metadata-only; must match host.json routePrefix
 
     def register(
         self,
-        graph: InvocableGraph,
+        graph: Any,  # InvocableGraph or AsyncInvocableGraph
         name: str,
         description: str | None = None,
         stream: bool = True,
@@ -72,16 +78,19 @@ class LangGraphApp:
 from azure_functions_langgraph import InvocableGraph, StreamableGraph, StatefulGraph, CloneableGraph
 
 class InvocableGraph(Protocol):
-    def invoke(self, input: Any, config: dict | None = None) -> Any: ...
+    def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = ...) -> Any: ...
 
-class StreamableGraph(InvocableGraph, Protocol):
-    def stream(self, input: Any, config: dict | None = None, stream_mode: str = "values") -> Iterator: ...
+class StreamableGraph(Protocol):
+    def stream(self, input: dict[str, Any], config: dict[str, Any] | None = ..., stream_mode: str = ...) -> Iterator[Any]: ...
 
-class StatefulGraph(InvocableGraph, Protocol):
-    def get_state(self, config: dict) -> Any: ...
+class StatefulGraph(Protocol):
+    def get_state(self, config: dict[str, Any]) -> Any: ...
 
 class CloneableGraph(Protocol):
-    def with_config(self, **kwargs: Any) -> InvocableGraph: ...
+    def copy(self, *, update: dict[str, Any] | None = ...) -> Any: ...
+
+# Also exported: AsyncInvocableGraph (ainvoke), AsyncStreamableGraph (astream),
+# UpdatableStateGraph (update_state), StateHistoryGraph (get_state_history).
 ```
 
 ### Request/Response Contracts
