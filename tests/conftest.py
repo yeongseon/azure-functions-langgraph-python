@@ -9,6 +9,16 @@ from unittest.mock import MagicMock
 import pytest
 
 
+def assert_schema_reference(
+    schema: dict[str, Any], expected_ref: str, expected_description: str
+) -> None:
+    assert schema["description"] == expected_description
+    if "$ref" in schema:
+        assert schema["$ref"] == expected_ref
+        return
+    assert schema["allOf"] == [{"$ref": expected_ref}]
+
+
 class _FakeStateSnapshot:
     """Minimal mock of LangGraph StateSnapshot for testing."""
 

@@ -16,7 +16,7 @@ This installs the package along with its dependencies:
 
 - `azure-functions` — Azure Functions Python SDK
 - `langgraph` (>= 0.2) — LangGraph graph runtime
-- `pydantic` (>= 2.0, < 3.0) — request/response validation
+- `pydantic` (>= 2.7.4, < 3.0) — request/response validation
 
 ## Add to your requirements
 

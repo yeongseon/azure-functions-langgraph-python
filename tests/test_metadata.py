@@ -13,7 +13,7 @@ from azure_functions_langgraph.contracts import (
     RegisteredGraphMetadata,
     RouteMetadata,
 )
-from tests.conftest import FakeCompiledGraph, FakeStatefulGraph
+from tests.conftest import FakeCompiledGraph, FakeStatefulGraph, assert_schema_reference
 
 # ------------------------------------------------------------------
 # RouteMetadata dataclass tests
@@ -171,11 +171,15 @@ class TestGetAppMetadata:
         assert invoke_route.request_model is not None
         req_schema = invoke_route.request_model.model_json_schema()
         assert req_schema["required"] == ["input"]
-        assert req_schema["properties"]["input"]["$ref"] == "#/$defs/MyRequest"
+        assert_schema_reference(
+            req_schema["properties"]["input"], "#/$defs/MyRequest", "Input to the graph"
+        )
         assert "MyRequest" in req_schema["$defs"]
         assert invoke_route.response_model is not None
         resp_schema = invoke_route.response_model.model_json_schema()
-        assert resp_schema["properties"]["output"]["$ref"] == "#/$defs/MyResponse"
+        assert_schema_reference(
+            resp_schema["properties"]["output"], "#/$defs/MyResponse", "Graph output state"
+        )
         assert "MyResponse" in resp_schema["$defs"]
 
     def test_stream_route_has_no_response_model(self) -> None:

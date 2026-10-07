@@ -35,7 +35,7 @@ dependencies = [
     "azure-functions>=1.21.0,<2.0.0; python_version < '3.13'",
     "azure-functions>=1.21.0,<3.0.0; python_version >= '3.13'",
     "langgraph>=1.0,<2.0",
-    "pydantic>=2.9.0,<3.0",
+    "pydantic>=2.7.4,<3.0",
 ]
 
 [project.urls]

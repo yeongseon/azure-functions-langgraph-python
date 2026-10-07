@@ -9,7 +9,7 @@ from pydantic import BaseModel
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp
-from tests.conftest import FakeCompiledGraph, FakeStatefulGraph
+from tests.conftest import FakeCompiledGraph, FakeStatefulGraph, assert_schema_reference
 
 # ------------------------------------------------------------------
 # Import guard tests
@@ -161,7 +161,9 @@ class TestRegisterWithOpenapi:
         # under ``input`` (issue #349).
         assert "properties" in schema
         assert "input" in schema["properties"]
-        assert schema["properties"]["input"]["$ref"] == "#/$defs/ChatRequest"
+        assert_schema_reference(
+            schema["properties"]["input"], "#/$defs/ChatRequest", "Input to the graph"
+        )
         assert "query" in schema["$defs"]["ChatRequest"]["properties"]
 
     def test_registers_with_response_model(self) -> None:
@@ -196,7 +198,11 @@ class TestRegisterWithOpenapi:
         response_model = invoke_calls[0].kwargs["response_model"]
         assert response_model is not None
         resp_schema = response_model.model_json_schema()
-        assert resp_schema["properties"]["output"]["$ref"] == "#/$defs/ChatResponse"
+        assert_schema_reference(
+            resp_schema["properties"]["output"],
+            "#/$defs/ChatResponse",
+            "Graph output state",
+        )
         assert "ChatResponse" in resp_schema["$defs"]
 
     def test_invoke_only_omits_stream(self) -> None:
