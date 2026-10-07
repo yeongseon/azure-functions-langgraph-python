@@ -1,6 +1,18 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.10.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.4...v0.10.0) (2026-10-07)
+
+
+### Features
+
+* **python:** require Python 3.11 or newer ([db6ddcb](https://github.com/yeongseon/azure-functions-langgraph-python/commit/db6ddcbe25ef2137213359d0a5707c408280811a))
+
+
+### Bug Fixes
+
+* **deps:** raise the pydantic floor from &gt;=2.0 to &gt;=2.7.4 ([db6ddcb](https://github.com/yeongseon/azure-functions-langgraph-python/commit/db6ddcbe25ef2137213359d0a5707c408280811a))
+
 ## [0.9.4](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.3...v0.9.4) (2026-10-05)
 
 
