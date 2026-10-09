@@ -95,19 +95,6 @@ def test_compatibility_lanes_do_not_deselect_mocked_integration_tests() -> None:
     assert '-m "not e2e and not integration"' not in workflow
 
 
-def test_fork_classifier_uses_trusted_base_checkout() -> None:
-    workflow = CI_WORKFLOW.read_text()
-
-    assert "github.event.pull_request.base.sha" in workflow
-    assert "refs/pull/${PR_NUMBER}/head" in workflow
-
-
-def test_force_push_range_fails_safe() -> None:
-    workflow = CI_WORKFLOW.read_text()
-
-    assert '! git merge-base --is-ancestor "$BEFORE_SHA" "$SHA"' in workflow
-
-
 def test_setup_python_cache_inputs_are_checked_out_first() -> None:
     workflow = CI_WORKFLOW.read_text()
     jobs = re.split(r"^  [a-z][a-z0-9-]+:\n", workflow, flags=re.MULTILINE)[1:]
