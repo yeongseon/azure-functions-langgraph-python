@@ -1,6 +1,6 @@
 # Azure Functions LangGraph
 
-<!-- CI mixed-change and cancellation evidence for #556. -->
+<!-- CI mixed-change and concurrency cancellation evidence for #556. -->
 
 > ⚠️ **Experimental** — pattern exploration. APIs and behavior may change. Not recommended as a production dependency yet.
 
