@@ -3,6 +3,19 @@ name: Table Integration
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths:
+      - "src/azure_functions_langgraph/checkpointers/**"
+      - "src/azure_functions_langgraph/stores/**"
+      - "src/azure_functions_langgraph/triggers/**"
+      - "src/azure_functions_langgraph/platform/stores.py"
+      - "tests/**/*checkpointer*"
+      - "tests/**/*checkpoint*"
+      - "tests/**/*store*"
+      - "tests/**/*trigger*"
+      - "tests/test_production_persistent_agent_example.py"
+      - "examples/production_persistent_agent/**"
+      - "pyproject.toml"
+      - ".github/workflows/ci-table-integration.yml"
   push:
     branches: [main]
 
