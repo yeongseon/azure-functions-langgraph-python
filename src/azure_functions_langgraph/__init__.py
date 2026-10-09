@@ -1,4 +1,4 @@
-"""Azure Functions LangGraph — Deploy LangGraph agents as Azure Functions."""
+"""Azure Functions LangGraph — deploy LangGraph agents as Azure Functions."""
 
 from __future__ import annotations
 
