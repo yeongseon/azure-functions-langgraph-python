@@ -84,8 +84,10 @@ jobs:
 
           report = Path(os.environ["JUNIT_XML"])
           root = ET.parse(report).getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+          assert suites, "JUnit report contains no testsuite elements"
           totals = {
-              name: int(root.attrib[name])
+              name: sum(int(suite.attrib[name]) for suite in suites)
               for name in ("tests", "failures", "errors", "skipped")
           }
           assert totals["tests"] > 0, totals
