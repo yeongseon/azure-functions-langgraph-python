@@ -86,29 +86,38 @@ jobs:
           root = ET.parse(report).getroot()
           suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
           assert suites, "JUnit report contains no testsuite elements"
+          cases = list(root.iter("testcase"))
+          counter_outcomes = {
+              "failures": "failure",
+              "errors": "error",
+              "skipped": "skipped",
+          }
+          for suite in suites:
+              suite_cases = list(suite.iter("testcase"))
+              declared_tests = int(suite.attrib["tests"])
+              assert declared_tests == len(suite_cases), (
+                  "JUnit testsuite test count does not match testcase descendants: "
+                  f"reported={declared_tests}, actual={len(suite_cases)}"
+              )
+              for counter, outcome in counter_outcomes.items():
+                  declared = int(suite.attrib[counter])
+                  actual = sum(case.find(outcome) is not None for case in suite_cases)
+                  assert declared == actual, (
+                      "JUnit summary does not match testcase outcomes: "
+                      f"counter={counter}, reported={declared}, actual={actual}"
+                  )
+
           totals = {
-              name: sum(int(suite.attrib[name]) for suite in suites)
-              for name in ("tests", "failures", "errors", "skipped")
+              "tests": len(cases),
+              **{
+                  counter: sum(case.find(outcome) is not None for case in cases)
+                  for counter, outcome in counter_outcomes.items()
+              },
           }
           assert totals["tests"] > 0, totals
           assert totals["failures"] == 0, totals
           assert totals["errors"] == 0, totals
           assert totals["skipped"] == 0, totals
-
-          cases = list(root.iter("testcase"))
-          outcomes = {
-              name: sum(case.find(name) is not None for case in cases)
-              for name in ("failure", "error", "skipped")
-          }
-          reported_outcomes = {
-              "failure": totals["failures"],
-              "error": totals["errors"],
-              "skipped": totals["skipped"],
-          }
-          assert outcomes == reported_outcomes, (
-              f"JUnit summary does not match testcase outcomes: "
-              f"reported={reported_outcomes}, actual={outcomes}"
-          )
 
           identities = {
               " ".join((case.attrib.get("classname", ""), case.attrib.get("file", ""))).lower()

@@ -89,6 +89,42 @@ def test_junit_validator_accepts_pytest_child_suite_totals(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
 
 
+def test_junit_validator_rejects_declared_test_count_mismatch(tmp_path: Path) -> None:
+    report = tmp_path / "results.xml"
+    report.write_text(
+        """<testsuite tests="99" failures="0" errors="0" skipped="0">
+        <testcase classname="tests.integration.test_table_store_integration" />
+        <testcase classname="tests.integration.test_checkpoint_conformance" />
+        <testcase classname="tests.test_production_persistent_agent_example" />
+        </testsuite>"""
+    )
+
+    result = _validate_junit(report)
+
+    assert result.returncode != 0
+    assert "JUnit testsuite test count does not match testcase descendants" in result.stderr
+
+
+def test_junit_validator_counts_nested_suite_cases_once(tmp_path: Path) -> None:
+    report = tmp_path / "results.xml"
+    report.write_text(
+        """<testsuites>
+        <testsuite tests="3" failures="0" errors="0" skipped="0">
+          <testsuite tests="3" failures="0" errors="0" skipped="0">
+            <testcase classname="tests.integration.test_table_store_integration" />
+            <testcase classname="tests.integration.test_checkpoint_conformance" />
+            <testcase classname="tests.test_production_persistent_agent_example" />
+          </testsuite>
+        </testsuite>
+        </testsuites>"""
+    )
+
+    result = _validate_junit(report)
+
+    assert result.returncode == 0, result.stderr
+    assert "Validated 3 no-skip integration tests" in result.stdout
+
+
 @pytest.mark.parametrize(
     ("xml", "expected_error"),
     [
