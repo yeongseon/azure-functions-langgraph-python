@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.event.pull_request.base.sha || github.event.pull_request.head.sha || github.sha }}
 
       - name: Classify changed files
         id: classify
@@ -38,14 +38,20 @@ jobs:
           SHA: ${{ github.sha }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           fail_safe() {
             printf 'docs_only=false\ndocs_changed=true\nfull_required=true\n' >> "$GITHUB_OUTPUT"
           }
           paths=$(mktemp)
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            if [ "$HEAD_REPOSITORY" != "$REPOSITORY" ] || \
-               ! git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" > "$paths"; then
+            if [ "$HEAD_REPOSITORY" != "$REPOSITORY" ]; then
+              if ! git fetch --no-tags origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-head" || \
+                 ! git diff --name-only --no-renames "$BASE_SHA...refs/remotes/origin/pr-head" > "$paths"; then
+                fail_safe
+                exit 0
+              fi
+            elif ! git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" > "$paths"; then
               fail_safe
               exit 0
             fi
@@ -406,7 +412,7 @@ jobs:
         # (and the fail_under gate) for this pinned langgraph==1.0.0 run. Because
         # it is a separate job from the coverage-enforcing matrix above, it
         # cannot mask coverage regressions -- the matrix job still enforces 95%.
-        run: pytest tests/ --no-cov -q -m "not e2e and not integration"
+        run: pytest tests/ --no-cov -q -m "not e2e"
 
   langgraph-sdk-legacy:
     name: langgraph-sdk compat (legacy 0.3.x)
@@ -519,7 +525,7 @@ jobs:
       - name: Run tests against the latest certified langgraph line
         # Compatibility smoke only: `--no-cov` disables the coverage gate for this
         # pinned run (a separate job from the coverage-enforcing matrix).
-        run: pytest tests/ --no-cov -q -m "not e2e and not integration"
+        run: pytest tests/ --no-cov -q -m "not e2e"
 
 
   azure-functions-2x:
@@ -583,7 +589,7 @@ jobs:
         # pytest config sets `pythonpath = ["src", "."]`, which would shadow the
         # installed wheel with the source tree; `-o pythonpath=` clears it so the
         # suite genuinely exercises the wheel-installed package.
-        run: pytest tests/ --no-cov -q -m "not e2e and not integration" -o "pythonpath="
+        run: pytest tests/ --no-cov -q -m "not e2e" -o "pythonpath="
 
   host-smoke:
     name: Real Functions host smoke (Py ${{ matrix.python-version }})
@@ -707,13 +713,26 @@ jobs:
           results = json.loads(os.environ["RESULTS"])
           for job, data in sorted(results.items()):
               print(f"{job}: {data['result']}")
-          full_required = os.environ["FULL_REQUIRED"] == "true"
-          docs_changed = os.environ["DOCS_CHANGED"] == "true"
-          expected = {
-              job: "success" if full_required else "skipped"
-              for job in results
-              if job not in {"changes", "docs-check"}
+          full_required_output = os.environ["FULL_REQUIRED"]
+          docs_changed_output = os.environ["DOCS_CHANGED"]
+          valid_outputs = {"true", "false"}
+          if full_required_output not in valid_outputs or docs_changed_output not in valid_outputs:
+              sys.exit("::error::Classifier outputs must be exactly 'true' or 'false'.")
+          if full_required_output == "false" and docs_changed_output == "false":
+              sys.exit("::error::Classifier cannot omit both the full matrix and docs check.")
+          full_required = full_required_output == "true"
+          docs_changed = docs_changed_output == "true"
+          matrix_jobs = {
+              "quality", "test", "minimum-dependencies", "artifact-build",
+              "artifact-python310-negative", "artifact-python311", "langgraph-min",
+              "langgraph-latest", "langgraph-sdk-legacy", "langgraph-sdk-max",
+              "azure-functions-2x", "host-smoke",
           }
+          expected = {job: "success" for job in results}
+          expected.update({
+              job: "success" if full_required else "skipped"
+              for job in matrix_jobs
+          })
           expected["changes"] = "success"
           expected["docs-check"] = "success" if docs_changed else "skipped"
           failed = sorted(
