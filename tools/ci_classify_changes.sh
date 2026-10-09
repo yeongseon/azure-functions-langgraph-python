@@ -26,7 +26,8 @@ while IFS= read -r f || [ -n "$f" ]; do
   case "$f" in
     # Docs build inputs that are not documentation themselves run both paths.
     # Source files are included because mkdocstrings imports them into the docs.
-    mkdocs.yml | pyproject.toml | docs/*.py | docs/*.yml | docs/*.yaml | docs/*.json | \
+    .github/workflows/ci-test.yml | mkdocs.yml | pyproject.toml | docs/*.py | \
+    docs/*.yml | docs/*.yaml | docs/*.json | \
     docs/*.toml | docs/*.js | docs/*.css | docs/*.html | docs/*.txt | src/*)
       docs_only=false
       docs_changed=true

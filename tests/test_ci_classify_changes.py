@@ -42,6 +42,7 @@ def test_documentation_only_changes_skip_the_matrix(files: list[str]) -> None:
     "files",
     [
         ["src/pkg/module.py"],
+        [".github/workflows/ci-test.yml"],
         ["tests/test_x.py"],
         ["tests/fixtures/sample.md"],
         ["src/pkg/README.md"],
