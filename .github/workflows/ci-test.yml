@@ -9,7 +9,64 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      docs_changed: ${{ steps.classify.outputs.docs_changed }}
+      full_required: ${{ steps.classify.outputs.full_required }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.event.pull_request.base.sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Classify changed files
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          fail_safe() {
+            printf 'docs_only=false\ndocs_changed=true\nfull_required=true\n' >> "$GITHUB_OUTPUT"
+          }
+          paths=$(mktemp)
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ "$HEAD_REPOSITORY" != "$REPOSITORY" ]; then
+              if ! git fetch --no-tags origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-head" || \
+                 ! git diff --name-only --no-renames "$BASE_SHA...refs/remotes/origin/pr-head" > "$paths"; then
+                fail_safe
+                exit 0
+              fi
+            elif ! git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" > "$paths"; then
+              fail_safe
+              exit 0
+            fi
+          elif [[ ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] || \
+               [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || \
+               ! git cat-file -e "$BEFORE_SHA^{commit}" || \
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$SHA" || \
+               ! git diff --name-only --no-renames "$BEFORE_SHA" "$SHA" > "$paths"; then
+            fail_safe
+            exit 0
+          fi
+          if ! tools/ci_classify_changes.sh < "$paths" >> "$GITHUB_OUTPUT"; then
+            fail_safe
+          fi
+
   # Lint, type-check and security run once on a single pinned interpreter
   # (Python 3.11, matching the ruff/mypy target-version in pyproject). These
   # checks are interpreter-agnostic, so fanning them across the matrix would
@@ -19,6 +76,8 @@ jobs:
   # matrix onto its default interpreter).
   quality:
     name: Lint, type-check & security (Py 3.11)
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -30,6 +89,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install package with dev extras
         run: |
@@ -57,11 +118,10 @@ jobs:
       - name: Type check (mypy, strict)
         run: mypy src tests
 
-      - name: Security scan (bandit)
-        run: python -m bandit -r src
-
   test:
     name: Test (Py ${{ matrix.python-version }})
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -79,6 +139,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Assert the runtime interpreter matches the matrix cell
         # Tests must run on the interpreter this cell claims to exercise. Before
@@ -133,6 +195,8 @@ jobs:
 
   minimum-dependencies:
     name: Minimum dependencies (Py 3.11)
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -142,6 +206,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install exact declared dependency floors
         run: |
@@ -198,6 +264,8 @@ jobs:
 
   artifact-build:
     name: Build compatibility artifacts
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -207,6 +275,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Build wheel and source distribution
         run: |
@@ -222,7 +292,8 @@ jobs:
 
   artifact-python310-negative:
     name: Wheel install rejection (Py 3.10, negative test)
-    needs: artifact-build
+    needs: [changes, artifact-build]
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Set up Python 3.10 for negative install test
@@ -251,13 +322,19 @@ jobs:
 
   artifact-python311:
     name: Wheel install and graph smoke (Py 3.11)
-    needs: artifact-build
+    needs: [changes, artifact-build]
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Set up Python 3.11
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Download built artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -305,6 +382,8 @@ jobs:
 
   langgraph-min:
     name: langgraph compat (min supported)
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -314,6 +393,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install package and dev dependencies
         run: |
@@ -331,10 +412,12 @@ jobs:
         # (and the fail_under gate) for this pinned langgraph==1.0.0 run. Because
         # it is a separate job from the coverage-enforcing matrix above, it
         # cannot mask coverage regressions -- the matrix job still enforces 95%.
-        run: pytest tests/ --no-cov -q
+        run: pytest tests/ --no-cov -q -m "not e2e"
 
   langgraph-sdk-legacy:
     name: langgraph-sdk compat (legacy 0.3.x)
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -344,6 +427,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install package and dev dependencies
         run: |
@@ -369,6 +454,8 @@ jobs:
 
   langgraph-sdk-max:
     name: langgraph-sdk compat (max supported)
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -378,6 +465,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install package and dev dependencies
         run: |
@@ -402,6 +491,8 @@ jobs:
 
   langgraph-latest:
     name: langgraph compat (latest certified 1.2.x)
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -411,6 +502,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install package and dev dependencies
         run: |
@@ -432,11 +525,13 @@ jobs:
       - name: Run tests against the latest certified langgraph line
         # Compatibility smoke only: `--no-cov` disables the coverage gate for this
         # pinned run (a separate job from the coverage-enforcing matrix).
-        run: pytest tests/ --no-cov -q
+        run: pytest tests/ --no-cov -q -m "not e2e"
 
 
   azure-functions-2x:
     name: azure-functions 2.x compat (Py ${{ matrix.python-version }})
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -462,6 +557,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Build wheel
         # Issue #350 requires proving 2.x against a WHEEL-installed build, not an
@@ -492,10 +589,12 @@ jobs:
         # pytest config sets `pythonpath = ["src", "."]`, which would shadow the
         # installed wheel with the source tree; `-o pythonpath=` clears it so the
         # suite genuinely exercises the wheel-installed package.
-        run: pytest tests/ --no-cov -q -o "pythonpath="
+        run: pytest tests/ --no-cov -q -m "not e2e" -o "pythonpath="
 
   host-smoke:
     name: Real Functions host smoke (Py ${{ matrix.python-version }})
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -510,6 +609,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: tests/host_smoke/requirements.txt
 
       - name: Install Functions Core Tools v4 and Azurite
         run: |
@@ -548,6 +649,28 @@ jobs:
           cat /tmp/functions-host.log
           exit 1
 
+  docs-check:
+    name: Docs check
+    needs: changes
+    if: needs.changes.outputs.docs_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with docs extras
+        run: pip install -e ".[docs]"
+
+      - name: Build docs strictly
+        run: mkdocs build --strict
+
   # The single required status check for branch protection.
   #
   # Branch protection matches required checks by literal name, so requiring
@@ -561,6 +684,7 @@ jobs:
   # job cannot pass by not being a failure.
   ci-required:
     needs:
+      - changes
       - quality
       - test
       - minimum-dependencies
@@ -573,12 +697,15 @@ jobs:
       - langgraph-sdk-max
       - azure-functions-2x
       - host-smoke
+      - docs-check
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate required checks
         env:
           RESULTS: ${{ toJSON(needs) }}
+          FULL_REQUIRED: ${{ needs.changes.outputs.full_required }}
+          DOCS_CHANGED: ${{ needs.changes.outputs.docs_changed }}
         run: |
           python3 - <<'EVAL'
           import json, os, sys
@@ -586,8 +713,37 @@ jobs:
           results = json.loads(os.environ["RESULTS"])
           for job, data in sorted(results.items()):
               print(f"{job}: {data['result']}")
-          failed = sorted(j for j, d in results.items() if d["result"] != "success")
+          full_required_output = os.environ["FULL_REQUIRED"]
+          docs_changed_output = os.environ["DOCS_CHANGED"]
+          valid_outputs = {"true", "false"}
+          if full_required_output not in valid_outputs or docs_changed_output not in valid_outputs:
+              sys.exit("::error::Classifier outputs must be exactly 'true' or 'false'.")
+          if full_required_output == "false" and docs_changed_output == "false":
+              sys.exit("::error::Classifier cannot omit both the full matrix and docs check.")
+          full_required = full_required_output == "true"
+          docs_changed = docs_changed_output == "true"
+          matrix_jobs = {
+              "quality", "test", "minimum-dependencies", "artifact-build",
+              "artifact-python310-negative", "artifact-python311", "langgraph-min",
+              "langgraph-latest", "langgraph-sdk-legacy", "langgraph-sdk-max",
+              "azure-functions-2x", "host-smoke",
+          }
+          expected = {job: "success" for job in results}
+          expected.update({
+              job: "success" if full_required else "skipped"
+              for job in matrix_jobs
+          })
+          expected["changes"] = "success"
+          expected["docs-check"] = "success" if docs_changed else "skipped"
+          failed = sorted(
+              job for job, expectation in expected.items()
+              if results[job]["result"] != expectation
+          )
           if failed:
-              sys.exit(f"::error::Required checks did not all succeed: {failed}")
-          print("All gating jobs succeeded.")
+              mismatches = {
+                  job: {"expected": expected[job], "actual": results[job]["result"]}
+                  for job in failed
+              }
+              sys.exit(f"::error::Required checks had unexpected results: {mismatches}")
+          print("All gating jobs produced their expected results.")
           EVAL

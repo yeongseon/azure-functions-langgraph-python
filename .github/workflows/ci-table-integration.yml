@@ -3,8 +3,34 @@ name: Table Integration
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths:
+      - "src/azure_functions_langgraph/checkpointers/**"
+      - "src/azure_functions_langgraph/stores/**"
+      - "src/azure_functions_langgraph/triggers/**"
+      - "src/azure_functions_langgraph/locks/**"
+      - "src/azure_functions_langgraph/app.py"
+      - "src/azure_functions_langgraph/platform/stores.py"
+      - "tests/integration/**"
+      - "tests/storage_service.py"
+      - "tests/test_production_persistent_agent_example.py"
+      - "examples/production_persistent_agent/**"
+      - "pyproject.toml"
+      - ".github/workflows/ci-table-integration.yml"
   push:
     branches: [main]
+    paths:
+      - "src/azure_functions_langgraph/checkpointers/**"
+      - "src/azure_functions_langgraph/stores/**"
+      - "src/azure_functions_langgraph/triggers/**"
+      - "src/azure_functions_langgraph/locks/**"
+      - "src/azure_functions_langgraph/app.py"
+      - "src/azure_functions_langgraph/platform/stores.py"
+      - "tests/integration/**"
+      - "tests/storage_service.py"
+      - "tests/test_production_persistent_agent_example.py"
+      - "examples/production_persistent_agent/**"
+      - "pyproject.toml"
+      - ".github/workflows/ci-table-integration.yml"
 
 permissions:
   contents: read
@@ -12,19 +38,6 @@ permissions:
 jobs:
   table-integration:
     runs-on: ubuntu-latest
-    services:
-      azurite:
-        image: mcr.microsoft.com/azure-storage/azurite
-        ports:
-          - 10000:10000
-          - 10001:10001
-          - 10002:10002
-        options: >-
-          --health-cmd "nc -z 127.0.0.1 10002 || exit 1"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,17 +52,86 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,azure-table,azure-blob]"
 
-      - name: Run table integration tests
-        run: pytest -v -m integration tests/integration/test_table_store_integration.py --no-cov
+      - name: Start Azurite with storage SDK API-version compatibility
+        run: |
+          docker run --detach --rm --name azurite \
+            --publish 10000:10000 --publish 10001:10001 --publish 10002:10002 \
+            mcr.microsoft.com/azure-storage/azurite \
+            azurite --skipApiVersionCheck \
+              --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0
+          for attempt in {1..20}; do
+            if nc -z 127.0.0.1 10000 && nc -z 127.0.0.1 10002; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs azurite
+          exit 1
 
-      - name: Run blob checkpointer conformance (Azurite)
-        run: pytest -v -m integration tests/integration/test_checkpoint_conformance.py --no-cov
+      - name: Run Azurite integration tests without skips
+        env:
+          AZURITE_REQUIRED: true
+        run: |
+          pytest -v --strict-markers -m integration \
+            tests/integration/test_table_store_integration.py \
+            tests/integration/test_checkpoint_conformance.py \
+            tests/test_production_persistent_agent_example.py \
+            --no-cov --junitxml=/tmp/azurite-results.xml
+          JUNIT_XML=/tmp/azurite-results.xml python - <<'VALIDATE'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
 
-      - name: Run production_persistent_agent capstone durability test (Azurite)
-        # The learning-path capstone's durability promise (state survives
-        # checkpointer recreation) is proven only here: this is the one job that
-        # provides a live Azurite blob backend for
-        # tests/test_production_persistent_agent_example.py. Without it the test
-        # skips in every other job, leaving the capstone's core claim unverified
-        # in CI (issue #418).
-        run: pytest -v -m integration tests/test_production_persistent_agent_example.py --no-cov
+          report = Path(os.environ["JUNIT_XML"])
+          root = ET.parse(report).getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+          assert suites, "JUnit report contains no testsuite elements"
+          cases = list(root.iter("testcase"))
+          counter_outcomes = {
+              "failures": "failure",
+              "errors": "error",
+              "skipped": "skipped",
+          }
+          for suite in suites:
+              suite_cases = list(suite.iter("testcase"))
+              declared_tests = int(suite.attrib["tests"])
+              assert declared_tests == len(suite_cases), (
+                  "JUnit testsuite test count does not match testcase descendants: "
+                  f"reported={declared_tests}, actual={len(suite_cases)}"
+              )
+              for counter, outcome in counter_outcomes.items():
+                  declared = int(suite.attrib[counter])
+                  actual = sum(case.find(outcome) is not None for case in suite_cases)
+                  assert declared == actual, (
+                      "JUnit summary does not match testcase outcomes: "
+                      f"counter={counter}, reported={declared}, actual={actual}"
+                  )
+
+          totals = {
+              "tests": len(cases),
+              **{
+                  counter: sum(case.find(outcome) is not None for case in cases)
+                  for counter, outcome in counter_outcomes.items()
+              },
+          }
+          assert totals["tests"] > 0, totals
+          assert totals["failures"] == 0, totals
+          assert totals["errors"] == 0, totals
+          assert totals["skipped"] == 0, totals
+
+          identities = {
+              " ".join((case.attrib.get("classname", ""), case.attrib.get("file", ""))).lower()
+              for case in cases
+          }
+          expected_areas = {
+              "Table integration": "table_store_integration",
+              "Blob conformance": "checkpoint_conformance",
+              "production persistent agent": "production_persistent_agent",
+          }
+          missing = {
+              area for area, marker in expected_areas.items()
+              if not any(marker in identity for identity in identities)
+          }
+          assert not missing, f"missing expected integration areas: {sorted(missing)}"
+          print(f"Validated {totals['tests']} no-skip integration tests across all expected areas")
+          VALIDATE

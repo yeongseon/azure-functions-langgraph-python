@@ -24,6 +24,7 @@ from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata, Checkpoint
 import pytest
 
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
+from tests.storage_service import fail_or_skip_service, require_tcp_service
 
 pytestmark = pytest.mark.integration
 
@@ -94,6 +95,7 @@ class _AsyncConformanceSaver(AzureBlobCheckpointSaver):
 @pytest.fixture
 def azurite_container_client() -> Iterator[Any]:
     """Yield a fresh, uniquely-named live Azurite blob ContainerClient."""
+    require_tcp_service("127.0.0.1", 10000, "Azurite Blob")
     try:
         blob_module = importlib.import_module("azure.storage.blob")
         blob_service_client = blob_module.BlobServiceClient.from_connection_string(
@@ -102,7 +104,7 @@ def azurite_container_client() -> Iterator[Any]:
         # Probe connectivity so an unavailable Azurite skips rather than errors.
         _ = blob_service_client.get_service_properties()
     except Exception as exc:  # pragma: no cover - only when Azurite is absent
-        pytest.skip(f"Azurite Blob Storage not available: {exc}")
+        fail_or_skip_service(f"Azurite Blob Storage is incompatible or unavailable: {exc}")
 
     container_name = f"aflgconf{uuid.uuid4().hex[:18]}"
     container_client = blob_service_client.create_container(container_name)
