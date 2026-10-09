@@ -90,26 +90,79 @@ def test_junit_validator_accepts_pytest_child_suite_totals(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
-    "xml",
+    ("xml", "expected_error"),
     [
-        "<not-closed",
-        '<testsuites tests="0" failures="0" errors="0" skipped="0" />',
-        '<testsuites tests="3" failures="1" errors="0" skipped="0" />',
-        '<testsuites tests="3" failures="0" errors="1" skipped="0" />',
-        '<testsuites tests="3" failures="0" errors="0" skipped="1" />',
-        """<testsuites tests="2" failures="0" errors="0" skipped="0">
-        <testcase classname="tests.integration.test_table_store_integration" />
-        <testcase classname="tests.integration.test_checkpoint_conformance" />
-        </testsuites>""",
+        ("<not-closed", "ParseError"),
+        (
+            """<testsuites><testsuite tests="0" failures="0" errors="0" skipped="0" />
+            </testsuites>""",
+            "{'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}",
+        ),
+        (
+            """<testsuites><testsuite tests="1" failures="1" errors="0" skipped="0">
+            <testcase classname="tests.integration.test_table_store_integration">
+              <failure />
+            </testcase>
+            </testsuite></testsuites>""",
+            "{'tests': 1, 'failures': 1, 'errors': 0, 'skipped': 0}",
+        ),
+        (
+            """<testsuites><testsuite tests="1" failures="0" errors="1" skipped="0">
+            <testcase classname="tests.integration.test_table_store_integration">
+              <error />
+            </testcase>
+            </testsuite></testsuites>""",
+            "{'tests': 1, 'failures': 0, 'errors': 1, 'skipped': 0}",
+        ),
+        (
+            """<testsuites><testsuite tests="1" failures="0" errors="0" skipped="1">
+            <testcase classname="tests.integration.test_table_store_integration">
+              <skipped />
+            </testcase>
+            </testsuite></testsuites>""",
+            "{'tests': 1, 'failures': 0, 'errors': 0, 'skipped': 1}",
+        ),
+        (
+            """<testsuites><testsuite tests="2" failures="0" errors="0" skipped="0">
+            <testcase classname="tests.integration.test_table_store_integration" />
+            <testcase classname="tests.integration.test_checkpoint_conformance" />
+            </testsuite></testsuites>""",
+            "missing expected integration areas: ['production persistent agent']",
+        ),
+        (
+            """<testsuites><testsuite tests="3" failures="0" errors="0" skipped="0">
+            <testcase classname="tests.integration.test_table_store_integration">
+              <failure>boom</failure>
+            </testcase>
+            <testcase classname="tests.integration.test_checkpoint_conformance" />
+            <testcase classname="tests.test_production_persistent_agent_example" />
+            </testsuite></testsuites>""",
+            "JUnit summary does not match testcase outcomes",
+        ),
+        (
+            """<testsuites><testsuite tests="3" failures="0" errors="0" skipped="0">
+            <testcase classname="tests.integration.test_table_store_integration">
+              <skipped />
+            </testcase>
+            <testcase classname="tests.integration.test_checkpoint_conformance" />
+            <testcase classname="tests.test_production_persistent_agent_example" />
+            </testsuite></testsuites>""",
+            "JUnit summary does not match testcase outcomes",
+        ),
     ],
 )
-def test_junit_validator_rejects_invalid_or_incomplete_reports(tmp_path: Path, xml: str) -> None:
+def test_junit_validator_rejects_invalid_or_incomplete_reports(
+    tmp_path: Path,
+    xml: str,
+    expected_error: str,
+) -> None:
     report = tmp_path / "results.xml"
     report.write_text(xml)
 
     result = _validate_junit(report)
 
     assert result.returncode != 0
+    assert expected_error in result.stderr
 
 
 def test_junit_validator_rejects_missing_report(tmp_path: Path) -> None:

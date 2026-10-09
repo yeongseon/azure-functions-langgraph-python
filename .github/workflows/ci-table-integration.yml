@@ -95,9 +95,24 @@ jobs:
           assert totals["errors"] == 0, totals
           assert totals["skipped"] == 0, totals
 
+          cases = list(root.iter("testcase"))
+          outcomes = {
+              name: sum(case.find(name) is not None for case in cases)
+              for name in ("failure", "error", "skipped")
+          }
+          reported_outcomes = {
+              "failure": totals["failures"],
+              "error": totals["errors"],
+              "skipped": totals["skipped"],
+          }
+          assert outcomes == reported_outcomes, (
+              f"JUnit summary does not match testcase outcomes: "
+              f"reported={reported_outcomes}, actual={outcomes}"
+          )
+
           identities = {
               " ".join((case.attrib.get("classname", ""), case.attrib.get("file", ""))).lower()
-              for case in root.iter("testcase")
+              for case in cases
           }
           expected_areas = {
               "Table integration": "table_store_integration",
