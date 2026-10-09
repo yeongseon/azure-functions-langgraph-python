@@ -9,6 +9,7 @@ import uuid
 import pytest
 
 from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
+from tests.storage_service import fail_or_skip_service, require_tcp_service
 
 AZURITE_TABLE_CONNECTION_STRING = (
     "DefaultEndpointsProtocol=http;"
@@ -41,6 +42,7 @@ class _TableClientProtocol(Protocol):
 
 @pytest.fixture
 def azurite_table_client() -> Iterator[_TableClientProtocol]:
+    require_tcp_service("127.0.0.1", 10002, "Azurite Table")
     try:
         tables_module = importlib.import_module("azure.data.tables")
         TableServiceClient = cast(
@@ -52,7 +54,7 @@ def azurite_table_client() -> Iterator[_TableClientProtocol]:
         )
         _ = list(service_client.list_tables())
     except Exception as exc:
-        pytest.skip(f"Azurite Table Storage not available: {exc}")
+        fail_or_skip_service(f"Azurite Table Storage is incompatible or unavailable: {exc}")
 
     table_name = f"aflgint{uuid.uuid4().hex[:18]}"
     table_client = service_client.create_table_if_not_exists(table_name=table_name)
