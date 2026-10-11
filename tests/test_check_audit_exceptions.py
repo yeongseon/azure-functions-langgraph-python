@@ -1,9 +1,19 @@
 from datetime import date
+import importlib.util
 from pathlib import Path
+import sys
 
 import pytest
 
-from scripts.check_audit_exceptions import AuditExceptionError, parse_exceptions
+_SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "check_audit_exceptions.py"
+_spec = importlib.util.spec_from_file_location("check_audit_exceptions", _SCRIPT_PATH)
+assert _spec and _spec.loader
+check_audit_exceptions = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = check_audit_exceptions
+_spec.loader.exec_module(check_audit_exceptions)
+
+AuditExceptionError = check_audit_exceptions.AuditExceptionError
+parse_exceptions = check_audit_exceptions.parse_exceptions
 
 
 def test_parse_exceptions_returns_active_ids(tmp_path: Path) -> None:

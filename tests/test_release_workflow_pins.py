@@ -17,6 +17,7 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _LINT_PATH = _REPO_ROOT / "tools" / "lint_release_workflows.py"
+_AZURE_E2E_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "e2e-azure.yml"
 
 _spec = importlib.util.spec_from_file_location("lint_release_workflows", _LINT_PATH)
 assert _spec and _spec.loader
@@ -33,6 +34,19 @@ def _needs(*extra: str) -> str:
 def test_repo_release_workflows_are_clean() -> None:
     """The committed gate workflows must satisfy the canonical pins + gate."""
     assert lint_mod.lint() == []
+
+
+def test_azure_certification_replaces_example_package_pins_with_candidate_wheels() -> None:
+    # Given: both certification apps have user-facing package requirements
+    workflow = _AZURE_E2E_WORKFLOW.read_text()
+
+    # When / Then: staging removes those requirements before adding each candidate wheel
+    assert "sed -i '/^azure-functions-langgraph/d' examples/e2e_app/requirements.txt" in workflow
+    assert (
+        "sed -i '/^azure-functions-langgraph/d' "
+        "examples/true_streaming_agent/requirements.txt" in workflow
+    )
+    assert 'echo "./wheels/${BASENAME}[streaming]" >> ' in workflow
 
 
 def test_detects_non_canonical_pin() -> None:
