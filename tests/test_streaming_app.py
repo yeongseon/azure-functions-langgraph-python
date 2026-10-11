@@ -615,8 +615,10 @@ class TestFunctionApp:
             "aflg_agent_stream",
         ):
             handler = functions[name].get_user_function()
-            request_parameter = next(iter(inspect.signature(handler).parameters.values()))
+            signature = inspect.signature(handler)
+            request_parameter = next(iter(signature.parameters.values()))
             assert request_parameter.annotation.__name__ == "Request"
+            assert signature.return_annotation.__name__ in {"JSONResponse", "StreamingResponse"}
 
     def test_builds_expected_functions(self) -> None:
         app = StreamingLangGraphApp()

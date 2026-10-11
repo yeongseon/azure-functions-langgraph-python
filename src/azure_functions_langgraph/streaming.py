@@ -546,6 +546,7 @@ class StreamingLangGraphApp:
             return JSONResponse(content=json.loads(HealthStatus().model_dump_json()))
 
         health.__annotations__["req"] = Request
+        health.__annotations__["return"] = JSONResponse
         app.function_name(name="aflg_health")(
             app.route(
                 route=_ROUTE_HEALTH,
@@ -569,6 +570,7 @@ class StreamingLangGraphApp:
             return JSONResponse(content=json.loads(body.model_dump_json()))
 
         health_details.__annotations__["req"] = Request
+        health_details.__annotations__["return"] = JSONResponse
         app.function_name(name="aflg_health_details")(
             app.route(
                 route=_ROUTE_HEALTH_DETAILS,
@@ -608,6 +610,7 @@ class StreamingLangGraphApp:
             )
 
         invoke.__annotations__["req"] = Request
+        invoke.__annotations__["return"] = JSONResponse
         app.function_name(name=fn_name)(
             app.route(route=route, methods=["POST"], auth_level=effective_auth)(invoke)
         )
@@ -634,6 +637,7 @@ class StreamingLangGraphApp:
             )
 
         stream.__annotations__["req"] = Request
+        stream.__annotations__["return"] = StreamingResponse
         app.function_name(name=fn_name)(
             app.route(route=route, methods=["POST"], auth_level=effective_auth)(stream)
         )
