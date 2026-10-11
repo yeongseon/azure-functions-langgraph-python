@@ -21,6 +21,9 @@ param functionAppName string
 @description('Name of the second Function App for the two-app single-writer e2e (#386). This is App B. Empty string skips App B.')
 param functionAppNameB string = ''
 
+@description('Name of the true-streaming certification Function App. Empty string skips it.')
+param streamingFunctionAppName string = ''
+
 @description('Name of the Storage Account (3-24 lowercase alphanumeric). Shared by App A and App B.')
 param storageName string
 
@@ -78,6 +81,7 @@ var baseAppSettings = concat(
     { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
     { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'python' }
     { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
+    { name: 'PYTHON_ENABLE_INIT_INDEXING', value: '1' }
     { name: 'E2E_LOCK_CONTAINER', value: lockContainerName }
     { name: 'E2E_CHECKPOINT_CONTAINER', value: checkpointContainerName }
   ],
@@ -162,12 +166,43 @@ resource functionAppB 'Microsoft.Web/sites@2023-01-01' = if (functionAppNameB !=
   }
 }
 
+resource streamingHostingPlan 'Microsoft.Web/serverfarms@2023-01-01' = if (streamingFunctionAppName != '') {
+  name: '${streamingFunctionAppName}-plan'
+  location: location
+  sku: {
+    name: 'Y1'
+    tier: 'Dynamic'
+  }
+  kind: 'linux'
+  properties: {
+    reserved: true
+  }
+}
+
+resource streamingFunctionApp 'Microsoft.Web/sites@2023-01-01' = if (streamingFunctionAppName != '') {
+  name: streamingFunctionAppName
+  location: location
+  kind: 'functionapp,linux'
+  properties: {
+    serverFarmId: streamingHostingPlan.id
+    siteConfig: {
+      linuxFxVersion: 'Python|3.12'
+      appSettings: baseAppSettings
+    }
+    httpsOnly: true
+  }
+}
+
 // ── Outputs ────────────────────────────────────────────────────────────────
 output functionAppName string = functionApp.name
 output defaultHostName string = functionApp.properties.defaultHostName
 output functionAppNameB string = functionAppNameB
 output defaultHostNameB string = functionAppNameB != ''
   ? functionAppB.properties.defaultHostName
+  : ''
+output streamingFunctionAppName string = streamingFunctionAppName
+output streamingDefaultHostName string = streamingFunctionAppName != ''
+  ? streamingFunctionApp.properties.defaultHostName
   : ''
 output appInsightsConnectionString string = enableAppInsights
   ? appInsights.properties.ConnectionString
