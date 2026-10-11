@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import azure.functions as func
@@ -41,6 +42,24 @@ from azure_functions_langgraph.platform._sse import (
 from azure_functions_langgraph.platform.contracts import ThreadStatus
 from azure_functions_langgraph.protocols import StreamableGraph
 
+_STORE_RENEWALS: dict[str, threading.Event] = {}
+
+
+def _start_store_renewal(deps: PlatformRouteDeps, thread_id: str, owner_token: str) -> None:
+    renew = getattr(deps.thread_store, "renew_run_lock", None)
+    if not callable(renew):
+        return
+    stop = threading.Event()
+    _STORE_RENEWALS[owner_token] = stop
+
+    def worker() -> None:
+        while not stop.wait(20):
+            if not renew(thread_id, owner_token):
+                logger.warning("Run-lock renewal lost ownership for thread %s", thread_id)
+                return
+
+    threading.Thread(target=worker, daemon=True).start()
+
 
 def _release_thread_run_lock(
     deps: PlatformRouteDeps,
@@ -50,9 +69,18 @@ def _release_thread_run_lock(
     *,
     status: ThreadStatus,
     values: dict[str, Any] | None = None,
+    store_owner_token: str | None = None,
 ) -> None:
+    renewal = _STORE_RENEWALS.pop(store_owner_token or "", None)
+    if renewal is not None:
+        renewal.set()
     try:
-        deps.thread_store.release_run_lock(thread_id, status=status, values=values)
+        deps.thread_store.release_run_lock(
+            thread_id,
+            status=status,
+            values=values,
+            owner_token=store_owner_token or lock_token,
+        )
     except KeyError:
         logger.warning(
             "Thread %s disappeared before run lock release to %s",
@@ -146,6 +174,8 @@ def register_run_routes(
                 f"Thread {thread_id!r} is already busy. "
                 f"Concurrent runs are not supported (multitask_strategy=reject).",
             )
+        store_lock_token = locked.lock_token or lock_token
+        _start_store_renewal(deps, thread_id, store_lock_token)
 
         config = _build_threaded_config(run_req, thread_id)
 
@@ -159,13 +189,26 @@ def register_run_routes(
                 run_req.assistant_id,
                 thread_id,
             )
-            _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
+            _release_thread_run_lock(
+                deps,
+                thread_id,
+                reg.name,
+                lock_token,
+                status="error",
+                store_owner_token=store_lock_token,
+            )
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             return _platform_error(500, "Graph execution failed", ctx.run_id)
 
         output = result if isinstance(result, dict) else {"result": result}
         _release_thread_run_lock(
-            deps, thread_id, reg.name, lock_token, status="idle", values=output
+            deps,
+            thread_id,
+            reg.name,
+            lock_token,
+            status="idle",
+            values=output,
+            store_owner_token=store_lock_token,
         )
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
@@ -254,6 +297,8 @@ def register_run_routes(
                 f"Thread {thread_id!r} is already busy. "
                 f"Concurrent runs are not supported (multitask_strategy=reject).",
             )
+        store_lock_token = locked.lock_token or lock_token
+        _start_store_renewal(deps, thread_id, store_lock_token)
 
         config = _build_threaded_config(run_req, thread_id)
 
@@ -268,7 +313,14 @@ def register_run_routes(
         safe_observer_call(deps.observer, "on_run_started", ctx)
 
         if _check_stream_overflow(chunks, buffered_bytes, 0, max_bytes):
-            _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
+            _release_thread_run_lock(
+                deps,
+                thread_id,
+                reg.name,
+                lock_token,
+                status="error",
+                store_owner_token=store_lock_token,
+            )
             safe_observer_call(
                 deps.observer,
                 "on_run_failed",
@@ -288,7 +340,14 @@ def register_run_routes(
                 chunk = format_data_event(stream_mode, event)
                 chunk_bytes = len(chunk.encode())
                 if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
-                    _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
+                    _release_thread_run_lock(
+                        deps,
+                        thread_id,
+                        reg.name,
+                        lock_token,
+                        status="error",
+                        store_owner_token=store_lock_token,
+                    )
                     safe_observer_call(
                         deps.observer,
                         "on_run_failed",
@@ -307,7 +366,14 @@ def register_run_routes(
                 run_req.assistant_id,
                 thread_id,
             )
-            _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
+            _release_thread_run_lock(
+                deps,
+                thread_id,
+                reg.name,
+                lock_token,
+                status="error",
+                store_owner_token=store_lock_token,
+            )
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             chunks.append(format_error_event("stream processing failed", ctx.run_id))
             chunks.append(format_end_event())
@@ -318,7 +384,14 @@ def register_run_routes(
 
         chunks.append(format_end_event())
 
-        _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="idle")
+        _release_thread_run_lock(
+            deps,
+            thread_id,
+            reg.name,
+            lock_token,
+            status="idle",
+            store_owner_token=store_lock_token,
+        )
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
 
         return _build_sse_response(

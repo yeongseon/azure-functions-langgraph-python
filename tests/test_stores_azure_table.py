@@ -326,8 +326,8 @@ def test_release_lock_no_etag() -> None:
     store.release_run_lock(thread.thread_id, status="idle")
 
     assert table_client.last_update_mode == "merge"
-    assert table_client.last_update_kwargs["etag"] is None
-    assert table_client.last_update_kwargs["match_condition"] is None
+    assert table_client.last_update_kwargs["etag"] == 'W/"1"'
+    assert table_client.last_update_kwargs["match_condition"] is not None
 
 
 def test_release_lock_propagates_storage_timeout() -> None:

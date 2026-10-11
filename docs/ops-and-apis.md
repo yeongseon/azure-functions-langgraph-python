@@ -47,6 +47,16 @@ high-cardinality metadata scans on large tables.
 
 ## Distributed thread locks
 
+### Thread-store run-lock migration
+
+`ThreadStore.try_acquire_run_lock()` now returns a `Thread` carrying an opaque
+`lock_token` and `lock_expires_at`. Custom stores must persist those fields,
+implement `renew_run_lock(thread_id, owner_token) -> bool`, and accept
+`owner_token` in `release_run_lock`. Release must use compare-and-swap and must
+leave the current owner untouched when a stale token arrives. Platform runs
+pass the acquired token back on release; stores that omit the new methods no
+longer satisfy the public `ThreadStore` protocol.
+
 The native `invoke` / `stream` endpoints guard concurrent access to the same
 `(graph_name, thread_id)` so that single-writer checkpointers (for example
 `AzureBlobCheckpointSaver`) never see racing writes for one thread.
