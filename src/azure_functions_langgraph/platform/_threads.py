@@ -11,6 +11,11 @@ from azure_functions_langgraph._validation import (
     validate_input_structure,
     validate_thread_id,
 )
+from azure_functions_langgraph.authorization import (
+    AuthorizationAction,
+    AuthorizationContext,
+    authorization_status,
+)
 from azure_functions_langgraph.platform._common import (
     _UNSUPPORTED_THREAD_FILTER_FIELDS,
     PlatformRouteDeps,
@@ -46,9 +51,22 @@ def register_thread_routes(
 ) -> None:
     auth = deps.auth_level
 
+    def denied(
+        req: func.HttpRequest,
+        action: AuthorizationAction,
+        thread_id: str | None = None,
+    ) -> func.HttpResponse | None:
+        status = authorization_status(
+            deps.authorize,
+            AuthorizationContext(action, None, thread_id, req),
+        )
+        return _platform_error(status, "Access denied") if status is not None else None
+
     @app.function_name(name="aflg_platform_threads_create")
     @app.route(route="threads", methods=["POST"], auth_level=auth)
     def threads_create(req: func.HttpRequest) -> func.HttpResponse:
+        if response := denied(req, AuthorizationAction.THREAD_CREATE):
+            return response
         body = _read_json_body(req, deps, require_dict=False, allow_empty=True)
         if isinstance(body, func.HttpResponse):
             return body
@@ -71,6 +89,8 @@ def register_thread_routes(
     @app.route(route="threads/{thread_id}", methods=["GET"], auth_level=auth)
     def threads_get(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        if response := denied(req, AuthorizationAction.THREAD_READ, thread_id):
+            return response
         tid_err = validate_thread_id(thread_id)
         if tid_err:
             return _platform_error(400, tid_err)
@@ -87,6 +107,8 @@ def register_thread_routes(
     @app.route(route="threads/{thread_id}", methods=["PATCH"], auth_level=auth)
     def threads_update(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        if response := denied(req, AuthorizationAction.THREAD_UPDATE, thread_id):
+            return response
         tid_err = validate_thread_id(thread_id)
         if tid_err:
             return _platform_error(400, tid_err)
@@ -125,6 +147,8 @@ def register_thread_routes(
     @app.route(route="threads/{thread_id}", methods=["DELETE"], auth_level=auth)
     def threads_delete(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        if response := denied(req, AuthorizationAction.THREAD_DELETE, thread_id):
+            return response
         tid_err = validate_thread_id(thread_id)
         if tid_err:
             return _platform_error(400, tid_err)
@@ -142,6 +166,8 @@ def register_thread_routes(
     @app.function_name(name="aflg_platform_threads_search")
     @app.route(route="threads/search", methods=["POST"], auth_level=auth)
     def threads_search(req: func.HttpRequest) -> func.HttpResponse:
+        if response := denied(req, AuthorizationAction.THREAD_SEARCH):
+            return response
         body = _read_json_body(req, deps, require_dict=True, allow_empty=True)
         if isinstance(body, func.HttpResponse):
             return body
@@ -179,6 +205,8 @@ def register_thread_routes(
     @app.function_name(name="aflg_platform_threads_count")
     @app.route(route="threads/count", methods=["POST"], auth_level=auth)
     def threads_count(req: func.HttpRequest) -> func.HttpResponse:
+        if response := denied(req, AuthorizationAction.THREAD_SEARCH):
+            return response
         body = _read_json_body(req, deps, require_dict=True, allow_empty=True)
         if isinstance(body, func.HttpResponse):
             return body
@@ -212,6 +240,8 @@ def register_thread_routes(
     @app.route(route="threads/{thread_id}/state", methods=["GET"], auth_level=auth)
     def threads_state_get(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        if response := denied(req, AuthorizationAction.STATE_READ, thread_id):
+            return response
         tid_err = validate_thread_id(thread_id)
         if tid_err:
             return _platform_error(400, tid_err)
@@ -255,6 +285,8 @@ def register_thread_routes(
     @app.route(route="threads/{thread_id}/state", methods=["POST"], auth_level=auth)
     def threads_state_update(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        if response := denied(req, AuthorizationAction.STATE_UPDATE, thread_id):
+            return response
         tid_err = validate_thread_id(thread_id)
         if tid_err:
             return _platform_error(400, tid_err)
@@ -324,6 +356,8 @@ def register_thread_routes(
     @app.route(route="threads/{thread_id}/history", methods=["POST"], auth_level=auth)
     def threads_history(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        if response := denied(req, AuthorizationAction.HISTORY_READ, thread_id):
+            return response
         tid_err = validate_thread_id(thread_id)
         if tid_err:
             return _platform_error(400, tid_err)

@@ -8,6 +8,11 @@ from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph._validation import (
     validate_thread_id,
 )
+from azure_functions_langgraph.authorization import (
+    AuthorizationAction,
+    AuthorizationContext,
+    authorization_status,
+)
 from azure_functions_langgraph.observability import (
     finish_context,
     new_run_context,
@@ -70,10 +75,19 @@ def register_run_routes(
 ) -> None:
     auth = deps.auth_level
 
+    def denied(req: func.HttpRequest, thread_id: str | None) -> func.HttpResponse | None:
+        status = authorization_status(
+            deps.authorize,
+            AuthorizationContext(AuthorizationAction.RUN, None, thread_id, req),
+        )
+        return _platform_error(status, "Access denied") if status is not None else None
+
     @app.function_name(name="aflg_platform_runs_wait")
     @app.route(route="threads/{thread_id}/runs/wait", methods=["POST"], auth_level=auth)
     def runs_wait(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        if response := denied(req, thread_id):
+            return response
         tid_err = validate_thread_id(thread_id)
         if tid_err:
             return _platform_error(400, tid_err)
@@ -170,6 +184,8 @@ def register_run_routes(
     )
     def runs_stream(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
+        if response := denied(req, thread_id):
+            return response
         tid_err = validate_thread_id(thread_id)
         if tid_err:
             return _platform_error(400, tid_err)
@@ -313,6 +329,8 @@ def register_run_routes(
     @app.function_name(name="aflg_platform_runs_wait_threadless")
     @app.route(route="runs/wait", methods=["POST"], auth_level=auth)
     def runs_wait_threadless(req: func.HttpRequest) -> func.HttpResponse:
+        if response := denied(req, None):
+            return response
         parsed = _parse_run_create(req, deps, require_dict_body=True)
         if isinstance(parsed, func.HttpResponse):
             return parsed
@@ -367,6 +385,8 @@ def register_run_routes(
     @app.function_name(name="aflg_platform_runs_stream_threadless")
     @app.route(route="runs/stream", methods=["POST"], auth_level=auth)
     def runs_stream_threadless(req: func.HttpRequest) -> func.HttpResponse:
+        if response := denied(req, None):
+            return response
         parsed = _parse_run_create(req, deps, require_dict_body=True)
         if isinstance(parsed, func.HttpResponse):
             return parsed

@@ -10,6 +10,7 @@ import azure.functions as func
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp
+from azure_functions_langgraph.authorization import UnauthenticatedError
 from azure_functions_langgraph.locks import InProcessThreadLock
 from azure_functions_langgraph.platform.routes import (
     PlatformRouteDeps,
@@ -49,11 +50,13 @@ def _build_platform_app(
     graphs: dict[str, Any] | None = None,
     store: InMemoryThreadStore | None = None,
     max_platform_result_limit: int = 100,
+    authorize: Any = None,
 ) -> LangGraphApp:
     """Build a LangGraphApp with platform_compat=True and register graphs."""
     app = LangGraphApp(
         platform_compat=True,
         max_platform_result_limit=max_platform_result_limit,
+        authorize=authorize,
     )
     if store is not None:
         app._thread_store = store
@@ -120,6 +123,46 @@ def _delete_request(url: str, **route_params: str) -> func.HttpRequest:
         body=b"",
         route_params=route_params,
     )
+
+
+def test_authorizer_denies_before_thread_lookup(store: InMemoryThreadStore) -> None:
+    app = _build_platform_app(store=store, authorize=lambda _context: False)
+    fn = _get_fn(app.function_app, "aflg_platform_threads_get")
+
+    response = fn(_get_request("/api/threads/missing", thread_id="missing"))
+
+    assert response.status_code == 403
+    assert json.loads(response.get_body()) == {"detail": "Access denied"}
+
+
+def test_authorizer_signals_unauthenticated(store: InMemoryThreadStore) -> None:
+    def authorize(_context: Any) -> bool:
+        raise UnauthenticatedError
+
+    app = _build_platform_app(store=store, authorize=authorize)
+    fn = _get_fn(app.function_app, "aflg_platform_threads_get")
+
+    response = fn(_get_request("/api/threads/owned", thread_id="owned"))
+
+    assert response.status_code == 401
+
+
+def test_authorizer_allows_owned_thread_and_denies_cross_thread(
+    store: InMemoryThreadStore,
+) -> None:
+    owned = store.create()
+    other = store.create()
+    app = _build_platform_app(
+        store=store,
+        authorize=lambda context: context.thread_id == owned.thread_id,
+    )
+    fn = _get_fn(app.function_app, "aflg_platform_threads_get")
+
+    allowed = fn(_get_request("/api/threads/owned", thread_id=owned.thread_id))
+    denied = fn(_get_request("/api/threads/other", thread_id=other.thread_id))
+
+    assert allowed.status_code == 200
+    assert denied.status_code == 403
 
 
 @pytest.mark.parametrize(

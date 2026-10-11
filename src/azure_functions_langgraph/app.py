@@ -30,6 +30,7 @@ from azure_functions_langgraph._metadata import (
 from azure_functions_langgraph._validation import (
     validate_graph_name,
 )
+from azure_functions_langgraph.authorization import ThreadAuthorizer
 from azure_functions_langgraph.contracts import (
     AppMetadata,
     GraphInfo,
@@ -232,6 +233,7 @@ class LangGraphApp:
     async_runs: AsyncRunsMode = False
     thread_lock: ThreadLock | None = None
     observer: RunObserver | None = None
+    authorize: ThreadAuthorizer | None = None
     route_prefix: str = _ROUTE_PREFIX  # metadata-only; must match host.json routePrefix
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _sb_registrations: dict[str, Any] = field(default_factory=dict)
@@ -377,6 +379,13 @@ class LangGraphApp:
             raise ValueError(name_err)
         if name in self._registrations:
             raise ValueError(f"Graph {name!r} is already registered")
+        if auth_level == func.AuthLevel.ANONYMOUS:
+            warnings.warn(
+                f"Graph {name!r} overrides auth_level to ANONYMOUS; authorization hooks "
+                "do not authenticate callers.",
+                UserWarning,
+                stacklevel=2,
+            )
         self._registrations[name] = _GraphRegistration(
             graph=graph,
             name=name,
@@ -630,6 +639,7 @@ class LangGraphApp:
                 max_input_depth=self.max_input_depth,
                 max_input_nodes=self.max_input_nodes,
                 max_platform_result_limit=self.max_platform_result_limit,
+                authorize=self.authorize,
             )
             register_platform_routes(app, deps)
 
@@ -906,6 +916,7 @@ class LangGraphApp:
         return handle_state(
             req,
             reg,
+            self.authorize,
         )
 
     # ------------------------------------------------------------------
