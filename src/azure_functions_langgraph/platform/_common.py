@@ -545,6 +545,7 @@ class PlatformRouteDeps:
         "max_request_body_bytes",
         "max_input_depth",
         "max_input_nodes",
+        "max_platform_result_limit",
     )
 
     def __init__(
@@ -559,6 +560,7 @@ class PlatformRouteDeps:
         max_request_body_bytes: int = 1024 * 1024,
         max_input_depth: int = 32,
         max_input_nodes: int = 10_000,
+        max_platform_result_limit: int = 100,
     ) -> None:
         self.registrations = registrations
         self.thread_store = thread_store
@@ -569,6 +571,13 @@ class PlatformRouteDeps:
         self.max_request_body_bytes = max_request_body_bytes
         self.max_input_depth = max_input_depth
         self.max_input_nodes = max_input_nodes
+        self.max_platform_result_limit = max_platform_result_limit
+
+
+def _result_limit_error(limit: int, maximum: int) -> func.HttpResponse | None:
+    if limit <= maximum:
+        return None
+    return _platform_error(422, [{"loc": ["limit"], "type": "less_than_equal"}])
 
 
 # Module-level timestamp for stable assistant responses within a process.
