@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Iterator
 import importlib
+import inspect
 import json
 from typing import Any
 import warnings
@@ -596,6 +597,27 @@ class TestConstruction:
 
 
 class TestFunctionApp:
+    def test_http_handlers_use_fastapi_request_annotations(self) -> None:
+        # Given: a streaming app whose routes are indexed by the Python worker
+        app = StreamingLangGraphApp()
+        app.register(graph=FakeSyncGraph(), name="agent")
+        fa = app.function_app
+        fa.functions_bindings = {}
+
+        # When: each generated HTTP handler signature is inspected
+        functions = {function.get_function_name(): function for function in fa.get_functions()}
+
+        # Then: init indexing sees the FastAPI extension Request type, not Any
+        for name in (
+            "aflg_health",
+            "aflg_health_details",
+            "aflg_agent_invoke",
+            "aflg_agent_stream",
+        ):
+            handler = functions[name].get_user_function()
+            request_parameter = next(iter(inspect.signature(handler).parameters.values()))
+            assert request_parameter.annotation.__name__ == "Request"
+
     def test_builds_expected_functions(self) -> None:
         app = StreamingLangGraphApp()
         app.register(graph=FakeSyncGraph(), name="agent")
