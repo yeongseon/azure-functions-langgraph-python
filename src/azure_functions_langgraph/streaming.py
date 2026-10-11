@@ -542,17 +542,18 @@ class StreamingLangGraphApp:
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
 
         # --- Health endpoints -----------------------------------------
-        @app.function_name(name="aflg_health")
-        @app.route(route=_ROUTE_HEALTH, methods=["GET"], auth_level=self.health_auth_level)
         async def health(req: Any) -> Any:
             return JSONResponse(content=json.loads(HealthStatus().model_dump_json()))
 
-        @app.function_name(name="aflg_health_details")
-        @app.route(
-            route=_ROUTE_HEALTH_DETAILS,
-            methods=["GET"],
-            auth_level=self._resolved_health_details_auth_level,
+        health.__annotations__["req"] = Request
+        app.function_name(name="aflg_health")(
+            app.route(
+                route=_ROUTE_HEALTH,
+                methods=["GET"],
+                auth_level=self.health_auth_level,
+            )(health)
         )
+
         async def health_details(req: Any) -> Any:
             from azure_functions_langgraph.contracts import GraphInfo
 
@@ -566,6 +567,15 @@ class StreamingLangGraphApp:
             ]
             body = HealthResponse(graphs=graphs)
             return JSONResponse(content=json.loads(body.model_dump_json()))
+
+        health_details.__annotations__["req"] = Request
+        app.function_name(name="aflg_health_details")(
+            app.route(
+                route=_ROUTE_HEALTH_DETAILS,
+                methods=["GET"],
+                auth_level=self._resolved_health_details_auth_level,
+            )(health_details)
+        )
 
         # --- Per-graph endpoints --------------------------------------
         for reg in self._registrations.values():
@@ -597,6 +607,7 @@ class StreamingLangGraphApp:
                 req, captured, is_async, JSONResponse, observer, thread_lock
             )
 
+        invoke.__annotations__["req"] = Request
         app.function_name(name=fn_name)(
             app.route(route=route, methods=["POST"], auth_level=effective_auth)(invoke)
         )
@@ -622,6 +633,7 @@ class StreamingLangGraphApp:
                 req, captured, is_async, JSONResponse, StreamingResponse, observer, thread_lock
             )
 
+        stream.__annotations__["req"] = Request
         app.function_name(name=fn_name)(
             app.route(route=route, methods=["POST"], auth_level=effective_auth)(stream)
         )
