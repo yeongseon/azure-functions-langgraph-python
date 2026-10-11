@@ -30,6 +30,8 @@ partial output arrive incrementally.
 - Azure Functions runtime **4.34.1+**
 - `pip install "azure-functions-langgraph[streaming]"`
 - App setting **`PYTHON_ENABLE_INIT_INDEXING=1`** (see `local.settings.json.example`)
+- On Linux Consumption with Python 3.12 or earlier, app setting
+  **`PYTHON_ISOLATE_WORKER_DEPENDENCIES=1`**
 
 ## Run locally
 

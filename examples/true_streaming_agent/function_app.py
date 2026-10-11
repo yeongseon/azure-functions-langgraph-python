@@ -15,6 +15,8 @@ Prerequisites:
     - Azure Functions runtime **4.34.1+**
     - The ``streaming`` extra: ``pip install "azure-functions-langgraph[streaming]"``
     - App setting ``PYTHON_ENABLE_INIT_INDEXING=1``
+    - On Linux Consumption with Python 3.12 or earlier, app setting
+      ``PYTHON_ISOLATE_WORKER_DEPENDENCIES=1``
 
 Run from this directory:
     func start

@@ -18,6 +18,7 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _LINT_PATH = _REPO_ROOT / "tools" / "lint_release_workflows.py"
 _AZURE_E2E_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "e2e-azure.yml"
+_AZURE_E2E_INFRA = _REPO_ROOT / "infra" / "main.bicep"
 
 _spec = importlib.util.spec_from_file_location("lint_release_workflows", _LINT_PATH)
 assert _spec and _spec.loader
@@ -47,6 +48,14 @@ def test_azure_certification_replaces_example_package_pins_with_candidate_wheels
         "examples/true_streaming_agent/requirements.txt" in workflow
     )
     assert 'echo "./wheels/${BASENAME}[streaming]" >> ' in workflow
+
+
+def test_linux_consumption_streaming_uses_isolated_worker_dependencies() -> None:
+    # Given: the certification app runs Python HTTP streaming on Linux Consumption
+    infrastructure = _AZURE_E2E_INFRA.read_text()
+
+    # When / Then: the worker isolates app dependencies required by that transport
+    assert "{ name: 'PYTHON_ISOLATE_WORKER_DEPENDENCIES', value: '1' }" in infrastructure
 
 
 def test_detects_non_canonical_pin() -> None:
