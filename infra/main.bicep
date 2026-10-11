@@ -82,6 +82,7 @@ var baseAppSettings = concat(
     { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'python' }
     { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true' }
     { name: 'PYTHON_ENABLE_INIT_INDEXING', value: '1' }
+    { name: 'PYTHON_ISOLATE_WORKER_DEPENDENCIES', value: '1' }
     { name: 'E2E_LOCK_CONTAINER', value: lockContainerName }
     { name: 'E2E_CHECKPOINT_CONTAINER', value: checkpointContainerName }
   ],
