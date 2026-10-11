@@ -48,9 +48,13 @@ def _build_platform_app(
     *,
     graphs: dict[str, Any] | None = None,
     store: InMemoryThreadStore | None = None,
+    max_platform_result_limit: int = 100,
 ) -> LangGraphApp:
     """Build a LangGraphApp with platform_compat=True and register graphs."""
-    app = LangGraphApp(platform_compat=True)
+    app = LangGraphApp(
+        platform_compat=True,
+        max_platform_result_limit=max_platform_result_limit,
+    )
     if store is not None:
         app._thread_store = store
     if graphs:
@@ -116,6 +120,83 @@ def _delete_request(url: str, **route_params: str) -> func.HttpRequest:
         body=b"",
         route_params=route_params,
     )
+
+
+@pytest.mark.parametrize(
+    ("function_name", "url", "body", "route_params"),
+    [
+        ("aflg_platform_assistants_search", "/api/assistants/search", {"limit": 3}, {}),
+        ("aflg_platform_threads_search", "/api/threads/search", {"limit": 3}, {}),
+    ],
+)
+def test_search_accepts_exact_maximum_result_limit(
+    function_name: str,
+    url: str,
+    body: dict[str, Any],
+    route_params: dict[str, str],
+    store: InMemoryThreadStore,
+) -> None:
+    app = _build_platform_app(store=store, max_platform_result_limit=3)
+    fn = _get_fn(app.function_app, function_name)
+
+    response = fn(_post_request(url, body, **route_params))
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("function_name", "url", "body"),
+    [
+        ("aflg_platform_assistants_search", "/api/assistants/search", {"limit": 4}),
+        ("aflg_platform_threads_search", "/api/threads/search", {"limit": 4}),
+    ],
+)
+def test_search_rejects_result_limit_above_maximum(
+    function_name: str,
+    url: str,
+    body: dict[str, Any],
+    store: InMemoryThreadStore,
+) -> None:
+    app = _build_platform_app(store=store, max_platform_result_limit=3)
+    fn = _get_fn(app.function_app, function_name)
+
+    response = fn(_post_request(url, body))
+
+    assert response.status_code == 422
+    assert json.loads(response.get_body())["detail"] == [
+        {"loc": ["limit"], "type": "less_than_equal"}
+    ]
+
+
+def test_thread_history_result_limit_boundary(store: InMemoryThreadStore) -> None:
+    graph = FakeStatefulGraph()
+    app = _build_platform_app(
+        graphs={"agent": graph},
+        store=store,
+        max_platform_result_limit=3,
+    )
+    thread = store.create()
+    store.update(thread.thread_id, assistant_id="agent")
+    fn = _get_fn(app.function_app, "aflg_platform_threads_history")
+
+    exact = fn(
+        _post_request(
+            f"/api/threads/{thread.thread_id}/history",
+            {"limit": 3},
+            thread_id=thread.thread_id,
+        )
+    )
+    above = fn(
+        _post_request(
+            f"/api/threads/{thread.thread_id}/history",
+            {"limit": 4},
+            thread_id=thread.thread_id,
+        )
+    )
+
+    assert exact.status_code == 200
+    assert above.status_code == 422
+    assert json.loads(above.get_body())["detail"] == [{"loc": ["limit"], "type": "less_than_equal"}]
 
 
 # ---------------------------------------------------------------------------
