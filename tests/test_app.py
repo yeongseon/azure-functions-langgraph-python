@@ -826,9 +826,23 @@ class TestStreamValidationError:
         )
         resp = app._handle_stream(req, app._registrations["agent"])
         assert resp.status_code == 422
+
+    def test_invoke_validation_error_does_not_expose_input(self) -> None:
+        app = LangGraphApp()
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        secret = "credential-secret-565"
+        req = func.HttpRequest(
+            method="POST",
+            url="http://localhost:7071/api/graphs/agent/invoke",
+            body=json.dumps({"input": secret}).encode(),
+        )
+
+        resp = app._handle_invoke(req, app._registrations["agent"])
+
+        assert resp.status_code == 422
         body = json.loads(resp.get_body())
-        assert body["error"] == "error"
-        assert "Validation error" in body["detail"]
+        assert body["detail"] == [{"loc": ["input"], "type": "dict_type"}]
+        assert secret not in resp.get_body().decode()
 
 
 class TestInvokeWithEmptyInput:

@@ -13,6 +13,25 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from pydantic import ValidationError
+from typing_extensions import TypedDict
+
+
+class ValidationErrorDetail(TypedDict):
+    """Payload-safe subset of a Pydantic validation error."""
+
+    loc: list[str | int]
+    type: str
+
+
+def sanitized_validation_errors(exc: ValidationError) -> list[ValidationErrorDetail]:
+    """Return stable validation metadata without values, URLs, or context."""
+    return [
+        {"loc": list(error["loc"]), "type": error["type"]}
+        for error in exc.errors(include_input=False, include_url=False, include_context=False)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Graph-name / assistant-id validation
 # ---------------------------------------------------------------------------

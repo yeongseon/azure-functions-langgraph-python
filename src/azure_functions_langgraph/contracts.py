@@ -9,6 +9,8 @@ from typing import Any, Literal, Optional, TypeGuard
 
 from pydantic import BaseModel, Field, create_model
 
+from azure_functions_langgraph._validation import ValidationErrorDetail
+
 # LangGraph's ``invoke``/``stream`` (and their async twins) accept an optional
 # ``version`` argument since LangGraph 1.1: ``"v2"`` returns the unified
 # ``GraphOutput`` / ``StreamPart`` shapes, while ``"v1"`` preserves the legacy
@@ -201,7 +203,7 @@ class ErrorResponse(BaseModel):
     """Error response body."""
 
     error: str
-    detail: str | None = None
+    detail: str | list[ValidationErrorDetail] | None = None
 
 
 class StateResponse(BaseModel):
