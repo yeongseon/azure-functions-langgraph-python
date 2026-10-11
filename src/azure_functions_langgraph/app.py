@@ -227,6 +227,7 @@ class LangGraphApp:
     max_request_body_bytes: int = 1024 * 1024
     max_input_depth: int = 32
     max_input_nodes: int = 10_000
+    max_platform_result_limit: int = 100
     platform_compat: bool = False
     async_runs: AsyncRunsMode = False
     thread_lock: ThreadLock | None = None
@@ -628,6 +629,7 @@ class LangGraphApp:
                 max_request_body_bytes=self.max_request_body_bytes,
                 max_input_depth=self.max_input_depth,
                 max_input_nodes=self.max_input_nodes,
+                max_platform_result_limit=self.max_platform_result_limit,
             )
             register_platform_routes(app, deps)
 

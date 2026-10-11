@@ -19,6 +19,7 @@ from azure_functions_langgraph.platform._common import (
     _platform_error,
     _read_json_body,
     _resolve_thread_graph,
+    _result_limit_error,
     _snapshot_to_thread_state,
     logger,
 )
@@ -59,7 +60,6 @@ def register_thread_routes(
             create_req = ThreadCreate.model_validate(body)
         except ValidationError as exc:
             return _platform_error(422, sanitized_validation_errors(exc))
-
         thread = deps.thread_store.create(metadata=create_req.metadata)
         return func.HttpResponse(
             body=json.dumps(thread.model_dump(mode="json"), default=str),
@@ -102,7 +102,6 @@ def register_thread_routes(
             update_req = ThreadUpdate.model_validate(body)
         except ValidationError as exc:
             return _platform_error(422, sanitized_validation_errors(exc))
-
         thread = deps.thread_store.get(thread_id)
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
@@ -161,6 +160,9 @@ def register_thread_routes(
             search_req = ThreadSearch.model_validate(body)
         except ValidationError as exc:
             return _platform_error(422, sanitized_validation_errors(exc))
+        limit_error = _result_limit_error(search_req.limit, deps.max_platform_result_limit)
+        if limit_error is not None:
+            return limit_error
 
         results = deps.thread_store.search(
             metadata=search_req.metadata,
@@ -337,6 +339,9 @@ def register_thread_routes(
             hist_req = ThreadHistoryRequest.model_validate(body)
         except ValidationError as exc:
             return _platform_error(422, sanitized_validation_errors(exc))
+        limit_error = _result_limit_error(hist_req.limit, deps.max_platform_result_limit)
+        if limit_error is not None:
+            return limit_error
 
         # Validate metadata structure if provided
         if hist_req.metadata is not None:

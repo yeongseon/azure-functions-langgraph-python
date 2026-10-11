@@ -12,6 +12,7 @@ from azure_functions_langgraph.platform._common import (
     _check_unknown_platform_fields,
     _platform_error,
     _registration_to_assistant,
+    _result_limit_error,
 )
 from azure_functions_langgraph.platform.contracts import (
     Assistant,
@@ -48,6 +49,9 @@ def register_assistant_routes(
             search = AssistantSearch.model_validate(body)
         except ValidationError as exc:
             return _platform_error(422, sanitized_validation_errors(exc))
+        limit_error = _result_limit_error(search.limit, deps.max_platform_result_limit)
+        if limit_error is not None:
+            return limit_error
 
         results: list[Assistant] = []
         for reg_name, reg in deps.registrations.items():

@@ -895,6 +895,7 @@ class TestPlatformRouteDepsNewFields:
         assert deps.max_request_body_bytes == 1024 * 1024
         assert deps.max_input_depth == 32
         assert deps.max_input_nodes == 10_000
+        assert deps.max_platform_result_limit == 100
 
     def test_custom_values(self, store: InMemoryThreadStore) -> None:
         from azure_functions_langgraph.platform.routes import PlatformRouteDeps
@@ -908,10 +909,12 @@ class TestPlatformRouteDepsNewFields:
             max_request_body_bytes=512,
             max_input_depth=10,
             max_input_nodes=500,
+            max_platform_result_limit=25,
         )
         assert deps.max_request_body_bytes == 512
         assert deps.max_input_depth == 10
         assert deps.max_input_nodes == 500
+        assert deps.max_platform_result_limit == 25
 
 
 # ---------------------------------------------------------------------------
@@ -925,16 +928,19 @@ class TestLangGraphAppNewParams:
         assert app.max_request_body_bytes == 1024 * 1024
         assert app.max_input_depth == 32
         assert app.max_input_nodes == 10_000
+        assert app.max_platform_result_limit == 100
 
     def test_custom_values(self) -> None:
         app = LangGraphApp(
             max_request_body_bytes=512,
             max_input_depth=5,
             max_input_nodes=100,
+            max_platform_result_limit=25,
         )
         assert app.max_request_body_bytes == 512
         assert app.max_input_depth == 5
         assert app.max_input_nodes == 100
+        assert app.max_platform_result_limit == 25
 
     def test_params_propagate_to_platform_deps(self) -> None:
         """Custom limits must flow through to PlatformRouteDeps."""

@@ -29,6 +29,13 @@ surface keeps its established error envelope: native and true-streaming use
 `{"detail":...}`, and Durable routes use `{"error":...}`. Graph and storage
 failures remain sanitized `500` responses; request bodies are not logged.
 
+Platform assistant search, thread search, and thread history additionally cap
+caller-supplied result limits with `max_platform_result_limit` (default `100`).
+This protects response and history enumeration size, but Azure Table metadata
+filtering remains a client-side scan: the store may still read all candidate
+entities before filtering and slicing. Use selective schemas and avoid
+high-cardinality metadata scans on large tables.
+
 ---
 
 ## Distributed thread locks
