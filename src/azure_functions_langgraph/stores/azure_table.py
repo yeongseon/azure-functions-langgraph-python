@@ -461,11 +461,15 @@ class AzureTableThreadStore(ThreadStore):
                 etag = entity.get("etag") if isinstance(entity, dict) else None
 
             now = self._now()
+            owner_token = uuid.uuid4().hex
+            expires_at = now + timedelta(seconds=60)
             patch: dict[str, Any] = {
                 "PartitionKey": self._partition_key(),
                 "RowKey": thread_id,
                 "status": "busy",
                 "updated_at": now,
+                "lock_token": owner_token,
+                "lock_expires_at": expires_at,
             }
             if thread.assistant_id is None and assistant_id is not None:
                 patch["assistant_id"] = assistant_id
@@ -486,6 +490,8 @@ class AzureTableThreadStore(ThreadStore):
             new_data = thread.model_dump()
             new_data["status"] = "busy"
             new_data["updated_at"] = now
+            new_data["lock_token"] = owner_token
+            new_data["lock_expires_at"] = expires_at
             if thread.assistant_id is None and assistant_id is not None:
                 new_data["assistant_id"] = assistant_id
             return Thread.model_validate(new_data)
@@ -504,6 +510,7 @@ class AzureTableThreadStore(ThreadStore):
         *,
         status: ThreadStatus,
         values: dict[str, Any] | None = None,
+        owner_token: str | None = None,
     ) -> Thread:
         """Release the per-thread run lock without ETag concurrency.
 
@@ -517,6 +524,14 @@ class AzureTableThreadStore(ThreadStore):
         if status == "busy":
             raise ValueError("release_run_lock cannot set status to 'busy'")
         not_found_error = self._not_found_exception()
+        entity = self._table_client.get_entity(
+            partition_key=self._partition_key(), row_key=thread_id
+        )
+        if owner_token is not None and entity.get("lock_token") != owner_token:
+            logger.warning("Stale run-lock release ignored for thread %s", thread_id)
+            return self._entity_to_thread(entity)
+        metadata = getattr(entity, "metadata", None)
+        etag = metadata.get("etag") if isinstance(metadata, Mapping) else entity.get("etag")
         patch: dict[str, Any] = {
             "PartitionKey": self._partition_key(),
             "RowKey": thread_id,
@@ -527,7 +542,18 @@ class AzureTableThreadStore(ThreadStore):
             patch["values_json"] = json.dumps(values, default=self._json_default)
         self._warn_entity_size(patch, thread_id)
         try:
-            self._table_client.update_entity(patch, mode="merge")
+            self._table_client.update_entity(
+                patch,
+                mode="merge",
+                etag=etag,
+                match_condition=self._match_conditions.IfNotModified,
+            )
+        except self._modified_error:
+            logger.warning("Run-lock release CAS lost for thread %s", thread_id)
+            current = self._table_client.get_entity(
+                partition_key=self._partition_key(), row_key=thread_id
+            )
+            return self._entity_to_thread(current)
         except not_found_error as exc:
             raise KeyError(thread_id) from exc
         merged = self._table_client.get_entity(
@@ -535,6 +561,31 @@ class AzureTableThreadStore(ThreadStore):
             row_key=thread_id,
         )
         return self._entity_to_thread(merged)
+
+    def renew_run_lock(self, thread_id: str, owner_token: str) -> bool:
+        entity = self._table_client.get_entity(
+            partition_key=self._partition_key(), row_key=thread_id
+        )
+        if entity.get("lock_token") != owner_token:
+            return False
+        metadata = getattr(entity, "metadata", None)
+        etag = metadata.get("etag") if isinstance(metadata, Mapping) else entity.get("etag")
+        now = self._now()
+        try:
+            self._table_client.update_entity(
+                {
+                    "PartitionKey": self._partition_key(),
+                    "RowKey": thread_id,
+                    "updated_at": now,
+                    "lock_expires_at": now + timedelta(seconds=60),
+                },
+                mode="merge",
+                etag=etag,
+                match_condition=self._match_conditions.IfNotModified,
+            )
+        except self._modified_error:
+            return False
+        return True
 
     def reset_stale_locks(
         self,
