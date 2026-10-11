@@ -1,6 +1,13 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.11.3](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.11.2...v0.11.3) (2026-10-11)
+
+
+### Bug Fixes
+
+* **streaming:** expose FastAPI request annotations to worker ([#591](https://github.com/yeongseon/azure-functions-langgraph-python/issues/591)) ([842a0de](https://github.com/yeongseon/azure-functions-langgraph-python/commit/842a0de3f80700ed69013ca09c2f6c87ba4a1d57))
+
 ## [0.11.2](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.11.1...v0.11.2) (2026-10-11)
 
 
