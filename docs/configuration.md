@@ -53,12 +53,20 @@ Maximum number of mapping keys and sequence elements traversed across the
 request's input and configuration values. Defaults to `10_000`; larger input is
 rejected before graph execution.
 
+### `max_platform_result_limit`
+
+Maximum caller-supplied `limit` for Platform-compatible assistant search,
+thread search, and thread history requests. Defaults to `100`. Omitted request
+limits keep their existing default of `10`; values above the configured maximum
+receive a structured HTTP 422 response.
+
 ```python
 app = LangGraphApp(
     max_request_body_bytes=2 * 1024 * 1024,
     max_stream_response_bytes=4 * 1024 * 1024,
     max_input_depth=48,
     max_input_nodes=20_000,
+    max_platform_result_limit=100,
 )
 ```
 
