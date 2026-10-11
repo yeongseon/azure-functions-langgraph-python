@@ -13,8 +13,6 @@ on:
 permissions:
   contents: read
 
-# Verify-before-publish gate (see AGENTS.md):
-#   build -> lib-tests + wheel-tests -> azure-e2e -> publish
 # Tiered runtime verification before any PyPI upload:
 #   * lib-tests            : the library's own unit suite run against the source
 #                            tree; this is where the >=95% coverage gate is enforced.
@@ -194,7 +192,65 @@ jobs:
             --import-mode=importlib \
             -p no:cacheprovider \
             -m "not e2e" \
-            "${GITHUB_WORKSPACE}/tests"
+             "${GITHUB_WORKSPACE}/tests"
+
+  runtime-audit:
+    name: Candidate runtime dependency audit
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Download built distribution
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Validate audit exceptions
+        run: python scripts/check_audit_exceptions.py .github/pip-audit-ignore.txt
+
+      - name: Audit candidate runtime dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install "pip-audit==2.10.1"
+          WHEEL=$(ls dist/*.whl)
+          python -m pip install --target "${RUNNER_TEMP}/runtime-site" "$WHEEL"
+          python -m pip list \
+            --path "${RUNNER_TEMP}/runtime-site" \
+            --format freeze \
+            --exclude azure-functions-langgraph \
+            > runtime-requirements.txt
+          IGNORE_ARGS=$(python scripts/check_audit_exceptions.py \
+            .github/pip-audit-ignore.txt --format pip-audit)
+          # shellcheck disable=SC2086 -- validator emits trusted flag/id pairs.
+          python -m pip_audit \
+            --requirement runtime-requirements.txt \
+            --no-deps \
+            --disable-pip \
+            --format json \
+            --output runtime-audit.json \
+            --progress-spinner off \
+            ${IGNORE_ARGS}
+
+      - name: Upload runtime audit evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-audit-${{ github.sha }}
+          path: |
+            runtime-audit.json
+            runtime-requirements.txt
+          if-no-files-found: error
+          retention-days: 90
 
   azure-e2e:
     name: Azure release certification
@@ -213,7 +269,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: [build, lib-tests, wheel-tests, azure-e2e]
+    needs: [build, lib-tests, wheel-tests, runtime-audit, azure-e2e]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

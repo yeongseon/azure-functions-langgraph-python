@@ -13,7 +13,7 @@ release gate cannot silently regress:
    reviewers. Both are asserted.
 
 2. **Publish-gate wiring.** The ``publish`` job's ``needs`` must always include
-   ``build``, ``lib-tests`` and ``azure-e2e``, plus this repo's
+   ``build``, ``lib-tests``, ``runtime-audit`` and ``azure-e2e``, plus this repo's
    required runtime tier(s). The gate must never regress to publishing on
    ``build`` + ``lib-tests`` alone.
 
@@ -66,7 +66,7 @@ REQUIRED_RUNTIME_TIERS: tuple[str, ...] = ()
 # ``azure-e2e`` calls e2e-azure.yml as a reusable workflow at the ref being
 # published, so real-Azure certification is an in-chain gate rather than a
 # separately dispatched run that has to be matched back by SHA.
-UNIVERSAL_REQUIRED_NEEDS = ("build", "lib-tests", "azure-e2e")
+UNIVERSAL_REQUIRED_NEEDS = ("build", "lib-tests", "runtime-audit", "azure-e2e")
 
 GATE_WORKFLOWS = (
     ".github/workflows/publish-pypi.yml",

@@ -63,6 +63,12 @@ def test_detects_missing_azure_e2e_gate() -> None:
     assert any("azure-e2e" in e for e in errors)
 
 
+def test_detects_missing_runtime_audit_gate() -> None:
+    text = "  publish:\n    needs: [build, lib-tests, azure-e2e]\n"
+    errors = lint_mod.check_publish_needs(text, "publish-pypi.yml")
+    assert any("runtime-audit" in e for e in errors)
+
+
 def test_detects_regressed_needs() -> None:
     text = "  publish:\n    needs: [build, lib-tests]\n"
     errors = lint_mod.check_publish_needs(text, "publish-pypi.yml")
