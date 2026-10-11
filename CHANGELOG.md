@@ -1,6 +1,13 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.11.2](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.11.1...v0.11.2) (2026-10-11)
+
+
+### Bug Fixes
+
+* **ci:** enable streaming worker indexing on Linux Consumption ([#589](https://github.com/yeongseon/azure-functions-langgraph-python/issues/589)) ([f32f9ab](https://github.com/yeongseon/azure-functions-langgraph-python/commit/f32f9ab78bb57e96006368d350c0396cff71471f))
+
 ## [0.11.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.11.0...v0.11.1) (2026-10-11)
 
 
