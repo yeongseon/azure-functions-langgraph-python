@@ -133,13 +133,12 @@ curl http://localhost:7071/api/health
 Response:
 
 ```json
-{
-    "status": "ok",
-    "graphs": [
-        {"name": "echo_agent", "description": null, "has_checkpointer": false}
-    ]
-}
+{"status": "ok"}
 ```
+
+The anonymous liveness endpoint intentionally returns no graph inventory. Use
+`GET /api/health/details` with the app's function key to inspect registered
+graphs and checkpointer status.
 
 ## Next steps
 

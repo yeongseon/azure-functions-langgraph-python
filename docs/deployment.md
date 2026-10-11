@@ -159,17 +159,12 @@ curl -s http://localhost:7071/api/health | jq .
 Expected output:
 
 ```json
-{
-  "status": "ok",
-  "graphs": [
-    {
-      "name": "simple_agent",
-      "description": "A simple two-node greeting agent",
-      "has_checkpointer": true
-    }
-  ]
-}
+{"status": "ok"}
 ```
+
+The anonymous endpoint is a minimal liveness probe. Query the protected
+`GET /api/health/details` endpoint with a function key when deployment
+validation also needs the graph inventory.
 
 > ⚠️ Platform routes (`/api/threads`, `/api/runs/...`) won't work locally without Azure Storage. That's expected — they will work after deployment.
 
@@ -372,17 +367,11 @@ curl -s "$BASE_URL/api/health" | jq .
 Expected output:
 
 ```json
-{
-  "status": "ok",
-  "graphs": [
-    {
-      "name": "simple_agent",
-      "description": "A simple two-node greeting agent",
-      "has_checkpointer": true
-    }
-  ]
-}
+{"status": "ok"}
 ```
+
+Use `GET "$BASE_URL/api/health/details?code=$FUNCTION_KEY"` when verification
+also needs the protected graph inventory.
 
 #### Invoke the agent
 
