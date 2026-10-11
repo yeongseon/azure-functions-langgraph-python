@@ -1,5 +1,42 @@
 # Security
 
+## Authentication and thread ownership
+
+Azure Functions `FUNCTION` keys authenticate an application caller, not an end
+user, and they do not establish ownership of a LangGraph `thread_id`. Use
+Microsoft Entra ID through App Service Authentication (Easy Auth) to establish
+the principal, then supply `LangGraphApp(authorize=...)` to enforce resource
+ownership before thread CRUD, runs, state, history, and native state access.
+
+The hook receives an immutable `AuthorizationContext` containing the action,
+graph name, thread ID (when applicable), and raw `HttpRequest`. Return `True` to
+allow, `False` for a uniform 403, or raise `UnauthenticatedError` for 401. Denial
+happens before resource lookup, so missing and forbidden resources are not
+distinguishable.
+
+```python
+import base64
+import json
+
+from azure_functions_langgraph import LangGraphApp
+from azure_functions_langgraph.authorization import AuthorizationContext
+
+
+def authorize(context: AuthorizationContext) -> bool:
+    encoded = context.request.headers.get("x-ms-client-principal")
+    if not encoded:
+        return False
+    principal = json.loads(base64.b64decode(encoded))
+    user_id = principal["userId"]
+    return context.thread_id is None or context.thread_id.startswith(f"{user_id}:")
+
+
+app = LangGraphApp(authorize=authorize)
+```
+
+Setting app-level or per-graph auth to `ANONYMOUS` does not authenticate a
+principal; explicit warnings remain enabled for both configurations.
+
 ## Authentication
 
 By default, `LangGraphApp` creates endpoints with `AuthLevel.FUNCTION`, requiring an Azure Functions key on every request. This is the recommended baseline for production deployments:
