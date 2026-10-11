@@ -19,13 +19,13 @@ instead of causing 422 errors. This is deliberate forward-compatibility:
   drift is observable. Set ``AZFUNC_LANGGRAPH_PLATFORM_STRICT`` to reject
   unknown fields with ``400`` instead (opt-in strict mode).
 
-The shapes target the **langgraph-sdk** ``>=0.2.2,<0.4`` wire format
+The shapes target the **langgraph-sdk** ``>=0.2.2,<0.5`` wire format
 (``langgraph_sdk.schema``). This range is the single source of truth shared
 with ``pyproject.toml`` (dev/test pin) and ``COMPATIBILITY.md``; a drift
 guard in ``tests/test_sdk_contracts.py`` fails if the installed SDK falls
-outside it. Fields added in later SDK versions are dropped on request
-models and absent on response models until this module is updated for a
-new supported range.
+outside it. The 0.4.x wire surface is covered by the latest-version CI lane;
+fields added beyond the supported range are dropped on request models and
+absent on response models until this module is updated.
 
 .. versionadded:: 0.3.0
 """

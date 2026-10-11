@@ -7,7 +7,7 @@
 | `langgraph` | `>=1.0,<2.0` | Runtime dependency. CI certifies both ends of the supported window on a rolling basis: the `langgraph-min` lane pins the minimum supported 1.x release (1.0.0), and the `langgraph-latest` lane pins the latest certified 1.2.x. The coverage-gated matrix (Python 3.11–3.14) resolves the newest compatible 1.x by default. |
 | `langgraph-sdk` | `>=0.2.2,<0.5` | Platform compat layer mirrors this SDK version's REST API shapes. The floor tracks the minimum supported `langgraph` (1.0.0 -> `langgraph-sdk 0.2.2`); the ceiling was lifted to `<0.5` once `langgraph` core 1.2.9+ moved to `langgraph-sdk >=0.4.2,<0.5`. The 0.4.x wire surface is certified identical to 0.3.x (issue #368 spike + `langgraph-latest` lane, #421). |
 | `pydantic` | `>=2.7.4,<3.0` | Required for request/response models. |
-| `azure-functions` | `>=1.17` | Azure Functions Python v2 programming model. |
+| `azure-functions` | `>=1.21.0,<2.0.0` on Python 3.11–3.12; `>=1.21.0,<3.0.0` on Python 3.13–3.14 | Azure Functions Python v2 programming model. The 2.x path is compatibility-tested in the wheel matrix but is not yet certified by the real-Azure lane (tracked in #350). |
 
 ### Rolling minimum-version window
 
