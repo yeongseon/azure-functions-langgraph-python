@@ -269,8 +269,9 @@ Requests exceeding these limits are rejected before graph execution begins.
 ## Streaming Behavior
 ### Current behavior (critical)
 
-Endpoints with `stream` in the path and `Content-Type: text/event-stream` return SSE-formatted payloads,
-but delivery is buffered in Azure Functions Python today.
+Endpoints registered by the classic `LangGraphApp` with `stream` in the path and
+`Content-Type: text/event-stream` return SSE-formatted payloads, but the adapter
+buffers them until graph execution completes.
 
 This affects native and platform routes such as:
 
@@ -286,8 +287,11 @@ Adjust `max_stream_response_bytes` in `LangGraphApp` if your graph produces larg
 
 ### Why this happens
 
-This is an Azure Functions Python worker limitation for HTTP streaming/chunked transfer.
-The package currently collects stream events and returns a single response body.
+This is a deliberate constraint of the classic `HttpRequest`/`HttpResponse`
+adapter, which returns one fully formed response body; it is not a general Azure
+Functions worker limitation. For true incremental delivery, use the separate
+`StreamingLangGraphApp`, which uses the app-wide FastAPI/ASGI transport available
+with Azure Functions runtime 4.34.1+.
 
 > For how the Azure Functions Python worker loads and binds handlers, see the toolkit's
 > [how the worker binds handlers](https://yeongseon.dev/azure-functions-python/platform/how-the-worker-binds-handlers/) reference — how invocation_id / handler binding works.
@@ -449,7 +453,14 @@ app = LangGraphApp(platform_compat=True, auth_level=func.AuthLevel.FUNCTION)
 app.thread_store = AzureTableThreadStore.from_connection_string(...)  # required
 ```
 
-**Interaction with Platform-compatible runs.** `thread_lock` guards the *native* invoke/stream endpoints only. Platform-compatible runs (`platform_compat=True` with `AzureTableThreadStore`) use their own ETag-based run lock (`try_acquire_run_lock` / `release_run_lock` — see the *Run lock semantics* subsection under [Persistent storage in the README](https://github.com/yeongseon/azure-functions-langgraph-python#run-lock-semantics)) and are unaffected by the `thread_lock` argument. Deployments that expose both surfaces should configure both.
+**Interaction with Platform-compatible runs.** The same `thread_lock` guards
+native invoke/stream routes and threaded Platform-compatible runs. Platform runs
+then acquire the thread store's run lock as a second layer
+(`try_acquire_run_lock` / `release_run_lock`): a distributed `thread_lock`
+serializes graph execution across hosts, while `AzureTableThreadStore` uses ETag
+CAS to maintain thread status and assistant binding. Multi-instance deployments
+that expose either surface should therefore wire both a distributed
+`ThreadLock` and a distributed thread store.
 
 
 ## Storage Configuration

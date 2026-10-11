@@ -31,6 +31,37 @@ Available levels:
 | `FUNCTION` | Requires a function-specific API key (**default**) |
 | `ADMIN` | Requires the master host key |
 
+### `max_request_body_bytes`
+
+Maximum accepted HTTP request body size before graph execution. Defaults to
+`1_048_576` bytes (1 MiB); oversized requests receive HTTP 413.
+
+### `max_stream_response_bytes`
+
+Maximum buffered SSE body size for classic `LangGraphApp` stream routes.
+Defaults to `1_048_576` bytes (1 MiB). When the next frame would cross the
+limit, the response ends with in-band `error` and `end` SSE events.
+
+### `max_input_depth`
+
+Maximum nesting depth accepted in the request's input and configuration values.
+Defaults to `32`; deeper input is rejected before graph execution.
+
+### `max_input_nodes`
+
+Maximum number of mapping keys and sequence elements traversed across the
+request's input and configuration values. Defaults to `10_000`; larger input is
+rejected before graph execution.
+
+```python
+app = LangGraphApp(
+    max_request_body_bytes=2 * 1024 * 1024,
+    max_stream_response_bytes=4 * 1024 * 1024,
+    max_input_depth=48,
+    max_input_nodes=20_000,
+)
+```
+
 ## Graph registration
 
 The `register()` method accepts:

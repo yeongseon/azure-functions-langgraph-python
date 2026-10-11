@@ -171,13 +171,12 @@ lock is released with `status="error"`.
 
 !!! note "Need true incremental streaming?"
     The buffered model bounds memory and guarantees a well-formed event log, but
-    it defeats token-by-token streaming. If you need incremental delivery, front
-    the graph with your own streaming HTTP function that yields directly from
-    `graph.stream(...)` — the buffered endpoints are optimized for correctness and
-    bounded memory, not latency. Note that a true-streaming HTTP function requires
-    the app-wide FastAPI/ASGI model (`azurefunctions-extensions-http-fastapi`,
-    runtime 4.34.1+), which cannot be mixed with this package's classic-model
-    routes in the same function app.
+    it defeats token-by-token streaming. Use `StreamingLangGraphApp` from the
+    `streaming` extra for incremental delivery; it yields frames through the
+    app-wide FastAPI/ASGI transport (`azurefunctions-extensions-http-fastapi`,
+    runtime 4.34.1+). The ASGI model cannot be mixed with classic
+    `LangGraphApp` routes in the same function app, so deploy the streaming
+    surface separately when both contracts are required.
 
 ---
 
