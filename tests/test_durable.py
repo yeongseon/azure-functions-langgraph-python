@@ -476,6 +476,16 @@ class TestCreateRunHttp:
         )
         assert resp.status_code == 400
 
+    async def test_oversized_body_413(self) -> None:
+        reg = FakeReg(FakeGraph(), "echo")
+        resp = await create_run_http(
+            FakeDurableClient(),
+            _req(route_params={"name": "echo"}, body=b"x" * 50),
+            registry={"echo": reg},
+            max_request_body_bytes=10,
+        )
+        assert resp.status_code == 413
+
     async def test_success_202(self) -> None:
         reg = FakeReg(FakeGraph(), "echo")
         client = FakeDurableClient()

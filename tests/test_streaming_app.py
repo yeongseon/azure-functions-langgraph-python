@@ -265,7 +265,7 @@ class TestReadJsonBody:
     async def test_oversize(self) -> None:
         body = await _read_json_body(FakeRequest({"x": "y" * 100}), max_request_body_bytes=4)
         assert isinstance(body, _JsonError)
-        assert body.status_code == 400
+        assert body.status_code == 413
 
 
 class TestValidateRequest:
@@ -285,6 +285,8 @@ class TestValidateRequest:
         )
         assert isinstance(parsed, _JsonError)
         assert parsed.status_code == 422
+        assert parsed.detail == [{"loc": ["input"], "type": "dict_type"}]
+        assert "not-a-dict" not in str(parsed.detail)
 
     def test_input_structure_too_deep(self) -> None:
         from azure_functions_langgraph.contracts import InvokeRequest

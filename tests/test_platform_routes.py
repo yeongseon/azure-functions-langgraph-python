@@ -2868,6 +2868,21 @@ class TestCoverageBoostRunsThreads:
         req = _post_request("/api/threads", {"metadata": "bad"})
         assert fn(req).status_code == 422
 
+    def test_threads_create_validation_error_does_not_expose_input(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        app = _build_platform_app(store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_threads_create")
+        secret = "credential-secret-565"
+        req = _post_request("/api/threads", {"metadata": secret})
+
+        resp = fn(req)
+
+        assert resp.status_code == 422
+        body = json.loads(resp.get_body())
+        assert body["detail"] == [{"loc": ["metadata"], "type": "dict_type"}]
+        assert secret not in resp.get_body().decode()
+
     def test_threads_state_get_keyerror_returns_empty_state(
         self, store: InMemoryThreadStore
     ) -> None:

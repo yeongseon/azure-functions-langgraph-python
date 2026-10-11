@@ -14,6 +14,23 @@ For the full request/response reference, see the [API Reference](api.md).
 
 ---
 
+## HTTP request error contract
+
+Native, Platform-compatible, true-streaming, and Durable HTTP endpoints use
+`400 Bad Request` for malformed JSON, wrong top-level JSON shapes, and
+structural depth or node-count limits. They use `413 Content Too Large` when
+the raw body exceeds `max_request_body_bytes`, and `422 Unprocessable Content`
+when valid JSON fails a Pydantic request contract.
+
+Validation details contain only stable `loc` and `type` fields. Rejected
+values, Pydantic context, and documentation URLs are never returned. Each
+surface keeps its established error envelope: native and true-streaming use
+`{"error":"error","detail":...}`, Platform-compatible routes use
+`{"detail":...}`, and Durable routes use `{"error":...}`. Graph and storage
+failures remain sanitized `500` responses; request bodies are not logged.
+
+---
+
 ## Distributed thread locks
 
 The native `invoke` / `stream` endpoints guard concurrent access to the same
@@ -107,7 +124,7 @@ container = ContainerClient(
 
 lock = AzureBlobLeaseThreadLock(
     container_client=container,
-    lease_duration=60,   # finite + auto_renew keeps long runs safe
+    lease_duration=60,  # finite + auto_renew keeps long runs safe
     auto_renew=True,
 )
 

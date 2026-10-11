@@ -17,9 +17,12 @@ from typing import Any, Protocol, TypeVar
 
 import azure.functions as func
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from pydantic import ValidationError
 
 from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph._validation import (
+    ValidationErrorDetail,
+    sanitized_validation_errors,
     validate_body_size,
     validate_input_structure,
     validate_thread_id,
@@ -83,7 +86,9 @@ def _require_checkpoint_thread_id(checkpointer: Any, thread_id: str | None) -> s
     return None
 
 
-def _error_response(status_code: int, detail: str) -> func.HttpResponse:
+def _error_response(
+    status_code: int, detail: str | list[ValidationErrorDetail]
+) -> func.HttpResponse:
     body = ErrorResponse(error="error", detail=detail)
     return func.HttpResponse(
         body=body.model_dump_json(),
@@ -173,7 +178,7 @@ def _parse_native_request(
     raw_body = req.get_body()
     size_err = validate_body_size(raw_body, max_request_body_bytes)
     if size_err:
-        return _error_response(400, size_err)
+        return _error_response(413, size_err)
 
     try:
         body = req.get_json()
@@ -182,8 +187,10 @@ def _parse_native_request(
 
     try:
         request = model.model_validate(body)
-    except Exception as exc:
-        return _error_response(422, f"Validation error: {exc}")
+    except ValidationError as exc:
+        details = sanitized_validation_errors(exc)
+        logger.debug("Native request validation failed: %s", details)
+        return _error_response(422, details)
 
     structure_err = validate_input_structure(
         request.input,
