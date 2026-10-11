@@ -78,12 +78,14 @@ jobs:
           RG="rg-af-e2e-${REPO_SHORT}-${RUN}"
           APP="af-e2e-${REPO_SHORT}-${RUN}"
           APP_B="af-e2e-${REPO_SHORT}-${RUN}-b"
+          STREAM_APP="af-e2e-${REPO_SHORT}-${RUN}-stream"
           # Storage name: lowercase alphanumeric, max 24 chars
           ST="stafe2e${RUN}"
           ST="${ST:0:24}"
           echo "rg=${RG}"     >> "$GITHUB_OUTPUT"
           echo "app=${APP}"   >> "$GITHUB_OUTPUT"
           echo "app_b=${APP_B}" >> "$GITHUB_OUTPUT"
+          echo "stream_app=${STREAM_APP}" >> "$GITHUB_OUTPUT"
           echo "st=${ST}"     >> "$GITHUB_OUTPUT"
 
       - name: Azure login (OIDC)
@@ -109,6 +111,7 @@ jobs:
                 location="$AZURE_LOCATION" \
                 functionAppName="${{ steps.names.outputs.app }}" \
                 functionAppNameB="${{ steps.names.outputs.app_b }}" \
+                streamingFunctionAppName="${{ steps.names.outputs.stream_app }}" \
                 storageName="${{ steps.names.outputs.st }}" \
                 enableAppInsights=false
 
@@ -136,8 +139,11 @@ jobs:
           echo "Built candidate wheel: $WHEEL"
           mkdir -p examples/e2e_app/wheels
           cp "$WHEEL" examples/e2e_app/wheels/
+          mkdir -p examples/true_streaming_agent/wheels
+          cp "$WHEEL" examples/true_streaming_agent/wheels/
           BASENAME=$(basename "$WHEEL")
           echo "./wheels/${BASENAME}" >> examples/e2e_app/requirements.txt
+          echo "./wheels/${BASENAME}" >> examples/true_streaming_agent/requirements.txt
           echo "---- examples/e2e_app/requirements.txt ----"
           cat examples/e2e_app/requirements.txt
 
@@ -156,13 +162,33 @@ jobs:
           func azure functionapp publish "${{ steps.names.outputs.app }}" --python --build remote
           func azure functionapp publish "${{ steps.names.outputs.app_b }}" --python --build remote
 
+      - name: Publish true-streaming function app
+        working-directory: examples/true_streaming_agent
+        timeout-minutes: 40
+        run: func azure functionapp publish "${{ steps.names.outputs.stream_app }}" --python --build remote
+
+      - name: Read true-streaming function key
+        id: stream_key
+        run: |
+          KEY=$(az functionapp keys list \
+            --resource-group "${{ steps.names.outputs.rg }}" \
+            --name "${{ steps.names.outputs.stream_app }}" \
+            --query functionKeys.default \
+            --output tsv)
+          echo "::add-mask::$KEY"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
       - name: Run e2e tests
         env:
           E2E_BASE_URL: https://${{ steps.names.outputs.app }}.azurewebsites.net
           E2E_BASE_URL_B: https://${{ steps.names.outputs.app_b }}.azurewebsites.net
+          E2E_STREAM_BASE_URL: https://${{ steps.names.outputs.stream_app }}.azurewebsites.net
+          E2E_STREAM_CODE: ${{ steps.stream_key.outputs.key }}
+          STREAM_TIMING_EVIDENCE: ${{ github.workspace }}/cert/streaming-timing.json
         run: |
           # Clear the repo's default addopts (which force '-m "not e2e"' and
           # coverage) so the e2e-marked suite is actually collected.
+          mkdir -p cert
           pytest tests/e2e -v -m e2e -o addopts=""
 
       - name: Record certification
@@ -185,6 +211,7 @@ jobs:
             "workflow": "e2e-azure.yml",
             "run_id": "${{ github.run_id }}",
             "result": "success",
+            "true_streaming_timing": "streaming-timing.json",
             "certified_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
