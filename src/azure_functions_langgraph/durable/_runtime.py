@@ -164,7 +164,8 @@ async def create_run_http(
 
     body, error = _parse_body(req, max_bytes=max_request_body_bytes)
     if error is not None or body is None:
-        return _json_response(400, {"error": error or "invalid request body"})
+        status_code = 413 if len(req.get_body() or b"") > max_request_body_bytes else 400
+        return _json_response(status_code, {"error": error or "invalid request body"})
 
     status_code, result = await create_run_impl(
         client, orchestrator_name, body, graph_name=graph_name
