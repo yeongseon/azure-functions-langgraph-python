@@ -135,6 +135,29 @@ def test_list_checkpoints_returns_expected_results(
     close_cosmos_checkpointer(saver)
 
 
+def test_malformed_checkpoint_record_raises_from_upstream(
+    cosmos_emulator_target: tuple[str, str, str, str],
+) -> None:
+    # Given: a malformed document injected through the real Cosmos SDK container
+    saver = _create_saver(cosmos_emulator_target)
+    raw_container = getattr(saver, "container")
+    raw_container.upsert_item(
+        {
+            "id": "malformed-checkpoint",
+            "partition_key": "malformed-thread",
+            "thread_id": "malformed-thread",
+            "checkpoint_ns": "",
+            "checkpoint_id": "malformed-checkpoint",
+            "checkpoint": "not-a-valid-checkpoint-payload",
+        }
+    )
+
+    # When / Then: malformed persistence is surfaced, never silently treated as valid state
+    with pytest.raises(Exception):
+        saver.get_tuple(_config("malformed-thread", checkpoint_id="malformed-checkpoint"))
+    close_cosmos_checkpointer(saver)
+
+
 def test_deprecated_credential_param_still_works(
     cosmos_emulator_target: tuple[str, str, str, str],
 ) -> None:

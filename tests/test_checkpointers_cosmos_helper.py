@@ -85,6 +85,50 @@ def test_creates_saver_with_key_param(monkeypatch: Any) -> None:
     assert saver is not None
 
 
+def _assert_constructor_propagates_failure(monkeypatch: Any, failure: Exception) -> None:
+    # Given: the upstream Cosmos saver reports a transient backend failure
+    class FailingSaver:
+        def __init__(self, **kwargs: Any) -> None:
+            raise failure
+
+    cosmos_module = types.ModuleType("langgraph_checkpoint_cosmosdb")
+    setattr(cosmos_module, "CosmosDBSaver", FailingSaver)
+    monkeypatch.setitem(sys.modules, "langgraph_checkpoint_cosmosdb", cosmos_module)
+    module = _reload_cosmos_module(monkeypatch)
+
+    # When / Then: the helper preserves the upstream classification
+    with pytest.raises(type(failure), match=str(failure)):
+        module.create_cosmos_checkpointer(
+            endpoint="https://test.documents.azure.com:443/",
+            key="key",
+            database_name="db",
+            container_name="container",
+        )
+
+
+def test_constructor_propagates_cosmos_timeout(monkeypatch: Any) -> None:
+    _assert_constructor_propagates_failure(monkeypatch, TimeoutError("cosmos timeout"))
+
+
+def test_constructor_propagates_cosmos_throttling(monkeypatch: Any) -> None:
+    _assert_constructor_propagates_failure(monkeypatch, RuntimeError("429 throttled"))
+
+
+def test_malformed_upstream_module_is_rejected(monkeypatch: Any) -> None:
+    # Given: an installed upstream module missing the saver contract
+    _install_fake_cosmos(monkeypatch, omit_cosmos_saver=True)
+    module = _reload_cosmos_module(monkeypatch)
+
+    # When / Then: the helper returns the actionable dependency error
+    with pytest.raises(ImportError, match="missing CosmosDBSaver"):
+        module.create_cosmos_checkpointer(
+            endpoint="https://test.documents.azure.com:443/",
+            key="key",
+            database_name="db",
+            container_name="container",
+        )
+
+
 def test_key_param_takes_precedence_over_cosmos_key_env(monkeypatch: Any) -> None:
     captured_env: dict[str, str | None] = {}
 
