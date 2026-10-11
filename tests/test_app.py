@@ -12,6 +12,7 @@ import azure.functions as func
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp, _has_checkpointer
+from azure_functions_langgraph.observability import RunContext
 from tests import conftest
 from tests.conftest import (
     FakeCompiledGraph,
@@ -843,6 +844,33 @@ class TestStreamValidationError:
         body = json.loads(resp.get_body())
         assert body["detail"] == [{"loc": ["input"], "type": "dict_type"}]
         assert secret not in resp.get_body().decode()
+
+    def test_failed_response_and_observer_share_request_id(self) -> None:
+        class Observer:
+            rejected: list[RunContext] = []
+
+            def on_run_started(self, ctx: RunContext) -> None: ...
+            def on_run_completed(self, ctx: RunContext) -> None: ...
+            def on_run_failed(self, ctx: RunContext, exc: BaseException) -> None: ...
+            def on_run_rejected(self, ctx: RunContext, reason: str) -> None:
+                self.rejected.append(ctx)
+
+        observer = Observer()
+        app = LangGraphApp(observer=observer)
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        request_id = "safe-request-570"
+        req = func.HttpRequest(
+            method="POST",
+            url="http://localhost:7071/api/graphs/agent/invoke",
+            body=json.dumps({"input": "invalid"}).encode(),
+            headers={"x-request-id": request_id},
+        )
+
+        response = app._handle_invoke(req, app._registrations["agent"])
+
+        assert response.headers["X-Request-ID"] == request_id
+        assert json.loads(response.get_body())["request_id"] == request_id
+        assert observer.rejected[0].run_id == request_id
 
 
 class TestInvokeWithEmptyInput:
