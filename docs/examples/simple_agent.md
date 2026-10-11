@@ -119,17 +119,11 @@ curl http://localhost:7071/api/health
 ```
 
 ```json
-{
-    "status": "ok",
-    "graphs": [
-        {
-            "name": "simple_agent",
-            "description": "A simple two-node greeting agent",
-            "has_checkpointer": false
-        }
-    ]
-}
+{"status": "ok"}
 ```
+
+The graph inventory is available separately from the protected
+`GET /api/health/details` endpoint.
 
 ## Full source
 
