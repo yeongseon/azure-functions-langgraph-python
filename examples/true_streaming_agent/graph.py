@@ -23,6 +23,7 @@ Usage::
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from typing import TypedDict
@@ -35,6 +36,7 @@ from typing import TypedDict
 class AgentState(TypedDict):
     messages: list[dict[str, str]]
     tokens: list[str]
+    fail_at_second_step: bool
 
 
 # ------------------------------------------------------------------
@@ -48,16 +50,21 @@ def _reply_words(state: AgentState) -> list[str]:
 
 
 def step_1(state: AgentState) -> dict[str, Any]:
+    time.sleep(0.35)
     words = _reply_words(state)
     return {"tokens": words[:1]}
 
 
 def step_2(state: AgentState) -> dict[str, Any]:
+    time.sleep(0.35)
+    if state.get("fail_at_second_step", False):
+        raise RuntimeError("deterministic streaming failure")
     words = _reply_words(state)
     return {"tokens": words[:2]}
 
 
 def step_3(state: AgentState) -> dict[str, Any]:
+    time.sleep(0.35)
     words = _reply_words(state)
     reply = " ".join(words)
     return {
@@ -73,6 +80,7 @@ def step_3(state: AgentState) -> dict[str, Any]:
 # NOTE: This block is guarded so the module can be imported without langgraph
 # installed (e.g. for testing the example structure).
 try:
+    from langgraph.checkpoint.memory import InMemorySaver
     from langgraph.graph import END, START, StateGraph
 
     builder = StateGraph(AgentState)
@@ -84,7 +92,7 @@ try:
     builder.add_edge("step_2", "step_3")
     builder.add_edge("step_3", END)
 
-    compiled_graph = builder.compile()
+    compiled_graph = builder.compile(checkpointer=InMemorySaver())
 
 except ImportError:
     raise ImportError(
