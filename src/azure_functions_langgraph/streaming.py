@@ -77,6 +77,7 @@ from azure_functions_langgraph.observability import (
     RunRejectedReason,
     finish_context,
     new_run_context,
+    request_id_from_headers,
     safe_observer_call,
 )
 from azure_functions_langgraph.protocols import (
@@ -643,6 +644,7 @@ class StreamingLangGraphApp:
             transport="streaming",
             has_checkpointer=has_cp,
             lock_backend=type(thread_lock).__name__,
+            run_id=request_id_from_headers(getattr(req, "headers", {})),
         )
 
         body = await _read_json_body(req, max_request_body_bytes=self.max_request_body_bytes)
@@ -693,7 +695,7 @@ class StreamingLangGraphApp:
         except Exception as exc:  # noqa: BLE001 - reported and returned as 500
             logger.exception("Graph %s invoke failed", reg.name)
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
-            return self._json_error(JSONResponse, 500, "Graph execution failed")
+            return self._json_error(JSONResponse, 500, "Graph execution failed", ctx.run_id)
         finally:
             if lock_token is not None and thread_id is not None:
                 await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
@@ -720,6 +722,7 @@ class StreamingLangGraphApp:
             transport="streaming",
             has_checkpointer=has_cp,
             lock_backend=type(thread_lock).__name__,
+            run_id=request_id_from_headers(getattr(req, "headers", {})),
         )
 
         streamable = isinstance(reg.graph, AsyncStreamableGraph if is_async else StreamableGraph)
@@ -800,12 +803,19 @@ class StreamingLangGraphApp:
 
     @staticmethod
     def _json_error(
-        JSONResponse: Any, status_code: int, detail: str | list[ValidationErrorDetail]
+        JSONResponse: Any,
+        status_code: int,
+        detail: str | list[ValidationErrorDetail],
+        request_id: str | None = None,
     ) -> Any:
         from azure_functions_langgraph.contracts import ErrorResponse
 
-        body = ErrorResponse(error="error", detail=detail)
-        return JSONResponse(content=json.loads(body.model_dump_json()), status_code=status_code)
+        body = ErrorResponse(error="error", detail=detail, request_id=request_id)
+        return JSONResponse(
+            content=json.loads(body.model_dump_json()),
+            status_code=status_code,
+            headers={"X-Request-ID": request_id} if request_id is not None else None,
+        )
 
     def _reject(
         self,
@@ -817,4 +827,4 @@ class StreamingLangGraphApp:
     ) -> Any:
         """Emit ``on_run_rejected`` for a pre-execution failure and return a JSON error."""
         safe_observer_call(observer, "on_run_rejected", finish_context(ctx), reason)
-        return self._json_error(JSONResponse, err.status_code, err.detail)
+        return self._json_error(JSONResponse, err.status_code, err.detail, ctx.run_id)
