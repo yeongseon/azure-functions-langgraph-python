@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any
-import uuid
 
 import azure.functions as func
 
@@ -12,6 +11,7 @@ from azure_functions_langgraph._validation import (
 from azure_functions_langgraph.observability import (
     finish_context,
     new_run_context,
+    request_id_from_headers,
     safe_observer_call,
 )
 from azure_functions_langgraph.platform._common import (
@@ -91,7 +91,7 @@ def register_run_routes(
         if isinstance(reg, func.HttpResponse):
             return reg
 
-        run_id = str(uuid.uuid4())
+        run_id = request_id_from_headers(req.headers)
         ctx = new_run_context(
             reg.name,
             "invoke",
@@ -147,7 +147,7 @@ def register_run_routes(
             )
             _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
-            return _platform_error(500, "Graph execution failed")
+            return _platform_error(500, "Graph execution failed", ctx.run_id)
 
         output = result if isinstance(result, dict) else {"result": result}
         _release_thread_run_lock(
@@ -197,7 +197,7 @@ def register_run_routes(
                 f"Graph {run_req.assistant_id!r} does not support streaming",
             )
 
-        run_id = str(uuid.uuid4())
+        run_id = request_id_from_headers(req.headers)
         ctx = new_run_context(
             reg.name,
             "stream",
@@ -293,7 +293,7 @@ def register_run_routes(
             )
             _release_thread_run_lock(deps, thread_id, reg.name, lock_token, status="error")
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
-            chunks.append(format_error_event("stream processing failed"))
+            chunks.append(format_error_event("stream processing failed", ctx.run_id))
             chunks.append(format_end_event())
             return _build_sse_response(
                 chunks,
@@ -334,7 +334,7 @@ def register_run_routes(
         if isinstance(config, func.HttpResponse):
             return config
 
-        run_id = str(uuid.uuid4())
+        run_id = request_id_from_headers(req.headers)
         ctx = new_run_context(
             reg.name,
             "invoke",
@@ -352,7 +352,7 @@ def register_run_routes(
                 run_req.assistant_id,
             )
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
-            return _platform_error(500, "Graph execution failed")
+            return _platform_error(500, "Graph execution failed", ctx.run_id)
 
         output = result if isinstance(result, dict) else {"result": result}
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
@@ -398,7 +398,7 @@ def register_run_routes(
         if isinstance(config, func.HttpResponse):
             return config
 
-        run_id = str(uuid.uuid4())
+        run_id = request_id_from_headers(req.headers)
         ctx = new_run_context(
             reg.name,
             "stream",
@@ -455,7 +455,7 @@ def register_run_routes(
                 "Graph %s stream failed (threadless)",
                 run_req.assistant_id,
             )
-            chunks.append(format_error_event("stream processing failed"))
+            chunks.append(format_error_event("stream processing failed", ctx.run_id))
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             chunks.append(format_end_event())
             return _build_sse_response(

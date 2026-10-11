@@ -2726,7 +2726,8 @@ class TestStreamSSEWireFormat:
 
         events = [p["event"] for p in parts]
         assert events == ["metadata", "error", "end"]
-        assert parts[1]["data"] == {"error": "stream processing failed"}
+        assert parts[1]["data"]["error"] == "stream processing failed"
+        assert parts[1]["data"]["request_id"] == parts[0]["data"]["run_id"]
         assert parts[2]["data"] is None
 
     def test_content_type_is_event_stream(self, store: InMemoryThreadStore) -> None:

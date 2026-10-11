@@ -50,7 +50,7 @@ def format_data_event(stream_mode: str, payload: Any) -> str:
     return f"event: {stream_mode}\ndata: {serialized}\n\n"
 
 
-def format_error_event(message: str) -> str:
+def format_error_event(message: str, request_id: str | None = None) -> str:
     """Format an error SSE event.
 
     Uses ``{"error": "<message>"}`` to match existing handler conventions.
@@ -58,7 +58,9 @@ def format_error_event(message: str) -> str:
     >>> format_error_event("boom")
     'event: error\\ndata: {"error": "boom"}\\n\\n'
     """
-    data = json.dumps({"error": message})
+    data = json.dumps(
+        {"error": message, **({"request_id": request_id} if request_id is not None else {})}
+    )
     return f"event: error\ndata: {data}\n\n"
 
 

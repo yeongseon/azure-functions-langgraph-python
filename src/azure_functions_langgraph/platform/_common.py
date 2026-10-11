@@ -99,14 +99,17 @@ def _check_unknown_platform_fields(
 
 
 def _platform_error(
-    status_code: int, detail: str | list[ValidationErrorDetail]
+    status_code: int,
+    detail: str | list[ValidationErrorDetail],
+    request_id: str | None = None,
 ) -> func.HttpResponse:
     """Return a JSON error matching LangGraph Platform conventions."""
-    body = json.dumps({"detail": detail})
+    body = json.dumps({"detail": detail, **({"request_id": request_id} if request_id else {})})
     return func.HttpResponse(
         body=body,
         mimetype="application/json",
         status_code=status_code,
+        headers={"X-Request-ID": request_id} if request_id is not None else None,
     )
 
 
