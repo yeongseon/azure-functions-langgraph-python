@@ -21,6 +21,8 @@ Runtime prerequisites (a real deploy must satisfy all three):
 - The ``streaming`` extra installed (``pip install
   azure-functions-langgraph[streaming]``) so the FastAPI extension is present.
 - ``PYTHON_ENABLE_INIT_INDEXING=1`` in the Function App settings.
+- On Linux Consumption with Python 3.12 or earlier,
+  ``PYTHON_ISOLATE_WORKER_DEPENDENCIES=1`` in the Function App settings.
 
 Because enabling HTTP streaming makes the whole app FastAPI-based, **every**
 route here (health, invoke, stream) returns an extension response type; there is
