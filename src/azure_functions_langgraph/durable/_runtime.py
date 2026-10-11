@@ -48,7 +48,11 @@ from azure_functions_langgraph.durable._lifecycle import (
 from azure_functions_langgraph.durable._orchestrator import run_orchestration
 from azure_functions_langgraph.durable._state import DurableRunPayload, DurableRunResult
 from azure_functions_langgraph.locks import ThreadLock
-from azure_functions_langgraph.observability import NOOP_OBSERVER, RunObserver
+from azure_functions_langgraph.observability import (
+    NOOP_OBSERVER,
+    RunObserver,
+    request_id_from_headers,
+)
 
 __all__ = [
     "ORCHESTRATOR_NAME",
@@ -115,13 +119,16 @@ def create_durable_function_app(auth_level: func.AuthLevel) -> func.FunctionApp:
     return app  # type: ignore[no-any-return]
 
 
-def _json_response(status_code: int, body: Mapping[str, Any]) -> func.HttpResponse:
+def _json_response(
+    status_code: int, body: Mapping[str, Any], request_id: str | None = None
+) -> func.HttpResponse:
     """Build a JSON ``func.HttpResponse`` for a lifecycle result."""
 
     return func.HttpResponse(
-        body=json.dumps(body),
+        body=json.dumps({**body, **({"request_id": request_id} if request_id else {})}),
         mimetype="application/json",
         status_code=status_code,
+        headers={"X-Request-ID": request_id} if request_id is not None else None,
     )
 
 
@@ -159,18 +166,21 @@ async def create_run_http(
     """Adapt ``POST graphs/{name}/runs`` to :func:`create_run_impl`."""
 
     graph_name = req.route_params.get("name", "")
+    request_id = request_id_from_headers(req.headers)
     if graph_name not in registry:
-        return _json_response(404, {"error": f"no graph registered under name {graph_name!r}"})
+        return _json_response(
+            404, {"error": f"no graph registered under name {graph_name!r}"}, request_id
+        )
 
     body, error = _parse_body(req, max_bytes=max_request_body_bytes)
     if error is not None or body is None:
         status_code = 413 if len(req.get_body() or b"") > max_request_body_bytes else 400
-        return _json_response(status_code, {"error": error or "invalid request body"})
+        return _json_response(status_code, {"error": error or "invalid request body"}, request_id)
 
     status_code, result = await create_run_impl(
         client, orchestrator_name, body, graph_name=graph_name
     )
-    return _json_response(status_code, result)
+    return _json_response(status_code, result, request_id)
 
 
 async def get_run_http(client: DurableClientLike, req: func.HttpRequest) -> func.HttpResponse:

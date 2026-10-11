@@ -29,6 +29,13 @@ surface keeps its established error envelope: native and true-streaming use
 `{"detail":...}`, and Durable routes use `{"error":...}`. Graph and storage
 failures remain sanitized `500` responses; request bodies are not logged.
 
+HTTP ingress accepts `X-Request-ID` only when it matches
+`[A-Za-z0-9._-]{1,64}`; missing or unsafe values are replaced with a random
+UUID hex identifier. The resulting ID is the run observer's `run_id`, is
+returned in the `X-Request-ID` response header, and is included in sanitized
+JSON errors and SSE error metadata. Request IDs are derived only from headers,
+never from request payloads.
+
 Platform assistant search, thread search, and thread history additionally cap
 caller-supplied result limits with `max_platform_result_limit` (default `100`).
 This protects response and history enumeration size, but Azure Table metadata
