@@ -142,8 +142,10 @@ jobs:
           mkdir -p examples/true_streaming_agent/wheels
           cp "$WHEEL" examples/true_streaming_agent/wheels/
           BASENAME=$(basename "$WHEEL")
+          sed -i '/^azure-functions-langgraph/d' examples/e2e_app/requirements.txt
+          sed -i '/^azure-functions-langgraph/d' examples/true_streaming_agent/requirements.txt
           echo "./wheels/${BASENAME}" >> examples/e2e_app/requirements.txt
-          echo "./wheels/${BASENAME}" >> examples/true_streaming_agent/requirements.txt
+          echo "./wheels/${BASENAME}[streaming]" >> examples/true_streaming_agent/requirements.txt
           echo "---- examples/e2e_app/requirements.txt ----"
           cat examples/e2e_app/requirements.txt
 
