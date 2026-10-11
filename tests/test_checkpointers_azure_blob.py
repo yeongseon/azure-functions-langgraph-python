@@ -21,6 +21,8 @@ pytest = cast(Any, importlib.import_module("pytest"))
 
 
 class _CheckpointSaverProtocol(Protocol):
+    def _upload_blob(self, path: str, data: bytes, metadata: dict[str, str]) -> None: ...
+
     def get_next_version(self, current: str | None, channel: None) -> str: ...
 
     def get_tuple(self, config: RunnableConfig) -> Any: ...
@@ -438,6 +440,99 @@ def test_stale_latest_json_returns_hinted_checkpoint(
     assert result is not None
     # With hint optimization, valid hint is trusted (blob exists), so cp-001
     # is returned.  In production latest.json is always maintained by put().
+    assert result.checkpoint["id"] == "cp-001"
+
+
+def _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+    monkeypatch: Any,
+    failed_phase: str,
+) -> None:
+    # Given: one committed checkpoint and a deterministic failure in the next write phase
+    saver, _ = saver_and_container
+    cfg = _config(thread_id="fault-thread", checkpoint_ns="ns")
+    saver.put(
+        cfg,
+        _checkpoint("cp-001", channel_values={"messages": ["stable"]}),
+        _metadata(step=1),
+        {"messages": "v1"},
+    )
+    original_upload = saver._upload_blob
+
+    def fail_selected_phase(path: str, data: bytes, metadata: dict[str, str]) -> None:
+        is_selected = {
+            "value": "/values/messages/v2.bin" in path,
+            "metadata": path.endswith("/cp-002/metadata.bin"),
+            "checkpoint": path.endswith("/cp-002/checkpoint.bin"),
+        }[failed_phase]
+        if is_selected:
+            raise TimeoutError(path)
+        original_upload(path, data, metadata)
+
+    monkeypatch.setattr(saver, "_upload_blob", fail_selected_phase)
+
+    # When: the second checkpoint write fails before its commit completes
+    with pytest.raises(TimeoutError):
+        saver.put(
+            cfg,
+            _checkpoint("cp-002", channel_values={"messages": ["partial"]}),
+            _metadata(step=2),
+            {"messages": "v2"},
+        )
+
+    # Then: readers still observe the last committed checkpoint
+    result = saver.get_tuple(cfg)
+    assert result is not None
+    assert result.checkpoint["id"] == "cp-001"
+
+
+def test_value_write_failure_keeps_last_committed_checkpoint(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient], monkeypatch: Any
+) -> None:
+    _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
+        saver_and_container, monkeypatch, "value"
+    )
+
+
+def test_metadata_write_failure_keeps_last_committed_checkpoint(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient], monkeypatch: Any
+) -> None:
+    _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
+        saver_and_container, monkeypatch, "metadata"
+    )
+
+
+def test_checkpoint_marker_failure_keeps_last_committed_checkpoint(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient], monkeypatch: Any
+) -> None:
+    _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
+        saver_and_container, monkeypatch, "checkpoint"
+    )
+
+
+def test_latest_hint_failure_preserves_committed_checkpoint(
+    saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
+    monkeypatch: Any,
+) -> None:
+    # Given: a failure limited to the best-effort latest pointer write
+    saver, _ = saver_and_container
+    cfg = _config(thread_id="latest-fault", checkpoint_ns="ns")
+    original_upload = saver._upload_blob
+
+    def fail_latest(path: str, data: bytes, metadata: dict[str, str]) -> None:
+        if path.endswith("latest.json"):
+            raise TimeoutError(path)
+        original_upload(path, data, metadata)
+
+    monkeypatch.setattr(saver, "_upload_blob", fail_latest)
+
+    # When: the checkpoint marker succeeds but latest.json fails
+    with pytest.raises(TimeoutError):
+        saver.put(cfg, _checkpoint("cp-001"), _metadata(step=1), {})
+
+    # Then: prefix-scan fallback still returns the committed checkpoint
+    result = saver.get_tuple(cfg)
+    assert result is not None
     assert result.checkpoint["id"] == "cp-001"
 
 
