@@ -199,6 +199,11 @@ class HealthResponse(BaseModel):
     graphs: list[GraphInfo] = Field(default_factory=list)
 
 
+class ReadinessResponse(BaseModel):
+    status: Literal["ready", "unready"]
+    components: dict[str, Literal["ok", "failed"]]
+
+
 class ErrorResponse(BaseModel):
     """Error response body."""
 
