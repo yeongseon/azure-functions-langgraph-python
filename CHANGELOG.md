@@ -1,6 +1,28 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.11.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.10.0...v0.11.0) (2026-10-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **stores:** custom `ThreadStore` implementations must persist lock ownership/expiry, implement `renew_run_lock`, and accept `owner_token` on release.
+* **platform:** Platform search and history requests above `max_platform_result_limit` (default 100) now return structured 422 responses.
+* oversized request bodies now return 413 instead of 400, and 422 validation details no longer include human-readable Pydantic messages or rejected values.
+
+### Features
+
+* **auth:** add authorization hooks for thread resources ([#583](https://github.com/yeongseon/azure-functions-langgraph-python/issues/583)) ([220075c](https://github.com/yeongseon/azure-functions-langgraph-python/commit/220075c0466512b019c3f648832498c670e8e588))
+* **health:** add opt-in dependency readiness checks ([#585](https://github.com/yeongseon/azure-functions-langgraph-python/issues/585)) ([9619e55](https://github.com/yeongseon/azure-functions-langgraph-python/commit/9619e55ac1e229eeaad628951451f05e2c55eda2))
+* **observability:** correlate HTTP errors with run logs ([#581](https://github.com/yeongseon/azure-functions-langgraph-python/issues/581)) ([e3746c5](https://github.com/yeongseon/azure-functions-langgraph-python/commit/e3746c5f2069c0a9731da893b82536d6c68a839c))
+* **platform:** bound search and history result limits ([035e2a2](https://github.com/yeongseon/azure-functions-langgraph-python/commit/035e2a27756263f324d1dc1ab9e35c5b18f766ce)), closes [#566](https://github.com/yeongseon/azure-functions-langgraph-python/issues/566)
+
+
+### Bug Fixes
+
+* sanitize validation failures and return 413 ([ed93e27](https://github.com/yeongseon/azure-functions-langgraph-python/commit/ed93e272296fa013ecfe3af532df119fb1ad58f1)), closes [#565](https://github.com/yeongseon/azure-functions-langgraph-python/issues/565)
+* **stores:** fence Azure Table run-lock ownership ([32ade3b](https://github.com/yeongseon/azure-functions-langgraph-python/commit/32ade3bacc80b1231f91f3503eea3a5741381065)), closes [#567](https://github.com/yeongseon/azure-functions-langgraph-python/issues/567)
+
 ## [0.10.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.9.4...v0.10.0) (2026-10-07)
 
 
