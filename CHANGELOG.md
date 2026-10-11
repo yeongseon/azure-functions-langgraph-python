@@ -1,6 +1,13 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.11.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.11.0...v0.11.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* **ci:** repair release gate failures from [#578](https://github.com/yeongseon/azure-functions-langgraph-python/issues/578) and [#580](https://github.com/yeongseon/azure-functions-langgraph-python/issues/580) ([#587](https://github.com/yeongseon/azure-functions-langgraph-python/issues/587)) ([08e53ac](https://github.com/yeongseon/azure-functions-langgraph-python/commit/08e53ac9137ae9b3ef5417e3c97e048e5fbf4581))
+
 ## [0.11.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.10.0...v0.11.0) (2026-10-11)
 
 
