@@ -15,7 +15,7 @@ single-process deployments.  For production scale-out, implement
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import threading
 from typing import Any, Protocol, runtime_checkable
 import uuid
@@ -109,6 +109,7 @@ class ThreadStore(Protocol):
         *,
         status: ThreadStatus,
         values: dict[str, Any] | None = None,
+        owner_token: str | None = None,
     ) -> Thread:
         """Release a held lock by transitioning to a terminal status.
 
@@ -120,6 +121,10 @@ class ThreadStore(Protocol):
         Implementations may treat this as a best-effort release when used
         by callers.
         """
+        ...
+
+    def renew_run_lock(self, thread_id: str, owner_token: str) -> bool:
+        """Extend a held run lock, returning false after ownership changes."""
         ...
 
     def search(
@@ -284,6 +289,8 @@ class InMemoryThreadStore:
             data = existing.model_dump()
             data["status"] = "busy"
             data["updated_at"] = self._now()
+            data["lock_token"] = uuid.uuid4().hex
+            data["lock_expires_at"] = data["updated_at"] + timedelta(seconds=60)
             if existing.assistant_id is None and assistant_id is not None:
                 data["assistant_id"] = assistant_id
             updated = Thread.model_validate(data)
@@ -296,6 +303,7 @@ class InMemoryThreadStore:
         *,
         status: ThreadStatus,
         values: dict[str, Any] | None = None,
+        owner_token: str | None = None,
     ) -> Thread:
         """Release the per-thread run lock to a terminal status."""
         if status == "busy":
@@ -304,14 +312,30 @@ class InMemoryThreadStore:
             if thread_id not in self._threads:
                 raise KeyError(thread_id)
             existing = self._threads[thread_id]
+            if owner_token is not None and existing.lock_token != owner_token:
+                return self._deep_copy(existing)
             data = existing.model_dump()
             data["status"] = status
             data["updated_at"] = self._now()
+            data["lock_token"] = None
+            data["lock_expires_at"] = None
             if values is not None:
                 data["values"] = values
             updated = Thread.model_validate(data)
             self._threads[thread_id] = updated
             return self._deep_copy(updated)
+
+    def renew_run_lock(self, thread_id: str, owner_token: str) -> bool:
+        with self._lock:
+            existing = self._threads.get(thread_id)
+            if existing is None or existing.lock_token != owner_token:
+                return False
+            data = existing.model_dump()
+            now = self._now()
+            data["updated_at"] = now
+            data["lock_expires_at"] = now + timedelta(seconds=60)
+            self._threads[thread_id] = Thread.model_validate(data)
+            return True
 
     def _filtered_threads(
         self,

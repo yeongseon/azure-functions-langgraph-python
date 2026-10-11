@@ -105,6 +105,8 @@ class Thread(BaseModel):
     values: Json = None
     assistant_id: str | None = None
     interrupts: dict[str, list[Interrupt]] = Field(default_factory=dict)
+    lock_token: str | None = Field(default=None, exclude=True)
+    lock_expires_at: datetime | None = Field(default=None, exclude=True)
 
 
 class ThreadTask(BaseModel):

@@ -313,6 +313,31 @@ class TestRunLock:
         assert second is not None
         assert second.status == "busy"
 
+    def test_late_old_owner_release_does_not_clear_new_owner(self) -> None:
+        store = InMemoryThreadStore(id_factory=lambda: "thread-1")
+        thread = store.create()
+        first = store.try_acquire_run_lock(thread.thread_id)
+        assert first is not None and first.lock_token is not None
+        store.release_run_lock(thread.thread_id, status="idle", owner_token=first.lock_token)
+        second = store.try_acquire_run_lock(thread.thread_id)
+        assert second is not None and second.lock_token is not None
+
+        store.release_run_lock(thread.thread_id, status="idle", owner_token=first.lock_token)
+
+        current = store.get(thread.thread_id)
+        assert current is not None
+        assert current.status == "busy"
+        assert current.lock_token == second.lock_token
+
+    def test_renewal_extends_current_owner_only(self) -> None:
+        store = InMemoryThreadStore(id_factory=lambda: "thread-1")
+        thread = store.create()
+        locked = store.try_acquire_run_lock(thread.thread_id)
+        assert locked is not None and locked.lock_token is not None
+
+        assert store.renew_run_lock(thread.thread_id, locked.lock_token)
+        assert not store.renew_run_lock(thread.thread_id, "stale-owner")
+
 
 # ---------------------------------------------------------------------------
 # Delete
