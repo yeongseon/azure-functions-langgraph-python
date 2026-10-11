@@ -331,6 +331,16 @@ class TestFunctionApp:
 # ------------------------------------------------------------------
 
 
+def test_per_graph_anonymous_override_warns() -> None:
+    app = LangGraphApp()
+    with pytest.warns(UserWarning, match="overrides auth_level to ANONYMOUS"):
+        app.register(
+            graph=FakeCompiledGraph(),
+            name="public",
+            auth_level=func.AuthLevel.ANONYMOUS,
+        )
+
+
 class TestInvokeHandler:
     def _make_request(self, body: dict[str, Any]) -> func.HttpRequest:
         return func.HttpRequest(

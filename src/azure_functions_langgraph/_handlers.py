@@ -27,6 +27,12 @@ from azure_functions_langgraph._validation import (
     validate_input_structure,
     validate_thread_id,
 )
+from azure_functions_langgraph.authorization import (
+    AuthorizationAction,
+    AuthorizationContext,
+    ThreadAuthorizer,
+    authorization_status,
+)
 from azure_functions_langgraph.contracts import (
     ErrorResponse,
     InvokeRequest,
@@ -725,6 +731,7 @@ async def handle_stream_async(
 def handle_state(
     req: func.HttpRequest,
     reg: Any,
+    authorize: ThreadAuthorizer | None = None,
 ) -> func.HttpResponse:
     """Handle a GET request for thread state."""
     if not isinstance(reg.graph, StatefulGraph):
@@ -733,6 +740,12 @@ def handle_state(
     thread_id = req.route_params.get("thread_id")
     if not thread_id:
         return _error_response(400, "Missing thread_id in URL path")
+    status = authorization_status(
+        authorize,
+        AuthorizationContext(AuthorizationAction.STATE_READ, reg.name, thread_id, req),
+    )
+    if status is not None:
+        return _error_response(status, "Access denied")
     tid_err = validate_thread_id(thread_id)
     if tid_err:
         return _error_response(400, tid_err)
