@@ -4,8 +4,10 @@ import json
 from typing import Any
 
 import azure.functions as func
+from pydantic import ValidationError
 
 from azure_functions_langgraph._validation import (
+    sanitized_validation_errors,
     validate_input_structure,
     validate_thread_id,
 )
@@ -55,8 +57,8 @@ def register_thread_routes(
             return unknown_err
         try:
             create_req = ThreadCreate.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
+        except ValidationError as exc:
+            return _platform_error(422, sanitized_validation_errors(exc))
 
         thread = deps.thread_store.create(metadata=create_req.metadata)
         return func.HttpResponse(
@@ -98,8 +100,8 @@ def register_thread_routes(
             return unknown_err
         try:
             update_req = ThreadUpdate.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
+        except ValidationError as exc:
+            return _platform_error(422, sanitized_validation_errors(exc))
 
         thread = deps.thread_store.get(thread_id)
         if thread is None:
@@ -157,8 +159,8 @@ def register_thread_routes(
             return unknown_err
         try:
             search_req = ThreadSearch.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
+        except ValidationError as exc:
+            return _platform_error(422, sanitized_validation_errors(exc))
 
         results = deps.thread_store.search(
             metadata=search_req.metadata,
@@ -191,8 +193,8 @@ def register_thread_routes(
             return unknown_err
         try:
             count_req = ThreadCount.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
+        except ValidationError as exc:
+            return _platform_error(422, sanitized_validation_errors(exc))
 
         total = deps.thread_store.count(
             metadata=count_req.metadata,
@@ -264,8 +266,8 @@ def register_thread_routes(
             return unknown_err
         try:
             update_req = ThreadStateUpdate.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
+        except ValidationError as exc:
+            return _platform_error(422, sanitized_validation_errors(exc))
 
         # Validate input structure depth/size on values payload
         values_to_check = (
@@ -333,8 +335,8 @@ def register_thread_routes(
             return unknown_err
         try:
             hist_req = ThreadHistoryRequest.model_validate(body)
-        except Exception as exc:
-            return _platform_error(422, f"Validation error: {exc}")
+        except ValidationError as exc:
+            return _platform_error(422, sanitized_validation_errors(exc))
 
         # Validate metadata structure if provided
         if hist_req.metadata is not None:

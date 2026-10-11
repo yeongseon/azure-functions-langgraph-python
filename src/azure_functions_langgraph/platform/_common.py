@@ -8,9 +8,11 @@ from typing import Any
 import warnings
 
 import azure.functions as func
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from azure_functions_langgraph._validation import (
+    ValidationErrorDetail,
+    sanitized_validation_errors,
     validate_body_size,
     validate_graph_name,
     validate_input_structure,
@@ -96,7 +98,9 @@ def _check_unknown_platform_fields(
     return None
 
 
-def _platform_error(status_code: int, detail: str) -> func.HttpResponse:
+def _platform_error(
+    status_code: int, detail: str | list[ValidationErrorDetail]
+) -> func.HttpResponse:
     """Return a JSON error matching LangGraph Platform conventions."""
     body = json.dumps({"detail": detail})
     return func.HttpResponse(
@@ -263,7 +267,7 @@ def _parse_run_create(
     raw_body = req.get_body()
     size_err = validate_body_size(raw_body, deps.max_request_body_bytes)
     if size_err:
-        return _platform_error(400, size_err)
+        return _platform_error(413, size_err)
 
     try:
         body = req.get_json()
@@ -279,8 +283,10 @@ def _parse_run_create(
 
     try:
         run_req = RunCreate.model_validate(body)
-    except Exception as exc:
-        return _platform_error(422, f"Validation error: {exc}")
+    except ValidationError as exc:
+        details = sanitized_validation_errors(exc)
+        logger.debug("Platform run request validation failed: %s", details)
+        return _platform_error(422, details)
 
     name_err = validate_graph_name(run_req.assistant_id)
     if name_err:
@@ -383,7 +389,7 @@ def _read_json_body(
     raw = req.get_body()
     size_err = validate_body_size(raw, deps.max_request_body_bytes)
     if size_err:
-        return _platform_error(400, size_err)
+        return _platform_error(413, size_err)
     if allow_empty and not (raw and raw.strip() != b""):
         return {}
     try:

@@ -340,7 +340,7 @@ class TestNativeHandlerValidation:
         big_body = json.dumps({"input": {"data": "x" * 100}}).encode()
         req = _make_post_request("/api/graphs/agent/invoke", big_body)
         resp = fn(req)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         data = json.loads(resp.get_body())
         assert "too large" in data["detail"].lower()
 
@@ -352,7 +352,7 @@ class TestNativeHandlerValidation:
         big_body = json.dumps({"input": {"data": "x" * 100}}).encode()
         req = _make_post_request("/api/graphs/agent/stream", big_body)
         resp = fn(req)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         data = json.loads(resp.get_body())
         assert "too large" in data["detail"].lower()
 
@@ -511,7 +511,7 @@ class TestPlatformBodySizeValidation:
         big_body = b'{"metadata": "' + b"x" * 100 + b'"}'
         req = _post_request("/api/assistants/search", raw_body=big_body)
         resp = fn(req)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         data = json.loads(resp.get_body())
         assert "too large" in data["detail"].lower()
 
@@ -528,7 +528,7 @@ class TestPlatformBodySizeValidation:
 
         req = _post_request("/api/assistants/search", raw_body=b" " * 2_000_000)
         resp = fn(req)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         data = json.loads(resp.get_body())
         assert "too large" in data["detail"].lower()
 
@@ -544,7 +544,7 @@ class TestPlatformBodySizeValidation:
         big_body = b'{"metadata": {"key": "' + b"v" * 100 + b'"}}'
         req = _post_request("/api/threads", raw_body=big_body)
         resp = fn(req)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         data = json.loads(resp.get_body())
         assert "too large" in data["detail"].lower()
 
@@ -561,7 +561,7 @@ class TestPlatformBodySizeValidation:
 
         req = _post_request("/api/threads", raw_body=b" " * 2_000_000)
         resp = fn(req)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         data = json.loads(resp.get_body())
         assert "too large" in data["detail"].lower()
 
@@ -583,7 +583,7 @@ class TestPlatformBodySizeValidation:
             thread_id=thread.thread_id,
         )
         resp = fn(req)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         data = json.loads(resp.get_body())
         assert "too large" in data["detail"].lower()
 
@@ -605,7 +605,7 @@ class TestPlatformBodySizeValidation:
             thread_id="missing-thread",
         )
         resp = fn(req)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         data = json.loads(resp.get_body())
         assert "too large" in data["detail"].lower()
 
@@ -627,7 +627,7 @@ class TestPlatformBodySizeValidation:
             thread_id=thread.thread_id,
         )
         resp = fn(req)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         data = json.loads(resp.get_body())
         assert "too large" in data["detail"].lower()
 
