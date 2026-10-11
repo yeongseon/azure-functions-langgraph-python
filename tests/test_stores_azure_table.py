@@ -330,6 +330,38 @@ def test_release_lock_no_etag() -> None:
     assert table_client.last_update_kwargs["match_condition"] is None
 
 
+def test_release_lock_propagates_storage_timeout() -> None:
+    # Given: a thread store whose merge request times out
+    store, table = _new_store()
+    thread = store.create()
+
+    def timeout_update(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise TimeoutError("table timeout")
+
+    setattr(table, "update_entity", timeout_update)
+
+    # When / Then: release exposes the storage failure for caller retry policy
+    with pytest.raises(TimeoutError, match="table timeout"):
+        store.release_run_lock(thread.thread_id, status="idle")
+
+
+def test_acquire_lock_propagates_storage_timeout() -> None:
+    # Given: a thread store whose conditional update times out
+    store, table = _new_store()
+    thread = store.create()
+
+    def timeout_update(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise TimeoutError("table timeout")
+
+    setattr(table, "update_entity", timeout_update)
+
+    # When / Then: acquisition exposes the storage failure instead of classifying contention
+    with pytest.raises(TimeoutError, match="table timeout"):
+        store.try_acquire_run_lock(thread.thread_id, assistant_id="agent")
+
+
 def test_release_lock_with_values_serializes_to_values_json() -> None:
     store, table_client = _new_store()
 
