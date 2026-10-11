@@ -17,6 +17,7 @@ from azure_functions_langgraph._validation import (
     validate_graph_name,
     validate_input_structure,
 )
+from azure_functions_langgraph.authorization import ThreadAuthorizer
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.observability import NOOP_OBSERVER, RunObserver
 from azure_functions_langgraph.platform._sse import format_end_event, format_error_event
@@ -549,6 +550,7 @@ class PlatformRouteDeps:
         "max_input_depth",
         "max_input_nodes",
         "max_platform_result_limit",
+        "authorize",
     )
 
     def __init__(
@@ -564,6 +566,7 @@ class PlatformRouteDeps:
         max_input_depth: int = 32,
         max_input_nodes: int = 10_000,
         max_platform_result_limit: int = 100,
+        authorize: ThreadAuthorizer | None = None,
     ) -> None:
         self.registrations = registrations
         self.thread_store = thread_store
@@ -575,6 +578,7 @@ class PlatformRouteDeps:
         self.max_input_depth = max_input_depth
         self.max_input_nodes = max_input_nodes
         self.max_platform_result_limit = max_platform_result_limit
+        self.authorize = authorize
 
 
 def _result_limit_error(limit: int, maximum: int) -> func.HttpResponse | None:
