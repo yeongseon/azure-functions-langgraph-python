@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 import os
 from types import MappingProxyType
@@ -36,6 +38,7 @@ from azure_functions_langgraph.contracts import (
     GraphInfo,
     HealthResponse,
     HealthStatus,
+    ReadinessResponse,
     RegisteredGraphMetadata,
     RouteMetadata,
     _is_model_type,
@@ -55,6 +58,7 @@ from azure_functions_langgraph.protocols import (
 _ROUTE_PREFIX = "/api"
 _ROUTE_HEALTH = "health"
 _ROUTE_HEALTH_DETAILS = "health/details"
+_ROUTE_READINESS = "health/ready"
 _ROUTE_INVOKE = "graphs/{name}/invoke"
 _ROUTE_STREAM = "graphs/{name}/stream"
 _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
@@ -224,6 +228,9 @@ class LangGraphApp:
     auth_level: func.AuthLevel = func.AuthLevel.FUNCTION
     health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS
     health_details_auth_level: func.AuthLevel | None = None
+    readiness_auth_level: func.AuthLevel | None = None
+    readiness_checks: Mapping[str, Callable[[], bool | Awaitable[bool]]] | None = None
+    readiness_timeout_seconds: float = 5.0
     max_stream_response_bytes: int = 1024 * 1024
     max_request_body_bytes: int = 1024 * 1024
     max_input_depth: int = 32
@@ -523,6 +530,10 @@ class LangGraphApp:
         return self.health_details_auth_level
 
     @property
+    def _resolved_readiness_auth_level(self) -> func.AuthLevel:
+        return self.readiness_auth_level or self.auth_level
+
+    @property
     def thread_store(self) -> Any:
         """Return the thread store, or ``None`` if platform compat is disabled."""
         return self._thread_store
@@ -580,6 +591,36 @@ class LangGraphApp:
                 mimetype="application/json",
                 status_code=200,
             )
+
+        if self.readiness_checks:
+
+            @app.function_name(name="aflg_health_ready")
+            @app.route(
+                route=_ROUTE_READINESS,
+                methods=["GET"],
+                auth_level=self._resolved_readiness_auth_level,
+            )
+            def health_ready(req: func.HttpRequest) -> func.HttpResponse:
+                components: dict[str, Literal["ok", "failed"]] = {}
+                checks = self.readiness_checks or {}
+                with ThreadPoolExecutor(max_workers=len(checks)) as pool:
+                    futures = {name: pool.submit(check) for name, check in checks.items()}
+                    for name, future in futures.items():
+                        try:
+                            result = future.result(timeout=self.readiness_timeout_seconds)
+                            components[name] = "ok" if result is True else "failed"
+                        except (FutureTimeoutError, Exception):
+                            components[name] = "failed"
+                ready = all(value == "ok" for value in components.values())
+                body = ReadinessResponse(
+                    status="ready" if ready else "unready",
+                    components=components,
+                )
+                return func.HttpResponse(
+                    body=body.model_dump_json(),
+                    mimetype="application/json",
+                    status_code=200 if ready else 503,
+                )
 
         # Per-graph endpoints
         for reg in self._registrations.values():
@@ -981,7 +1022,7 @@ class LangGraphApp:
             )
 
         # App-level routes
-        app_routes: tuple[RouteMetadata, ...] = (
+        app_routes_list = [
             RouteMetadata(
                 path=self._metadata_path(_ROUTE_HEALTH),
                 method="GET",
@@ -992,7 +1033,16 @@ class LangGraphApp:
                 method="GET",
                 summary="Health check with registered-graph inventory",
             ),
-        )
+        ]
+        if self.readiness_checks:
+            app_routes_list.append(
+                RouteMetadata(
+                    path=self._metadata_path(_ROUTE_READINESS),
+                    method="GET",
+                    summary="Dependency readiness checks",
+                )
+            )
+        app_routes = tuple(app_routes_list)
 
         return AppMetadata(graphs=MappingProxyType(graphs), app_routes=app_routes)
 

@@ -33,8 +33,8 @@ import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-app = LangGraphApp()                                        # default: FUNCTION
-app = LangGraphApp(auth_level=func.AuthLevel.ADMIN)          # only if truly internal
+app = LangGraphApp()  # default: FUNCTION
+app = LangGraphApp(auth_level=func.AuthLevel.ADMIN)  # only if truly internal
 ```
 
 ### Per-graph auth override
@@ -143,6 +143,24 @@ nothing else, confirming only that the app process is up.
 ⚠️ This is a **liveness endpoint**, not a dependency-readiness check.
 It does not probe Blob Storage, Table Storage, or downstream LLM availability.
 For deep health checks, implement a custom endpoint or use Azure Monitor availability tests.
+
+Configure `readiness_checks` to opt into `GET /api/health/ready` for dependency
+traffic gating. The route is protected by the app auth level by default and can
+use an independent `readiness_auth_level`; each callback is bounded by
+`readiness_timeout_seconds` (default five seconds).
+
+```python
+app = LangGraphApp(
+    readiness_checks={"table": check_table, "model": check_model},
+    readiness_timeout_seconds=5,
+)
+```
+
+Responses expose only component names with `ok` or `failed`: HTTP 200 means all
+checks passed, while HTTP 503 means one failed, raised, or timed out. Exception
+text, endpoints, and credentials are never returned. Prefer Azure Monitor or
+provider-native monitoring when you need historical alerting, external network
+vantage points, or detailed dependency diagnostics.
 
 The liveness probe uses `health_auth_level`, which defaults to `ANONYMOUS`
 independently of `auth_level` — so it stays reachable as an unauthenticated
