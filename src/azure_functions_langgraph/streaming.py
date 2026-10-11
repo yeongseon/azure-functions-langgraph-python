@@ -46,6 +46,7 @@ from typing import Any
 import warnings
 
 import azure.functions as func
+from pydantic import ValidationError
 
 from azure_functions_langgraph._handlers import (
     _method_accepts_version,
@@ -53,6 +54,8 @@ from azure_functions_langgraph._handlers import (
 )
 from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph._validation import (
+    ValidationErrorDetail,
+    sanitized_validation_errors,
     validate_body_size,
     validate_graph_name,
     validate_input_structure,
@@ -154,7 +157,7 @@ async def _read_json_body(req: Any, *, max_request_body_bytes: int) -> Any:
     raw_body: bytes = await req.body()
     size_err = validate_body_size(raw_body, max_request_body_bytes)
     if size_err:
-        return _JsonError(400, size_err)
+        return _JsonError(413, size_err)
     try:
         return json.loads(raw_body) if raw_body else {}
     except ValueError:
@@ -166,7 +169,7 @@ class _JsonError:
     """Internal marker for a pre-execution failure to render as a JSON error."""
 
     status_code: int
-    detail: str
+    detail: str | list[ValidationErrorDetail]
 
 
 def _validate_request(
@@ -182,8 +185,10 @@ def _validate_request(
     """
     try:
         request = model.model_validate(body)
-    except Exception as exc:  # noqa: BLE001 - surfaced as a 422 to the caller
-        return _JsonError(422, f"Validation error: {exc}")
+    except ValidationError as exc:
+        details = sanitized_validation_errors(exc)
+        logger.debug("Streaming request validation failed: %s", details)
+        return _JsonError(422, details)
     structure_err = validate_input_structure(
         request.input, max_depth=max_input_depth, max_nodes=max_input_nodes
     )
@@ -794,7 +799,9 @@ class StreamingLangGraphApp:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _json_error(JSONResponse: Any, status_code: int, detail: str) -> Any:
+    def _json_error(
+        JSONResponse: Any, status_code: int, detail: str | list[ValidationErrorDetail]
+    ) -> Any:
         from azure_functions_langgraph.contracts import ErrorResponse
 
         body = ErrorResponse(error="error", detail=detail)
