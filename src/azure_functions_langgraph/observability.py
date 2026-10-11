@@ -12,10 +12,13 @@ of scope here and are layered on top of this contract separately (issue #407).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import dataclasses
 import logging
+import re
 import time
 from typing import Literal, Protocol, runtime_checkable
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +127,16 @@ class NoOpRunObserver:
 # Shared stateless singleton used as the default when no observer is wired.
 NOOP_OBSERVER: RunObserver = NoOpRunObserver()
 
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def request_id_from_headers(headers: Mapping[str, str]) -> str:
+    """Return a safe caller request id or generate an opaque replacement."""
+    candidate = headers.get("x-request-id") or headers.get("X-Request-ID")
+    if candidate is not None and _REQUEST_ID_RE.fullmatch(candidate):
+        return candidate
+    return uuid4().hex
+
 
 def _normalize_stream_mode(
     stream_mode: str | list[str] | tuple[str, ...] | None,
@@ -158,8 +171,6 @@ def new_run_context(
     fields simply stay ``None`` (or their default). Pass ``run_id`` to reuse an
     externally generated id (e.g. a Platform run id) instead of a new one.
     """
-    from uuid import uuid4
-
     return RunContext(
         graph_name=graph_name,
         endpoint=endpoint,

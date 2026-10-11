@@ -42,6 +42,7 @@ from azure_functions_langgraph.observability import (
     RunRejectedReason,
     finish_context,
     new_run_context,
+    request_id_from_headers,
     safe_observer_call,
 )
 from azure_functions_langgraph.protocols import (
@@ -87,13 +88,16 @@ def _require_checkpoint_thread_id(checkpointer: Any, thread_id: str | None) -> s
 
 
 def _error_response(
-    status_code: int, detail: str | list[ValidationErrorDetail]
+    status_code: int,
+    detail: str | list[ValidationErrorDetail],
+    request_id: str | None = None,
 ) -> func.HttpResponse:
-    body = ErrorResponse(error="error", detail=detail)
+    body = ErrorResponse(error="error", detail=detail, request_id=request_id)
     return func.HttpResponse(
         body=body.model_dump_json(),
         mimetype="application/json",
         status_code=status_code,
+        headers={"X-Request-ID": request_id} if request_id is not None else None,
     )
 
 
@@ -105,7 +109,14 @@ def _reject(
 ) -> func.HttpResponse:
     """Emit ``on_run_rejected`` for a pre-execution rejection and return *response*."""
     safe_observer_call(observer, "on_run_rejected", finish_context(ctx), reason)
-    return response
+    payload = json.loads(response.get_body())
+    payload["request_id"] = ctx.run_id
+    return func.HttpResponse(
+        body=json.dumps(payload),
+        mimetype="application/json",
+        status_code=response.status_code,
+        headers={"X-Request-ID": ctx.run_id},
+    )
 
 
 def _method_accepts_version(method: Any) -> bool:
@@ -267,6 +278,7 @@ def handle_invoke(
         "invoke",
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
+        run_id=request_id_from_headers(req.headers),
     )
     parsed = _parse_native_request(
         req,
@@ -309,7 +321,7 @@ def handle_invoke(
     except Exception as exc:
         logger.exception("Graph %s invoke failed", reg.name)
         safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
-        return _error_response(500, "Graph execution failed")
+        return _error_response(500, "Graph execution failed", ctx.run_id)
     finally:
         if lock_token is not None and thread_id is not None:
             thread_lock.release(reg.name, thread_id, lock_token)
@@ -321,6 +333,7 @@ def handle_invoke(
         body=response.model_dump_json(),
         mimetype="application/json",
         status_code=200,
+        headers={"X-Request-ID": ctx.run_id},
     )
 
 
@@ -355,6 +368,7 @@ def handle_stream(
         "stream",
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
+        run_id=request_id_from_headers(req.headers),
     )
     if not reg.stream_enabled:
         return _reject(

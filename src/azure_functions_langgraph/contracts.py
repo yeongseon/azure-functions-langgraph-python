@@ -204,6 +204,7 @@ class ErrorResponse(BaseModel):
 
     error: str
     detail: str | list[ValidationErrorDetail] | None = None
+    request_id: str | None = None
 
 
 class StateResponse(BaseModel):
