@@ -134,6 +134,28 @@ Use this to correlate:
 
 This enables end-to-end traceability for each run.
 
+The identifiers are related but not interchangeable:
+
+- **Functions invocation ID** identifies one Azure Functions worker invocation.
+  Classic `LangGraphApp` HTTP handlers receive it from `func.Context` and expose
+  it only to observers as `RunContext.invocation_id`; request payload fields can
+  never set or override it.
+- **Request/run ID** is this package's sanitized `X-Request-ID` value (or an
+  generated opaque value). It is `RunContext.run_id` and correlates responses,
+  SSE error metadata, and run-observer records.
+- **W3C trace ID** comes from the ambient OpenTelemetry context established by
+  Functions or other instrumentation. `OTelRunObserver` preserves that context,
+  so its run span is a child of the active request span.
+- **Application Insights `operation_Id`** is the backend representation of the
+  W3C trace ID for correlated telemetry. It is not the Functions invocation ID
+  or the request/run ID; query those separately as span attributes or custom
+  dimensions when cross-checking a single invocation.
+
+`StreamingLangGraphApp` uses the FastAPI/ASGI Functions extension. That
+extension's generated handler contract exposes the ASGI request but not a
+`func.Context`, so `RunContext.invocation_id` remains unavailable (`None`) on
+that surface. Request/run-ID and ambient W3C trace correlation still work.
+
 ### Health endpoint
 
 `GET /health` (exposed as `GET /api/health` with the default Functions route
