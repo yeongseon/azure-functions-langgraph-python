@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
@@ -96,6 +97,22 @@ class TestSuccessLifecycle:
         # Tuple stream_mode is coerced to a list for a valid OTel attribute.
         assert _attrs(span)["langgraph.stream_mode"] == ("values", "updates")
 
+    def test_started_span_preserves_ambient_parent(
+        self, observer: OTelRunObserver, exporter: InMemorySpanExporter
+    ) -> None:
+        provider = TracerProvider()
+        parent = provider.get_tracer("parent").start_span("functions.request")
+
+        with trace.use_span(parent, end_on_exit=False):
+            ctx = _started()
+            observer.on_run_started(ctx)
+        observer.on_run_completed(finish_context(ctx))
+
+        span = exporter.get_finished_spans()[0]
+        assert span.parent is not None
+        assert span.parent.span_id == parent.get_span_context().span_id
+        parent.end()
+
 
 class TestFailureLifecycle:
     def test_started_then_failed_records_only_exception_type(
@@ -133,6 +150,20 @@ class TestRejectedLifecycle:
         assert span.status.status_code == StatusCode.ERROR
         assert _attrs(span)["langgraph.status"] == "rejected"
         assert _attrs(span)["langgraph.reject_reason"] == "invalid_request"
+
+    def test_rejected_span_preserves_ambient_parent(
+        self, observer: OTelRunObserver, exporter: InMemorySpanExporter
+    ) -> None:
+        provider = TracerProvider()
+        parent = provider.get_tracer("parent").start_span("functions.request")
+
+        with trace.use_span(parent, end_on_exit=False):
+            observer.on_run_rejected(finish_context(_started()), "invalid_request")
+
+        span = exporter.get_finished_spans()[0]
+        assert span.parent is not None
+        assert span.parent.span_id == parent.get_span_context().span_id
+        parent.end()
 
 
 class TestEdgeCases:

@@ -27,6 +27,7 @@ from collections.abc import Sequence
 import threading
 from typing import TypeAlias
 
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode, Tracer
 
@@ -125,6 +126,7 @@ class OTelRunObserver:
     def on_run_started(self, ctx: RunContext) -> None:
         span = self._tracer.start_span(
             self._span_name(ctx),
+            context=otel_context.get_current(),
             attributes=_safe_attributes(ctx),
         )
         with self._lock:
@@ -161,6 +163,7 @@ class OTelRunObserver:
         # Rejections never emit on_run_started, so open a self-contained span.
         span = self._tracer.start_span(
             self._span_name(ctx),
+            context=otel_context.get_current(),
             attributes=_safe_attributes(ctx),
         )
         self._finalize(span, ctx, "rejected")
