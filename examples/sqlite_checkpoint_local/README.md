@@ -52,6 +52,26 @@ curl -s -X POST "http://localhost:7071/api/threads/$THREAD/runs/wait" \
 The second response shows `[turn 2]`. Restart `func start` and the
 counter still increments because state lives in the SQLite file.
 
+## Walkthrough output
+
+The equivalent native-route walkthrough below uses one fixed thread and then
+reads its state. Start the host with a fresh database first (for example,
+`LANGGRAPH_SQLITE_PATH=/tmp/sqlite-walkthrough.sqlite func start` after removing
+that file); otherwise the persistent counter continues from earlier runs.
+
+```console
+$ curl -s -X POST http://localhost:7071/api/graphs/sqlite_agent/invoke -H "Content-Type: application/json" -d '{"input":{"messages":[{"role":"human","content":"first"}]},"config":{"configurable":{"thread_id":"walkthrough-thread"}}}'
+{"output":{"messages":[{"role":"human","content":"first"},{"role":"assistant","content":"[turn 1] Echo: first"}],"turn":1}}
+$ curl -s -X POST http://localhost:7071/api/graphs/sqlite_agent/invoke -H "Content-Type: application/json" -d '{"input":{"messages":[{"role":"human","content":"second"}]},"config":{"configurable":{"thread_id":"walkthrough-thread"}}}'
+{"output":{"messages":[{"role":"human","content":"second"},{"role":"assistant","content":"[turn 2] Echo: second"}],"turn":2}}
+$ curl -s http://localhost:7071/api/graphs/sqlite_agent/threads/walkthrough-thread/state
+{"values":{"messages":[{"role":"human","content":"second"},{"role":"assistant","content":"[turn 2] Echo: second"}],"turn":2},"next":[],"metadata":{"source":"loop","step":4,"parents":{}}}
+```
+
+SQLite keeps this state across local single-instance restarts. For durable,
+multi-instance Azure storage, use the
+[`production_persistent_agent`](../production_persistent_agent/) Blob walkthrough.
+
 ## When to use
 
 - Local development and demos.
