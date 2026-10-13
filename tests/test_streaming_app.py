@@ -161,12 +161,14 @@ class RecordingObserver:
 
     def on_run_started(self, ctx: RunContext) -> None:
         self.events.append("started")
+        self.contexts.append(ctx)
 
     def on_run_completed(self, ctx: RunContext) -> None:
         self.events.append("completed")
 
     def on_run_failed(self, ctx: RunContext, error: BaseException) -> None:
         self.events.append("failed")
+        self.contexts.append(ctx)
 
     def on_run_rejected(self, ctx: RunContext, reason: str) -> None:
         self.events.append(f"rejected:{reason}")
@@ -434,7 +436,12 @@ class TestSseEventStream:
                 max_stream_events=1,
             )
         )
-        assert any(f.startswith("event: error\n") and "max events" in f for f in frames)
+        error_frame = next(f for f in frames if f.startswith("event: error\n"))
+        assert "max events" in error_frame
+        assert (
+            json.loads(error_frame.split("data: ", 1)[1])["request_id"]
+            == observer.contexts[0].run_id
+        )
         assert frames[-1] == "event: end\ndata: {}\n\n"
         assert observer.events == ["failed"]
 
@@ -483,7 +490,11 @@ class TestSseEventStream:
             )
         )
         assert frames[0].startswith("event: data\n")
-        assert any(f.startswith("event: error\n") for f in frames)
+        error_frame = next(f for f in frames if f.startswith("event: error\n"))
+        assert json.loads(error_frame.split("data: ", 1)[1]) == {
+            "error": "stream processing failed",
+            "request_id": observer.contexts[0].run_id,
+        }
         assert frames[-1] == "event: end\ndata: {}\n\n"
         assert observer.events == ["failed"]
         assert lock.released == [("g", "t1", "tok")]
@@ -930,6 +941,7 @@ class TestHandleStream:
         )
         assert resp.media_type == "text/event-stream"
         assert resp.headers["X-Accel-Buffering"] == "no"
+        assert resp.headers["X-Request-ID"] == observer.contexts[0].run_id
         frames = await _read_stream_response(resp)
         assert any(f.startswith("event: data\n") for f in frames)
         assert frames[-1] == "event: end\ndata: {}\n\n"

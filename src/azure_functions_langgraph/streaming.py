@@ -335,7 +335,12 @@ async def _sse_event_stream(
         ):
             if count >= max_stream_events:
                 stream_error = RuntimeError(f"stream exceeded max events ({max_stream_events})")
-                payload = json.dumps({"error": f"stream exceeded max events ({max_stream_events})"})
+                payload = json.dumps(
+                    {
+                        "error": f"stream exceeded max events ({max_stream_events})",
+                        "request_id": ctx.run_id,
+                    }
+                )
                 yield f"event: error\ndata: {payload}\n\n"
                 break
             yield _format_data_event(event)
@@ -352,7 +357,7 @@ async def _sse_event_stream(
     except Exception as exc:  # noqa: BLE001 - surfaced as an SSE error frame
         logger.exception("Graph %s stream failed", graph_name)
         stream_error = exc
-        payload = json.dumps({"error": "stream processing failed"})
+        payload = json.dumps({"error": "stream processing failed", "request_id": ctx.run_id})
         yield f"event: error\ndata: {payload}\n\n"
     finally:
         # Normal / error path (the cancellation path released above and re-raised).
@@ -825,7 +830,11 @@ class StreamingLangGraphApp:
         return StreamingResponse(
             generator,
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "X-Request-ID": ctx.run_id,
+            },
         )
 
     # ------------------------------------------------------------------

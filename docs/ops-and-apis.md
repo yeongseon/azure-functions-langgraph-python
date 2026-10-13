@@ -225,6 +225,11 @@ lock is released with `status="error"`.
     and stream requests; a missing ID returns a sanitized HTTP 400 and no graph
     code runs. Graphs without a checkpointer remain threadless by default.
 
+    Every accepted true-stream response includes `X-Request-ID`. If the graph
+    fails after headers are committed or exceeds `max_stream_events`, the
+    sanitized in-band `event: error` frame repeats that same value as
+    `request_id`, matching the run observer's `run_id`.
+
 ---
 
 ## RunCreate field → status mapping
