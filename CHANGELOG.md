@@ -1,6 +1,21 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.12.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.11.4...v0.12.0) (2026-10-13)
+
+
+### Features
+
+* **example:** demonstrate SDK thread state end to end ([#616](https://github.com/yeongseon/azure-functions-langgraph-python/issues/616)) ([0c7ffaa](https://github.com/yeongseon/azure-functions-langgraph-python/commit/0c7ffaa1db44b3d0c20bae77c23968ec4a831b49))
+* **observability:** link HTTP runs to Functions trace context ([#608](https://github.com/yeongseon/azure-functions-langgraph-python/issues/608)) ([5570528](https://github.com/yeongseon/azure-functions-langgraph-python/commit/5570528f18338f01cf397bb051c1b8fc8fec1277))
+* **streaming:** correlate true-stream errors with request IDs ([#606](https://github.com/yeongseon/azure-functions-langgraph-python/issues/606)) ([19423c2](https://github.com/yeongseon/azure-functions-langgraph-python/commit/19423c2f21ce125c6b3c1eb1bf500dcbff6c232d))
+
+
+### Bug Fixes
+
+* **observability:** prevent exception details leaking into OTel spans ([#605](https://github.com/yeongseon/azure-functions-langgraph-python/issues/605)) ([6bec972](https://github.com/yeongseon/azure-functions-langgraph-python/commit/6bec972d9fdd937e36fdb290e4fba089322f3a7a))
+* **streaming:** reject missing thread IDs for checkpointed graphs ([#602](https://github.com/yeongseon/azure-functions-langgraph-python/issues/602)) ([0491120](https://github.com/yeongseon/azure-functions-langgraph-python/commit/0491120b8a283928d629b6f044600fda7e8abf72))
+
 ## [0.11.4](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.11.3...v0.11.4) (2026-10-11)
 
 
