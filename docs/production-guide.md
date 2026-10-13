@@ -145,9 +145,12 @@ The identifiers are related but not interchangeable:
 - **Request/run ID** is this package's sanitized `X-Request-ID` value (or an
   generated opaque value). It is `RunContext.run_id` and correlates responses,
   SSE error metadata, and run-observer records.
-- **W3C trace ID** comes from the ambient OpenTelemetry context established by
-  Functions or other instrumentation. `OTelRunObserver` preserves that context,
-  so its run span is a child of the active request span.
+- **W3C trace ID** comes from an ambient OpenTelemetry context established by
+  operator-supplied Functions/OpenTelemetry instrumentation. The package does
+  not parse `traceparent` or create that request context. When one is already
+  active, `OTelRunObserver` explicitly preserves it so run and rejection spans
+  are children of the active request span; without external instrumentation,
+  they are root spans.
 - **Application Insights `operation_Id`** is the backend representation of the
   W3C trace ID for correlated telemetry. It is not the Functions invocation ID
   or the request/run ID; query those separately as span attributes or custom
@@ -155,7 +158,8 @@ The identifiers are related but not interchangeable:
 
 `StreamingLangGraphApp` likewise uses a FastAPI/ASGI extension contract that
 exposes the ASGI request but not a `func.Context`. Request/run-ID and ambient
-W3C trace correlation still work on both HTTP surfaces.
+W3C trace correlation still works on both HTTP surfaces when instrumentation
+has populated the ambient context.
 
 ### Health endpoint
 

@@ -151,6 +151,20 @@ class TestRejectedLifecycle:
         assert _attrs(span)["langgraph.status"] == "rejected"
         assert _attrs(span)["langgraph.reject_reason"] == "invalid_request"
 
+    def test_rejected_span_preserves_ambient_parent(
+        self, observer: OTelRunObserver, exporter: InMemorySpanExporter
+    ) -> None:
+        provider = TracerProvider()
+        parent = provider.get_tracer("parent").start_span("functions.request")
+
+        with trace.use_span(parent, end_on_exit=False):
+            observer.on_run_rejected(finish_context(_started()), "invalid_request")
+
+        span = exporter.get_finished_spans()[0]
+        assert span.parent is not None
+        assert span.parent.span_id == parent.get_span_context().span_id
+        parent.end()
+
 
 class TestEdgeCases:
     def test_terminal_without_started_is_ignored(

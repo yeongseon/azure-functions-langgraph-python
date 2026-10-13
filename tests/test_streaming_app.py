@@ -931,7 +931,7 @@ class TestHandleStream:
         app, reg = _app_with(FakeSyncGraph())
         observer = RecordingObserver()
         resp = await app._handle_stream(
-            FakeRequest({"input": {}}),
+            FakeRequest({"input": {}, "invocation_id": "untrusted"}),
             reg,
             False,
             JSONResponse,
@@ -947,6 +947,7 @@ class TestHandleStream:
         assert frames[-1] == "event: end\ndata: {}\n\n"
         # started emitted before headers; completed emitted as the stream drains.
         assert observer.events == ["started", "completed"]
+        assert observer.contexts[0].invocation_id is None
 
     async def test_async_success_streams_frames(self) -> None:
         app, reg = _app_with(FakeAsyncGraph())

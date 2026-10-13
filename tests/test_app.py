@@ -882,6 +882,31 @@ class TestStreamValidationError:
         assert json.loads(response.get_body())["request_id"] == request_id
         assert observer.rejected[0].run_id == request_id
 
+    def test_request_payload_cannot_set_invocation_id(self) -> None:
+        class Observer:
+            started: list[RunContext] = []
+
+            def on_run_started(self, ctx: RunContext) -> None:
+                self.started.append(ctx)
+
+            def on_run_completed(self, ctx: RunContext) -> None: ...
+            def on_run_failed(self, ctx: RunContext, exc: BaseException) -> None: ...
+            def on_run_rejected(self, ctx: RunContext, reason: str) -> None: ...
+
+        observer = Observer()
+        app = LangGraphApp(observer=observer)
+        app.register(graph=FakeCompiledGraph(), name="agent")
+        req = func.HttpRequest(
+            method="POST",
+            url="http://localhost:7071/api/graphs/agent/invoke",
+            body=json.dumps({"input": {}, "invocation_id": "untrusted"}).encode(),
+        )
+
+        response = app._handle_invoke(req, app._registrations["agent"])
+
+        assert response.status_code == 200
+        assert observer.started[0].invocation_id is None
+
 
 class TestInvokeWithEmptyInput:
     """Test invoke with empty input dict."""
