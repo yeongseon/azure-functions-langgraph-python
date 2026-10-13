@@ -81,17 +81,31 @@ func start
 
 curl -X POST http://localhost:7071/api/graphs/observability_app_insights/invoke \
   -H "Content-Type: application/json" \
-  -d '{"input": {"user_text": "Ada"}}'
+  -H "X-Request-ID: demo-request-001" \
+  -d '{"input":{"user_text":"Ada"},"config":{"configurable":{"thread_id":"demo-thread"}}}'
 ```
 
-You will see records like:
+## Captured local records
 
+The response includes the same correlation ID:
+
+```text
+X-Request-ID: demo-request-001
 ```
-langgraph.run.started {'graph_name': 'observability_app_insights', 'endpoint': 'invoke', 'run_id': '...'}
-langgraph.run.completed {'graph_name': 'observability_app_insights', 'endpoint': 'invoke', 'run_id': '...'}
+
+The observer emits these complete structured fields. Only elapsed time is
+normalized because it varies per run:
+
+```json
+{"graph_name":"observability_app_insights","endpoint":"invoke","run_id":"demo-request-001","thread_id":"demo-thread","assistant_id":null,"invocation_id":null,"stream_mode":null,"transport":"buffered","has_checkpointer":false,"lock_backend":"InProcessThreadLock","trigger_type":null,"duration_ms":null,"status":"started"}
+{"graph_name":"observability_app_insights","endpoint":"invoke","run_id":"demo-request-001","thread_id":"demo-thread","assistant_id":null,"invocation_id":null,"stream_mode":null,"transport":"buffered","has_checkpointer":false,"lock_backend":"InProcessThreadLock","trigger_type":null,"duration_ms":"<duration_ms>","status":"completed"}
 ```
 
 ## KQL queries
+
+> **Operator guidance, not ingestion certification.** These queries are templates
+> for a configured App Insights resource; this local walkthrough verifies the
+> emitted records, not Azure ingestion or a specific workspace schema.
 
 Azure Functions' App Insights integration writes Python log records to the
 `traces` table, exposing the observer's structured fields under
