@@ -18,6 +18,7 @@ from typing import Any
 import warnings
 
 import azure.functions as func
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 import pytest
 
@@ -94,9 +95,12 @@ class FakeSyncGraph:
 class FakeAsyncGraph:
     """Async ainvoke + astream graph."""
 
-    checkpointer = None
-
-    def __init__(self, chunks: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        chunks: list[dict[str, Any]] | None = None,
+        checkpointer: Any = None,
+    ) -> None:
+        self.checkpointer = checkpointer
         self._chunks = chunks or [{"n": 1}, {"n": 2}, {"n": 3}]
 
     async def ainvoke(
@@ -153,6 +157,7 @@ class RecordingObserver:
 
     def __init__(self) -> None:
         self.events: list[str] = []
+        self.contexts: list[RunContext] = []
 
     def on_run_started(self, ctx: RunContext) -> None:
         self.events.append("started")
@@ -165,6 +170,7 @@ class RecordingObserver:
 
     def on_run_rejected(self, ctx: RunContext, reason: str) -> None:
         self.events.append(f"rejected:{reason}")
+        self.contexts.append(ctx)
 
 
 class RecordingLock:
@@ -758,6 +764,27 @@ class TestHandleInvoke:
         )
         assert resp.status_code == 400
 
+    @pytest.mark.parametrize("is_async", [False, True])
+    async def test_checkpointed_graph_rejects_missing_thread_id(self, is_async: bool) -> None:
+        # Given
+        graph = (
+            FakeAsyncGraph(checkpointer=MemorySaver()) if is_async else FakeSyncGraph(MemorySaver())
+        )
+        app, reg = _app_with(graph)
+        observer = RecordingObserver()
+
+        # When
+        resp = await app._handle_invoke(
+            FakeRequest({"input": {}}), reg, is_async, JSONResponse, observer, _lock(app)
+        )
+
+        # Then
+        assert resp.status_code == 400
+        body = json.loads(resp.body)
+        assert body["detail"] == "config.configurable.thread_id is required for checkpointed graphs"
+        assert body["request_id"] == observer.contexts[0].run_id
+        assert observer.events == ["rejected:invalid_config"]
+
     async def test_lock_contention(self) -> None:
         lock = InProcessThreadLock()
         app, reg = _app_with(FakeSyncGraph(checkpointer=object()))
@@ -845,6 +872,33 @@ class TestHandleStream:
             _lock(app),
         )
         assert resp.status_code == 400
+
+    @pytest.mark.parametrize("is_async", [False, True])
+    async def test_checkpointed_graph_rejects_missing_thread_id_before_stream(
+        self, is_async: bool
+    ) -> None:
+        # Given
+        graph = (
+            FakeAsyncGraph(checkpointer=MemorySaver()) if is_async else FakeSyncGraph(MemorySaver())
+        )
+        app, reg = _app_with(graph)
+        observer = RecordingObserver()
+
+        # When
+        resp = await app._handle_stream(
+            FakeRequest({"input": {}}),
+            reg,
+            is_async,
+            JSONResponse,
+            StreamingResponse,
+            observer,
+            _lock(app),
+        )
+
+        # Then
+        assert resp.status_code == 400
+        assert not isinstance(resp, StreamingResponse)
+        assert observer.events == ["rejected:invalid_config"]
 
     async def test_lock_contention(self) -> None:
         lock = InProcessThreadLock()

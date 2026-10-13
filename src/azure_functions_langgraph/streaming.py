@@ -52,6 +52,7 @@ from pydantic import ValidationError
 
 from azure_functions_langgraph._handlers import (
     _method_accepts_version,
+    _require_checkpoint_thread_id,
     _serialize_graph_output,
 )
 from azure_functions_langgraph._json import dumps
@@ -684,6 +685,12 @@ class StreamingLangGraphApp:
             return self._reject(
                 JSONResponse, observer, ctx, "invalid_config", _JsonError(400, cfg_err)
             )
+        if thread_err := _require_checkpoint_thread_id(
+            getattr(reg.graph, "checkpointer", None), thread_id
+        ):
+            return self._reject(
+                JSONResponse, observer, ctx, "invalid_config", _JsonError(400, thread_err)
+            )
         ctx = dataclasses.replace(ctx, thread_id=thread_id)
         method = reg.graph.ainvoke if is_async else reg.graph.invoke
         version_kwargs = _resolve_version_kwarg(method, request.version, reg.name)
@@ -771,6 +778,12 @@ class StreamingLangGraphApp:
         if cfg_err:
             return self._reject(
                 JSONResponse, observer, ctx, "invalid_config", _JsonError(400, cfg_err)
+            )
+        if thread_err := _require_checkpoint_thread_id(
+            getattr(reg.graph, "checkpointer", None), thread_id
+        ):
+            return self._reject(
+                JSONResponse, observer, ctx, "invalid_config", _JsonError(400, thread_err)
             )
         ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
         method = reg.graph.astream if is_async else reg.graph.stream
