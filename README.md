@@ -360,7 +360,8 @@ app.register(graph=graph, name="my_agent")
 
 It emits one structured log record per lifecycle event under a single `extra`
 key (`langgraph_run`) — `graph_name`, `endpoint`, `run_id`, `thread_id`,
-`assistant_id`, `stream_mode`, `transport`, `has_checkpointer`, `lock_backend`,
+`assistant_id`, `invocation_id`, `stream_mode`, `transport`, `has_checkpointer`, `lock_backend`,
+`trigger_type`,
 `duration_ms`, a derived `status`, and (on failure) the exception `error_type`
 (class name only). Azure Functions' Application Insights integration surfaces
 these under `customDimensions`.

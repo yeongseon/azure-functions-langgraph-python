@@ -97,7 +97,7 @@ app = LangGraphApp(observer=LoggingRunObserver())
 It emits one structured log record per lifecycle event under a single `extra`
 key (`langgraph_run`) containing `graph_name`, `endpoint`, `run_id`,
 `thread_id`, `assistant_id`, `stream_mode`, `transport`, `has_checkpointer`,
-`lock_backend`, `duration_ms`, a derived `status`, and — on failure — the
+`invocation_id`, `lock_backend`, `trigger_type`, `duration_ms`, a derived `status`, and — on failure — the
 exception `error_type` (class name only). Azure Functions' native Application
 Insights integration surfaces these fields under `customDimensions`. See
 [`examples/observability_app_insights/`](../examples/observability_app_insights/)
