@@ -7,7 +7,8 @@ that maps every native `invoke`/`stream` run to a single OpenTelemetry span:
 
 - `on_run_started` → **starts** a span (`langgraph.run.invoke` / `.stream`).
 - `on_run_completed` → ends the span with `StatusCode.OK`.
-- `on_run_failed` → records the exception (class/type only), sets
+- `on_run_failed` → records only the exception class/type attribute (no
+  exception event, message, or stack trace), sets
   `StatusCode.ERROR`, and ends the span.
 - `on_run_rejected` → a run that never reached the graph opens and immediately
   ends a short span tagged with the rejection reason.

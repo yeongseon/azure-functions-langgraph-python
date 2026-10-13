@@ -98,19 +98,25 @@ class TestSuccessLifecycle:
 
 
 class TestFailureLifecycle:
-    def test_started_then_failed_records_exception(
+    def test_started_then_failed_records_only_exception_type(
         self, observer: OTelRunObserver, exporter: InMemorySpanExporter
     ) -> None:
+        # Given
+        secret = "api-key-super-secret"
         ctx = _started()
         observer.on_run_started(ctx)
-        observer.on_run_failed(finish_context(ctx), ValueError("boom"))
 
+        # When
+        observer.on_run_failed(finish_context(ctx), ValueError(secret))
+
+        # Then
         span = exporter.get_finished_spans()[0]
         assert span.status.status_code == StatusCode.ERROR
         assert _attrs(span)["langgraph.status"] == "failed"
         assert _attrs(span)["langgraph.error_type"] == "ValueError"
-        # The exception is recorded as a span event, class only — no payload.
-        assert any(e.name == "exception" for e in span.events)
+        assert secret not in repr(_attrs(span))
+        assert secret not in repr(span.events)
+        assert span.events == ()
 
 
 class TestRejectedLifecycle:

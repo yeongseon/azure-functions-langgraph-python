@@ -90,8 +90,9 @@ class OTelRunObserver:
 
     - :meth:`on_run_started` starts a span and stores it keyed by ``run_id``.
     - :meth:`on_run_completed` ends that span with ``StatusCode.OK``.
-    - :meth:`on_run_failed` records the exception (class/type only — never a
-      payload), sets ``StatusCode.ERROR``, and ends the span.
+    - :meth:`on_run_failed` records the exception class/type as an attribute,
+      sets ``StatusCode.ERROR``, and ends the span. It emits no exception event,
+      message, or stack trace.
     - :meth:`on_run_rejected` — which has no preceding ``on_run_started`` — opens
       and immediately ends a short span marked with the rejection reason.
 
@@ -153,7 +154,6 @@ class OTelRunObserver:
             return
         self._finalize(span, ctx, "failed")
         span.set_attribute(f"{_ATTR_PREFIX}.error_type", type(exc).__name__)
-        span.record_exception(exc)
         span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
         span.end()
 
