@@ -82,6 +82,24 @@ def _wait_for_entered(base_url: str, thread_id: str, run_id: str, timeout: float
     )
 
 
+def _wait_for_state(
+    base_url: str,
+    thread_id: str,
+    expected: dict[str, object],
+    timeout: float,
+) -> dict[str, object]:
+    deadline = time.time() + timeout
+    values: dict[str, object] = {}
+    while time.time() < deadline:
+        values = _get_state_values(base_url, thread_id)
+        if all(values.get(key) == value for key, value in expected.items()):
+            return values
+        time.sleep(1)
+    raise AssertionError(
+        f"{base_url} did not expose {expected!r} within {timeout}s (last state values: {values})"
+    )
+
+
 @pytest.fixture(scope="module", autouse=True)
 def warmup_both_apps() -> None:
     """Retry /api/health on both hosts until Consumption cold-start finishes."""
@@ -133,3 +151,31 @@ def test_single_writer_exclusivity_across_two_apps() -> None:
     assert final.get("completed") == run_id_a, final
     assert final.get("run_id") == run_id_a, final
     assert run_id_b not in final.values(), f"App B's run id leaked into checkpoint: {final}"
+
+
+def test_checkpoint_state_round_trips_across_two_apps() -> None:
+    thread_id = f"e2e-persistence-{uuid.uuid4().hex[:12]}"
+    run_id_a = f"A-{uuid.uuid4().hex}"
+    run_id_b = f"B-{uuid.uuid4().hex}"
+
+    response_a = _invoke(BASE_URL_A, thread_id, run_id_a)
+    assert response_a.status_code == 200, response_a.text
+
+    state_on_b = _wait_for_state(
+        BASE_URL_B,
+        thread_id,
+        {"run_id": run_id_a, "completed": run_id_a},
+        timeout=30,
+    )
+    assert state_on_b["entered"] == run_id_a
+
+    response_b = _invoke(BASE_URL_B, thread_id, run_id_b)
+    assert response_b.status_code == 200, response_b.text
+
+    state_on_a = _wait_for_state(
+        BASE_URL_A,
+        thread_id,
+        {"run_id": run_id_b, "completed": run_id_b},
+        timeout=30,
+    )
+    assert state_on_a["entered"] == run_id_b
