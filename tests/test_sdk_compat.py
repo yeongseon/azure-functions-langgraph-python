@@ -847,10 +847,12 @@ class TestSdkUnsupported:
             )
 
     @pytest.mark.parametrize(
-        "field",
-        [entry["field"] for entry in _MANIFEST["unsupported_run_create_fields"]],
+        ("field", "expected_status"),
+        [(entry["field"], entry["status"]) for entry in _MANIFEST["unsupported_run_create_fields"]],
     )
-    def test_manifest_run_create_field_returns_501(self, field: str) -> None:
+    def test_manifest_run_create_field_returns_status(
+        self, field: str, expected_status: int
+    ) -> None:
         app, _ = _make_app()
         transport = _make_transport(app.function_app)
         http = httpx.Client(transport=transport, base_url="http://test")
@@ -872,21 +874,26 @@ class TestSdkUnsupported:
             json={"assistant_id": "agent", "input": {}, field: values[field]},
         )
 
-        assert response.status_code == 501
+        assert response.status_code == expected_status
 
     @pytest.mark.parametrize(
-        "field",
-        [entry["field"] for entry in _MANIFEST["unsupported_thread_filter_fields"]],
+        ("field", "expected_status"),
+        [
+            (entry["field"], entry["status"])
+            for entry in _MANIFEST["unsupported_thread_filter_fields"]
+        ],
     )
     @pytest.mark.parametrize("endpoint", ["search", "count"])
-    def test_manifest_thread_filter_returns_501(self, field: str, endpoint: str) -> None:
+    def test_manifest_thread_filter_returns_status(
+        self, field: str, expected_status: int, endpoint: str
+    ) -> None:
         app, _ = _make_app()
         transport = _make_transport(app.function_app)
         http = httpx.Client(transport=transport, base_url="http://test")
 
         response = http.post(f"/threads/{endpoint}", json={field: []})
 
-        assert response.status_code == 501
+        assert response.status_code == expected_status
 
 
 # ---------------------------------------------------------------------------
