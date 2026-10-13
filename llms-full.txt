@@ -22,6 +22,7 @@ Optional extras:
 ```bash
 pip install azure-functions-langgraph[azure-blob]   # Azure Blob checkpointer
 pip install azure-functions-langgraph[azure-table]   # Azure Table thread store
+pip install azure-functions-langgraph[streaming]     # Native true SSE transport
 ```
 
 ## Public API
@@ -235,7 +236,10 @@ app = gapp.function_app
 
 ## Limitations
 
-- SSE streaming is buffered (Azure Functions Python worker limitation)
+- `LangGraphApp` SSE routes are buffered by design. The experimental
+  `StreamingLangGraphApp` uses the app-wide FastAPI/ASGI transport to flush
+  native SSE frames incrementally; it cannot be mixed with classic routes in
+  the same function app.
 - Azure Blob checkpointer is synchronous (single-writer assumed)
 - `MemorySaver` loses state on process restart (use Azure Blob for persistence)
 

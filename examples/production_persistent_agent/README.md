@@ -176,10 +176,11 @@ Consumption / Elastic Premium your app runs on **many instances**, so also mind:
 - **Functions timeout.** A graph run must finish inside the Functions execution
   timeout (Consumption default 5 min, max 10; Premium/Dedicated configurable).
   Long tool loops or slow model calls can hit it — budget accordingly.
-- **Buffered SSE, not token streaming.** The `/stream` endpoints return
+- **This example uses buffered SSE.** Its `LangGraphApp` `/stream` endpoint returns
   **buffered** SSE: chunks are collected during the run and flushed *after* it
-  completes. This is the adapter's current design, not a platform limit. For
-  real-time token streaming, run behind a long-lived host. See
+  completes. For native true incremental SSE, deploy a separate
+  `StreamingLangGraphApp` with the `streaming` extra; the ASGI transport cannot
+  be mixed with this example's classic routes in one function app. See
   [README → Streaming behavior](../../README.md#streaming-behavior).
 
 ## Storage scale envelope & retention
@@ -325,7 +326,8 @@ Intentionally excluded (kept simple, or belongs elsewhere):
 - **RAG / Azure AI Search.**
 - **Long-term cross-thread `BaseStore` memory** (facts shared across
   conversations) — this example persists per-`thread_id` graph state only.
-- **True token streaming** — the adapter uses buffered SSE.
+- **True token streaming in this app** — use the separate `StreamingLangGraphApp`
+  transport when incremental delivery is required.
 - **Durable async run lifecycle** and **Service Bus trigger integration.**
 
 ## See also

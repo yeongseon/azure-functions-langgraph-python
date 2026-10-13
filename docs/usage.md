@@ -107,7 +107,7 @@ data: {}
 ```
 
 !!! warning "Buffered streaming"
-    Streaming is **buffered** — all chunks are collected first, then returned as a single SSE-formatted HTTP response. This is not true chunked streaming; it is **this adapter's current implementation choice** given its classic `HttpRequest`/`HttpResponse` model, not an Azure Functions platform limitation. True incremental streaming requires the app-wide FastAPI/streaming model (incompatible with the current classic-model routes) and is tracked separately under umbrella issue #339.
+    `LangGraphApp` collects all chunks first, then returns one SSE-formatted response. For true incremental delivery, install `azure-functions-langgraph[streaming]` and use `StreamingLangGraphApp`. Its FastAPI/ASGI transport is an app-wide choice and cannot be mixed with classic routes in the same function app; see the package README's **Streaming behavior** section.
 
 ### Stream error handling
 
