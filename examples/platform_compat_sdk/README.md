@@ -29,8 +29,8 @@ python sdk_client.py
 
 ## Captured output
 
-Dynamic thread/checkpoint IDs and timestamps are normalized below; all other
-fields come from a real SDK run against the registered example handlers.
+This is `python sdk_client.py` output with only dynamic thread/checkpoint IDs
+and timestamps normalized; all other fields come from the registered handlers.
 
 ```text
 assistants: ["echo_agent"]
