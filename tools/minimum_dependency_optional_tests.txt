@@ -4,6 +4,8 @@ tests/integration
 tests/test_durable.py
 # Exercises newer langgraph-sdk client methods absent from the 0.2.2 floor.
 tests/test_persistent_storage.py
+# Exercises newer langgraph-sdk client methods absent from the 0.2.2 floor.
+tests/test_platform_sdk_example.py
 # Requires the Azure Blob extra and a live Azurite service.
 tests/test_production_persistent_agent_example.py
 # Certifies SDK wire behavior against supported newer SDK lines, not the 0.2.2 floor.

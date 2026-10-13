@@ -7,8 +7,8 @@ Demonstrates the package's headline feature: serving compiled LangGraph graphs a
 ## Files
 
 - `function_app.py` — registers `echo_agent` with `platform_compat=True`
-- `graph.py` — minimal echo `StateGraph`
-- `sdk_client.py` — async script using `langgraph-sdk` to call `assistants.search`, `threads.create`, `runs.wait`
+- `graph.py` — minimal echo `StateGraph` with an in-memory checkpointer
+- `sdk_client.py` — async script using `langgraph-sdk` to create a thread, run it, and retrieve state
 - `host.json`, `local.settings.json.example`, `requirements.txt`
 
 ## Run locally
@@ -26,6 +26,22 @@ In a second terminal:
 pip install langgraph-sdk
 python sdk_client.py
 ```
+
+## Captured output
+
+This is `python sdk_client.py` output with only dynamic thread/checkpoint IDs
+and timestamps normalized; all other fields come from the registered handlers.
+
+```text
+assistants: ["echo_agent"]
+thread: {"thread_id":"<thread_id>","created_at":"<timestamp>","updated_at":"<timestamp>","metadata":null,"status":"idle","values":null,"assistant_id":null,"interrupts":{}}
+result: {"messages":[{"role":"human","content":"Hello, SDK!"},{"role":"assistant","content":"Echo: Hello, SDK!"}]}
+state: {"values":{"messages":[{"role":"human","content":"Hello, SDK!"},{"role":"assistant","content":"Echo: Hello, SDK!"}]},"next":[],"checkpoint":{"thread_id":"<thread_id>","checkpoint_ns":"","checkpoint_id":"<checkpoint_id>","checkpoint_map":null},"metadata":{"source":"loop","step":1,"parents":{}},"created_at":"<timestamp>","parent_checkpoint":{"thread_id":"<thread_id>","checkpoint_ns":"","checkpoint_id":"<checkpoint_id>","checkpoint_map":null},"tasks":[],"interrupts":[]}
+```
+
+The in-memory checkpointer is for this local demonstration only; it does not
+survive host restarts. See [COMPATIBILITY.md](../../COMPATIBILITY.md) for the
+supported SDK surface and storage notes.
 
 ## Verify with curl
 
