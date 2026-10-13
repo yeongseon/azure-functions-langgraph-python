@@ -22,6 +22,7 @@ a two-line registration API.
 - `LangGraphApp` — Main application class. Registers graphs and creates Azure Function routes.
 - `LangGraphApp.register(graph, name)` — Register a compiled LangGraph StateGraph.
 - `LangGraphApp.function_app` — The Azure FunctionApp instance to export.
+- `StreamingLangGraphApp` — Experimental native true-SSE app using the `streaming` extra.
 
 ## Key Concepts
 
@@ -30,6 +31,7 @@ a two-line registration API.
 - Checkpointer-agnostic: bring your own (MemorySaver, AzureBlobCheckpointSaver, etc.)
 - Per-graph auth level override
 - LangGraph Platform SDK compatible routes (optional)
+- `LangGraphApp` stream routes are buffered; `StreamingLangGraphApp` flushes native SSE frames incrementally and must run as a separate FastAPI/ASGI function app
 
 ## Quick Start
 
