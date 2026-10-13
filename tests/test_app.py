@@ -882,41 +882,6 @@ class TestStreamValidationError:
         assert json.loads(response.get_body())["request_id"] == request_id
         assert observer.rejected[0].run_id == request_id
 
-    def test_generated_http_handler_propagates_functions_invocation_id(self) -> None:
-        class Observer:
-            started: list[RunContext] = []
-
-            def on_run_started(self, ctx: RunContext) -> None:
-                self.started.append(ctx)
-
-            def on_run_completed(self, ctx: RunContext) -> None: ...
-            def on_run_failed(self, ctx: RunContext, exc: BaseException) -> None: ...
-            def on_run_rejected(self, ctx: RunContext, reason: str) -> None: ...
-
-        class FunctionsContext:
-            invocation_id = "functions-invocation-598"
-
-        observer = Observer()
-        app = LangGraphApp(observer=observer)
-        app.register(graph=FakeCompiledGraph(), name="agent")
-        handler = next(
-            fn.get_user_function()
-            for fn in app.function_app.get_functions()
-            if fn.get_function_name() == "aflg_agent_invoke"
-        )
-        req = func.HttpRequest(
-            method="POST",
-            url="http://localhost:7071/api/graphs/agent/invoke",
-            body=json.dumps(
-                {"input": {}, "invocation_id": "untrusted-payload-invocation"}
-            ).encode(),
-        )
-
-        response = handler(req, FunctionsContext())
-
-        assert response.status_code == 200
-        assert observer.started[0].invocation_id == "functions-invocation-598"
-
 
 class TestInvokeWithEmptyInput:
     """Test invoke with empty input dict."""

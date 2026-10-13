@@ -833,31 +833,15 @@ class LangGraphApp:
         captured_reg = reg
         effective_auth = self._effective_auth_level(reg)
 
-        async def async_handler(
-            req: func.HttpRequest, context: func.Context | None = None
-        ) -> func.HttpResponse:
-            invocation_id = context.invocation_id if context is not None else None
-            if endpoint in {"invoke", "stream"}:
-                result: func.HttpResponse = await handler_impl(
-                    req, captured_reg, invocation_id=invocation_id
-                )
-            else:
-                result = await handler_impl(req, captured_reg)
+        async def async_handler(req: func.HttpRequest) -> func.HttpResponse:
+            result: func.HttpResponse = await handler_impl(req, captured_reg)
             return result
 
-        def sync_handler(
-            req: func.HttpRequest, context: func.Context | None = None
-        ) -> func.HttpResponse:
-            invocation_id = context.invocation_id if context is not None else None
-            if endpoint in {"invoke", "stream"}:
-                result: func.HttpResponse = handler_impl(
-                    req, captured_reg, invocation_id=invocation_id
-                )
-            else:
-                result = handler_impl(req, captured_reg)
+        def sync_handler(req: func.HttpRequest) -> func.HttpResponse:
+            result: func.HttpResponse = handler_impl(req, captured_reg)
             return result
 
-        handler: Callable[..., Any] = async_handler if is_async else sync_handler
+        handler: Callable[[func.HttpRequest], Any] = async_handler if is_async else sync_handler
 
         _payload: LangGraphMetadata = {
             "version": 1,
@@ -898,13 +882,7 @@ class LangGraphApp:
     # Request handlers (thin delegation to _handlers module)
     # ------------------------------------------------------------------
 
-    def _handle_invoke(
-        self,
-        req: func.HttpRequest,
-        reg: _GraphRegistration,
-        *,
-        invocation_id: str | None = None,
-    ) -> func.HttpResponse:
+    def _handle_invoke(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a synchronous invoke request."""
         thread_lock = self.thread_lock
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
@@ -918,15 +896,10 @@ class LangGraphApp:
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
             observer=observer,
-            invocation_id=invocation_id,
         )
 
     async def _handle_invoke_async(
-        self,
-        req: func.HttpRequest,
-        reg: _GraphRegistration,
-        *,
-        invocation_id: str | None = None,
+        self, req: func.HttpRequest, reg: _GraphRegistration
     ) -> func.HttpResponse:
         """Handle an invoke request against an async graph via ``ainvoke``."""
         thread_lock = self.thread_lock
@@ -941,16 +914,9 @@ class LangGraphApp:
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
             observer=observer,
-            invocation_id=invocation_id,
         )
 
-    def _handle_stream(
-        self,
-        req: func.HttpRequest,
-        reg: _GraphRegistration,
-        *,
-        invocation_id: str | None = None,
-    ) -> func.HttpResponse:
+    def _handle_stream(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a streaming request."""
         thread_lock = self.thread_lock
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
@@ -965,15 +931,10 @@ class LangGraphApp:
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
             observer=observer,
-            invocation_id=invocation_id,
         )
 
     async def _handle_stream_async(
-        self,
-        req: func.HttpRequest,
-        reg: _GraphRegistration,
-        *,
-        invocation_id: str | None = None,
+        self, req: func.HttpRequest, reg: _GraphRegistration
     ) -> func.HttpResponse:
         """Handle a streaming request against an async graph via ``astream``."""
         thread_lock = self.thread_lock
@@ -989,7 +950,6 @@ class LangGraphApp:
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
             observer=observer,
-            invocation_id=invocation_id,
         )
 
     def _handle_state(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:

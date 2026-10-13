@@ -137,9 +137,11 @@ This enables end-to-end traceability for each run.
 The identifiers are related but not interchangeable:
 
 - **Functions invocation ID** identifies one Azure Functions worker invocation.
-  Classic `LangGraphApp` HTTP handlers receive it from `func.Context` and expose
-  it only to observers as `RunContext.invocation_id`; request payload fields can
-  never set or override it.
+  It is not currently available to generated HTTP handlers: adding an optional
+  `func.Context` parameter makes current Python workers reject the function at
+  indexing time, while making it required would break direct/test invocation
+  compatibility. `RunContext.invocation_id` therefore remains `None` for HTTP,
+  and request payload fields can never set or override it.
 - **Request/run ID** is this package's sanitized `X-Request-ID` value (or an
   generated opaque value). It is `RunContext.run_id` and correlates responses,
   SSE error metadata, and run-observer records.
@@ -151,10 +153,9 @@ The identifiers are related but not interchangeable:
   or the request/run ID; query those separately as span attributes or custom
   dimensions when cross-checking a single invocation.
 
-`StreamingLangGraphApp` uses the FastAPI/ASGI Functions extension. That
-extension's generated handler contract exposes the ASGI request but not a
-`func.Context`, so `RunContext.invocation_id` remains unavailable (`None`) on
-that surface. Request/run-ID and ambient W3C trace correlation still work.
+`StreamingLangGraphApp` likewise uses a FastAPI/ASGI extension contract that
+exposes the ASGI request but not a `func.Context`. Request/run-ID and ambient
+W3C trace correlation still work on both HTTP surfaces.
 
 ### Health endpoint
 
