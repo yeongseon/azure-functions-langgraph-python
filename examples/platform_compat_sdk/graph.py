@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from typing import TypedDict
 
 
 class AgentState(TypedDict):
@@ -22,4 +22,4 @@ _builder.add_node("echo", echo)
 _builder.add_edge(START, "echo")
 _builder.add_edge("echo", END)
 
-compiled_graph = _builder.compile()
+compiled_graph = _builder.compile(checkpointer=MemorySaver())

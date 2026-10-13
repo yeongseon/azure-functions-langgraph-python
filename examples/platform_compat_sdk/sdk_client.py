@@ -8,8 +8,7 @@ Run alongside ``func start`` in this directory:
 
 from __future__ import annotations
 
-import asyncio
-
+import anyio
 from langgraph_sdk import get_client
 
 
@@ -29,6 +28,9 @@ async def main() -> None:
     )
     print("result:", result)
 
+    state = await client.threads.get_state(thread["thread_id"])
+    print("state:", state)
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    anyio.run(main)
