@@ -25,10 +25,12 @@ non-sensitive field set under the `langgraph_run` key:
 | `run_id` | Unique per-run correlation id |
 | `thread_id` | Thread id (when the request supplies one) |
 | `assistant_id` | Assistant id (Platform runs) |
+| `invocation_id` | Azure Functions invocation id when the worker supplies it |
 | `stream_mode` | Stream mode for `/stream` runs |
 | `transport` | `buffered` (today) or `streaming` (reserved) |
 | `has_checkpointer` | Whether the graph has a checkpointer |
 | `lock_backend` | Thread-lock backend class name |
+| `trigger_type` | Trigger source when available (for example, Service Bus) |
 | `duration_ms` | Wall time (terminal events only) |
 | `status` | `started` / `completed` / `failed` / `rejected` |
 | `error_type` | Exception **class name** on failure (never the message) |
