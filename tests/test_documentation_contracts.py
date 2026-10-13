@@ -38,3 +38,27 @@ def test_getting_started_uses_minimal_health_response() -> None:
     assert '"status": "ok"' in health_example
     assert '"graphs"' not in health_example
     assert "/api/health/details" in health_example
+
+
+def test_streaming_guides_name_the_current_transports() -> None:
+    guides = [
+        ROOT / "docs" / "faq.md",
+        ROOT / "docs" / "usage.md",
+        ROOT / "docs" / "troubleshooting.md",
+        ROOT / "docs" / "architecture.md",
+        ROOT / "examples" / "production_persistent_agent" / "README.md",
+        ROOT / "llms.txt",
+        ROOT / "llms-full.txt",
+    ]
+
+    for guide in guides:
+        text = guide.read_text()
+        assert "StreamingLangGraphApp" in text
+        assert "tracked separately under umbrella issue #339" not in text
+
+
+def test_roadmap_marks_closed_azure_functions_certification_complete() -> None:
+    roadmap = (ROOT / "docs" / "roadmap.md").read_text()
+
+    assert "- [x] [\\#350]" in roadmap
+    assert "- [ ] [\\#350]" not in roadmap
