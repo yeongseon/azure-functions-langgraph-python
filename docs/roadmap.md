@@ -22,8 +22,10 @@ phase, observability phase, true streaming, the Azure-native event-driven
 entrypoint, and the Durable async run lifecycle have shipped. The project is now
 at its **expansion checkpoint** — no new feature family is added automatically.
 Issue [#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350)
-is closed: the interpreter-split `azure-functions` 2.x support and real-Azure
-certification shipped. The remaining open roadmap tracker is
+is closed after the interpreter-split `azure-functions` 2.x support shipped.
+Its optional Flex Consumption / Python 3.13 real-Azure lane remains an
+**unverified scaffold**; closure did not certify that deployment path. The
+remaining open roadmap tracker is
 [#410](https://github.com/yeongseon/azure-functions-langgraph-python/issues/410),
 which governs adoption and any future expansion rather than naming another
 committed feature family.
@@ -80,7 +82,7 @@ New examples and runtime work must not be built on top of intentionally stale
 dependency ceilings or an unproven release pipeline.
 
 - [x] [\#333](https://github.com/yeongseon/azure-functions-langgraph-python/issues/333) — release / OIDC certification pipeline *(human-blocked)*
-- [x] [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — `azure-functions` 2.x certification / cap removal (split hosting matrix; Py 3.12 Consumption ceiling)
+- [closed] [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — interpreter-split `azure-functions` 2.x cap shipped; optional Flex real-Azure certification remains unverified
 - [x] [\#421](https://github.com/yeongseon/azure-functions-langgraph-python/issues/421) — certify LangGraph 1.2.x / langgraph-sdk 0.4.x and adopt a rolling minimum-version window
 
 **Exit gate:**
@@ -235,7 +237,7 @@ install
 ## Ordered checklist
 
 - [x] [\#333](https://github.com/yeongseon/azure-functions-langgraph-python/issues/333) — release / OIDC certification pipeline *(P0, human-blocked)*
-- [x] [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — Azure Functions 2.x certification (P0)
+- [closed] [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — interpreter-split Azure Functions 2.x support; optional Flex certification remains unverified (P0)
 - [x] [\#421](https://github.com/yeongseon/azure-functions-langgraph-python/issues/421) — LangGraph 1.2.x / sdk 0.4.x certification + rolling window (P0)
 - [x] [\#402](https://github.com/yeongseon/azure-functions-langgraph-python/issues/402) — Azure OpenAI example
 - [x] [\#403](https://github.com/yeongseon/azure-functions-langgraph-python/issues/403) — conversation memory example

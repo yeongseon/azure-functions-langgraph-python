@@ -57,8 +57,10 @@ def test_streaming_guides_name_the_current_transports() -> None:
         assert "tracked separately under umbrella issue #339" not in text
 
 
-def test_roadmap_marks_closed_azure_functions_certification_complete() -> None:
+def test_roadmap_distinguishes_closed_issue_from_unverified_flex_lane() -> None:
     roadmap = (ROOT / "docs" / "roadmap.md").read_text()
 
-    assert "- [x] [\\#350]" in roadmap
-    assert "- [ ] [\\#350]" not in roadmap
+    assert "[#350]" in roadmap
+    assert "is closed" in roadmap
+    assert "unverified scaffold" in roadmap
+    assert "real-Azure certification shipped" not in roadmap
