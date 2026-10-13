@@ -276,6 +276,7 @@ def handle_invoke(
     max_input_depth: int,
     max_input_nodes: int,
     observer: RunObserver = NOOP_OBSERVER,
+    invocation_id: str | None = None,
 ) -> func.HttpResponse:
     """Handle a synchronous invoke request."""
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
@@ -285,6 +286,7 @@ def handle_invoke(
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
         run_id=request_id_from_headers(req.headers),
+        invocation_id=invocation_id,
     )
     parsed = _parse_native_request(
         req,
@@ -358,6 +360,7 @@ def handle_stream(
     max_input_depth: int,
     max_input_nodes: int,
     observer: RunObserver = NOOP_OBSERVER,
+    invocation_id: str | None = None,
 ) -> func.HttpResponse:
     """Handle a streaming request.
 
@@ -375,6 +378,7 @@ def handle_stream(
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
         run_id=request_id_from_headers(req.headers),
+        invocation_id=invocation_id,
     )
     if not reg.stream_enabled:
         return _reject(
@@ -506,6 +510,7 @@ async def handle_invoke_async(
     max_input_depth: int,
     max_input_nodes: int,
     observer: RunObserver = NOOP_OBSERVER,
+    invocation_id: str | None = None,
 ) -> func.HttpResponse:
     """Handle an invoke request against an async graph via ``ainvoke``.
 
@@ -520,6 +525,7 @@ async def handle_invoke_async(
         "invoke",
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
+        invocation_id=invocation_id,
     )
     parsed = _parse_native_request(
         req,
@@ -592,6 +598,7 @@ async def handle_stream_async(
     max_input_depth: int,
     max_input_nodes: int,
     observer: RunObserver = NOOP_OBSERVER,
+    invocation_id: str | None = None,
 ) -> func.HttpResponse:
     """Handle a streaming request against an async graph via ``astream``.
 
@@ -606,6 +613,7 @@ async def handle_stream_async(
         "stream",
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
+        invocation_id=invocation_id,
     )
     if not reg.stream_enabled:
         return _reject(
