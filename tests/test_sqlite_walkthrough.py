@@ -7,6 +7,7 @@ import sys
 from typing import Any
 
 import azure.functions as func
+import pytest
 
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.checkpointers.sqlite import create_sqlite_checkpointer
@@ -44,7 +45,10 @@ def _post(text: str) -> func.HttpRequest:
 
 def test_sqlite_walkthrough_matches_live_handler_output(tmp_path: Path) -> None:
     # Given: the shipped turn-counting graph with its documented SQLite backend
-    checkpointer = create_sqlite_checkpointer(str(tmp_path / "walkthrough.sqlite"))
+    try:
+        checkpointer = create_sqlite_checkpointer(str(tmp_path / "walkthrough.sqlite"))
+    except ImportError as exc:
+        pytest.skip(f"SQLite extra is unavailable or incompatible: {exc}")
     graph = _load_graph_module().build_graph().compile(checkpointer=checkpointer)
     app = LangGraphApp()
     app.register(graph=graph, name="sqlite_agent")
