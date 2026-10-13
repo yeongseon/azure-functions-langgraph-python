@@ -1,0 +1,42 @@
+{
+  "operations": [
+    {"operation": "assistants.search", "routes": [{"method": "POST", "endpoint": "/assistants/search"}], "status": "supported"},
+    {"operation": "assistants.get", "routes": [{"method": "GET", "endpoint": "/assistants/{assistant_id}"}], "status": "supported"},
+    {"operation": "assistants.count", "routes": [{"method": "POST", "endpoint": "/assistants/count"}], "status": "supported"},
+    {"operation": "assistants.create` / `update` / `delete` / `set_latest", "routes": [], "status": "unexposed"},
+    {"operation": "metadata` filter on `search`/`count", "routes": [], "status": "partial"},
+    {"operation": "threads.create", "routes": [{"method": "POST", "endpoint": "/threads"}], "status": "supported"},
+    {"operation": "threads.get", "routes": [{"method": "GET", "endpoint": "/threads/{thread_id}"}], "status": "supported"},
+    {"operation": "threads.update", "routes": [{"method": "PATCH", "endpoint": "/threads/{thread_id}"}], "status": "supported"},
+    {"operation": "threads.delete", "routes": [{"method": "DELETE", "endpoint": "/threads/{thread_id}"}], "status": "supported"},
+    {"operation": "threads.search", "routes": [{"method": "POST", "endpoint": "/threads/search"}], "status": "partial"},
+    {"operation": "threads.count", "routes": [{"method": "POST", "endpoint": "/threads/count"}], "status": "partial"},
+    {"operation": "runs.wait` (threaded)", "routes": [{"method": "POST", "endpoint": "/threads/{thread_id}/runs/wait"}], "status": "supported"},
+    {"operation": "runs.wait` (threadless via `runs/wait`)", "routes": [{"method": "POST", "endpoint": "/runs/wait"}], "status": "partial"},
+    {"operation": "runs.stream` (threaded + threadless)", "routes": [{"method": "POST", "endpoint": "/threads/{thread_id}/runs/stream"}, {"method": "POST", "endpoint": "/runs/stream"}], "status": "partial"},
+    {"operation": "runs.create` (fire-and-forget)", "routes": [], "status": "unexposed"},
+    {"operation": "runs.get` / `list` / `cancel` / `delete` / `join` / `join_stream", "routes": [], "status": "unexposed"},
+    {"operation": "threads.get_state", "routes": [{"method": "GET", "endpoint": "/threads/{thread_id}/state"}], "status": "supported"},
+    {"operation": "threads.update_state", "routes": [{"method": "POST", "endpoint": "/threads/{thread_id}/state"}], "status": "supported"},
+    {"operation": "threads.get_history", "routes": [{"method": "POST", "endpoint": "/threads/{thread_id}/history"}], "status": "supported"}
+  ],
+  "unsupported_run_create_fields": [
+    {"field": "interrupt_before", "status": 501},
+    {"field": "interrupt_after", "status": 501},
+    {"field": "webhook", "status": 501},
+    {"field": "checkpoint_id", "status": 501},
+    {"field": "command", "status": 501},
+    {"field": "on_completion", "status": 501},
+    {"field": "after_seconds", "status": 501},
+    {"field": "if_not_exists", "status": 501},
+    {"field": "feedback_keys", "status": 501}
+  ],
+  "unsupported_thread_filter_fields": [
+    {"field": "values", "status": 501},
+    {"field": "ids", "status": 501},
+    {"field": "sort_by", "status": 501},
+    {"field": "sort_order", "status": 501},
+    {"field": "select", "status": 501},
+    {"field": "extract", "status": 501}
+  ]
+}
