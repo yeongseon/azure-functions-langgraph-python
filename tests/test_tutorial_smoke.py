@@ -23,6 +23,7 @@ from azure_functions_langgraph.app import LangGraphApp
 
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples" / "simple_agent"
 GRAPH_NAME = "simple_agent"
+ROOT_README = Path(__file__).resolve().parent.parent / "README.md"
 
 
 def _load_compiled_graph() -> Any:
@@ -98,3 +99,46 @@ def test_tutorial_health_probe_is_anonymous_status_ok() -> None:
 
     assert resp.status_code == 200
     assert json.loads(resp.get_body()) == {"status": "ok"}
+
+
+def test_readme_see_it_working_matches_registered_simple_agent() -> None:
+    # Given: the shipped example registered through the real adapter
+    app = LangGraphApp()
+    app.register(
+        graph=_load_compiled_graph(),
+        name=GRAPH_NAME,
+        description="A simple two-node greeting agent",
+    )
+    metadata = app.get_app_metadata()
+    routes = (*metadata.app_routes, *metadata.graphs[GRAPH_NAME].routes)
+    documented_routes = "\n".join(sorted(f"{route.method} {route.path}" for route in routes))
+    handlers = {
+        fn.get_function_name(): fn.get_user_function() for fn in app.function_app.get_functions()
+    }
+
+    # When: the documented health and invoke requests run through registered handlers
+    health = handlers["aflg_health"](func.HttpRequest(method="GET", url="/api/health", body=b""))
+    invoke = handlers[f"aflg_{GRAPH_NAME}_invoke"](
+        _post(
+            f"/api/graphs/{GRAPH_NAME}/invoke",
+            {
+                "input": {
+                    "messages": [{"role": "human", "content": "World"}],
+                    "greeting": "",
+                }
+            },
+            name=GRAPH_NAME,
+        )
+    )
+    readme = ROOT_README.read_text()
+    transcript = readme.split("### See it working", 1)[1].split("### Recommended learning path", 1)[
+        0
+    ]
+
+    # Then: every stable route and response value in the transcript is live output
+    assert documented_routes in transcript
+    assert health.get_body().decode() in transcript
+    assert invoke.get_body().decode() in transcript
+    assert "/api/health/details" in transcript
+    assert "protected" in transcript
+    assert "docs/tutorial-5-min.md" in transcript
