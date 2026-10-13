@@ -143,6 +143,28 @@ pip install -e .[dev]
 
 > **New to this package?** Follow the [**Deploy a LangGraph agent to Azure Functions in 5 minutes**](docs/tutorial-5-min.md) tutorial — a genuinely runnable, CI-smoke-tested walkthrough from a compiled graph to live HTTP endpoints, locally and on Azure.
 
+### See it working
+
+The shipped `simple_agent` registers these routes:
+
+```text
+GET /api/graphs/simple_agent/threads/{thread_id}/state
+GET /api/health
+GET /api/health/details
+POST /api/graphs/simple_agent/invoke
+POST /api/graphs/simple_agent/stream
+```
+
+```console
+$ curl -s http://localhost:7071/api/health
+{"status":"ok"}
+$ curl -s -X POST http://localhost:7071/api/graphs/simple_agent/invoke -H "Content-Type: application/json" -d '{"input":{"messages":[{"role":"human","content":"World"}],"greeting":""}}'
+{"output":{"messages":[{"role":"human","content":"World"},{"role":"assistant","content":"Hello, World! Goodbye!"}],"greeting":"Hello, World!"}}
+```
+
+`/api/health` is the minimal anonymous liveness probe; `/api/health/details` is
+the protected graph inventory. Continue with the [full 5-minute tutorial](docs/tutorial-5-min.md).
+
 ### Recommended learning path
 
 Once the Quick Start echo agent runs, follow these four examples in order. Each one is the **minimal delta** over the previous step, so you add exactly one production concern at a time — real LLM → memory → tools → durable persistence:
