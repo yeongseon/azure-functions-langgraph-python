@@ -373,7 +373,7 @@ app.register(graph=graph, name="my_agent")
 `StatusCode`, a `langgraph.status`, and a `langgraph.duration_ms`. Span
 attributes come **only** from the safe `RunContext` correlation fields — never
 input, output, config, headers, or secrets — and failures record the exception
-*type* only.
+*type* only. They do not emit an exception event, message, or stack trace.
 
 > Consistent with the observability boundary above, `OTelRunObserver` **does
 > not** configure a `TracerProvider`, exporters, sampling, or resource
