@@ -11,7 +11,9 @@ Issue: #42
 
 from __future__ import annotations
 
+import json
 import operator
+from pathlib import Path
 import re
 from typing import Annotated, Any, TypedDict
 
@@ -25,6 +27,10 @@ import pytest
 
 from azure_functions_langgraph.app import LangGraphApp
 from azure_functions_langgraph.platform.stores import InMemoryThreadStore
+
+_MANIFEST = json.loads(
+    (Path(__file__).parent / "data" / "platform_compat_manifest.json").read_text(encoding="utf-8")
+)
 
 # ---------------------------------------------------------------------------
 # Graph state & deterministic nodes (same as integration tests)
@@ -839,6 +845,48 @@ class TestSdkUnsupported:
                 input={"user_text": "test"},
                 webhook="https://example.com/hook",
             )
+
+    @pytest.mark.parametrize(
+        "field",
+        [entry["field"] for entry in _MANIFEST["unsupported_run_create_fields"]],
+    )
+    def test_manifest_run_create_field_returns_501(self, field: str) -> None:
+        app, _ = _make_app()
+        transport = _make_transport(app.function_app)
+        http = httpx.Client(transport=transport, base_url="http://test")
+        thread = http.post("/threads", json={}).json()
+        values: dict[str, Any] = {
+            "interrupt_before": ["greet"],
+            "interrupt_after": ["greet"],
+            "webhook": "https://example.com/hook",
+            "checkpoint_id": "checkpoint-1",
+            "command": {"resume": "yes"},
+            "on_completion": "delete",
+            "after_seconds": 1,
+            "if_not_exists": "create",
+            "feedback_keys": ["quality"],
+        }
+
+        response = http.post(
+            f"/threads/{thread['thread_id']}/runs/wait",
+            json={"assistant_id": "agent", "input": {}, field: values[field]},
+        )
+
+        assert response.status_code == 501
+
+    @pytest.mark.parametrize(
+        "field",
+        [entry["field"] for entry in _MANIFEST["unsupported_thread_filter_fields"]],
+    )
+    @pytest.mark.parametrize("endpoint", ["search", "count"])
+    def test_manifest_thread_filter_returns_501(self, field: str, endpoint: str) -> None:
+        app, _ = _make_app()
+        transport = _make_transport(app.function_app)
+        http = httpx.Client(transport=transport, base_url="http://test")
+
+        response = http.post(f"/threads/{endpoint}", json={field: []})
+
+        assert response.status_code == 501
 
 
 # ---------------------------------------------------------------------------
