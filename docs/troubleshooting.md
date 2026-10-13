@@ -59,7 +59,7 @@ The stream endpoint returns 501 when the registered graph does not have a `strea
 
 ### Streaming responses arrive all at once
 
-This is expected behavior. Streaming is **buffered** — all chunks are collected and returned as a single SSE-formatted response. This is **this adapter's current implementation choice** given its classic `HttpRequest`/`HttpResponse` model, not a limitation of the Azure Functions Python worker (which does support true streaming via the app-wide FastAPI model). True incremental streaming is tracked separately under umbrella issue #339.
+This is expected for `LangGraphApp`, whose classic routes buffer all chunks before returning one SSE-formatted response. For incremental arrival, install `azure-functions-langgraph[streaming]` and deploy a separate `StreamingLangGraphApp`; its FastAPI/ASGI transport cannot be mixed with classic routes in one function app.
 
 ### 422: Validation error
 

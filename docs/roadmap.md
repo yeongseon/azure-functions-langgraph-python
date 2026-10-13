@@ -2,7 +2,7 @@
 
 > **Canonical tracker:** [#410 — adoption-first rolling roadmap](https://github.com/yeongseon/azure-functions-langgraph-python/issues/410).
 > This page mirrors that issue for readers browsing the docs. When the two
-> disagree, the issue is authoritative. Last synced: **2026-09-15**.
+> disagree, the issue is authoritative. Last synced: **2026-10-13**.
 
 `azure-functions-langgraph` deploys already-built LangGraph graphs as Azure
 Functions HTTP endpoints. This roadmap is deliberately **adoption-first** and
@@ -15,17 +15,18 @@ minimum/latest window instead of freezing a single pinned stack.
 > Reach an **expansion checkpoint** after Service Bus + Durable and re-evaluate
 > toward v1.0 stabilization.
 
-## Current status (2026-09-15)
+## Current status (2026-10-13)
 
 The adoption-first sequence is complete. Every example phase, runtime-fidelity
 phase, observability phase, true streaming, the Azure-native event-driven
 entrypoint, and the Durable async run lifecycle have shipped. The project is now
 at its **expansion checkpoint** — no new feature family is added automatically.
-**Only one roadmap item remains open:**
-
-| Item | Phase | Status | Why it is still open |
-| --- | --- | --- | --- |
-| [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — `azure-functions` 2.x certification / cap removal | Phase 0 (P0) | **In progress** | The `<2.0.0` cap has been **lifted on Python 3.13+** via [\#457](https://github.com/yeongseon/azure-functions-langgraph-python/pull/457) (interpreter-split constraint; Python < 3.13 stays on the certified 1.x line). The wheel-based `azure-functions` 2.x compat lanes (real Py 3.13/3.14) are green. The only remaining step is dispatching the **real-Azure** Flex Consumption certification (`e2e-azure.yml`), which needs maintainer Azure credentials. |
+Issue [#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350)
+is closed: the interpreter-split `azure-functions` 2.x support and real-Azure
+certification shipped. The remaining open roadmap tracker is
+[#410](https://github.com/yeongseon/azure-functions-langgraph-python/issues/410),
+which governs adoption and any future expansion rather than naming another
+committed feature family.
 
 [\#408](https://github.com/yeongseon/azure-functions-langgraph-python/issues/408)
 (Durable Functions-backed async run lifecycle) landed in
@@ -79,7 +80,7 @@ New examples and runtime work must not be built on top of intentionally stale
 dependency ceilings or an unproven release pipeline.
 
 - [x] [\#333](https://github.com/yeongseon/azure-functions-langgraph-python/issues/333) — release / OIDC certification pipeline *(human-blocked)*
-- [ ] [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — `azure-functions` 2.x certification / cap removal (split hosting matrix; Py 3.12 Consumption ceiling)
+- [x] [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — `azure-functions` 2.x certification / cap removal (split hosting matrix; Py 3.12 Consumption ceiling)
 - [x] [\#421](https://github.com/yeongseon/azure-functions-langgraph-python/issues/421) — certify LangGraph 1.2.x / langgraph-sdk 0.4.x and adopt a rolling minimum-version window
 
 **Exit gate:**
@@ -234,7 +235,7 @@ install
 ## Ordered checklist
 
 - [x] [\#333](https://github.com/yeongseon/azure-functions-langgraph-python/issues/333) — release / OIDC certification pipeline *(P0, human-blocked)*
-- [ ] [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — Azure Functions 2.x certification (P0)
+- [x] [\#350](https://github.com/yeongseon/azure-functions-langgraph-python/issues/350) — Azure Functions 2.x certification (P0)
 - [x] [\#421](https://github.com/yeongseon/azure-functions-langgraph-python/issues/421) — LangGraph 1.2.x / sdk 0.4.x certification + rolling window (P0)
 - [x] [\#402](https://github.com/yeongseon/azure-functions-langgraph-python/issues/402) — Azure OpenAI example
 - [x] [\#403](https://github.com/yeongseon/azure-functions-langgraph-python/issues/403) — conversation memory example

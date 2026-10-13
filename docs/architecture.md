@@ -95,7 +95,7 @@ sequenceDiagram
     AzureFunctions-->>Client: JSON response
 ```
 
-### Stream (buffered)
+### Classic stream (buffered)
 
 ```mermaid
 sequenceDiagram
@@ -126,6 +126,13 @@ sequenceDiagram
 > `X-Accel-Buffering: no` headers (the native stream endpoint sets no `Content-Location`).
 > If the buffer would exceed `max_stream_response_bytes`, the run is halted and a
 > terminal `event: error` + `event: end` is injected in-band (still HTTP 200).
+
+`StreamingLangGraphApp` is the separate experimental true-streaming transport.
+It uses `azurefunctions-extensions-http-fastapi` and an async generator to flush
+native SSE frames as the graph produces them. Because Azure Functions streaming
+enables the FastAPI/ASGI model app-wide, it cannot be mixed with the classic
+`LangGraphApp` routes in the same function app. Its real-Azure e2e test measures
+first-frame arrival before completion in the release certification workflow.
 
 ### Platform: Thread Run (SDK-compatible)
 
@@ -339,9 +346,9 @@ Rather than importing `CompiledStateGraph` from `langgraph`, the library uses `t
 
 ### Buffered SSE
 
-This adapter collects all stream events into memory and returns them as a single SSE-formatted response. This is **this adapter's current implementation choice**, not an Azure Functions platform limitation: the package is built entirely on the classic `azure.functions.HttpRequest`/`HttpResponse` model, and buffered SSE is the correct behaviour for that model. Functional for development but not suitable for long-running streams in production.
+The classic `LangGraphApp` collects all stream events into memory and returns them as a single SSE-formatted response. This is an implementation choice, not an Azure Functions platform limitation: buffered SSE is the contract for its classic `azure.functions.HttpRequest`/`HttpResponse` model.
 
-**⚠️ User expectation**: The SSE endpoints use "stream" in their path names and return `text/event-stream` content type, but responses are **buffered end-to-end**. Users should expect complete SSE-formatted responses delivered at once, not incremental token-by-token delivery. True incremental HTTP streaming *is* available on Azure Functions Python v2 (runtime 4.34.1+) via the `azurefunctions-extensions-http-fastapi` extension, but enabling it switches the **entire function app** to the FastAPI/ASGI streaming model, which cannot be mixed with the classic `HttpRequest`/`HttpResponse` routes this package is built on. Adopting true streaming is therefore an app-wide architectural change, not a drop-in — see the streaming roadmap discussion under umbrella issue #339.
+**⚠️ User expectation**: Classic SSE endpoints are buffered end-to-end. The separate experimental `StreamingLangGraphApp` provides true incremental native streaming on Azure Functions runtime 4.34.1+ through `azurefunctions-extensions-http-fastapi`. That transport switches the **entire function app** to FastAPI/ASGI and therefore cannot be mixed with classic routes in one app.
 
 ### Platform compatibility layer (v0.3)
 
