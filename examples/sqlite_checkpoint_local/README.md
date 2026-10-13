@@ -55,7 +55,9 @@ counter still increments because state lives in the SQLite file.
 ## Walkthrough output
 
 The equivalent native-route walkthrough below uses one fixed thread and then
-reads its state:
+reads its state. Start the host with a fresh database first (for example,
+`LANGGRAPH_SQLITE_PATH=/tmp/sqlite-walkthrough.sqlite func start` after removing
+that file); otherwise the persistent counter continues from earlier runs.
 
 ```console
 $ curl -s -X POST http://localhost:7071/api/graphs/sqlite_agent/invoke -H "Content-Type: application/json" -d '{"input":{"messages":[{"role":"human","content":"first"}]},"config":{"configurable":{"thread_id":"walkthrough-thread"}}}'

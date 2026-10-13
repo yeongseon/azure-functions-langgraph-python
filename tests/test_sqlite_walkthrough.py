@@ -77,5 +77,6 @@ def test_sqlite_walkthrough_matches_live_handler_output(tmp_path: Path) -> None:
     assert json.dumps(second, separators=(",", ":")) in transcript
     assert json.dumps(state, separators=(",", ":")) in transcript
     assert THREAD_ID in transcript
+    assert "fresh database" in transcript
     assert "production_persistent_agent" in transcript
     assert "survive restarts" not in transcript
