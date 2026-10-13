@@ -219,6 +219,12 @@ lock is released with `status="error"`.
     `LangGraphApp` routes in the same function app, so deploy the streaming
     surface separately when both contracts are required.
 
+    `StreamingLangGraphApp` validates checkpoint configuration before creating
+    the ASGI streaming response. Graphs backed by an official LangGraph
+    checkpoint saver require `config.configurable.thread_id` for both invoke
+    and stream requests; a missing ID returns a sanitized HTTP 400 and no graph
+    code runs. Graphs without a checkpointer remain threadless by default.
+
 ---
 
 ## RunCreate field → status mapping
