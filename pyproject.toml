@@ -79,7 +79,7 @@ dev = [
     "coverage",
     "hatch",
     "langgraph-checkpoint-sqlite>=3.0,<4",
-    "mypy==2.3.1",
+    "mypy==2.4.0",
     "pre-commit",
     "pytest",
     "pytest-asyncio>=0.23,<2",
