@@ -336,6 +336,14 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > count cap) because a true stream is never buffered. `LangGraphApp` is unchanged and
 > remains the default. See [`examples/true_streaming_agent/`](examples/true_streaming_agent/)
 > for a runnable `curl -N` walkthrough that proves incremental arrival.
+>
+> On client cancellation, lock ownership follows graph execution rather than the
+> socket lifetime. A synchronous stream waits for its one in-flight iterator
+> pull to finish, closes the iterator, releases the thread token exactly once,
+> and only then propagates cancellation. Python cannot terminate a hung worker
+> thread, so synchronous nodes and tools must enforce their own timeouts. Async
+> graphs use native async-generator cancellation without the thread bridge. See
+> the [production guide](docs/production-guide.md#true-stream-cancellation-and-lock-ownership).
 
 ### Run observability
 
@@ -365,6 +373,27 @@ key (`langgraph_run`) — `graph_name`, `endpoint`, `run_id`, `thread_id`,
 `duration_ms`, a derived `status`, and (on failure) the exception `error_type`
 (class name only). Azure Functions' Application Insights integration surfaces
 these under `customDimensions`.
+
+For native HTTP invoke and stream endpoints, `run_id` is the adapter's
+request/run correlation ID. A valid caller `X-Request-ID` (1–64 ASCII letters,
+digits, `.`, `_`, or `-`) is preserved; a missing, invalid, or oversized value
+is replaced with an opaque generated ID. The same safe value appears in the
+response `X-Request-ID`, observer context, and sanitized JSON or post-start SSE
+errors. Request bodies never set this ID.
+
+Keep that ID distinct from both `invocation_id` and distributed trace IDs:
+
+- `invocation_id` identifies an Azure Functions host invocation and is not
+  populated from caller-controlled headers or request bodies.
+- W3C `traceparent` / Application Insights operation IDs identify distributed
+  traces and follow the host or tracing SDK's propagation rules.
+- `run_id` correlates this adapter's graph run across its HTTP response and
+  observer lifecycle events; it is not authentication data and does not claim
+  to be either identifier above.
+
+Capturing Functions invocation context and wiring parent spans is tracked
+separately in #598; this package does not infer either value from
+`X-Request-ID`.
 
 > The package owns the **domain signal** only — not log formatting, App Insights
 > ingestion, OpenTelemetry exporters, sampling, or PII redaction. Observer
@@ -812,9 +841,9 @@ For workloads that already run a managed database (or need state shared across m
 | SQLite | `create_sqlite_checkpointer` | `pip install azure-functions-langgraph[sqlite]` | Local dev and single-instance deployments |
 | Cosmos DB | `create_cosmos_checkpointer` | `pip install azure-functions-langgraph[cosmos]` | Azure-native serverless/global production |
 
-Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist; the Cosmos DB helper accepts an endpoint and key, temporarily wires the upstream `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` environment variables, and directly instantiates the upstream `CosmosDBSaver`:
+Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist. The Cosmos DB helper accepts an endpoint and key, temporarily wires the upstream `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` environment variables, and directly instantiates the upstream `CosmosDBSaver`; that helper path is deprecated because unrelated threads can observe those process-global values during construction:
 
-> **Authentication — `create_cosmos_checkpointer` is a key-based convenience wrapper; Managed Identity is available upstream.** The DX helper resolves an account key and temporarily wires `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` before instantiating the upstream `CosmosDBSaver`, so calling the helper always uses **key-based auth**. However, the upstream `langgraph-checkpoint-cosmosdb` package (≥ 0.2.8) **does** support passwordless auth: `CosmosDBSaver` falls back to `DefaultAzureCredential` (Managed Identity, `az login`, service principal) whenever `COSMOSDB_KEY` is **unset**. To use Managed Identity today, skip the helper and instantiate the upstream saver directly with only `COSMOSDB_ENDPOINT` set (no key):
+> **Authentication — configure upstream credentials once at process startup.** The supported `langgraph-checkpoint-cosmosdb` range (`>=0.2.0,<0.5`; verified with 0.4.0) exposes no endpoint, credential, or client constructor injection. `CosmosDBSaver` reads `COSMOSDB_ENDPOINT` and optional `COSMOSDB_KEY` directly from the process environment. Set those application settings before the Functions worker starts and instantiate the upstream saver directly. With `COSMOSDB_KEY` absent, upstream uses `DefaultAzureCredential` (Managed Identity, `az login`, or service principal). With `COSMOSDB_KEY` present, it uses key authentication.
 
 ```python
 import os
@@ -825,7 +854,7 @@ os.environ["COSMOSDB_ENDPOINT"] = "https://<account>.documents.azure.com:443/"
 checkpointer = CosmosDBSaver(database_name="langgraph", container_name="checkpoints")
 ```
 
-> Grant the Function App's identity a Cosmos DB data-plane role (e.g. *Cosmos DB Built-in Data Contributor*) on the account. The official `langchain-azure-cosmosdb` package is an alternative that also supports `DefaultAzureCredential`. A future release may extend `create_cosmos_checkpointer` with a first-class Managed Identity path; until then the helper remains key-based by design.
+> Grant the Function App's identity a Cosmos DB data-plane role (e.g. *Cosmos DB Built-in Data Contributor*) on the account. For key auth, configure both `COSMOSDB_ENDPOINT` and `COSMOSDB_KEY` as startup application settings and use the same direct constructor. Do not set either value temporarily around construction: environment variables are process-global, so a lock cannot prevent unrelated threads from observing them. `create_cosmos_checkpointer` remains available for compatibility but emits `DeprecationWarning` and provides no credential-isolation guarantee.
 
 ```python
 import os
@@ -838,7 +867,7 @@ checkpointer = create_postgres_checkpointer(
 graph = builder.compile(checkpointer=checkpointer)
 ```
 
-The helpers do not hide `builder.compile(checkpointer=...)` and do not reimplement DB checkpoint storage — they centralize connection conventions and emit clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers run `setup()` once at cold start; the Cosmos DB helper directly instantiates the saver (no `setup()` call, no context manager). See [`examples/postgres_checkpoint_production/`](examples/postgres_checkpoint_production/), [`examples/sqlite_checkpoint_local/`](examples/sqlite_checkpoint_local/), and [`examples/cosmos_checkpoint_azure/`](examples/cosmos_checkpoint_azure/) for full Azure-Functions wiring.
+The helpers do not hide `builder.compile(checkpointer=...)` and do not reimplement DB checkpoint storage — they centralize connection conventions and emit clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers run `setup()` once at cold start; the deprecated Cosmos DB helper directly instantiates the saver (no `setup()` call, no context manager). See [`examples/postgres_checkpoint_production/`](examples/postgres_checkpoint_production/), [`examples/sqlite_checkpoint_local/`](examples/sqlite_checkpoint_local/), and [`examples/cosmos_checkpoint_azure/`](examples/cosmos_checkpoint_azure/) for full Azure-Functions wiring.
 
 | Backend | Comfortable | Caution zone | Switch backends |
 | --- | --- | --- | --- |

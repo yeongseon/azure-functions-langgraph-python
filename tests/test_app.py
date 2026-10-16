@@ -1509,14 +1509,16 @@ class TestThreadStoreConfig:
         """Azure host marker + default in-memory store → RuntimeWarning."""
         self._clear_env(monkeypatch)
         monkeypatch.setenv("WEBSITE_INSTANCE_ID", "abc123")
+        app = LangGraphApp(platform_compat=True)
         with pytest.warns(RuntimeWarning, match="in-memory thread store"):
-            LangGraphApp(platform_compat=True)
+            app.function_app
 
     def test_azure_hosted_site_name_marker_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._clear_env(monkeypatch)
         monkeypatch.setenv("WEBSITE_SITE_NAME", "my-func-app")
+        app = LangGraphApp(platform_compat=True)
         with pytest.warns(RuntimeWarning, match="in-memory thread store"):
-            LangGraphApp(platform_compat=True)
+            app.function_app
 
     def test_warning_category_is_runtimewarning(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The default-store warning is a RuntimeWarning, not a UserWarning."""
@@ -1524,7 +1526,7 @@ class TestThreadStoreConfig:
         monkeypatch.setenv("WEBSITE_INSTANCE_ID", "abc123")
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            LangGraphApp(platform_compat=True)
+            LangGraphApp(platform_compat=True).function_app
         categories = {w.category for w in caught}
         assert RuntimeWarning in categories
 
@@ -1542,14 +1544,16 @@ class TestThreadStoreConfig:
         """AZFUNC_LANGGRAPH_THREAD_STORE=distributed with default store raises."""
         self._clear_env(monkeypatch)
         monkeypatch.setenv("AZFUNC_LANGGRAPH_THREAD_STORE", "distributed")
+        app = LangGraphApp(platform_compat=True)
         with pytest.raises(RuntimeError, match="AZFUNC_LANGGRAPH_THREAD_STORE"):
-            LangGraphApp(platform_compat=True)
+            app.function_app
 
     def test_env_guard_case_and_whitespace_tolerant(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._clear_env(monkeypatch)
         monkeypatch.setenv("AZFUNC_LANGGRAPH_THREAD_STORE", "  Distributed  ")
+        app = LangGraphApp(platform_compat=True)
         with pytest.raises(RuntimeError):
-            LangGraphApp(platform_compat=True)
+            app.function_app
 
     def test_env_guard_inmemory_value_is_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Setting AZFUNC_LANGGRAPH_THREAD_STORE=inmemory is a no-op."""
@@ -1557,3 +1561,32 @@ class TestThreadStoreConfig:
         monkeypatch.setenv("AZFUNC_LANGGRAPH_THREAD_STORE", "inmemory")
         app = LangGraphApp(platform_compat=True)
         assert app.thread_store is not None
+
+    def test_distributed_store_setter_satisfies_guard_without_warning(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._clear_env(monkeypatch)
+        monkeypatch.setenv("WEBSITE_INSTANCE_ID", "abc123")
+        monkeypatch.setenv("AZFUNC_LANGGRAPH_THREAD_STORE", "distributed")
+        store = MagicMock()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            app = LangGraphApp(platform_compat=True)
+            app.thread_store = store
+            app.function_app
+
+        assert app.thread_store is store
+
+    def test_thread_store_setter_invalidates_built_function_app(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._clear_env(monkeypatch)
+        app = LangGraphApp(platform_compat=True)
+        original_function_app = app.function_app
+
+        app.thread_store = MagicMock()
+
+        assert app.function_app is not original_function_app

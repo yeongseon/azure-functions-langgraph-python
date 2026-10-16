@@ -7,9 +7,11 @@ package that resolves credentials and builds a :class:`CosmosDBSaver`
 suitable for Azure Functions cold-start (module-level instantiation).
 
 The helper uses **key-based authentication**.  It temporarily wires the
-``COSMOSDB_ENDPOINT`` and ``COSMOSDB_KEY`` environment variables that the
-upstream package expects, directly instantiates ``CosmosDBSaver``, and
-restores the original environment afterwards.
+process-global ``COSMOSDB_ENDPOINT`` and ``COSMOSDB_KEY`` environment
+variables that the upstream package expects, directly instantiates
+``CosmosDBSaver``, and restores the original environment afterwards.  This
+path is deprecated because unrelated threads can observe those temporary
+credentials.
 
 This module deliberately does **not** reimplement Cosmos DB checkpoint
 storage.  It centralizes the credential convention, handles environment
@@ -24,7 +26,8 @@ extra when the upstream package is missing.
    wrapper resolves and wires a key, so the passwordless path is bypassed.
    To use Managed Identity today, instantiate the upstream
    ``CosmosDBSaver`` directly with only ``COSMOSDB_ENDPOINT`` set (no key).
-   A future release may add a first-class Managed Identity path here.
+   This helper is deprecated until upstream supports explicit endpoint and
+   credential or client injection.
 """
 
 from __future__ import annotations
@@ -45,7 +48,8 @@ _EXTRA_HINT = (
     "pip install azure-functions-langgraph[cosmos]"
 )
 
-# Thread-safety for env var manipulation during saver creation.
+# Serializes cooperating helper calls but cannot isolate process-global values
+# from unrelated threads.
 _env_lock = threading.Lock()
 
 # Track savers created by this helper for close_cosmos_checkpointer().
@@ -65,10 +69,10 @@ def create_cosmos_checkpointer(
 ) -> CosmosDBSaver:
     """Create a long-lived :class:`CosmosDBSaver` from connection info.
 
-    Uses key-based authentication.  The helper temporarily sets the
-    ``COSMOSDB_ENDPOINT`` and ``COSMOSDB_KEY`` environment variables
-    required by the upstream package, instantiates the saver, and
-    restores the original environment.
+    Uses key-based authentication.  This helper is deprecated because the
+    supported upstream saver versions require process-global environment
+    variables.  Unrelated threads can observe the temporary key while the
+    saver is being constructed.
 
     Key resolution order:
         1. ``key`` parameter (preferred)
@@ -133,6 +137,15 @@ def create_cosmos_checkpointer(
             "COSMOS_KEY environment variable."
         )
 
+    warnings.warn(
+        "create_cosmos_checkpointer is deprecated because supported upstream "
+        "CosmosDBSaver versions require process-global credential environment "
+        "variables that unrelated threads can observe. Instantiate the upstream "
+        "saver from startup-configured environment variables instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     # --- Import upstream ---
     try:
         cosmos_module = importlib.import_module("langgraph_checkpoint_cosmosdb")
@@ -143,7 +156,7 @@ def create_cosmos_checkpointer(
     if CosmosDBSaverCls is None:
         raise ImportError(
             "langgraph_checkpoint_cosmosdb is missing CosmosDBSaver; "
-            "upgrade langgraph-checkpoint-cosmosdb to >=0.2.0,<0.3."
+            "upgrade langgraph-checkpoint-cosmosdb to >=0.2.0,<0.5."
         )
 
     # --- Env var wiring (thread-safe) ---

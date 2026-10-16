@@ -173,8 +173,11 @@ For deep health checks, implement a custom endpoint or use Azure Monitor availab
 
 Configure `readiness_checks` to opt into `GET /api/health/ready` for dependency
 traffic gating. The route is protected by the app auth level by default and can
-use an independent `readiness_auth_level`; each callback is bounded by
-`readiness_timeout_seconds` (default five seconds).
+use an independent `readiness_auth_level`. Callbacks may be synchronous or
+asynchronous and must return a boolean. `readiness_timeout_seconds` (default
+five seconds) is one **total deadline for the complete probe**, measured from
+submitting the component checks until the response is assembled; it is not a
+per-component timeout. It must be finite and greater than zero.
 
 ```python
 app = LangGraphApp(
@@ -188,6 +191,17 @@ checks passed, while HTTP 503 means one failed, raised, or timed out. Exception
 text, endpoints, and credentials are never returned. Prefer Azure Monitor or
 provider-native monitoring when you need historical alerting, external network
 vantage points, or detailed dependency diagnostics.
+
+Readiness work is bounded per `LangGraphApp` instance by a dedicated executor
+with at most four worker threads and at most one in-flight invocation per
+component. If a synchronous callback exceeds the probe deadline, Python cannot
+forcibly stop its thread; later probes report that component as failed and reuse
+the same in-flight invocation instead of creating more workers. A finished
+invocation is refreshed on the next probe. Consequently, a permanently hung
+callback can occupy one of the four readiness workers until the host process
+exits. Every operator-owned network callback must configure its own SDK timeout
+shorter than the total probe deadline. Async callbacks are awaited, but should
+also apply cancellation/timeouts to their dependency operations.
 
 The liveness probe uses `health_auth_level`, which defaults to `ANONYMOUS`
 independently of `auth_level` — so it stays reachable as an unauthenticated
@@ -352,6 +366,30 @@ over the corresponding `/stream` routes to avoid UX and latency expectation mism
 
 ⚠️ **Note**: Thread and run routes (`/api/threads/...`, `/api/runs/...`) are only available when `platform_compat=True` is set in `LangGraphApp`.
 
+### True-stream cancellation and lock ownership
+
+`StreamingLangGraphApp` treats HTTP response lifetime and graph execution
+lifetime as separate concerns. A disconnect cancels response production, but a
+synchronous `graph.stream()` may already be running `next()` in a worker thread;
+Python cannot terminate that thread safely.
+
+The adapter therefore retains the thread-lock token until the single in-flight
+`next()` finishes, closes the iterator only after that worker has quiesced,
+releases the token exactly once, emits one failed observer outcome, and then
+propagates cancellation. This ordering applies before the first frame, between
+frames, during frame production, and when the response iterator is explicitly
+closed. Success emits `completed`; graph errors and the event cap emit an SSE
+error plus `end` and report `failed`.
+
+Each synchronous stream tracks at most one worker at a time—disconnects do not
+spawn replacement workers. The trade-off is deliberate: if user code blocks
+forever, cleanup and lock release also wait forever. This is not thread
+termination or exactly-once business-side-effect protection. Bound every
+synchronous LLM, tool, and storage operation with its own timeout, and account
+for worker-process termination and distributed lease-loss behavior separately.
+Async graphs use native async-generator cancellation and cleanup; they do not
+cross the synchronous iterator bridge.
+
 ## Concurrency & Scale
 ### Thread-assistant binding and TOCTOU race
 
@@ -488,15 +526,23 @@ The Blob backend needs `Storage Blob Data Contributor` on the lock container (or
 
 **Safety guard — `AZFUNC_LANGGRAPH_THREAD_STORE` (platform-compat).** The thread *store* has the same scale-out footgun as the lock: when `platform_compat=True` and no store is supplied, `LangGraphApp` defaults to the per-instance `InMemoryThreadStore`, so on Azure scale-out (Consumption / Elastic Premium) each worker keeps its own threads and state diverges across instances. Two layered guards mirror the lock-backend precedent:
 
-- **Warn by default on Azure.** When the process looks Azure-hosted (the host sets `WEBSITE_INSTANCE_ID` / `WEBSITE_SITE_NAME`) and the default in-memory store is in use, `__post_init__` emits a `RuntimeWarning` pointing at `AzureTableThreadStore`. Local development (`func start`, where those markers are absent) stays warning-free.
-- **Fail-fast when declared.** Set `AZFUNC_LANGGRAPH_THREAD_STORE=distributed` (or any non-empty value other than `inmemory`) in Function App settings to escalate the warning to a `RuntimeError` at construction whenever the default in-memory store is still in use. Supply a real store — `app.thread_store = AzureTableThreadStore(...)` — to satisfy the guard.
+- **Warn by default on Azure.** When the process looks Azure-hosted (the host sets `WEBSITE_INSTANCE_ID` / `WEBSITE_SITE_NAME`) and the final configured store is still the in-memory default, building `app.function_app` emits a `RuntimeWarning` pointing at `AzureTableThreadStore`. Local development (`func start`, where those markers are absent) stays warning-free.
+- **Fail-fast when declared.** Set `AZFUNC_LANGGRAPH_THREAD_STORE=distributed` (or any non-empty value other than `inmemory`) in Function App settings. Validation runs when `app.function_app` is built, after the public `app.thread_store` setter can supply the production store, and raises before routes can be served if the final configured store is still `InMemoryThreadStore`.
 
 ```python
 # Multi-instance production: fail-fast if the in-memory default slips through.
 # App setting: AZFUNC_LANGGRAPH_THREAD_STORE=distributed
 app = LangGraphApp(platform_compat=True, auth_level=func.AuthLevel.FUNCTION)
 app.thread_store = AzureTableThreadStore.from_connection_string(...)  # required
+func_app = app.function_app  # validates the final store, then builds routes
 ```
+
+Set `thread_store` before the first `function_app` access. The setter remains
+supported after an earlier access as well: it invalidates the cached
+`FunctionApp`, and the next `function_app` access validates the replacement
+store and rebuilds all routes against it. Keep the exported module-level
+Functions app assignment last so Azure never receives the superseded route
+object.
 
 **Interaction with Platform-compatible runs.** The same `thread_lock` guards
 native invoke/stream routes and threaded Platform-compatible runs. Platform runs

@@ -208,9 +208,9 @@ def test_credential_string_emits_deprecation_warning(monkeypatch: Any) -> None:
             container_name="ctr",
         )
 
-    assert len(w) == 1
-    assert issubclass(w[0].category, DeprecationWarning)
-    assert "credential" in str(w[0].message)
+    assert len(w) == 2
+    assert all(issubclass(item.category, DeprecationWarning) for item in w)
+    assert any("credential" in str(item.message) for item in w)
     # credential resolved to key via env var, not constructor kwarg
 
 
@@ -273,7 +273,6 @@ def test_credential_takes_precedence_over_cosmos_key_env(monkeypatch: Any) -> No
 
 
 def test_env_vars_set_during_creation(monkeypatch: Any) -> None:
-    """COSMOSDB_ENDPOINT and COSMOSDB_KEY are set during saver creation."""
     captured_env: dict[str, str | None] = {}
 
     class CapturingCosmosDBSaver:

@@ -8,7 +8,6 @@ receives only the explicit dependencies it needs — no reference to
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import inspect
 import json
@@ -41,6 +40,7 @@ from azure_functions_langgraph.contracts import (
     StreamRequest,
 )
 from azure_functions_langgraph.locks import ThreadLock
+from azure_functions_langgraph.locks._async import async_thread_lock
 from azure_functions_langgraph.observability import (
     NOOP_OBSERVER,
     RunContext,
@@ -440,7 +440,8 @@ def handle_stream(
                     "error": (
                         "stream response exceeded max buffered size "
                         f"({max_stream_response_bytes} bytes)"
-                    )
+                    ),
+                    "request_id": ctx.run_id,
                 }
             )
             chunks.append(f"event: error\ndata: {error_payload}\n\n")
@@ -468,7 +469,7 @@ def handle_stream(
     except Exception as exc:
         logger.exception("Graph %s stream failed", reg.name)
         stream_error = exc
-        error_payload = json.dumps({"error": "stream processing failed"})
+        error_payload = json.dumps({"error": "stream processing failed", "request_id": ctx.run_id})
         _append_chunk(f"event: error\ndata: {error_payload}\n\n")
     finally:
         if lock_token is not None and thread_id is not None:
@@ -488,6 +489,7 @@ def handle_stream(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "X-Request-ID": ctx.run_id,
         },
     )
 
@@ -520,6 +522,7 @@ async def handle_invoke_async(
         "invoke",
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
+        run_id=request_id_from_headers(req.headers),
     )
     parsed = _parse_native_request(
         req,
@@ -544,10 +547,9 @@ async def handle_invoke_async(
     version_kwargs = _resolve_version_kwarg(reg.graph.ainvoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
-    lock_token: str | None = None
-    if has_cp and thread_id:
-        lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
-        if not lock_token:
+    lock_thread_id = thread_id if has_cp else None
+    async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
+        if lock_thread_id is not None and lock_token is None:
             return _reject(
                 observer,
                 ctx,
@@ -556,16 +558,13 @@ async def handle_invoke_async(
                     409, f"Thread {thread_id!r} is currently in use by another request"
                 ),
             )
-    safe_observer_call(observer, "on_run_started", ctx)
-    try:
-        result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
-    except Exception as exc:
-        logger.exception("Graph %s ainvoke failed", reg.name)
-        safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
-        return _error_response(500, "Graph execution failed")
-    finally:
-        if lock_token is not None and thread_id is not None:
-            await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
+        safe_observer_call(observer, "on_run_started", ctx)
+        try:
+            result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
+        except Exception as exc:
+            logger.exception("Graph %s ainvoke failed", reg.name)
+            safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
+            return _error_response(500, "Graph execution failed", ctx.run_id)
 
     safe_observer_call(observer, "on_run_completed", finish_context(ctx))
     output = _serialize_graph_output(result)
@@ -574,6 +573,7 @@ async def handle_invoke_async(
         body=response.model_dump_json(),
         mimetype="application/json",
         status_code=200,
+        headers={"X-Request-ID": ctx.run_id},
     )
 
 
@@ -606,6 +606,7 @@ async def handle_stream_async(
         "stream",
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
+        run_id=request_id_from_headers(req.headers),
     )
     if not reg.stream_enabled:
         return _reject(
@@ -646,10 +647,9 @@ async def handle_stream_async(
     version_kwargs = _resolve_version_kwarg(reg.graph.astream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
-    lock_token: str | None = None
-    if has_cp and thread_id:
-        lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
-        if not lock_token:
+    lock_thread_id = thread_id if has_cp else None
+    async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
+        if lock_thread_id is not None and lock_token is None:
             return _reject(
                 observer,
                 ctx,
@@ -659,51 +659,51 @@ async def handle_stream_async(
                 ),
             )
 
-    chunks: list[str] = []
-    buffered_bytes = 0
+        chunks: list[str] = []
+        buffered_bytes = 0
 
-    def _append_chunk(chunk: str) -> bool:
-        nonlocal buffered_bytes
-        chunk_bytes = len(chunk.encode())
-        if buffered_bytes + chunk_bytes > max_stream_response_bytes:
+        def _append_chunk(chunk: str) -> bool:
+            nonlocal buffered_bytes
+            chunk_bytes = len(chunk.encode())
+            if buffered_bytes + chunk_bytes > max_stream_response_bytes:
+                error_payload = json.dumps(
+                    {
+                        "error": (
+                            "stream response exceeded max buffered size "
+                            f"({max_stream_response_bytes} bytes)"
+                        ),
+                        "request_id": ctx.run_id,
+                    }
+                )
+                chunks.append(f"event: error\ndata: {error_payload}\n\n")
+                return False
+            chunks.append(chunk)
+            buffered_bytes += chunk_bytes
+            return True
+
+        stream_error: BaseException | None = None
+        safe_observer_call(observer, "on_run_started", ctx)
+        try:
+            async for event in reg.graph.astream(
+                request.input,
+                config=config,
+                stream_mode=request.stream_mode,
+                **version_kwargs,
+            ):
+                serialized = dumps(
+                    event if isinstance(event, dict) else {"data": str(event)},
+                    allow_nan=False,
+                )
+                if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
+                    stream_error = RuntimeError("stream response exceeded max buffered size")
+                    break
+        except Exception as exc:
+            logger.exception("Graph %s astream failed", reg.name)
+            stream_error = exc
             error_payload = json.dumps(
-                {
-                    "error": (
-                        "stream response exceeded max buffered size "
-                        f"({max_stream_response_bytes} bytes)"
-                    )
-                }
+                {"error": "stream processing failed", "request_id": ctx.run_id}
             )
-            chunks.append(f"event: error\ndata: {error_payload}\n\n")
-            return False
-        chunks.append(chunk)
-        buffered_bytes += chunk_bytes
-        return True
-
-    stream_error: BaseException | None = None
-    safe_observer_call(observer, "on_run_started", ctx)
-    try:
-        async for event in reg.graph.astream(
-            request.input,
-            config=config,
-            stream_mode=request.stream_mode,
-            **version_kwargs,
-        ):
-            serialized = dumps(
-                event if isinstance(event, dict) else {"data": str(event)},
-                allow_nan=False,
-            )
-            if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
-                stream_error = RuntimeError("stream response exceeded max buffered size")
-                break
-    except Exception as exc:
-        logger.exception("Graph %s astream failed", reg.name)
-        stream_error = exc
-        error_payload = json.dumps({"error": "stream processing failed"})
-        _append_chunk(f"event: error\ndata: {error_payload}\n\n")
-    finally:
-        if lock_token is not None and thread_id is not None:
-            await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
+            _append_chunk(f"event: error\ndata: {error_payload}\n\n")
 
     chunks.append("event: end\ndata: {}\n\n")
 
@@ -719,6 +719,7 @@ async def handle_stream_async(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "X-Request-ID": ctx.run_id,
         },
     )
 
