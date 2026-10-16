@@ -16,6 +16,7 @@
 
     "_comment_platform": "Set LANGGRAPH_ENABLE_PLATFORM=true to also expose the SDK-compatible thread/run/assistant endpoints backed by an Azure Table thread store. Native persistence does NOT require this.",
     "LANGGRAPH_ENABLE_PLATFORM": "",
+    "AZFUNC_LANGGRAPH_THREAD_STORE": "",
     "LANGGRAPH_THREADS_TABLE": "langgraphthreads"
   }
 }

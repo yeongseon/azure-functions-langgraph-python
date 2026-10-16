@@ -336,6 +336,14 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > count cap) because a true stream is never buffered. `LangGraphApp` is unchanged and
 > remains the default. See [`examples/true_streaming_agent/`](examples/true_streaming_agent/)
 > for a runnable `curl -N` walkthrough that proves incremental arrival.
+>
+> On client cancellation, lock ownership follows graph execution rather than the
+> socket lifetime. A synchronous stream waits for its one in-flight iterator
+> pull to finish, closes the iterator, releases the thread token exactly once,
+> and only then propagates cancellation. Python cannot terminate a hung worker
+> thread, so synchronous nodes and tools must enforce their own timeouts. Async
+> graphs use native async-generator cancellation without the thread bridge. See
+> the [production guide](docs/production-guide.md#true-stream-cancellation-and-lock-ownership).
 
 ### Run observability
 
@@ -365,6 +373,27 @@ key (`langgraph_run`) — `graph_name`, `endpoint`, `run_id`, `thread_id`,
 `duration_ms`, a derived `status`, and (on failure) the exception `error_type`
 (class name only). Azure Functions' Application Insights integration surfaces
 these under `customDimensions`.
+
+For native HTTP invoke and stream endpoints, `run_id` is the adapter's
+request/run correlation ID. A valid caller `X-Request-ID` (1–64 ASCII letters,
+digits, `.`, `_`, or `-`) is preserved; a missing, invalid, or oversized value
+is replaced with an opaque generated ID. The same safe value appears in the
+response `X-Request-ID`, observer context, and sanitized JSON or post-start SSE
+errors. Request bodies never set this ID.
+
+Keep that ID distinct from both `invocation_id` and distributed trace IDs:
+
+- `invocation_id` identifies an Azure Functions host invocation and is not
+  populated from caller-controlled headers or request bodies.
+- W3C `traceparent` / Application Insights operation IDs identify distributed
+  traces and follow the host or tracing SDK's propagation rules.
+- `run_id` correlates this adapter's graph run across its HTTP response and
+  observer lifecycle events; it is not authentication data and does not claim
+  to be either identifier above.
+
+Capturing Functions invocation context and wiring parent spans is tracked
+separately in #598; this package does not infer either value from
+`X-Request-ID`.
 
 > The package owns the **domain signal** only — not log formatting, App Insights
 > ingestion, OpenTelemetry exporters, sampling, or PII redaction. Observer

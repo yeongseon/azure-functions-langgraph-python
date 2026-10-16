@@ -89,3 +89,20 @@ A true stream is never buffered, so the buffered-response byte guard
 (`LangGraphApp.max_stream_response_bytes`) does not apply. Instead
 `StreamingLangGraphApp(max_stream_events=...)` bounds the number of frames a
 single run may emit; exceeding it emits an `event: error` frame and stops.
+
+## Disconnect and cancellation contract
+
+The thread lock protects graph execution rather than the lifetime of the HTTP
+connection. If a client disconnects while a synchronous graph is producing a
+frame, the adapter waits for that one in-flight `next()` call to return, closes
+the iterator, releases the lock exactly once, records the run as failed, and
+then propagates cancellation. A second request for the same checkpoint thread
+cannot enter during that cleanup window. Cancellation before the first frame,
+between frames, and during frame production follows the same ordering.
+
+Python cannot forcibly terminate a running worker thread. Each stream tracks at
+most one synchronous iterator worker, so repeated disconnects do not create
+unbounded workers for one stream; however, a graph node or tool that never
+returns keeps its lock and worker occupied until process termination. Configure
+bounded timeouts in every synchronous LLM, tool, and storage call. Async graphs
+use native async-generator cancellation and do not use this thread bridge.

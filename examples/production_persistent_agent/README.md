@@ -305,7 +305,11 @@ Set `LANGGRAPH_ENABLE_PLATFORM=true` to also expose the SDK-compatible
 `AzureTableThreadStore` (which additionally provides ETag-based **distributed run
 locking**). This is off by default because the native endpoints already deliver
 durable per-thread memory — enable it only if you use the `langgraph-sdk` client
-or want SDK-compatible thread/run lifecycle management. See
+or want SDK-compatible thread/run lifecycle management. In multi-instance
+production, also set `AZFUNC_LANGGRAPH_THREAD_STORE=distributed`. The example
+assigns `langgraph_app.thread_store` through the public setter before its final
+`langgraph_app.function_app` access, where the configured Azure Table store is
+validated before routes are built. See
 [`managed_identity_storage`](../managed_identity_storage/) and
 [`platform_compat_sdk`](../platform_compat_sdk/).
 

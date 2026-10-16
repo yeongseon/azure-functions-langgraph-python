@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
+import math
 import os
 from types import MappingProxyType
 from typing import Any, Literal
@@ -29,6 +28,7 @@ from azure_functions_langgraph._metadata import (
     read_langgraph_metadata,
     set_langgraph_metadata,
 )
+from azure_functions_langgraph._readiness import ReadinessRunner
 from azure_functions_langgraph._validation import (
     validate_graph_name,
 )
@@ -246,8 +246,13 @@ class LangGraphApp:
     _sb_registrations: dict[str, Any] = field(default_factory=dict)
     _function_app: func.FunctionApp | None = field(default=None, init=False, repr=False)
     _thread_store: Any = field(default=None, init=False, repr=False)
+    _readiness_runner: ReadinessRunner | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if not math.isfinite(self.readiness_timeout_seconds) or self.readiness_timeout_seconds <= 0:
+            raise ValueError("readiness_timeout_seconds must be finite and greater than zero")
+        if self.readiness_checks:
+            self._readiness_runner = ReadinessRunner(self.readiness_checks)
         if self.auth_level == func.AuthLevel.ANONYMOUS:
             warnings.warn(
                 "LangGraphApp is using ANONYMOUS auth. Endpoints are publicly "
@@ -266,34 +271,6 @@ class LangGraphApp:
             from azure_functions_langgraph.platform.stores import InMemoryThreadStore
 
             self._thread_store = InMemoryThreadStore()
-            # AZFUNC_LANGGRAPH_THREAD_STORE mirrors the lock-backend guard: the
-            # default InMemoryThreadStore is per-instance, so on Azure scale-out
-            # (Consumption / Elastic Premium) each worker gets its own store and
-            # thread state diverges across instances. Warn when the process looks
-            # Azure-hosted, and escalate to a startup RuntimeError when an
-            # operator explicitly declares a distributed/production requirement.
-            env_store = os.environ.get("AZFUNC_LANGGRAPH_THREAD_STORE", "").strip().lower()
-            if env_store and env_store not in ("", "inmemory"):
-                raise RuntimeError(
-                    f"AZFUNC_LANGGRAPH_THREAD_STORE={env_store!r} requires a "
-                    "distributed thread store (for example AzureTableThreadStore), "
-                    "but the app is still using the default in-memory store. Set "
-                    "app.thread_store = ... explicitly on LangGraphApp() or unset "
-                    "the env var for local dev."
-                )
-            if _is_azure_hosted():
-                warnings.warn(
-                    "platform_compat is enabled with the default in-memory thread "
-                    "store on an Azure-hosted Function App. InMemoryThreadStore is "
-                    "per-instance, so thread state will diverge across scaled-out "
-                    "instances.\n"
-                    "  Recommended: app.thread_store = AzureTableThreadStore(...)\n"
-                    "  Fail-fast:   set AZFUNC_LANGGRAPH_THREAD_STORE=distributed\n"
-                    "  See the 'Distributed thread locking' scale-out matrix in "
-                    "docs/production-guide.md",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
 
         # Instantiate default in-process lock backend if the user did not supply
         # a custom one. See azure_functions_langgraph.locks for backend details.
@@ -542,7 +519,9 @@ class LangGraphApp:
     def thread_store(self, store: Any) -> None:
         """Set a custom thread store implementation.
 
-        Must be called before accessing :attr:`function_app`.
+        Prefer calling this before accessing :attr:`function_app`. Calling it
+        later invalidates the cached FunctionApp; the next access validates the
+        replacement store and rebuilds the routes.
         """
         self._thread_store = store
         self._function_app = None  # invalidate cached routes
@@ -552,6 +531,33 @@ class LangGraphApp:
     # ------------------------------------------------------------------
 
     def _build_function_app(self) -> func.FunctionApp:
+        if self.platform_compat:
+            from azure_functions_langgraph.platform.stores import InMemoryThreadStore
+
+            if isinstance(self._thread_store, InMemoryThreadStore):
+                env_store = os.environ.get("AZFUNC_LANGGRAPH_THREAD_STORE", "").strip().lower()
+                if env_store and env_store != "inmemory":
+                    raise RuntimeError(
+                        f"AZFUNC_LANGGRAPH_THREAD_STORE={env_store!r} requires a "
+                        "distributed thread store (for example AzureTableThreadStore), "
+                        "but the final configured store is InMemoryThreadStore. Set "
+                        "app.thread_store = ... before accessing app.function_app, or "
+                        "unset the env var for local dev."
+                    )
+                if _is_azure_hosted():
+                    warnings.warn(
+                        "platform_compat is enabled with the final configured "
+                        "in-memory thread store (InMemoryThreadStore) on an "
+                        "Azure-hosted Function App. "
+                        "InMemoryThreadStore is per-instance, so thread state will "
+                        "diverge across scaled-out instances.\n"
+                        "  Recommended: app.thread_store = AzureTableThreadStore(...)\n"
+                        "  Fail-fast:   set AZFUNC_LANGGRAPH_THREAD_STORE=distributed\n"
+                        "  See the 'Distributed thread locking' scale-out matrix in "
+                        "docs/production-guide.md",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
         app = self._new_function_app()
 
         # Health endpoints.
@@ -601,16 +607,10 @@ class LangGraphApp:
                 auth_level=self._resolved_readiness_auth_level,
             )
             def health_ready(req: func.HttpRequest) -> func.HttpResponse:
-                components: dict[str, Literal["ok", "failed"]] = {}
-                checks = self.readiness_checks or {}
-                with ThreadPoolExecutor(max_workers=len(checks)) as pool:
-                    futures = {name: pool.submit(check) for name, check in checks.items()}
-                    for name, future in futures.items():
-                        try:
-                            result = future.result(timeout=self.readiness_timeout_seconds)
-                            components[name] = "ok" if result is True else "failed"
-                        except (FutureTimeoutError, Exception):
-                            components[name] = "failed"
+                runner = self._readiness_runner
+                if runner is None:  # pragma: no cover - route requires configured checks
+                    raise RuntimeError("readiness runner is not initialized")
+                components = runner.run(self.readiness_timeout_seconds)
                 ready = all(value == "ok" for value in components.values())
                 body = ReadinessResponse(
                     status="ready" if ready else "unready",
