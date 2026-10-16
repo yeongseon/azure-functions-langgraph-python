@@ -24,6 +24,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from azure_functions_langgraph.durable._state import DurableRunPayload, DurableRunResult
 from azure_functions_langgraph.locks import ThreadLock
+from azure_functions_langgraph.locks._async import async_thread_lock
 from azure_functions_langgraph.observability import (
     NOOP_OBSERVER,
     RunObserver,
@@ -93,38 +94,34 @@ async def execute_langgraph_run_impl(
         trigger_type=TRIGGER_TYPE,
     )
 
-    lock_token: str | None = None
     use_lock = bool(thread_id) and has_ckpt
-    if use_lock and thread_id is not None:
-        lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
-        if not lock_token:
+    lock_thread_id = thread_id if use_lock else None
+    async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
+        if lock_thread_id is not None and lock_token is None:
             safe_observer_call(observer, "on_run_rejected", finish_context(ctx), "lock_contention")
             return DurableRunResult.rejected(
                 payload.run_id,
                 f"Thread {thread_id!r} for graph {reg.name!r} is currently in use",
             )
 
-    config = payload.config or None
-    if thread_id is not None:
-        config = {
-            **payload.config,
-            "configurable": {
-                **payload.config.get("configurable", {}),
-                "thread_id": thread_id,
-            },
-        }
-    safe_observer_call(observer, "on_run_started", ctx)
-    try:
-        result = await _invoke_graph(reg, payload.input, config)
-    except BaseException as exc:  # noqa: BLE001 - captured into a normalized result
-        safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
-        return DurableRunResult.failure(payload.run_id, exc)
-    else:
-        safe_observer_call(observer, "on_run_completed", finish_context(ctx))
-        return DurableRunResult.success(payload.run_id, result)
-    finally:
-        if lock_token is not None and thread_id is not None:
-            await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
+        config = payload.config or None
+        if thread_id is not None:
+            config = {
+                **payload.config,
+                "configurable": {
+                    **payload.config.get("configurable", {}),
+                    "thread_id": thread_id,
+                },
+            }
+        safe_observer_call(observer, "on_run_started", ctx)
+        try:
+            result = await _invoke_graph(reg, payload.input, config)
+        except BaseException as exc:  # noqa: BLE001 - captured into a normalized result
+            safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
+            return DurableRunResult.failure(payload.run_id, exc)
+        else:
+            safe_observer_call(observer, "on_run_completed", finish_context(ctx))
+            return DurableRunResult.success(payload.run_id, result)
 
 
 async def _invoke_graph(
