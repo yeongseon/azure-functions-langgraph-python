@@ -342,11 +342,11 @@ jobs:
           name: compatibility-dist
           path: compatibility-dist
 
-      - name: Install wheel with runtime dependencies
+      - name: Install wheel with test dependencies
         run: |
           wheel=$(find compatibility-dist -maxdepth 1 -name '*.whl' -print -quit)
           test -n "$wheel"
-          python -m pip install "$wheel"
+          python -m pip install "${wheel}[dev]"
 
       - name: Check installed wheel outside the checkout
         working-directory: /tmp
@@ -379,6 +379,17 @@ jobs:
           app.register(graph=builder.compile(), name="artifact-smoke", stream=False)
           assert builder.compile().invoke({"value": "wheel"}) == {"value": "wheel-ok"}
           PY
+
+      - name: Run test suite against installed wheel
+        run: |
+          mkdir -p "${RUNNER_TEMP}/wheel-tests"
+          cd "${RUNNER_TEMP}/wheel-tests"
+          python -m pytest \
+            -c "${GITHUB_WORKSPACE}/tools/wheel-tests.ini" \
+            --import-mode=importlib \
+            -p no:cacheprovider \
+            -m "not e2e" \
+             "${GITHUB_WORKSPACE}/tests"
 
   langgraph-min:
     name: langgraph compat (min supported)
