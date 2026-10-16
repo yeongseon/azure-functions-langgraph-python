@@ -167,14 +167,18 @@ the protected graph inventory. Continue with the [full 5-minute tutorial](docs/t
 
 ### Recommended learning path
 
-Once the Quick Start echo agent runs, follow these four examples in order. Each one is the **minimal delta** over the previous step, so you add exactly one production concern at a time — real LLM → memory → tools → durable persistence:
+Once the Quick Start echo agent runs, these four examples each demonstrate **one capability** on top of a real Azure OpenAI agent. They are focused, standalone samples — read them in this order, but they are **not** a strict cumulative build: each one is its own Azure Functions app and does not include the features of the others.
 
-| Step | Example | What it adds |
-| --- | --- | --- |
-| 1 | [**`azure_openai_agent`**](examples/azure_openai_agent/) | A real agent, not an echo — a deployable LangGraph agent backed by a real Azure OpenAI deployment, with API-key and Managed Identity paths. |
-| 2 | [**`conversation_memory`**](examples/conversation_memory/) | Memory — the same agent plus a checkpointer, so the same `thread_id` keeps a conversation going across requests. |
-| 3 | [**`tool_calling_agent`**](examples/tool_calling_agent/) | Tools — the same agent plus a `ToolNode` loop, with the tools as your own code in `tools.py` and an OpenAPI/Swagger bridge wired in. |
-| 4 | [**`production_persistent_agent`**](examples/production_persistent_agent/) | Durable production persistence — the same real agent whose per-`thread_id` memory is made durable on an Azure Blob checkpointer, wired with Managed Identity in production and Azurite locally. |
+| Example | Real model | Per-thread memory | Tool loop | Persistent storage |
+| --- | :---: | :---: | :---: | :---: |
+| [**`azure_openai_agent`**](examples/azure_openai_agent/) | ✅ | — | — | — |
+| [**`conversation_memory`**](examples/conversation_memory/) | ✅ | ✅ in-memory (`InMemorySaver`) | — | — |
+| [**`tool_calling_agent`**](examples/tool_calling_agent/) | ✅ | — (no checkpointer) | ✅ (tools in `tools.py`, OpenAPI/Swagger wired in) | — |
+| [**`production_persistent_agent`**](examples/production_persistent_agent/) | ✅ | ✅ | — (single chat node) | ✅ (Azure Blob checkpointer; Managed Identity in production, Azurite locally) |
+
+Per-`thread_id` state separation is **not** authenticated user ownership: any caller who can reach the endpoint and knows a `thread_id` can continue that thread. Treat these samples as minimal starting points, not a ready-made multi-user service.
+
+> **[Build your own agent](https://github.com/yeongseon/azure-functions-cookbook-python/blob/main/docs/patterns/ai-and-agents/personal-langgraph-agent.md):** the cookbook ships an integrated, runnable recipe ([`personal_langgraph_agent`](https://github.com/yeongseon/azure-functions-cookbook-python/tree/main/examples/ai-and-agents/personal_langgraph_agent)) that combines a model, your own read-only tool, conversation memory, and optional durable Blob storage, with deployment guidance. This repository intentionally keeps the examples above small; integrated recipes live in the cookbook (tracked in [cookbook#343](https://github.com/yeongseon/azure-functions-cookbook-python/issues/343)). Ownership: your LangGraph/application code owns prompts, models, tools and graph logic; this package owns the Azure Functions deployment adapter; the cookbook owns integrated usage recipes.
 
 Every example is a standalone Azure Functions app with explicit `AGENT_MODEL_MODE=fake|azure_openai` selection; checked-in local templates choose deterministic fake mode so CI needs no cloud credentials, while Azure deployment instructions choose live mode and fail fast on incomplete settings.
 

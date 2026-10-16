@@ -63,7 +63,9 @@ cloud certification.
 
 ## Picking an example
 
-> **Following the four-step adoption path?** `azure_openai_agent` (real agent) → `conversation_memory` (memory) → `tool_calling_agent` (tools) → **`production_persistent_agent`** (durable production persistence). Each step is the minimal delta over the previous one.
+> **Learning path (focused samples, not a cumulative build):** `azure_openai_agent` (real model) → `conversation_memory` (in-memory per-thread memory) → `tool_calling_agent` (tool loop, no checkpointer) → `production_persistent_agent` (single chat node with Azure Blob persistence, no tool loop). Each is a standalone app showing one capability; see the capabilities table in the [root README](../README.md#recommended-learning-path). Per-`thread_id` separation is not authenticated user ownership.
+>
+> **[Build your own agent](https://github.com/yeongseon/azure-functions-cookbook-python/blob/main/docs/patterns/ai-and-agents/personal-langgraph-agent.md):** an integrated model + tools + memory recipe ([`personal_langgraph_agent`](https://github.com/yeongseon/azure-functions-cookbook-python/tree/main/examples/ai-and-agents/personal_langgraph_agent)) lives in the cookbook, not here.
 
 - **Just want it running (no LLM)?** → `simple_agent`
 - **Want a real Azure OpenAI agent? (start here after Quick Start)** → `azure_openai_agent`
