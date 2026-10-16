@@ -38,7 +38,7 @@ delivery.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 import dataclasses
 from dataclasses import dataclass, field
 import json
@@ -73,6 +73,7 @@ from azure_functions_langgraph.contracts import (
     _is_model_type,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
+from azure_functions_langgraph.locks._async import release_thread_lock
 from azure_functions_langgraph.observability import (
     NoOpRunObserver,
     RunContext,
@@ -244,6 +245,25 @@ def _resolve_version_kwarg(
 # ------------------------------------------------------------------
 
 
+async def _await_sync_worker(task: asyncio.Task[Any]) -> Any:
+    """Delay cancellation until one synchronous iterator operation finishes."""
+    cancellation: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            cancellation = exc
+    try:
+        result = task.result()
+    except Exception:
+        if cancellation is not None:
+            raise cancellation from None
+        raise
+    if cancellation is not None:
+        raise cancellation
+    return result
+
+
 async def _aiter_graph_events(
     graph: Any,
     input_: dict[str, Any],
@@ -252,7 +272,7 @@ async def _aiter_graph_events(
     version_kwargs: dict[str, str],
     *,
     async_mode: bool,
-) -> AsyncIterator[Any]:
+) -> AsyncGenerator[Any, None]:
     """Yield graph stream events incrementally for sync or async graphs.
 
     An :class:`AsyncStreamableGraph` is consumed with ``async for``. A
@@ -261,19 +281,30 @@ async def _aiter_graph_events(
     event loop between chunks (preserving incremental delivery).
     """
     if async_mode and isinstance(graph, AsyncStreamableGraph):
-        async for event in graph.astream(
-            input_, config=config, stream_mode=stream_mode, **version_kwargs
-        ):
-            yield event
+        iterator = graph.astream(input_, config=config, stream_mode=stream_mode, **version_kwargs)
+        try:
+            async for event in iterator:
+                yield event
+        finally:
+            close = getattr(iterator, "aclose", None)
+            if close is not None:
+                await close()
         return
 
     iterator = graph.stream(input_, config=config, stream_mode=stream_mode, **version_kwargs)
     sentinel = object()
-    while True:
-        item = await asyncio.to_thread(next, iterator, sentinel)
-        if item is sentinel:
-            break
-        yield item
+    try:
+        while True:
+            worker = asyncio.create_task(asyncio.to_thread(next, iterator, sentinel))
+            item = await _await_sync_worker(worker)
+            if item is sentinel:
+                break
+            yield item
+    finally:
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            worker = asyncio.create_task(asyncio.to_thread(close))
+            await _await_sync_worker(worker)
 
 
 def _format_data_event(event: Any) -> str:
@@ -316,23 +347,23 @@ async def _sse_event_stream(
     meaningless. Instead ``max_stream_events`` bounds the number of frames a
     single run may emit; exceeding it emits an ``error`` frame and stops.
 
-    The thread lock (acquired by the caller before the response headers were
-    sent) is released in ``finally`` for the **entire** stream lifetime — on
-    normal completion, on graph error, and on client disconnect
-    (:class:`asyncio.CancelledError`).
+    The thread lock covers graph execution, not only the HTTP response. For a
+    synchronous graph, cancellation waits for the one in-flight ``next()``
+    worker to finish, closes the iterator without racing that worker, then
+    releases the token exactly once before propagating cancellation.
     """
     stream_error: BaseException | None = None
     count = 0
-    released = False
+    events = _aiter_graph_events(
+        graph,
+        input_,
+        config,
+        stream_mode,
+        version_kwargs,
+        async_mode=async_mode,
+    )
     try:
-        async for event in _aiter_graph_events(
-            graph,
-            input_,
-            config,
-            stream_mode,
-            version_kwargs,
-            async_mode=async_mode,
-        ):
+        async for event in events:
             if count >= max_stream_events:
                 stream_error = RuntimeError(f"stream exceeded max events ({max_stream_events})")
                 payload = json.dumps(
@@ -346,13 +377,11 @@ async def _sse_event_stream(
             yield _format_data_event(event)
             count += 1
     except asyncio.CancelledError:
-        # Client disconnected mid-stream. Release the lock (finally) and report
-        # the run as failed, then propagate the cancellation.
         logger.info("Graph %s stream cancelled (client disconnect)", graph_name)
-        if lock_token is not None and thread_id is not None:
-            await asyncio.to_thread(thread_lock.release, graph_name, thread_id, lock_token)
-            released = True
         safe_observer_call(observer, "on_run_failed", finish_context(ctx), asyncio.CancelledError())
+        raise
+    except GeneratorExit as exc:
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
         raise
     except Exception as exc:  # noqa: BLE001 - surfaced as an SSE error frame
         logger.exception("Graph %s stream failed", graph_name)
@@ -360,9 +389,9 @@ async def _sse_event_stream(
         payload = json.dumps({"error": "stream processing failed", "request_id": ctx.run_id})
         yield f"event: error\ndata: {payload}\n\n"
     finally:
-        # Normal / error path (the cancellation path released above and re-raised).
-        if lock_token is not None and thread_id is not None and not released:
-            await asyncio.to_thread(thread_lock.release, graph_name, thread_id, lock_token)
+        await events.aclose()
+        if lock_token is not None and thread_id is not None:
+            await release_thread_lock(thread_lock, graph_name, thread_id, lock_token)
 
     yield "event: end\ndata: {}\n\n"
 

@@ -35,6 +35,7 @@ import json
 from typing import Any, Protocol, runtime_checkable
 
 from azure_functions_langgraph.locks import ThreadLock
+from azure_functions_langgraph.locks._async import async_thread_lock
 from azure_functions_langgraph.observability import (
     NOOP_OBSERVER,
     RunObserver,
@@ -228,8 +229,6 @@ async def process_service_bus_message_async(
     to a worker thread so a blocking lock backend never stalls the event loop.
     All ordering, contention, and result-handler semantics match the sync path.
     """
-    import asyncio
-
     graph_input = reg.input_mapper(msg)
     thread_id = reg.thread_id_factory(msg) if reg.thread_id_factory is not None else None
     ctx = new_run_context(
@@ -242,31 +241,27 @@ async def process_service_bus_message_async(
         trigger_type=TRIGGER_TYPE,
     )
 
-    lock_token: str | None = None
     use_lock = bool(thread_id) and _has_checkpointer(reg.graph)
-    if use_lock and thread_id is not None:
-        lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
-        if not lock_token:
+    lock_thread_id = thread_id if use_lock else None
+    async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
+        if lock_thread_id is not None and lock_token is None:
             raise ThreadContentionError(
                 f"Thread {thread_id!r} for graph {reg.name!r} is currently in use; "
                 "message will be retried by the broker"
             )
 
-    config = {"configurable": {"thread_id": thread_id}} if thread_id else None
-    safe_observer_call(observer, "on_run_started", ctx)
-    try:
-        if config is not None:
-            result = await reg.graph.ainvoke(graph_input, config=config)
+        config = {"configurable": {"thread_id": thread_id}} if thread_id else None
+        safe_observer_call(observer, "on_run_started", ctx)
+        try:
+            if config is not None:
+                result = await reg.graph.ainvoke(graph_input, config=config)
+            else:
+                result = await reg.graph.ainvoke(graph_input)
+        except BaseException as exc:
+            safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
+            raise
         else:
-            result = await reg.graph.ainvoke(graph_input)
-    except BaseException as exc:
-        safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
-        raise
-    else:
-        safe_observer_call(observer, "on_run_completed", finish_context(ctx))
-    finally:
-        if lock_token is not None and thread_id is not None:
-            await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
+            safe_observer_call(observer, "on_run_completed", finish_context(ctx))
 
     if reg.result_handler is not None:
         reg.result_handler(result, msg)
