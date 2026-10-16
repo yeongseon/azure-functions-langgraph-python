@@ -526,15 +526,23 @@ The Blob backend needs `Storage Blob Data Contributor` on the lock container (or
 
 **Safety guard — `AZFUNC_LANGGRAPH_THREAD_STORE` (platform-compat).** The thread *store* has the same scale-out footgun as the lock: when `platform_compat=True` and no store is supplied, `LangGraphApp` defaults to the per-instance `InMemoryThreadStore`, so on Azure scale-out (Consumption / Elastic Premium) each worker keeps its own threads and state diverges across instances. Two layered guards mirror the lock-backend precedent:
 
-- **Warn by default on Azure.** When the process looks Azure-hosted (the host sets `WEBSITE_INSTANCE_ID` / `WEBSITE_SITE_NAME`) and the default in-memory store is in use, `__post_init__` emits a `RuntimeWarning` pointing at `AzureTableThreadStore`. Local development (`func start`, where those markers are absent) stays warning-free.
-- **Fail-fast when declared.** Set `AZFUNC_LANGGRAPH_THREAD_STORE=distributed` (or any non-empty value other than `inmemory`) in Function App settings to escalate the warning to a `RuntimeError` at construction whenever the default in-memory store is still in use. Supply a real store — `app.thread_store = AzureTableThreadStore(...)` — to satisfy the guard.
+- **Warn by default on Azure.** When the process looks Azure-hosted (the host sets `WEBSITE_INSTANCE_ID` / `WEBSITE_SITE_NAME`) and the final configured store is still the in-memory default, building `app.function_app` emits a `RuntimeWarning` pointing at `AzureTableThreadStore`. Local development (`func start`, where those markers are absent) stays warning-free.
+- **Fail-fast when declared.** Set `AZFUNC_LANGGRAPH_THREAD_STORE=distributed` (or any non-empty value other than `inmemory`) in Function App settings. Validation runs when `app.function_app` is built, after the public `app.thread_store` setter can supply the production store, and raises before routes can be served if the final configured store is still `InMemoryThreadStore`.
 
 ```python
 # Multi-instance production: fail-fast if the in-memory default slips through.
 # App setting: AZFUNC_LANGGRAPH_THREAD_STORE=distributed
 app = LangGraphApp(platform_compat=True, auth_level=func.AuthLevel.FUNCTION)
 app.thread_store = AzureTableThreadStore.from_connection_string(...)  # required
+func_app = app.function_app  # validates the final store, then builds routes
 ```
+
+Set `thread_store` before the first `function_app` access. The setter remains
+supported after an earlier access as well: it invalidates the cached
+`FunctionApp`, and the next `function_app` access validates the replacement
+store and rebuilds all routes against it. Keep the exported module-level
+Functions app assignment last so Azure never receives the superseded route
+object.
 
 **Interaction with Platform-compatible runs.** The same `thread_lock` guards
 native invoke/stream routes and threaded Platform-compatible runs. Platform runs

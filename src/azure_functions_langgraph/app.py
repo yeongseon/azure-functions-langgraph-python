@@ -271,34 +271,6 @@ class LangGraphApp:
             from azure_functions_langgraph.platform.stores import InMemoryThreadStore
 
             self._thread_store = InMemoryThreadStore()
-            # AZFUNC_LANGGRAPH_THREAD_STORE mirrors the lock-backend guard: the
-            # default InMemoryThreadStore is per-instance, so on Azure scale-out
-            # (Consumption / Elastic Premium) each worker gets its own store and
-            # thread state diverges across instances. Warn when the process looks
-            # Azure-hosted, and escalate to a startup RuntimeError when an
-            # operator explicitly declares a distributed/production requirement.
-            env_store = os.environ.get("AZFUNC_LANGGRAPH_THREAD_STORE", "").strip().lower()
-            if env_store and env_store not in ("", "inmemory"):
-                raise RuntimeError(
-                    f"AZFUNC_LANGGRAPH_THREAD_STORE={env_store!r} requires a "
-                    "distributed thread store (for example AzureTableThreadStore), "
-                    "but the app is still using the default in-memory store. Set "
-                    "app.thread_store = ... explicitly on LangGraphApp() or unset "
-                    "the env var for local dev."
-                )
-            if _is_azure_hosted():
-                warnings.warn(
-                    "platform_compat is enabled with the default in-memory thread "
-                    "store on an Azure-hosted Function App. InMemoryThreadStore is "
-                    "per-instance, so thread state will diverge across scaled-out "
-                    "instances.\n"
-                    "  Recommended: app.thread_store = AzureTableThreadStore(...)\n"
-                    "  Fail-fast:   set AZFUNC_LANGGRAPH_THREAD_STORE=distributed\n"
-                    "  See the 'Distributed thread locking' scale-out matrix in "
-                    "docs/production-guide.md",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
 
         # Instantiate default in-process lock backend if the user did not supply
         # a custom one. See azure_functions_langgraph.locks for backend details.
@@ -547,7 +519,9 @@ class LangGraphApp:
     def thread_store(self, store: Any) -> None:
         """Set a custom thread store implementation.
 
-        Must be called before accessing :attr:`function_app`.
+        Prefer calling this before accessing :attr:`function_app`. Calling it
+        later invalidates the cached FunctionApp; the next access validates the
+        replacement store and rebuilds the routes.
         """
         self._thread_store = store
         self._function_app = None  # invalidate cached routes
@@ -557,6 +531,33 @@ class LangGraphApp:
     # ------------------------------------------------------------------
 
     def _build_function_app(self) -> func.FunctionApp:
+        if self.platform_compat:
+            from azure_functions_langgraph.platform.stores import InMemoryThreadStore
+
+            if isinstance(self._thread_store, InMemoryThreadStore):
+                env_store = os.environ.get("AZFUNC_LANGGRAPH_THREAD_STORE", "").strip().lower()
+                if env_store and env_store != "inmemory":
+                    raise RuntimeError(
+                        f"AZFUNC_LANGGRAPH_THREAD_STORE={env_store!r} requires a "
+                        "distributed thread store (for example AzureTableThreadStore), "
+                        "but the final configured store is InMemoryThreadStore. Set "
+                        "app.thread_store = ... before accessing app.function_app, or "
+                        "unset the env var for local dev."
+                    )
+                if _is_azure_hosted():
+                    warnings.warn(
+                        "platform_compat is enabled with the final configured "
+                        "in-memory thread store (InMemoryThreadStore) on an "
+                        "Azure-hosted Function App. "
+                        "InMemoryThreadStore is per-instance, so thread state will "
+                        "diverge across scaled-out instances.\n"
+                        "  Recommended: app.thread_store = AzureTableThreadStore(...)\n"
+                        "  Fail-fast:   set AZFUNC_LANGGRAPH_THREAD_STORE=distributed\n"
+                        "  See the 'Distributed thread locking' scale-out matrix in "
+                        "docs/production-guide.md",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
         app = self._new_function_app()
 
         # Health endpoints.
