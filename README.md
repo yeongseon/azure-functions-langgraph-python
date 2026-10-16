@@ -336,6 +336,14 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > count cap) because a true stream is never buffered. `LangGraphApp` is unchanged and
 > remains the default. See [`examples/true_streaming_agent/`](examples/true_streaming_agent/)
 > for a runnable `curl -N` walkthrough that proves incremental arrival.
+>
+> On client cancellation, lock ownership follows graph execution rather than the
+> socket lifetime. A synchronous stream waits for its one in-flight iterator
+> pull to finish, closes the iterator, releases the thread token exactly once,
+> and only then propagates cancellation. Python cannot terminate a hung worker
+> thread, so synchronous nodes and tools must enforce their own timeouts. Async
+> graphs use native async-generator cancellation without the thread bridge. See
+> the [production guide](docs/production-guide.md#true-stream-cancellation-and-lock-ownership).
 
 ### Run observability
 

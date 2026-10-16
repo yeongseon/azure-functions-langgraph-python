@@ -366,6 +366,30 @@ over the corresponding `/stream` routes to avoid UX and latency expectation mism
 
 ⚠️ **Note**: Thread and run routes (`/api/threads/...`, `/api/runs/...`) are only available when `platform_compat=True` is set in `LangGraphApp`.
 
+### True-stream cancellation and lock ownership
+
+`StreamingLangGraphApp` treats HTTP response lifetime and graph execution
+lifetime as separate concerns. A disconnect cancels response production, but a
+synchronous `graph.stream()` may already be running `next()` in a worker thread;
+Python cannot terminate that thread safely.
+
+The adapter therefore retains the thread-lock token until the single in-flight
+`next()` finishes, closes the iterator only after that worker has quiesced,
+releases the token exactly once, emits one failed observer outcome, and then
+propagates cancellation. This ordering applies before the first frame, between
+frames, during frame production, and when the response iterator is explicitly
+closed. Success emits `completed`; graph errors and the event cap emit an SSE
+error plus `end` and report `failed`.
+
+Each synchronous stream tracks at most one worker at a time—disconnects do not
+spawn replacement workers. The trade-off is deliberate: if user code blocks
+forever, cleanup and lock release also wait forever. This is not thread
+termination or exactly-once business-side-effect protection. Bound every
+synchronous LLM, tool, and storage operation with its own timeout, and account
+for worker-process termination and distributed lease-loss behavior separately.
+Async graphs use native async-generator cancellation and cleanup; they do not
+cross the synchronous iterator bridge.
+
 ## Concurrency & Scale
 ### Thread-assistant binding and TOCTOU race
 
