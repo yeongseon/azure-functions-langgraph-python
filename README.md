@@ -812,9 +812,9 @@ For workloads that already run a managed database (or need state shared across m
 | SQLite | `create_sqlite_checkpointer` | `pip install azure-functions-langgraph[sqlite]` | Local dev and single-instance deployments |
 | Cosmos DB | `create_cosmos_checkpointer` | `pip install azure-functions-langgraph[cosmos]` | Azure-native serverless/global production |
 
-Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist; the Cosmos DB helper accepts an endpoint and key, temporarily wires the upstream `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` environment variables, and directly instantiates the upstream `CosmosDBSaver`:
+Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist. The Cosmos DB helper accepts an endpoint and key, temporarily wires the upstream `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` environment variables, and directly instantiates the upstream `CosmosDBSaver`; that helper path is deprecated because unrelated threads can observe those process-global values during construction:
 
-> **Authentication — `create_cosmos_checkpointer` is a key-based convenience wrapper; Managed Identity is available upstream.** The DX helper resolves an account key and temporarily wires `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` before instantiating the upstream `CosmosDBSaver`, so calling the helper always uses **key-based auth**. However, the upstream `langgraph-checkpoint-cosmosdb` package (≥ 0.2.8) **does** support passwordless auth: `CosmosDBSaver` falls back to `DefaultAzureCredential` (Managed Identity, `az login`, service principal) whenever `COSMOSDB_KEY` is **unset**. To use Managed Identity today, skip the helper and instantiate the upstream saver directly with only `COSMOSDB_ENDPOINT` set (no key):
+> **Authentication — configure upstream credentials once at process startup.** The supported `langgraph-checkpoint-cosmosdb` range (`>=0.2.0,<0.5`; verified with 0.4.0) exposes no endpoint, credential, or client constructor injection. `CosmosDBSaver` reads `COSMOSDB_ENDPOINT` and optional `COSMOSDB_KEY` directly from the process environment. Set those application settings before the Functions worker starts and instantiate the upstream saver directly. With `COSMOSDB_KEY` absent, upstream uses `DefaultAzureCredential` (Managed Identity, `az login`, or service principal). With `COSMOSDB_KEY` present, it uses key authentication.
 
 ```python
 import os
@@ -825,7 +825,7 @@ os.environ["COSMOSDB_ENDPOINT"] = "https://<account>.documents.azure.com:443/"
 checkpointer = CosmosDBSaver(database_name="langgraph", container_name="checkpoints")
 ```
 
-> Grant the Function App's identity a Cosmos DB data-plane role (e.g. *Cosmos DB Built-in Data Contributor*) on the account. The official `langchain-azure-cosmosdb` package is an alternative that also supports `DefaultAzureCredential`. A future release may extend `create_cosmos_checkpointer` with a first-class Managed Identity path; until then the helper remains key-based by design.
+> Grant the Function App's identity a Cosmos DB data-plane role (e.g. *Cosmos DB Built-in Data Contributor*) on the account. For key auth, configure both `COSMOSDB_ENDPOINT` and `COSMOSDB_KEY` as startup application settings and use the same direct constructor. Do not set either value temporarily around construction: environment variables are process-global, so a lock cannot prevent unrelated threads from observing them. `create_cosmos_checkpointer` remains available for compatibility but emits `DeprecationWarning` and provides no credential-isolation guarantee.
 
 ```python
 import os
@@ -838,7 +838,7 @@ checkpointer = create_postgres_checkpointer(
 graph = builder.compile(checkpointer=checkpointer)
 ```
 
-The helpers do not hide `builder.compile(checkpointer=...)` and do not reimplement DB checkpoint storage — they centralize connection conventions and emit clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers run `setup()` once at cold start; the Cosmos DB helper directly instantiates the saver (no `setup()` call, no context manager). See [`examples/postgres_checkpoint_production/`](examples/postgres_checkpoint_production/), [`examples/sqlite_checkpoint_local/`](examples/sqlite_checkpoint_local/), and [`examples/cosmos_checkpoint_azure/`](examples/cosmos_checkpoint_azure/) for full Azure-Functions wiring.
+The helpers do not hide `builder.compile(checkpointer=...)` and do not reimplement DB checkpoint storage — they centralize connection conventions and emit clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers run `setup()` once at cold start; the deprecated Cosmos DB helper directly instantiates the saver (no `setup()` call, no context manager). See [`examples/postgres_checkpoint_production/`](examples/postgres_checkpoint_production/), [`examples/sqlite_checkpoint_local/`](examples/sqlite_checkpoint_local/), and [`examples/cosmos_checkpoint_azure/`](examples/cosmos_checkpoint_azure/) for full Azure-Functions wiring.
 
 | Backend | Comfortable | Caution zone | Switch backends |
 | --- | --- | --- | --- |
