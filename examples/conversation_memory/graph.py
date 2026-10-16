@@ -46,6 +46,7 @@ SYSTEM_PROMPT = (
     "If you are unsure, say so rather than guessing."
 )
 
+
 def build_chat_model() -> Any:
     """Construct the chat model for the agent.
 

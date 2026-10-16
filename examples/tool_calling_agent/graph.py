@@ -44,6 +44,7 @@ SYSTEM_PROMPT = (
     "answer directly. Keep answers brief."
 )
 
+
 @dataclass(frozen=True, slots=True)
 class FakeToolCall:
     name: str
