@@ -649,6 +649,71 @@ jobs:
           cat /tmp/functions-host.log
           exit 1
 
+  examples-published-onboarding:
+    name: Primary examples published onboarding (Py 3.11)
+    needs: changes
+    if: needs.changes.outputs.full_required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: python -m pip install "uv>=0.9,<1"
+
+      - name: Certify unchanged published requirements
+        run: python scripts/certify_primary_examples.py published --output-dir /tmp/opencode/examples-published
+
+      - name: Upload resolver reports and installed versions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: primary-examples-published-py311
+          path: /tmp/opencode/examples-published/
+          if-no-files-found: error
+
+  examples-candidate-wheel:
+    name: Primary examples candidate wheel (Py 3.11)
+    needs: [changes, artifact-build]
+    if: needs.changes.outputs.full_required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Download candidate artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: compatibility-dist
+          path: compatibility-dist
+
+      - name: Install uv
+        run: python -m pip install "uv>=0.9,<1"
+
+      - name: Certify candidate wheel with example dependencies
+        run: |
+          wheel=$(find compatibility-dist -maxdepth 1 -name '*.whl' -print -quit)
+          test -n "$wheel"
+          python scripts/certify_primary_examples.py candidate --wheel "$wheel" --output-dir /tmp/opencode/examples-candidate
+
+      - name: Upload resolver reports and installed versions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: primary-examples-candidate-py311
+          path: /tmp/opencode/examples-candidate/
+          if-no-files-found: error
+
   docs-check:
     name: Docs check
     needs: changes
@@ -697,6 +762,8 @@ jobs:
       - langgraph-sdk-max
       - azure-functions-2x
       - host-smoke
+      - examples-published-onboarding
+      - examples-candidate-wheel
       - docs-check
     if: always()
     runs-on: ubuntu-latest
@@ -726,7 +793,8 @@ jobs:
               "quality", "test", "minimum-dependencies", "artifact-build",
               "artifact-python310-negative", "artifact-python311", "langgraph-min",
               "langgraph-latest", "langgraph-sdk-legacy", "langgraph-sdk-max",
-              "azure-functions-2x", "host-smoke",
+              "azure-functions-2x", "host-smoke", "examples-published-onboarding",
+              "examples-candidate-wheel",
           }
           expected = {job: "success" for job in results}
           expected.update({

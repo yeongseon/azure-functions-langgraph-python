@@ -40,10 +40,30 @@ Every graph-hosting example ships with:
 
 Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` when they do not host a graph.
 
+### Dependency target and clean-install certification
+
+The four primary learning-path examples intentionally target the published
+`azure-functions-langgraph>=0.12.0,<0.13` line in their checked-in requirements.
+They are onboarding artifacts that a newcomer can install from PyPI; they do not
+claim to install unreleased behavior from development `main`. Release Please
+does not manage these example bounds, so changing that published target is an
+explicit compatibility decision rather than part of a source version bump.
+
+CI certifies both perspectives separately on Python 3.11:
+
+- **Published onboarding:** installs each `requirements.txt` unchanged in a fresh
+  environment and runs dependency, fake-route, and mocked real-model checks.
+- **Candidate wheel:** preserves the same example dependencies while replacing
+  only the adapter requirement with the wheel built from the current checkout;
+  it asserts the adapter import comes from that installed wheel, not `src/`.
+
+See [`docs/testing.md`](../docs/testing.md#example-verification-levels) for how
+these lanes differ from import smoke, real Functions host smoke, and release
+cloud certification.
+
 ## Picking an example
 
 > **Following the four-step adoption path?** `azure_openai_agent` (real agent) → `conversation_memory` (memory) → `tool_calling_agent` (tools) → **`production_persistent_agent`** (durable production persistence). Each step is the minimal delta over the previous one.
-
 
 - **Just want it running (no LLM)?** → `simple_agent`
 - **Want a real Azure OpenAI agent? (start here after Quick Start)** → `azure_openai_agent`

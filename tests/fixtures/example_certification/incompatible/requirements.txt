@@ -1,0 +1,3 @@
+# Deliberately incompatible: the negative certification probe must reject this.
+langchain-core>=1.0,<2.0
+langchain-openai==0.3.35
