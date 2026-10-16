@@ -176,7 +176,7 @@ Once the Quick Start echo agent runs, follow these four examples in order. Each 
 | 3 | [**`tool_calling_agent`**](examples/tool_calling_agent/) | Tools — the same agent plus a `ToolNode` loop, with the tools as your own code in `tools.py` and an OpenAPI/Swagger bridge wired in. |
 | 4 | [**`production_persistent_agent`**](examples/production_persistent_agent/) | Durable production persistence — the same real agent whose per-`thread_id` memory is made durable on an Azure Blob checkpointer, wired with Managed Identity in production and Azurite locally. |
 
-This `azure_openai_agent → conversation_memory → tool_calling_agent → production_persistent_agent` progression takes you from a real agent to a durable, production-ready one end to end. Every example is a standalone Azure Functions app with a deterministic fake-model fallback, so all four pass CI without any cloud credentials.
+Every example is a standalone Azure Functions app with explicit `AGENT_MODEL_MODE=fake|azure_openai` selection; checked-in local templates choose deterministic fake mode so CI needs no cloud credentials, while Azure deployment instructions choose live mode and fail fast on incomplete settings.
 
 ```python
 from langgraph.graph import END, START, StateGraph

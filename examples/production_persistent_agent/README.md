@@ -83,13 +83,13 @@ pip install -r requirements.txt
 func start
 ```
 
-`local.settings.json.example` ships
+`local.settings.json.example` explicitly ships `AGENT_MODEL_MODE=fake`,
 `AZURE_STORAGE_CONNECTION_STRING=UseDevelopmentStorage=true` and
 `LANGGRAPH_AUTO_CREATE_STORAGE=true`, so it runs hermetically against Azurite and
 bootstraps the checkpoint container on first start. Fill in the `AZURE_OPENAI_*`
-values to use a real deployment (same variables and auth paths as the
-[`azure_openai_agent`](../azure_openai_agent/#configuration) example); leave them
-blank to use the fake model.
+values and change the mode to `azure_openai` to use a real deployment (same
+variables and auth paths as the
+[`azure_openai_agent`](../azure_openai_agent/#configuration) example).
 
 ## Prove persistence in 6 steps
 
@@ -264,6 +264,7 @@ so you can leave `LANGGRAPH_AUTO_CREATE_STORAGE` **unset** in production.
 
 ```bash
 az functionapp config appsettings set --name <function-app> --resource-group <rg> --settings \
+  AGENT_MODEL_MODE="azure_openai" \
   AZURE_STORAGE_BLOB_ACCOUNT_URL="https://<storage-account>.blob.core.windows.net" \
   LANGGRAPH_BLOB_CONTAINER="langgraph-checkpoints" \
   AZURE_OPENAI_ENDPOINT="https://<resource>.openai.azure.com/" \
@@ -315,13 +316,18 @@ validated before routes are built. See
 
 ## CI / credential-free runs
 
-Unless Azure OpenAI is **fully** configured — endpoint, deployment, **and** an
-auth method — `graph.py` builds a deterministic `GenericFakeChatModel` instead of
-calling Azure OpenAI, and never imports `langchain_openai`. The automated test
+CI explicitly sets `AGENT_MODEL_MODE=fake`; startup logs that safe-mode choice,
+the fake is state-aware, and `langchain_openai` is never imported. Azure
+deployment instructions set `azure_openai`, so this production example cannot
+advertise live operation while silently faking. Omitted/invalid mode and
+incomplete live settings fail before serving; live errors never downgrade. The automated test
 (`tests/test_production_persistent_agent_example.py`) uses a deterministic fake
 model and an Azurite-backed checkpointer to prove state **survives recreation of
 the app/checkpointer object** against the same storage; it skips cleanly when
 Azurite is unavailable.
+
+**Migration:** existing deployments must add `AGENT_MODEL_MODE=azure_openai`.
+Partial legacy Azure settings no longer trigger fake responses.
 
 ## Out of scope
 

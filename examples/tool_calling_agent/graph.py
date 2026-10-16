@@ -28,14 +28,15 @@ path never imports ``langchain_openai``.
 
 from __future__ import annotations
 
-import itertools
-import os
+from dataclasses import dataclass
+import logging
 from typing import Annotated, Any
 
+from model_config import ModelMode, load_azure_openai_config, load_model_mode
 from tools import TOOLS
 from typing import TypedDict
 
-_TRUTHY = {"1", "true", "yes", "on"}
+MODEL_MODE = load_model_mode()
 
 SYSTEM_PROMPT = (
     "You are a concise Azure cloud assistant that can call tools. Use the "
@@ -43,17 +44,14 @@ SYSTEM_PROMPT = (
     "answer directly. Keep answers brief."
 )
 
-# Azure OpenAI configuration (read at import / cold start).
-_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
-_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT")
-_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY")
-_API_VERSION = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
-_USE_ENTRA_ID = os.environ.get("AZURE_OPENAI_USE_ENTRA_ID", "").strip().lower() in _TRUTHY
+
+@dataclass(frozen=True, slots=True)
+class FakeToolCall:
+    name: str
+    args: dict[str, str]
 
 
-def _azure_configured() -> bool:
-    """True when enough config is present to build a real Azure OpenAI model."""
-    return bool(_ENDPOINT and _DEPLOYMENT and (_API_KEY or _USE_ENTRA_ID))
+FAKE_TOOL_CALL = FakeToolCall(name="lookup_order", args={"order_id": "A1001"})
 
 
 def build_chat_model() -> Any:
@@ -63,11 +61,12 @@ def build_chat_model() -> Any:
     configured, else a deterministic scripted fake model for credential-free
     local runs and CI.
     """
-    if _azure_configured():
+    config = load_azure_openai_config(MODEL_MODE)
+    if config is not None:
         # Import lazily so the fake path never requires langchain-openai.
         from langchain_openai import AzureChatOpenAI
 
-        if _USE_ENTRA_ID and not _API_KEY:
+        if config.use_entra_id and not config.api_key:
             from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
             token_provider = get_bearer_token_provider(
@@ -75,52 +74,56 @@ def build_chat_model() -> Any:
                 "https://cognitiveservices.azure.com/.default",
             )
             model: Any = AzureChatOpenAI(
-                azure_endpoint=_ENDPOINT,
-                azure_deployment=_DEPLOYMENT,
-                api_version=_API_VERSION,
+                azure_endpoint=config.endpoint,
+                azure_deployment=config.deployment,
+                api_version=config.api_version,
                 azure_ad_token_provider=token_provider,
             )
         else:
             model = AzureChatOpenAI(
-                azure_endpoint=_ENDPOINT,
-                azure_deployment=_DEPLOYMENT,
-                api_version=_API_VERSION,
-                api_key=_API_KEY,
+                azure_endpoint=config.endpoint,
+                azure_deployment=config.deployment,
+                api_version=config.api_version,
+                api_key=config.api_key,
             )
         return model.bind_tools(TOOLS)
 
-    # Deterministic fallback — no cloud, no secrets, no langchain-openai.
-    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
     from langchain_core.messages import AIMessage
 
-    class _ScriptedToolModel(GenericFakeChatModel):
+    available_names = {tool.name for tool in TOOLS}
+    if FAKE_TOOL_CALL.name not in available_names:
+        message = (
+            f"Fake tool script names {FAKE_TOOL_CALL.name!r}, but TOOLS contains "
+            f"{sorted(available_names)!r}; update FAKE_TOOL_CALL when replacing tools"
+        )
+        raise RuntimeError(message)
+
+    class StateAwareToolModel:
         def bind_tools(self, tools: Any, **kwargs: Any) -> Any:
             return self
 
-    def _script() -> Any:
-        pattern = [
-            AIMessage(
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            if getattr(messages[-1], "type", None) == "tool":
+                return AIMessage(
+                    content=f"[fake model] deterministic result for {FAKE_TOOL_CALL.args!r}"
+                )
+            return AIMessage(
                 content="",
                 tool_calls=[
                     {
-                        "name": "lookup_order",
-                        "args": {"order_id": "A1001"},
+                        "name": FAKE_TOOL_CALL.name,
+                        "args": FAKE_TOOL_CALL.args,
                         "id": "call_demo_1",
                         "type": "tool_call",
                     }
                 ],
-            ),
-            AIMessage(
-                content=(
-                    "[fake model] Order A1001 is shipped and on its way. Configure "
-                    "AZURE_OPENAI_* to have a real deployment choose tools and phrase "
-                    "the answer from the tool result."
-                )
-            ),
-        ]
-        yield from itertools.cycle(pattern)
+            )
 
-    return _ScriptedToolModel(messages=_script()).bind_tools(TOOLS)
+    logging.getLogger(__name__).warning(
+        "example agent is using the deterministic fake model",
+        extra={"model_mode": ModelMode.FAKE.value},
+    )
+    return StateAwareToolModel().bind_tools(TOOLS)
 
 
 try:
@@ -171,7 +174,13 @@ def tools(state: AgentState) -> dict[str, Any]:
     last = state["messages"][-1]
     outputs: list[Any] = []
     for call in last.tool_calls:
-        tool = _TOOLS_BY_NAME[call["name"]]
+        tool = _TOOLS_BY_NAME.get(call["name"])
+        if tool is None:
+            message = (
+                f"Model requested unknown tool {call['name']!r}; available TOOLS: "
+                f"{sorted(_TOOLS_BY_NAME)!r}"
+            )
+            raise RuntimeError(message)
         result = tool.invoke(call["args"])
         outputs.append(ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"]))
     return {"messages": outputs}

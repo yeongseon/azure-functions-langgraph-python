@@ -6,8 +6,9 @@
     "AZURE_STORAGE_CONNECTION_STRING": "UseDevelopmentStorage=true",
     "LANGGRAPH_BLOB_CONTAINER": "langgraph-checkpoints",
     "LANGGRAPH_AUTO_CREATE_STORAGE": "true",
+    "AGENT_MODEL_MODE": "fake",
 
-    "_comment_azure_openai": "Fill these in to use a real Azure OpenAI deployment. Leave them unset to run against the deterministic fake model (no credentials needed).",
+    "_comment_azure_openai": "Set AGENT_MODEL_MODE=azure_openai and fill these in to use a real deployment. Fake mode needs no credentials.",
     "AZURE_OPENAI_ENDPOINT": "",
     "AZURE_OPENAI_DEPLOYMENT": "",
     "AZURE_OPENAI_API_VERSION": "2024-10-21",

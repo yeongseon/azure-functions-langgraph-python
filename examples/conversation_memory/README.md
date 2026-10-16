@@ -46,7 +46,7 @@ pip install -r requirements.txt
 func start
 ```
 
-To use a real Azure OpenAI deployment, fill in the `AZURE_OPENAI_*` values in
+To use a real Azure OpenAI deployment, set `AGENT_MODEL_MODE=azure_openai` and fill in the `AZURE_OPENAI_*` values in
 `local.settings.json` (same variables and auth paths as the
 [`azure_openai_agent`](../azure_openai_agent/#configuration) example).
 
@@ -152,7 +152,8 @@ See the main README's *Distributed thread locking* section.
 ## Deploy to Azure
 
 Application code does not change between local and Azure. Follow the canonical
-[deployment guide](../../docs/deployment.md).
+[deployment guide](../../docs/deployment.md) and set
+`AGENT_MODEL_MODE=azure_openai` in Azure application settings.
 
 > **Production auth:** `LangGraphApp` defaults to `AuthLevel.FUNCTION`, so the
 > deployed endpoints require a function key (`?code=<FUNCTION_KEY>` or the
@@ -165,8 +166,8 @@ Application code does not change between local and Azure. Follow the canonical
 
 ## CI / credential-free runs
 
-Unless Azure OpenAI is **fully** configured — endpoint, deployment, **and** an
-auth method (`AZURE_OPENAI_API_KEY`, or `AZURE_OPENAI_USE_ENTRA_ID=true`) —
-`graph.py` builds a deterministic `GenericFakeChatModel` instead of calling Azure
-OpenAI. This keeps the example importable and smoke-testable in CI without any
-cloud credentials, and the fake path never imports `langchain_openai`.
+Set `AGENT_MODEL_MODE=fake` for the credential-free path; it logs a startup
+warning and never imports `langchain_openai`. Omitted/invalid mode fails. In
+`azure_openai` mode incomplete settings fail before serving and live errors do
+not downgrade. Existing users must add an explicit mode; partial legacy Azure
+settings no longer imply fake mode.

@@ -3,13 +3,14 @@
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AGENT_MODEL_MODE": "fake",
 
-    "AZURE_OPENAI_ENDPOINT": "https://<your-resource>.openai.azure.com/",
-    "AZURE_OPENAI_DEPLOYMENT": "<your-chat-deployment-name>",
+    "AZURE_OPENAI_ENDPOINT": "",
+    "AZURE_OPENAI_DEPLOYMENT": "",
     "AZURE_OPENAI_API_VERSION": "2024-10-21",
 
     "_comment_apikey": "API-key path: set the key below (easiest local onboarding).",
-    "AZURE_OPENAI_API_KEY": "<your-azure-openai-key>",
+    "AZURE_OPENAI_API_KEY": "",
 
     "_comment_entra": "Managed Identity / Entra ID path: unset AZURE_OPENAI_API_KEY above and set the flag below instead.",
     "AZURE_OPENAI_USE_ENTRA_ID": "false"

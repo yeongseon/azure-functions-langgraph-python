@@ -35,7 +35,9 @@ def _load_graph_module() -> Any:
 
 
 @pytest.fixture()
-def compiled_graph() -> Any:
+def compiled_graph(monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
+    sys.modules.pop("model_config", None)
     return _load_graph_module().compiled_graph
 
 
