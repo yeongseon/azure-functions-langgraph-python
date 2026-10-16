@@ -16,9 +16,8 @@ func_app = app.function_app
 
 > **Why not `simple_agent`?** [`simple_agent`](../simple_agent/) stays
 > deterministic (echo, no LLM) so it can be smoke-tested without a model. This
-> example uses a real Azure OpenAI deployment so you can evaluate the package
-> against an actual agent. When Azure OpenAI is **not** configured, this graph
-> falls back to a deterministic fake model (see [CI note](#ci-and-credential-free-runs)).
+> example supports a real Azure OpenAI deployment and an explicit deterministic
+> fake mode for credential-free learning and CI.
 
 ## Prerequisites
 
@@ -37,6 +36,7 @@ cp local.settings.json.example local.settings.json
 
 | Environment variable | Required | Description |
 | --- | --- | --- |
+| `AGENT_MODEL_MODE` | Yes | `fake` or `azure_openai`; no implicit default |
 | `AZURE_OPENAI_ENDPOINT` | Yes | e.g. `https://<resource>.openai.azure.com/` |
 | `AZURE_OPENAI_DEPLOYMENT` | Yes | Your chat deployment name |
 | `AZURE_OPENAI_API_VERSION` | No | Defaults to `2024-10-21` |
@@ -98,7 +98,7 @@ Expected response shape (model text is illustrative and nondeterministic):
 
 Application code does not change between local and Azure. Follow the canonical
 [deployment guide](../../docs/deployment.md), then set the same
-`AZURE_OPENAI_*` values as **Function App application settings** (use Managed
+`AGENT_MODEL_MODE=azure_openai` and `AZURE_OPENAI_*` values as **Function App application settings** (use Managed
 Identity in production — do not store the key in App Settings).
 
 > **Production auth:** `LangGraphApp` defaults to `AuthLevel.FUNCTION`, so the
@@ -111,9 +111,12 @@ Identity in production — do not store the key in App Settings).
 
 ## CI and credential-free runs
 
-Unless Azure OpenAI is **fully** configured — endpoint, deployment, **and** an
-auth method (`AZURE_OPENAI_API_KEY`, or `AZURE_OPENAI_USE_ENTRA_ID=true`) —
-`graph.py` builds a deterministic `GenericFakeChatModel` instead of calling Azure OpenAI.
-This keeps the example importable and smoke-testable in CI without any cloud
-credentials, and the fake path never imports `langchain_openai`. Configure the
-`AZURE_OPENAI_*` variables to use a real deployment.
+Set `AGENT_MODEL_MODE=fake` deliberately to run offline. Startup emits a warning,
+responses retain the `[fake model]` marker, no Azure credentials are required,
+and `langchain_openai` is not imported. Set `AGENT_MODEL_MODE=azure_openai` for
+live operation; missing endpoint, deployment, or authentication settings fail at
+cold start and SDK/authentication/service errors propagate without downgrade.
+
+**Migration:** configurations that previously omitted `AGENT_MODEL_MODE` must
+now choose `fake` or `azure_openai`. Existing partial `AZURE_OPENAI_*` settings
+no longer select fake mode; choose `fake` explicitly or complete the live setup.

@@ -304,10 +304,17 @@ az functionapp config appsettings set \
   --name "$FUNCTIONAPP_NAME" \
   --resource-group "$RESOURCE_GROUP" \
   --settings \
+    AGENT_MODEL_MODE="azure_openai" \
     AZURE_OPENAI_API_KEY="..." \
     AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/" \
     AZURE_OPENAI_DEPLOYMENT="gpt-4o"
 ```
+
+The four primary Azure OpenAI examples require this explicit live mode. Missing
+endpoint, deployment, or authentication settings stop the worker during cold
+start; authentication, import, SDK construction, and service errors never
+downgrade to fake responses. Use `AGENT_MODEL_MODE=fake` only for deliberate
+local/CI runs.
 
 ### Step 9 — Deploy the code
 

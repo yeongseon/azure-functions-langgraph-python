@@ -39,13 +39,13 @@ Requirements::
 
 from __future__ import annotations
 
-import itertools
-import os
+import logging
 from typing import Annotated, Any
 
+from model_config import ModelMode, load_azure_openai_config, load_model_mode
 from typing import TypedDict
 
-_TRUTHY = {"1", "true", "yes", "on"}
+MODEL_MODE = load_model_mode()
 
 SYSTEM_PROMPT = (
     "You are a concise Azure cloud assistant with memory of this conversation. "
@@ -54,33 +54,18 @@ SYSTEM_PROMPT = (
     "say so rather than guessing."
 )
 
-# Azure OpenAI configuration (read at import / cold start).
-_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
-_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT")
-_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY")
-# langchain-openai / openai default to reading OPENAI_API_VERSION; we surface an
-# explicit, currently-supported default so the example is not tied to whatever
-# happens to be in the environment.
-_API_VERSION = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
-_USE_ENTRA_ID = os.environ.get("AZURE_OPENAI_USE_ENTRA_ID", "").strip().lower() in _TRUTHY
-
-
-def _azure_configured() -> bool:
-    """True when enough config is present to build a real Azure OpenAI model."""
-    return bool(_ENDPOINT and _DEPLOYMENT and (_API_KEY or _USE_ENTRA_ID))
-
-
 def build_chat_model() -> Any:
     """Construct the chat model for the agent.
 
     Returns a real ``AzureChatOpenAI`` when Azure OpenAI is configured, else a
     deterministic fake model for credential-free local runs and CI.
     """
-    if _azure_configured():
+    config = load_azure_openai_config(MODEL_MODE)
+    if config is not None:
         # Import lazily so the fake path never requires langchain-openai.
         from langchain_openai import AzureChatOpenAI
 
-        if _USE_ENTRA_ID and not _API_KEY:
+        if config.use_entra_id and not config.api_key:
             # Managed Identity / Entra ID path. DefaultAzureCredential picks up
             # the Function App's Managed Identity in Azure and `az login`
             # locally — the same code path works in both environments.
@@ -91,33 +76,33 @@ def build_chat_model() -> Any:
                 "https://cognitiveservices.azure.com/.default",
             )
             return AzureChatOpenAI(
-                azure_endpoint=_ENDPOINT,
-                azure_deployment=_DEPLOYMENT,
-                api_version=_API_VERSION,
+                azure_endpoint=config.endpoint,
+                azure_deployment=config.deployment,
+                api_version=config.api_version,
                 azure_ad_token_provider=token_provider,
             )
 
         # API-key path.
         return AzureChatOpenAI(
-            azure_endpoint=_ENDPOINT,
-            azure_deployment=_DEPLOYMENT,
-            api_version=_API_VERSION,
-            api_key=_API_KEY,
+            azure_endpoint=config.endpoint,
+            azure_deployment=config.deployment,
+            api_version=config.api_version,
+            api_key=config.api_key,
         )
 
     # Deterministic fallback — no cloud, no secrets, no langchain-openai.
-    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
     from langchain_core.messages import AIMessage
 
-    canned = AIMessage(
-        content=(
-            "[fake model] Azure OpenAI is not configured. Set AZURE_OPENAI_ENDPOINT, "
-            "AZURE_OPENAI_DEPLOYMENT, and AZURE_OPENAI_API_KEY (or "
-            "AZURE_OPENAI_USE_ENTRA_ID=true) to use a real deployment."
-        )
+    class StateAwareFakeModel:
+        def invoke(self, messages: list[Any]) -> AIMessage:
+            human_turns = sum(getattr(message, "type", None) == "human" for message in messages)
+            return AIMessage(content=f"[fake model] observed {human_turns} human turn(s)")
+
+    logging.getLogger(__name__).warning(
+        "example agent is using the deterministic fake model",
+        extra={"model_mode": ModelMode.FAKE.value},
     )
-    # itertools.cycle → the fake never exhausts across repeated invocations.
-    return GenericFakeChatModel(messages=itertools.cycle([canned]))
+    return StateAwareFakeModel()
 
 
 try:

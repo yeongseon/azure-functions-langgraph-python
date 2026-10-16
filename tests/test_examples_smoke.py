@@ -45,10 +45,18 @@ def _load_module(example_dir: Path, module_name: str) -> object:
 
 
 @pytest.mark.parametrize("example,attr", GRAPH_EXAMPLES)
-def test_example_graph_compiles(example: str, attr: str) -> None:
+def test_example_graph_compiles(example: str, attr: str, monkeypatch: pytest.MonkeyPatch) -> None:
     example_dir = EXAMPLES_DIR / example
     assert example_dir.is_dir(), f"missing example directory: {example}"
 
+    if example in {
+        "azure_openai_agent",
+        "conversation_memory",
+        "tool_calling_agent",
+        "production_persistent_agent",
+    }:
+        monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
+        sys.modules.pop("model_config", None)
     sys.path.insert(0, str(example_dir))
     try:
         mod = _load_module(example_dir, "graph")

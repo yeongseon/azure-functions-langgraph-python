@@ -46,6 +46,7 @@ def _load_example_graph_module() -> Any:
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
+    sys.modules.pop("model_config", None)
     sys.path.insert(0, str(EXAMPLE_DIR))
     try:
         spec.loader.exec_module(mod)
@@ -87,8 +88,11 @@ def _connection_string_container(container_name: str) -> Any:
     )
 
 
-def test_state_survives_checkpointer_recreation(azurite_container_client: Any) -> None:
+def test_state_survives_checkpointer_recreation(
+    azurite_container_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """State written by one app/checkpointer is readable after full recreation."""
+    monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
     graph_mod = _load_example_graph_module()
     container_name = azurite_container_client.container_name
     thread_id = f"demo-{uuid.uuid4().hex[:8]}"
@@ -131,8 +135,11 @@ def test_state_survives_checkpointer_recreation(azurite_container_client: Any) -
     assert any("What is my name" in c for c in human_turns)
 
 
-def test_threads_are_isolated(azurite_container_client: Any) -> None:
+def test_threads_are_isolated(
+    azurite_container_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A different thread_id starts empty — no cross-thread leakage."""
+    monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
     graph_mod = _load_example_graph_module()
     saver = AzureBlobCheckpointSaver(container_client=azurite_container_client)
     graph = graph_mod.build_graph().compile(checkpointer=saver)
@@ -177,6 +184,7 @@ def test_function_app_wires_distributed_lock(
 
     container_name = azurite_container_client.container_name
     monkeypatch.setenv("AZURE_STORAGE_CONNECTION_STRING", AZURITE_BLOB_CONNECTION_STRING)
+    monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
     monkeypatch.setenv("LANGGRAPH_BLOB_CONTAINER", container_name)
     monkeypatch.delenv("AZURE_STORAGE_BLOB_ACCOUNT_URL", raising=False)
     # Container already created by the fixture — no auto-create needed.
@@ -198,6 +206,7 @@ def test_function_app_lock_opt_out(
 
     container_name = azurite_container_client.container_name
     monkeypatch.setenv("AZURE_STORAGE_CONNECTION_STRING", AZURITE_BLOB_CONNECTION_STRING)
+    monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
     monkeypatch.setenv("LANGGRAPH_BLOB_CONTAINER", container_name)
     monkeypatch.setenv("LANGGRAPH_ENABLE_DISTRIBUTED_LOCK", "false")
     monkeypatch.delenv("AZURE_STORAGE_BLOB_ACCOUNT_URL", raising=False)
