@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
+import math
 import os
 from types import MappingProxyType
 from typing import Any, Literal
@@ -29,6 +28,7 @@ from azure_functions_langgraph._metadata import (
     read_langgraph_metadata,
     set_langgraph_metadata,
 )
+from azure_functions_langgraph._readiness import ReadinessRunner
 from azure_functions_langgraph._validation import (
     validate_graph_name,
 )
@@ -246,8 +246,13 @@ class LangGraphApp:
     _sb_registrations: dict[str, Any] = field(default_factory=dict)
     _function_app: func.FunctionApp | None = field(default=None, init=False, repr=False)
     _thread_store: Any = field(default=None, init=False, repr=False)
+    _readiness_runner: ReadinessRunner | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if not math.isfinite(self.readiness_timeout_seconds) or self.readiness_timeout_seconds <= 0:
+            raise ValueError("readiness_timeout_seconds must be finite and greater than zero")
+        if self.readiness_checks:
+            self._readiness_runner = ReadinessRunner(self.readiness_checks)
         if self.auth_level == func.AuthLevel.ANONYMOUS:
             warnings.warn(
                 "LangGraphApp is using ANONYMOUS auth. Endpoints are publicly "
@@ -601,16 +606,10 @@ class LangGraphApp:
                 auth_level=self._resolved_readiness_auth_level,
             )
             def health_ready(req: func.HttpRequest) -> func.HttpResponse:
-                components: dict[str, Literal["ok", "failed"]] = {}
-                checks = self.readiness_checks or {}
-                with ThreadPoolExecutor(max_workers=len(checks)) as pool:
-                    futures = {name: pool.submit(check) for name, check in checks.items()}
-                    for name, future in futures.items():
-                        try:
-                            result = future.result(timeout=self.readiness_timeout_seconds)
-                            components[name] = "ok" if result is True else "failed"
-                        except (FutureTimeoutError, Exception):
-                            components[name] = "failed"
+                runner = self._readiness_runner
+                if runner is None:  # pragma: no cover - route requires configured checks
+                    raise RuntimeError("readiness runner is not initialized")
+                components = runner.run(self.readiness_timeout_seconds)
                 ready = all(value == "ok" for value in components.values())
                 body = ReadinessResponse(
                     status="ready" if ready else "unready",
