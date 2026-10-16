@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 import runpy
+import sys
 
 import pytest
 
-from scripts.certify_primary_examples import (
-    PRIMARY_EXAMPLES,
-    adapter_free_requirements,
-    parse_args,
-)
+# Load the script by path: the installed-wheel test tier runs from outside the
+# checkout, so ``scripts`` is not importable as a package there.
+_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "certify_primary_examples.py"
+_SPEC = importlib.util.spec_from_file_location("certify_primary_examples", _SCRIPT)
+assert _SPEC is not None and _SPEC.loader is not None
+_CERTIFY = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = _CERTIFY
+_SPEC.loader.exec_module(_CERTIFY)
+
+PRIMARY_EXAMPLES = _CERTIFY.PRIMARY_EXAMPLES
+adapter_free_requirements = _CERTIFY.adapter_free_requirements
+parse_args = _CERTIFY.parse_args
 
 
 def test_primary_example_inventory_matches_learning_path() -> None:
