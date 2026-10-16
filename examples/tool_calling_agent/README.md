@@ -169,28 +169,17 @@ graph wiring is unchanged.
 
 ## OpenAPI / Swagger UI
 
-`function_app.py` wires the OpenAPI bridge (issue #411):
+`function_app.py` keeps the OpenAPI bridge call so a compatible
+`azure-functions-openapi` installation can expose the invoke/stream/state route
+metadata in its generated spec and Swagger UI. The bridge safely becomes a
+no-op when that optional package is absent, so the primary example still starts
+after installing its checked-in requirements.
 
-```python
-from azure_functions_langgraph.openapi import register_with_openapi
-
-count = register_with_openapi(langgraph_app)  # forwards route metadata
-```
-
-`register_with_openapi` reads `LangGraphApp.get_app_metadata()` and forwards each
-route (request/response models, summary, status codes) to
-`azure-functions-openapi-python`, so `tool_calling_agent`'s invoke/stream/state
-endpoints appear in the generated OpenAPI spec and are Swagger-testable. Exposing
-`/openapi.json` or Swagger UI is that package's responsibility — follow its setup
-and point it at the same `langgraph_app.function_app`. See the
-[`openapi_bridge`](../openapi_bridge/) example for the bridge in isolation.
-
-> **`azure-functions-openapi-python` is an example-only dependency.** It lives in
-> this example's [`requirements.txt`](requirements.txt), never in the base
-> `azure-functions-langgraph` install, and the import stays behind
-> `register_with_openapi`'s `ImportError` guard. The bridge requires
-> the `azure-functions-openapi` distribution `>= 0.16.0` (published from the
-> `azure-functions-openapi-python` repository).
+The package is intentionally not in this primary example's
+[`requirements.txt`](requirements.txt): its current published dependency bounds
+do not resolve with the example's LangChain 1.x stack. Install a compatible
+release separately when OpenAPI generation is required, or use the isolated
+[`openapi_bridge`](../openapi_bridge/) example to evaluate the integration.
 
 ## Deploy to Azure
 

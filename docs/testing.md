@@ -6,7 +6,37 @@
 make test
 ```
 
-This runs pytest with coverage reporting. The minimum coverage threshold is 80%.
+This runs pytest with coverage reporting. The minimum coverage threshold is 95%.
+
+## Example verification levels
+
+The repository uses four distinct checks. Passing one does not imply the others:
+
+| Level | What it proves | Entry point |
+| --- | --- | --- |
+| Import smoke | Example modules compile and register expected Python objects in the repository test environment. It does not resolve the example's standalone requirements. | `make test` (`tests/test_examples_smoke.py`) |
+| Dependency resolution | A fresh Python 3.11 virtual environment can install each primary example's complete `requirements.txt`, pass `uv pip check`, import its fake-model route, and construct the real Azure OpenAI client under a mock without credentials or requests. | `make certify-examples-published` |
+| Functions host smoke | The real Azure Functions Core Tools host starts and serves a native graph route. It uses the dedicated host-smoke app, not every primary example. | CI `host-smoke` job |
+| Cloud certification | The release candidate is deployed to Azure and exercised over live HTTP. This is the release workflow's `azure-e2e` gate, not a pull-request dependency check. | `.github/workflows/publish-pypi.yml` |
+
+The primary-example dependency lane has two modes:
+
+```bash
+# Newcomer path: install each checked-in requirements file unchanged from PyPI.
+make certify-examples-published
+
+# Development path: keep every example dependency, but replace only the adapter
+# requirement with the supplied locally built wheel.
+make build
+make certify-examples-candidate WHEEL=dist/azure_functions_langgraph-*.whl
+```
+
+Both modes write resolver reports, installed versions, fake-route output, and
+mocked real-model construction output under the system temporary directory by
+default; CI supplies an explicit artifact path and uploads those files. A
+deliberately incompatible fixture also has to fail resolution, proving the gate
+detects conflicts rather than merely running commands. Neither mode invokes
+Azure OpenAI or requires Azure credentials.
 
 ## Test structure
 

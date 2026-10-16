@@ -95,6 +95,15 @@ test: ensure-hatch
 	@echo "Running tests..."
 	@$(HATCH) run test
 
+.PHONY: certify-examples-published
+certify-examples-published: ensure-hatch
+	@$(HATCH) run python scripts/certify_primary_examples.py published
+
+.PHONY: certify-examples-candidate
+certify-examples-candidate: ensure-hatch
+	@test -n "$(WHEEL)" || (echo "WHEEL=/path/to/candidate.whl is required" && exit 2)
+	@$(HATCH) run python scripts/certify_primary_examples.py candidate --wheel "$(WHEEL)"
+
 .PHONY: test-cosmos
 test-cosmos: ensure-hatch
 	@set -e; \
