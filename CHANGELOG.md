@@ -1,6 +1,13 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.12.2](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.12.1...v0.12.2) (2026-10-16)
+
+
+### Bug Fixes
+
+* **release:** load the certification script by path in installed-wheel tests ([#636](https://github.com/yeongseon/azure-functions-langgraph-python/issues/636)) ([0de28ef](https://github.com/yeongseon/azure-functions-langgraph-python/commit/0de28efb690d019c2c873c3c6ce21f49871eb575))
+
 ## [0.12.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.12.0...v0.12.1) (2026-10-16)
 
 
