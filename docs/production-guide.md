@@ -173,8 +173,11 @@ For deep health checks, implement a custom endpoint or use Azure Monitor availab
 
 Configure `readiness_checks` to opt into `GET /api/health/ready` for dependency
 traffic gating. The route is protected by the app auth level by default and can
-use an independent `readiness_auth_level`; each callback is bounded by
-`readiness_timeout_seconds` (default five seconds).
+use an independent `readiness_auth_level`. Callbacks may be synchronous or
+asynchronous and must return a boolean. `readiness_timeout_seconds` (default
+five seconds) is one **total deadline for the complete probe**, measured from
+submitting the component checks until the response is assembled; it is not a
+per-component timeout. It must be finite and greater than zero.
 
 ```python
 app = LangGraphApp(
@@ -188,6 +191,17 @@ checks passed, while HTTP 503 means one failed, raised, or timed out. Exception
 text, endpoints, and credentials are never returned. Prefer Azure Monitor or
 provider-native monitoring when you need historical alerting, external network
 vantage points, or detailed dependency diagnostics.
+
+Readiness work is bounded per `LangGraphApp` instance by a dedicated executor
+with at most four worker threads and at most one in-flight invocation per
+component. If a synchronous callback exceeds the probe deadline, Python cannot
+forcibly stop its thread; later probes report that component as failed and reuse
+the same in-flight invocation instead of creating more workers. A finished
+invocation is refreshed on the next probe. Consequently, a permanently hung
+callback can occupy one of the four readiness workers until the host process
+exits. Every operator-owned network callback must configure its own SDK timeout
+shorter than the total probe deadline. Async callbacks are awaited, but should
+also apply cancellation/timeouts to their dependency operations.
 
 The liveness probe uses `health_auth_level`, which defaults to `ANONYMOUS`
 independently of `auth_level` — so it stays reachable as an unauthenticated
