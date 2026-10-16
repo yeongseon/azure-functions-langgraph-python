@@ -1,6 +1,26 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.12.2](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.12.1...v0.12.2) (2026-10-16)
+
+
+### Bug Fixes
+
+* **release:** load the certification script by path in installed-wheel tests ([#636](https://github.com/yeongseon/azure-functions-langgraph-python/issues/636)) ([0de28ef](https://github.com/yeongseon/azure-functions-langgraph-python/commit/0de28efb690d019c2c873c3c6ce21f49871eb575))
+
+## [0.12.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.12.0...v0.12.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* **cosmos:** deprecate process-global credential mutation ([#629](https://github.com/yeongseon/azure-functions-langgraph-python/issues/629)) ([6d71c6b](https://github.com/yeongseon/azure-functions-langgraph-python/commit/6d71c6b3524aa82d46647bc0a81385af82712014))
+* **examples:** keep primary example dependencies installable ([#634](https://github.com/yeongseon/azure-functions-langgraph-python/issues/634)) ([f937225](https://github.com/yeongseon/azure-functions-langgraph-python/commit/f937225170586fa8b5e7ea4f64b77dfc6bb72da0))
+* **examples:** require explicit model modes ([#628](https://github.com/yeongseon/azure-functions-langgraph-python/issues/628)) ([04aa59a](https://github.com/yeongseon/azure-functions-langgraph-python/commit/04aa59af81e01300003630348c4b7472a9bd1bbd))
+* **health:** bound readiness checks and await async callbacks ([#627](https://github.com/yeongseon/azure-functions-langgraph-python/issues/627)) ([dd860f5](https://github.com/yeongseon/azure-functions-langgraph-python/commit/dd860f50c909b56be0805ebe5a67eecf39bd5d16))
+* **observability:** preserve request IDs across native transports ([#632](https://github.com/yeongseon/azure-functions-langgraph-python/issues/632)) ([4b23fcb](https://github.com/yeongseon/azure-functions-langgraph-python/commit/4b23fcbcba9626846c1cea77b7b345580361026f))
+* **platform:** validate the final configured thread store ([#633](https://github.com/yeongseon/azure-functions-langgraph-python/issues/633)) ([adb42f7](https://github.com/yeongseon/azure-functions-langgraph-python/commit/adb42f794c8c5ff3812ac82159ff2a9a1b923eee))
+* **runtime:** preserve lock ownership through cancellation ([#626](https://github.com/yeongseon/azure-functions-langgraph-python/issues/626)) ([c3e9e42](https://github.com/yeongseon/azure-functions-langgraph-python/commit/c3e9e429d00b1f5a4b78f783ba2c220cb098b748))
+
 ## [0.12.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.11.4...v0.12.0) (2026-10-13)
 
 
