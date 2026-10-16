@@ -440,7 +440,8 @@ def handle_stream(
                     "error": (
                         "stream response exceeded max buffered size "
                         f"({max_stream_response_bytes} bytes)"
-                    )
+                    ),
+                    "request_id": ctx.run_id,
                 }
             )
             chunks.append(f"event: error\ndata: {error_payload}\n\n")
@@ -468,7 +469,7 @@ def handle_stream(
     except Exception as exc:
         logger.exception("Graph %s stream failed", reg.name)
         stream_error = exc
-        error_payload = json.dumps({"error": "stream processing failed"})
+        error_payload = json.dumps({"error": "stream processing failed", "request_id": ctx.run_id})
         _append_chunk(f"event: error\ndata: {error_payload}\n\n")
     finally:
         if lock_token is not None and thread_id is not None:
@@ -488,6 +489,7 @@ def handle_stream(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "X-Request-ID": ctx.run_id,
         },
     )
 
@@ -520,6 +522,7 @@ async def handle_invoke_async(
         "invoke",
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
+        run_id=request_id_from_headers(req.headers),
     )
     parsed = _parse_native_request(
         req,
@@ -561,7 +564,7 @@ async def handle_invoke_async(
         except Exception as exc:
             logger.exception("Graph %s ainvoke failed", reg.name)
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
-            return _error_response(500, "Graph execution failed")
+            return _error_response(500, "Graph execution failed", ctx.run_id)
 
     safe_observer_call(observer, "on_run_completed", finish_context(ctx))
     output = _serialize_graph_output(result)
@@ -570,6 +573,7 @@ async def handle_invoke_async(
         body=response.model_dump_json(),
         mimetype="application/json",
         status_code=200,
+        headers={"X-Request-ID": ctx.run_id},
     )
 
 
@@ -602,6 +606,7 @@ async def handle_stream_async(
         "stream",
         has_checkpointer=has_cp,
         lock_backend=type(thread_lock).__name__,
+        run_id=request_id_from_headers(req.headers),
     )
     if not reg.stream_enabled:
         return _reject(
@@ -666,7 +671,8 @@ async def handle_stream_async(
                         "error": (
                             "stream response exceeded max buffered size "
                             f"({max_stream_response_bytes} bytes)"
-                        )
+                        ),
+                        "request_id": ctx.run_id,
                     }
                 )
                 chunks.append(f"event: error\ndata: {error_payload}\n\n")
@@ -694,7 +700,9 @@ async def handle_stream_async(
         except Exception as exc:
             logger.exception("Graph %s astream failed", reg.name)
             stream_error = exc
-            error_payload = json.dumps({"error": "stream processing failed"})
+            error_payload = json.dumps(
+                {"error": "stream processing failed", "request_id": ctx.run_id}
+            )
             _append_chunk(f"event: error\ndata: {error_payload}\n\n")
 
     chunks.append("event: end\ndata: {}\n\n")
@@ -711,6 +719,7 @@ async def handle_stream_async(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "X-Request-ID": ctx.run_id,
         },
     )
 

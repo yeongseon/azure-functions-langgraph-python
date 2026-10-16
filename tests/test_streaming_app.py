@@ -57,6 +57,7 @@ class FakeRequest:
     """Minimal duck-typed Starlette request — only ``body()`` is used."""
 
     def __init__(self, payload: Any = None, *, raw: bytes | None = None) -> None:
+        self.headers: dict[str, str] = {}
         if raw is not None:
             self._raw = raw
         elif payload is None:
@@ -948,6 +949,32 @@ class TestHandleStream:
         # started emitted before headers; completed emitted as the stream drains.
         assert observer.events == ["started", "completed"]
         assert observer.contexts[0].invocation_id is None
+
+    async def test_caller_request_id_correlates_headers_errors_and_observer(self) -> None:
+        # Given
+        app, reg = _app_with(FailingStreamGraph())
+        observer = RecordingObserver()
+        request_id = "true-stream-request-570"
+        request = FakeRequest({"input": {}})
+        request.headers["X-Request-ID"] = request_id
+
+        # When
+        resp = await app._handle_stream(
+            request,
+            reg,
+            False,
+            JSONResponse,
+            StreamingResponse,
+            observer,
+            _lock(app),
+        )
+        frames = await _read_stream_response(resp)
+
+        # Then
+        assert resp.headers["X-Request-ID"] == request_id
+        error_frame = next(frame for frame in frames if frame.startswith("event: error\n"))
+        assert json.loads(error_frame.split("data: ", maxsplit=1)[1])["request_id"] == request_id
+        assert {context.run_id for context in observer.contexts} == {request_id}
 
     async def test_async_success_streams_frames(self) -> None:
         app, reg = _app_with(FakeAsyncGraph())
