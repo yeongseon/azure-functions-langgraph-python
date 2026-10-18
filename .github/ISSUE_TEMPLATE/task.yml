@@ -8,6 +8,11 @@ body:
       value: |
         Use this template for maintenance tasks, refactoring, or other chores.
 
+        Describe the problem or requested change in this repository. Explain
+        the relevance of any external project link, and remove unrelated
+        project names or policies copied from another issue.
+        See [Issue Conventions](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/AGENTS.md#issue-conventions).
+
   - type: textarea
     id: problem
     attributes:

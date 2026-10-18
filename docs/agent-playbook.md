@@ -1,7 +1,7 @@
 # Agent Playbook
 
 ## Source Of Truth
-- `AGENTS.md` for repository-wide engineering and agent rules.
+- [AGENTS.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/AGENTS.md) for repository scope, issue conventions, and automation rules.
 - `README.md` for installation, quick start, and CLI examples.
 - `CONTRIBUTING.md` for branch, commit, and release workflow.
 - `pyproject.toml` and `Makefile` for supported commands.
