@@ -385,6 +385,11 @@ class AzureBlobLeaseThreadLock:
 
         deadline = time.monotonic() + timeout if timeout > 0.0 else 0.0
         while True:
+            with self._active_leases_guard:
+                if self._closed:
+                    raise RuntimeError(
+                        "AzureBlobLeaseThreadLock is closed and cannot acquire new leases"
+                    )
             try:
                 lease = blob_client.acquire_lease(lease_duration=self._lease_duration)
             except self._http_response_error as exc:
@@ -411,6 +416,25 @@ class AzureBlobLeaseThreadLock:
                             exc_info=True,
                         )
                     return None
+                if self._closed:
+                    # close() ran while the Azure acquire_lease() call above
+                    # was in flight. It saw nothing locally registered and
+                    # already stopped the renewal executor, so this lease
+                    # would otherwise be returned from an already-closed
+                    # lock with no live renewal worker (#642). Release it
+                    # here instead of registering it.
+                    try:
+                        lease.release()
+                    except Exception:  # pragma: no cover - defensive
+                        logger.debug(
+                            "Failed to release post-close race lease for %s/%s",
+                            graph_name,
+                            thread_id,
+                            exc_info=True,
+                        )
+                    raise RuntimeError(
+                        "AzureBlobLeaseThreadLock is closed and cannot acquire new leases"
+                    )
                 state = _LeaseState(lease=lease)
                 self._active_leases[key] = state
             return state.token
