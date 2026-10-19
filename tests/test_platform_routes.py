@@ -4177,4 +4177,148 @@ class TestStoreRenewalWorkerOwnership:
         final = store.get(thread.thread_id)
         assert final is not None
         assert final.status == "idle"
+
+
+class TestRunsConfigurableValidation:
+    """config.configurable must be validated before any lock acquisition or
+    graph execution on all four run routes (#648). An explicit
+    'configurable': null is normalized to absent (matching the native
+    route's _extract_thread_id policy); any other non-object value is
+    rejected with 400 before the thread is touched."""
+
+    @pytest.mark.parametrize("bad_configurable", ["a-string", 42, ["x"], True])
+    def test_threaded_wait_rejects_non_object_configurable(
+        self, store: InMemoryThreadStore, bad_configurable: Any
+    ) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/wait",
+            {"assistant_id": "agent", "input": {}, "config": {"configurable": bad_configurable}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 400
+        assert "configurable" in json.loads(resp.get_body())["detail"]
+        after = store.get(thread.thread_id)
+        assert after is not None and after.status == "idle"
+
+    @pytest.mark.parametrize("bad_configurable", ["a-string", 42, ["x"], True])
+    def test_threaded_stream_rejects_non_object_configurable(
+        self, store: InMemoryThreadStore, bad_configurable: Any
+    ) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "config": {"configurable": bad_configurable}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 400
+        after = store.get(thread.thread_id)
+        assert after is not None and after.status == "idle"
+
+    @pytest.mark.parametrize("bad_configurable", ["a-string", 42, ["x"], True])
+    def test_threadless_wait_rejects_non_object_configurable(
+        self, store: InMemoryThreadStore, bad_configurable: Any
+    ) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+        req = _post_request(
+            "/api/runs/wait",
+            {"assistant_id": "agent", "input": {}, "config": {"configurable": bad_configurable}},
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 400
+
+    @pytest.mark.parametrize("bad_configurable", ["a-string", 42, ["x"], True])
+    def test_threadless_stream_rejects_non_object_configurable(
+        self, store: InMemoryThreadStore, bad_configurable: Any
+    ) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+        req = _post_request(
+            "/api/runs/stream",
+            {"assistant_id": "agent", "input": {}, "config": {"configurable": bad_configurable}},
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 400
+
+    def test_threaded_wait_normalizes_null_configurable(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/wait",
+            {"assistant_id": "agent", "input": {}, "config": {"configurable": None}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        after = store.get(thread.thread_id)
+        assert after is not None and after.status == "idle"
+
+    def test_threadless_wait_normalizes_null_configurable(self, store: InMemoryThreadStore) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+        req = _post_request(
+            "/api/runs/wait",
+            {"assistant_id": "agent", "input": {}, "config": {"configurable": None}},
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+
+    def test_rejected_thread_remains_available_for_a_valid_run(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        """A rejected malformed-config request must leave the thread usable
+        for an immediately following valid run (#648)."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait")
+        bad_req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/wait",
+            {"assistant_id": "agent", "input": {}, "config": {"configurable": "bad"}},
+            thread_id=thread.thread_id,
+        )
+        bad_resp = fn(bad_req)
+        assert bad_resp.status_code == 400
+
+        good_req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/wait",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        good_resp = fn(good_req)
+        assert good_resp.status_code == 200
         assert store.try_acquire_run_lock(thread.thread_id) is not None
