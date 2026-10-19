@@ -138,23 +138,42 @@ def test_list_checkpoints_returns_expected_results(
 def test_malformed_checkpoint_record_raises_from_upstream(
     cosmos_emulator_target: tuple[str, str, str, str],
 ) -> None:
-    # Given: a malformed document injected through the real Cosmos SDK container
+    # Given: a checkpoint written through the supported saver API, confirmed
+    # readable via get_tuple before any corruption is introduced -- this
+    # proves the document that will be corrupted is the one get_tuple
+    # actually selects (same thread_id/checkpoint_ns/checkpoint_id key the
+    # saver constructs internally), not an unrelated document that merely
+    # produces a 404-shaped "missing" result.
     saver = _create_saver(cosmos_emulator_target)
-    raw_container = getattr(saver, "container")
-    raw_container.upsert_item(
-        {
-            "id": "malformed-checkpoint",
-            "partition_key": "malformed-thread",
-            "thread_id": "malformed-thread",
-            "checkpoint_ns": "",
-            "checkpoint_id": "malformed-checkpoint",
-            "checkpoint": "not-a-valid-checkpoint-payload",
-        }
+    cfg = _config("malformed-thread", checkpoint_id="malformed-checkpoint")
+    saved_cfg = saver.put(
+        cfg, _checkpoint("malformed-checkpoint", 1), _metadata(1), {"messages": "v1"}
     )
+    sanity = saver.get_tuple(saved_cfg)
+    assert sanity is not None
+    assert sanity.checkpoint["id"] == "malformed-checkpoint"
 
-    # When / Then: malformed persistence is surfaced, never silently treated as valid state
+    # When: the real stored document's payload (and only its payload) is
+    # corrupted in place through the raw Cosmos SDK container, preserving
+    # its actual id, partition_key and the rest of the document envelope.
+    raw_container = getattr(saver, "container")
+    query = "SELECT * FROM c WHERE c.id=@id"
+    parameters = [{"name": "@id", "value": saved_cfg["configurable"]["checkpoint_id"]}]
+    matches = list(
+        raw_container.query_items(
+            query=query, parameters=parameters, enable_cross_partition_query=True
+        )
+    )
+    assert len(matches) == 1, "expected exactly one stored document for the checkpoint just written"
+    stored_doc = matches[0]
+    assert "id" in stored_doc and "checkpoint" not in stored_doc.get("id", "")
+    stored_doc["checkpoint"] = "not-a-valid-checkpoint-payload"
+    raw_container.upsert_item(stored_doc)
+
+    # Then: the now-malformed persisted record is surfaced on the next read
+    # of that exact document, never silently treated as valid state.
     with pytest.raises(Exception):
-        saver.get_tuple(_config("malformed-thread", checkpoint_id="malformed-checkpoint"))
+        saver.get_tuple(cfg)
     close_cosmos_checkpointer(saver)
 
 
