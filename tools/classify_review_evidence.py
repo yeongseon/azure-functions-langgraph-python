@@ -69,7 +69,9 @@ def classify_inline_comment(
             False,
             "comment predates the current head; current commit_id may be remapped",
         )
-    return ReviewEvidence(reviewer, original_commit, True, "independent comment on the current head")
+    return ReviewEvidence(
+        reviewer, original_commit, True, "independent comment on the current head"
+    )
 
 
 def has_open_findings(review_body: str) -> bool:
