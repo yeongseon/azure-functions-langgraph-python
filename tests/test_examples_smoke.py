@@ -57,6 +57,7 @@ def test_example_graph_compiles(example: str, attr: str, monkeypatch: pytest.Mon
     }:
         monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
         sys.modules.pop("model_config", None)
+    sys.modules.pop("tools", None)
     sys.path.insert(0, str(example_dir))
     try:
         mod = _load_module(example_dir, "graph")

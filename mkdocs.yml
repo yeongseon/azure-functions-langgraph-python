@@ -37,6 +37,7 @@ nav:
       - Guidelines: contributing.md
       - Release Process: release_process.md
       - Agent Playbook: agent-playbook.md
+      - Review Evidence Policy: review-evidence-policy.md
   - Troubleshooting: troubleshooting.md
   - FAQ: faq.md
   - Security: security.md
