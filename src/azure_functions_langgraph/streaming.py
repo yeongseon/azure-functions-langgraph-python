@@ -73,7 +73,7 @@ from azure_functions_langgraph.contracts import (
     _is_model_type,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
-from azure_functions_langgraph.locks._async import release_thread_lock
+from azure_functions_langgraph.locks._async import release_thread_lock, run_sync_retaining_ownership
 from azure_functions_langgraph.observability import (
     NoOpRunObserver,
     RunContext,
@@ -748,7 +748,7 @@ class StreamingLangGraphApp:
             if is_async:
                 result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
             else:
-                result = await asyncio.to_thread(
+                result = await run_sync_retaining_ownership(
                     lambda: reg.graph.invoke(request.input, config=config, **version_kwargs)
                 )
         except Exception as exc:  # noqa: BLE001 - reported and returned as 500
