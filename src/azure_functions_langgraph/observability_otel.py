@@ -18,7 +18,8 @@ Design boundary — the package owns the **domain signal only**:
 
 Span lifetime is threaded across two separate lifecycle callbacks
 (``on_run_started`` starts a span; the terminal event ends it), keyed by
-``run_id`` — exactly the error-prone glue this observer exists to remove.
+``RunContext.execution_id`` — a process-unique identity distinct from the
+caller-supplied ``run_id``, which may repeat across overlapping runs.
 """
 
 from __future__ import annotations
@@ -89,7 +90,8 @@ class OTelRunObserver:
 
     One span is produced per run:
 
-    - :meth:`on_run_started` starts a span and stores it keyed by ``run_id``.
+    - :meth:`on_run_started` starts a span and stores it keyed by
+      ``execution_id`` (process-unique; see module docstring).
     - :meth:`on_run_completed` ends that span with ``StatusCode.OK``.
     - :meth:`on_run_failed` records the exception class/type as an attribute,
       sets ``StatusCode.ERROR``, and ends the span. It emits no exception event,
@@ -116,7 +118,11 @@ class OTelRunObserver:
     ) -> None:
         self._tracer: Tracer = tracer or trace.get_tracer(INSTRUMENTATION_NAME)
         self._span_name_prefix = span_name_prefix
-        # run_id -> live span, guarded so concurrent runs never corrupt the map.
+        # execution_id -> live span, guarded so concurrent runs never corrupt
+        # the map. Keyed by RunContext.execution_id (process-unique, stable
+        # across finish_context()), not run_id -- run_id is caller-supplied
+        # correlation metadata that two overlapping runs may legitimately
+        # share (#654).
         self._spans: dict[str, Span] = {}
         self._lock = threading.Lock()
 
@@ -130,11 +136,11 @@ class OTelRunObserver:
             attributes=_safe_attributes(ctx),
         )
         with self._lock:
-            self._spans[ctx.run_id] = span
+            self._spans[ctx.execution_id] = span
 
-    def _pop_span(self, run_id: str) -> Span | None:
+    def _pop_span(self, execution_id: str) -> Span | None:
         with self._lock:
-            return self._spans.pop(run_id, None)
+            return self._spans.pop(execution_id, None)
 
     def _finalize(self, span: Span, ctx: RunContext, status: str) -> None:
         duration = _duration_ms(ctx)
@@ -143,7 +149,7 @@ class OTelRunObserver:
         span.set_attribute(f"{_ATTR_PREFIX}.status", status)
 
     def on_run_completed(self, ctx: RunContext) -> None:
-        span = self._pop_span(ctx.run_id)
+        span = self._pop_span(ctx.execution_id)
         if span is None:
             return
         self._finalize(span, ctx, "completed")
@@ -151,7 +157,7 @@ class OTelRunObserver:
         span.end()
 
     def on_run_failed(self, ctx: RunContext, exc: BaseException) -> None:
-        span = self._pop_span(ctx.run_id)
+        span = self._pop_span(ctx.execution_id)
         if span is None:
             return
         self._finalize(span, ctx, "failed")

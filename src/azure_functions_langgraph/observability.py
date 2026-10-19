@@ -60,6 +60,14 @@ class RunContext:
     thread_id: str | None
     started_at_ns: int
     ended_at_ns: int | None = None
+    # Process-unique lifecycle identity, independent of run_id (#654).
+    # run_id is caller-supplied correlation metadata (e.g. a repeated
+    # X-Request-ID) and is not guaranteed unique across overlapping runs.
+    # execution_id is generated once per RunContext and survives
+    # finish_context()'s dataclasses.replace(), so an observer can track a
+    # specific execution's lifecycle (e.g. an open span) without two
+    # overlapping runs sharing the same key.
+    execution_id: str = dataclasses.field(default_factory=lambda: uuid4().hex)
 
     # --- Optional safe correlation metadata (issue #407) -----------------
     # Every field below is defaulted so the context stays constructible from
