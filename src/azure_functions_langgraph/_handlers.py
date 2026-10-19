@@ -164,6 +164,22 @@ def _resolve_version_kwarg(
     return {"version": version}
 
 
+async def _aclose_async_iterator(agen: Any) -> None:
+    """Await ``agen.aclose()`` if the structural graph's iterator supports it.
+
+    ``AsyncStreamableGraph.astream`` is typed to return ``AsyncIterator``,
+    which does not guarantee ``aclose()`` -- a structural implementation may
+    be a plain async iterator rather than an async generator. Breaking out of
+    an ``async for`` loop does not itself await the generator's pending
+    ``finally`` block; without an explicit ``aclose()`` inside the lock scope,
+    that cleanup can run after the handler has already released the thread
+    lock and returned (#650).
+    """
+    aclose = getattr(agen, "aclose", None)
+    if aclose is not None:
+        await aclose()
+
+
 class _ParsableRequest(Protocol):
     """Structural type for the native invoke/stream request bodies."""
 
@@ -683,27 +699,36 @@ async def handle_stream_async(
 
         stream_error: BaseException | None = None
         safe_observer_call(observer, "on_run_started", ctx)
+        agen = reg.graph.astream(
+            request.input,
+            config=config,
+            stream_mode=request.stream_mode,
+            **version_kwargs,
+        )
         try:
-            async for event in reg.graph.astream(
-                request.input,
-                config=config,
-                stream_mode=request.stream_mode,
-                **version_kwargs,
-            ):
-                serialized = dumps(
-                    event if isinstance(event, dict) else {"data": str(event)},
-                    allow_nan=False,
+            try:
+                async for event in agen:
+                    serialized = dumps(
+                        event if isinstance(event, dict) else {"data": str(event)},
+                        allow_nan=False,
+                    )
+                    if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
+                        stream_error = RuntimeError("stream response exceeded max buffered size")
+                        break
+            except Exception as exc:
+                logger.exception("Graph %s astream failed", reg.name)
+                stream_error = exc
+                error_payload = json.dumps(
+                    {"error": "stream processing failed", "request_id": ctx.run_id}
                 )
-                if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
-                    stream_error = RuntimeError("stream response exceeded max buffered size")
-                    break
-        except Exception as exc:
-            logger.exception("Graph %s astream failed", reg.name)
-            stream_error = exc
-            error_payload = json.dumps(
-                {"error": "stream processing failed", "request_id": ctx.run_id}
-            )
-            _append_chunk(f"event: error\ndata: {error_payload}\n\n")
+                _append_chunk(f"event: error\ndata: {error_payload}\n\n")
+        finally:
+            # Explicitly finish the async generator's cleanup (its own
+            # ``finally``) while the thread lock is still held, on every
+            # exit path: normal completion, the byte-cap break above, and
+            # the astream() exception above. Breaking out of ``async for``
+            # does not itself await that cleanup (#650).
+            await _aclose_async_iterator(agen)
 
     chunks.append("event: end\ndata: {}\n\n")
 
