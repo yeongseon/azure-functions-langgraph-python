@@ -64,7 +64,7 @@ get a clear failure rather than silent drift.
 | `threads.create` | ✅ Full | `metadata` accepted; `ttl` dropped (`extra="ignore"`) with a warning — see the unknown-field note under Runs. |
 | `threads.get` | ✅ Full | |
 | `threads.update` | ✅ Full | Only `metadata` updates — matches SDK `PATCH` shape. |
-| `threads.delete` | ✅ Full | Also clears persisted state when a checkpointer is wired. |
+| `threads.delete` | ✅ Full | Deletes only the `ThreadStore` record (metadata, status, lock state). Checkpoints are **not** deleted — they follow the checkpointer's own separate lifecycle/retention policy (see #54). To also remove checkpoint data, call the checkpointer's own deletion helper explicitly, e.g. `AzureBlobCheckpointSaver.delete_thread(thread_id)` (or `delete_checkpoints_before` / `delete_old_checkpoints` for partial retention) — see the "Checkpoint retention" section in `docs/production-guide.md`. |
 | `threads.search` | ⚠️ Partial | See "Search/count limits" below. |
 | `threads.count` | ⚠️ Partial | See "Search/count limits" below. |
 
