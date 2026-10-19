@@ -915,6 +915,7 @@ The `thread_lock` parameter accepts any object satisfying the [`ThreadLock`](src
 
 ```python
 import azure.functions as func
+from azure.core.exceptions import ResourceExistsError
 from azure.storage.blob import ContainerClient
 
 from azure_functions_langgraph import LangGraphApp
@@ -923,7 +924,17 @@ from azure_functions_langgraph.locks import AzureBlobLeaseThreadLock
 container = ContainerClient.from_connection_string(
     "DefaultEndpointsProtocol=https;AccountName=...", "langgraph-locks"
 )
-container.create_container()  # idempotent — safe on cold start
+try:
+    container.create_container()
+except ResourceExistsError:
+    # Expected on every cold start after the first: create_container() is a
+    # create operation, not an idempotent get-or-create -- the Azure Storage
+    # SDK raises when the container already exists. In production, provision
+    # "langgraph-locks" once via your deployment infrastructure (Bicep/ARM/
+    # Terraform) instead of relying on app-startup creation; this try/except
+    # only keeps the sample runnable standalone. Any other storage error
+    # (e.g. a permissions failure) is intentionally left to propagate.
+    pass
 
 app = LangGraphApp(
     auth_level=func.AuthLevel.FUNCTION,
