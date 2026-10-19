@@ -263,3 +263,96 @@ async def test_async_graph_cancellation_closes_without_sync_worker_wait() -> Non
     assert closed.is_set()
     assert lock.release_calls == 1
     assert observer.events == ["failed"]
+
+
+async def test_async_graph_finally_raise_still_releases_lock_once() -> None:
+    """An async graph whose astream() finally-block raises during cleanup
+    (e.g. on the max_stream_events cap exit) must not skip lock release;
+    the token must be released exactly once and the stream must still
+    terminate with an 'event: end' frame rather than an escaped
+    exception (#656)."""
+
+    class _RaisingCleanupAsyncGraph:
+        async def astream(
+            self,
+            input: dict[str, Any],
+            config: dict[str, Any] | None = None,
+            stream_mode: str = "values",
+        ) -> Any:
+            try:
+                yield {"frame": 1}
+                yield {"frame": 2}
+            finally:
+                raise RuntimeError("dummy graph cleanup failure")
+
+    lock = _RecordingLock()
+    observer = _RecordingObserver()
+    stream = _sse_event_stream(
+        graph=_RaisingCleanupAsyncGraph(),
+        graph_name="agent",
+        input_={},
+        config={},
+        stream_mode="values",
+        version_kwargs={},
+        thread_id="thread-1",
+        lock_token="owner-token",
+        thread_lock=lock,
+        observer=observer,
+        ctx=new_run_context("agent", "stream", transport="streaming"),
+        max_stream_events=1,
+        async_mode=True,
+    )
+    frames = [frame async for frame in stream]
+
+    assert any(frame.startswith("event: data") for frame in frames)
+    assert any(frame.startswith("event: error") for frame in frames)
+    assert frames[-1] == "event: end\ndata: {}\n\n"
+    assert lock.release_calls == 1
+    assert observer.events == ["failed"]
+
+
+async def test_sync_iterator_close_raise_still_releases_lock_once() -> None:
+    """A synchronous iterator whose close() raises must not skip lock
+    release either; same exactly-once release and terminal framing
+    guarantee as the async case (#656)."""
+
+    class _RaisingCloseIterator(Iterator[dict[str, int]]):
+        def __init__(self) -> None:
+            self.pulls = 0
+
+        def __iter__(self) -> _RaisingCloseIterator:
+            return self
+
+        def __next__(self) -> dict[str, int]:
+            self.pulls += 1
+            if self.pulls == 1:
+                return {"frame": 1}
+            raise StopIteration
+
+        def close(self) -> None:
+            raise RuntimeError("dummy iterator close failure")
+
+    class _RaisingCloseGraph:
+        checkpointer = object()
+
+        def __init__(self, iterator: _RaisingCloseIterator) -> None:
+            self.iterator = iterator
+
+        def stream(
+            self,
+            input: dict[str, Any],
+            config: dict[str, Any] | None = None,
+            stream_mode: str = "values",
+        ) -> Iterator[dict[str, int]]:
+            return self.iterator
+
+    iterator = _RaisingCloseIterator()
+    lock = _RecordingLock()
+    observer = _RecordingObserver()
+    stream = _stream(_RaisingCloseGraph(iterator), lock, observer)
+    frames = [frame async for frame in stream]
+
+    assert any(frame.startswith("event: data") for frame in frames)
+    assert frames[-1] == "event: end\ndata: {}\n\n"
+    assert lock.release_calls == 1
+    assert observer.events == ["failed"]
