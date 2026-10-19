@@ -189,6 +189,65 @@ class TestEdgeCases:
         assert spans["b"].status.status_code == StatusCode.OK
         assert spans["a"].status.status_code == StatusCode.ERROR
 
+    def test_overlapping_runs_sharing_a_run_id_both_emit_terminal_spans(
+        self, observer: OTelRunObserver, exporter: InMemorySpanExporter
+    ) -> None:
+        """Two overlapping runs with an identical caller-supplied run_id
+        (e.g. a repeated X-Request-ID) must each still emit exactly one
+        correctly attributed terminal span (#654)."""
+        first = _started(graph_name="first", run_id="client-request")
+        second = _started(graph_name="second", run_id="client-request")
+        assert first.run_id == second.run_id
+        assert first.execution_id != second.execution_id
+
+        observer.on_run_started(first)
+        observer.on_run_started(second)
+        observer.on_run_completed(finish_context(first))
+        observer.on_run_completed(finish_context(second))
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 2
+        graph_names = {_attrs(s)["langgraph.graph_name"] for s in spans}
+        assert graph_names == {"first", "second"}
+        for span in spans:
+            assert span.status.status_code == StatusCode.OK
+            assert _attrs(span)["langgraph.run_id"] == "client-request"
+
+    def test_overlapping_runs_same_run_id_mixed_outcomes_reversed_order(
+        self, observer: OTelRunObserver, exporter: InMemorySpanExporter
+    ) -> None:
+        """Mixed success/failure and reversed completion order must not
+        cross-attribute status between two same-run_id executions (#654)."""
+        first = _started(graph_name="first", run_id="dup")
+        second = _started(graph_name="second", run_id="dup")
+
+        observer.on_run_started(first)
+        observer.on_run_started(second)
+        # Complete the *second*-started run first, with a failure.
+        observer.on_run_failed(finish_context(second), RuntimeError("boom"))
+        observer.on_run_completed(finish_context(first))
+
+        spans = {_attrs(s)["langgraph.graph_name"]: s for s in exporter.get_finished_spans()}
+        assert spans["first"].status.status_code == StatusCode.OK
+        assert spans["second"].status.status_code == StatusCode.ERROR
+
+    def test_duplicate_terminal_callback_does_not_double_end_shared_run_id_span(
+        self, observer: OTelRunObserver, exporter: InMemorySpanExporter
+    ) -> None:
+        first = _started(graph_name="first", run_id="dup")
+        second = _started(graph_name="second", run_id="dup")
+
+        observer.on_run_started(first)
+        observer.on_run_started(second)
+        observer.on_run_completed(finish_context(first))
+        # A duplicate terminal callback for the same execution must be a
+        # no-op, not re-end the span or end the other overlapping run's span.
+        observer.on_run_completed(finish_context(first))
+        observer.on_run_completed(finish_context(second))
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 2
+
     def test_custom_span_name_prefix(self, exporter: InMemorySpanExporter) -> None:
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
