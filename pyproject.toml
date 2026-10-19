@@ -73,6 +73,9 @@ streaming = [
 durable = [
     "azure-functions-durable>=1.2,<2",
 ]
+openapi = [
+    "azure-functions-openapi>=0.30,<1",
+]
 dev = [
     "bandit==1.9.4",
     "build",
@@ -170,6 +173,12 @@ features = ["dev", "azure-table"]
 
 [tool.hatch.envs.table.scripts]
 test = "pytest -v -m integration tests/integration/test_table_store_integration.py --no-cov"
+
+[tool.hatch.envs.openapi]
+features = ["dev", "openapi"]
+
+[tool.hatch.envs.openapi.scripts]
+test = "pytest -v tests/test_openapi_real_companion_interop.py --no-cov"
 
 [tool.ruff]
 line-length = 100
