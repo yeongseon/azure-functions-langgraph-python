@@ -87,6 +87,18 @@ def test_invoke_runs_the_graph() -> None:
     assert any("Goodbye!" in (c or "") for c in contents), body
 
 
+def _parse_sse_events(text: str) -> list[tuple[str, str]]:
+    """Parse ``event: <type>\\ndata: <payload>\\n\\n`` blocks into (event, data) pairs."""
+    pairs: list[tuple[str, str]] = []
+    event_type: str | None = None
+    for raw in text.splitlines():
+        if raw.startswith("event:"):
+            event_type = raw[len("event:") :].strip()
+        elif raw.startswith("data:"):
+            pairs.append((event_type or "", raw[len("data:") :].strip()))
+    return pairs
+
+
 @pytest.mark.skipif(not BASE_URL, reason=SKIP_REASON)
 def test_stream_emits_events() -> None:
     payload = {
@@ -100,17 +112,32 @@ def test_stream_emits_events() -> None:
         stream=True,
     )
     assert r.status_code == 200, r.text
-    saw_json_frame = False
-    for raw in r.iter_lines(decode_unicode=True):
-        if not raw:
+    assert "text/event-stream" in r.headers.get("Content-Type", ""), r.headers
+    events = _parse_sse_events(r.text)
+
+    error_events = [data for event, data in events if event == "error"]
+    assert not error_events, f"stream must not certify an error frame: {error_events}"
+
+    assert events and events[-1][0] == "end", f"stream must end with 'event: end': {events}"
+
+    saw_expected_graph_output = False
+    for event, data in events:
+        if event != "data":
             continue
-        if raw.startswith("data:"):
-            data = raw[len("data:") :].strip()
-            if data and data != "{}":
-                # A JSON-decodable SSE data frame proves the stream route runs.
-                try:
-                    json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                saw_json_frame = True
-    assert saw_json_frame, "stream produced no JSON-decodable SSE data frames"
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        if parsed.get("greeting") != "Hello, World!":
+            continue
+        contents = [m.get("content") for m in parsed.get("messages", [])]
+        if any("Goodbye!" in (c or "") for c in contents):
+            saw_expected_graph_output = True
+            break
+
+    assert saw_expected_graph_output, (
+        f"stream never emitted the deterministic e2e_agent output "
+        f"(greeting='Hello, World!' + a 'Goodbye!' message): {events}"
+    )
