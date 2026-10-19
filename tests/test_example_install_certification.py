@@ -84,6 +84,8 @@ def test_tool_calling_example_starts_without_optional_openapi_package(
     # Given: a clean primary install without azure-functions-openapi
     example_dir = Path(__file__).resolve().parents[1] / "examples" / "tool_calling_agent"
     monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
+    sys.modules.pop("model_config", None)
+    sys.modules.pop("tools", None)
     monkeypatch.syspath_prepend(str(example_dir))
 
     # When: the Functions entry point is loaded
