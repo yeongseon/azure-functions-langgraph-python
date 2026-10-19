@@ -8,11 +8,25 @@ a final-head author-reply, a remapped inline-comment commit, and the
 
 from __future__ import annotations
 
-from tools.classify_review_evidence import (
-    classify_inline_comment,
-    classify_review,
-    has_open_findings,
-)
+import importlib.util
+from pathlib import Path
+import sys
+
+# Load by file path, not package import: the installed-wheel test tier runs
+# pytest from outside the checkout (see tools/wheel-tests.ini), where the
+# dev-only `tools/` directory is not on sys.path and has no distributed
+# package entry -- mirrors how tests/test_example_install_certification.py
+# loads scripts/certify_primary_examples.py.
+_MODULE_PATH = Path(__file__).resolve().parents[1] / "tools" / "classify_review_evidence.py"
+_SPEC = importlib.util.spec_from_file_location("classify_review_evidence", _MODULE_PATH)
+assert _SPEC is not None and _SPEC.loader is not None
+_MODULE = importlib.util.module_from_spec(_SPEC)
+sys.modules[_SPEC.name] = _MODULE
+_SPEC.loader.exec_module(_MODULE)
+
+classify_inline_comment = _MODULE.classify_inline_comment
+classify_review = _MODULE.classify_review
+has_open_findings = _MODULE.has_open_findings
 
 PR_AUTHOR = "yeongseon"
 CURRENT_HEAD = "cccccc2"
