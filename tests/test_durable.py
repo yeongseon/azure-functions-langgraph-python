@@ -172,6 +172,61 @@ class TestActivity:
         assert result.activity_status == "success"
         assert result.result == {"a": 2}
 
+    async def test_async_only_graph_auto_detected_with_default_async_mode(self) -> None:
+        """An async-only graph (no sync invoke) registered with the default
+        async_mode=False must still run via ainvoke, matching the native
+        route's auto-detection -- not fail with AttributeError (#653)."""
+        graph = FakeAsyncGraph(result={"auto": True})
+        reg = FakeReg(graph, "echo", async_mode=False)
+        obs = RecordingObserver()
+        result = await execute_langgraph_run_impl(
+            _payload(), registry={"echo": reg}, thread_lock=InProcessThreadLock(), observer=obs
+        )
+        assert result.activity_status == "success"
+        assert result.result == {"auto": True}
+        assert obs.events == ["started", "completed"]
+        assert graph.calls == [({"x": 1}, None)]
+
+    async def test_async_only_graph_propagates_thread_id_config_with_default_async_mode(
+        self,
+    ) -> None:
+        graph = FakeAsyncGraph(checkpointer=object(), result={"a": 4})
+        reg = FakeReg(graph, "echo", async_mode=False)
+        result = await execute_langgraph_run_impl(
+            _payload(thread_id="t1"), registry={"echo": reg}, thread_lock=InProcessThreadLock()
+        )
+        assert result.activity_status == "success"
+        assert result.result == {"a": 4}
+        assert graph.calls[0][1] == {"configurable": {"thread_id": "t1"}}
+
+    async def test_sync_and_async_capable_graph_defaults_to_sync_path(self) -> None:
+        """A graph exposing both invoke and ainvoke must still default to the
+        synchronous path unless async_mode=True is explicitly set (#653)."""
+
+        class _DualGraph:
+            checkpointer = None
+
+            def __init__(self) -> None:
+                self.sync_calls = 0
+                self.async_calls = 0
+
+            def invoke(self, input: Any, config: Any = None) -> Any:
+                self.sync_calls += 1
+                return {"path": "sync"}
+
+            async def ainvoke(self, input: Any, config: Any = None) -> Any:
+                self.async_calls += 1
+                return {"path": "async"}
+
+        graph = _DualGraph()
+        reg = FakeReg(graph, "echo", async_mode=False)
+        result = await execute_langgraph_run_impl(
+            _payload(), registry={"echo": reg}, thread_lock=InProcessThreadLock()
+        )
+        assert result.result == {"path": "sync"}
+        assert graph.sync_calls == 1
+        assert graph.async_calls == 0
+
     async def test_unknown_graph_returns_failure(self) -> None:
         result = await execute_langgraph_run_impl(
             _payload(graph_name="missing"),

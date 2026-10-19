@@ -31,6 +31,7 @@ from azure_functions_langgraph.observability import (
     new_run_context,
     safe_observer_call,
 )
+from azure_functions_langgraph.protocols import InvocableGraph
 
 __all__ = ["GraphRegistrationLike", "execute_langgraph_run_impl"]
 
@@ -57,6 +58,18 @@ def _has_checkpointer(graph: Any) -> bool:
     """Whether a compiled graph has a checkpointer attached."""
 
     return getattr(graph, "checkpointer", None) is not None
+
+
+def _is_async(reg: GraphRegistrationLike) -> bool:
+    """Whether a graph should be invoked through ``ainvoke``.
+
+    Mirrors ``LangGraphApp._is_async``: true when the operator opted in with
+    ``async_mode=True``, or when the graph exposes only async methods (no
+    sync ``invoke``) so it is auto-routed the same way native routes already
+    do (#653) -- otherwise a graph accepted by registration still fails here
+    with an AttributeError on ``invoke``.
+    """
+    return reg.async_mode or not isinstance(reg.graph, InvocableGraph)
 
 
 async def execute_langgraph_run_impl(
@@ -126,9 +139,9 @@ async def execute_langgraph_run_impl(
 async def _invoke_graph(
     reg: GraphRegistrationLike, graph_input: Any, config: dict[str, Any] | None
 ) -> Any:
-    """Invoke the graph, using ``ainvoke`` when the registration is async."""
+    """Invoke the graph, using ``ainvoke`` when the graph is effectively async."""
 
-    if reg.async_mode:
+    if _is_async(reg):
         if config is not None:
             return await reg.graph.ainvoke(graph_input, config=config)
         return await reg.graph.ainvoke(graph_input)
