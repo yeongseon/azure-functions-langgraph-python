@@ -338,6 +338,44 @@ class TestRunLock:
         assert store.renew_run_lock(thread.thread_id, locked.lock_token)
         assert not store.renew_run_lock(thread.thread_id, "stale-owner")
 
+    def test_renew_twice_then_owner_release_then_reacquire(self) -> None:
+        """A successful renewal preserves the owner token and permits a
+        subsequent renewal and release by that same owner (#640)."""
+        store = InMemoryThreadStore(id_factory=lambda: "thread-1")
+        thread = store.create()
+        acquired = store.try_acquire_run_lock(thread.thread_id)
+        assert acquired is not None and acquired.lock_token is not None
+        token = acquired.lock_token
+
+        assert store.renew_run_lock(thread.thread_id, token)
+        after_first_renew = store.get(thread.thread_id)
+        assert after_first_renew is not None and after_first_renew.lock_token == token
+
+        assert store.renew_run_lock(thread.thread_id, token)
+
+        released = store.release_run_lock(thread.thread_id, status="idle", owner_token=token)
+        assert released.status == "idle"
+        assert store.try_acquire_run_lock(thread.thread_id) is not None
+
+    def test_metadata_update_preserves_lock_ownership(self) -> None:
+        """A supported metadata-only update() during a run must not clear
+        the current owner's lock token (#640)."""
+        store = InMemoryThreadStore(id_factory=lambda: "thread-1")
+        thread = store.create()
+        acquired = store.try_acquire_run_lock(thread.thread_id)
+        assert acquired is not None and acquired.lock_token is not None
+        token = acquired.lock_token
+
+        store.update(thread.thread_id, metadata={"review": "local"})
+
+        after_update = store.get(thread.thread_id)
+        assert after_update is not None and after_update.lock_token == token
+        assert store.renew_run_lock(thread.thread_id, token)
+
+        released = store.release_run_lock(thread.thread_id, status="idle", owner_token=token)
+        assert released.status == "idle"
+        assert store.try_acquire_run_lock(thread.thread_id) is not None
+
 
 # ---------------------------------------------------------------------------
 # Delete
