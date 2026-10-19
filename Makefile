@@ -118,6 +118,10 @@ test-table: ensure-hatch
 	docker compose -f docker-compose.azurite.yml up -d --wait; \
 	$(HATCH) run table:test
 
+.PHONY: test-openapi
+test-openapi: ensure-hatch
+	@$(HATCH) run openapi:test
+
 .PHONY: cov
 cov: ensure-hatch
 	@$(HATCH) run cov
