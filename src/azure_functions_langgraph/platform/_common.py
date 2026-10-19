@@ -324,6 +324,9 @@ def _validate_run_io_structure(
         )
         if config_err:
             return _platform_error(400, config_err)
+        configurable = run_req.config.get("configurable")
+        if configurable is not None and not isinstance(configurable, dict):
+            return _platform_error(400, "config.configurable must be a JSON object or null")
     return None
 
 
@@ -350,7 +353,12 @@ def _build_threaded_config(run_req: RunCreate, thread_id: str) -> dict[str, Any]
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
     if run_req.config:
         user_config = dict(run_req.config)
-        user_configurable = user_config.pop("configurable", {})
+        # An explicit `"configurable": null` passes validation (treated as
+        # absent, matching the native route's _extract_thread_id policy) but
+        # .pop()'s default only applies when the key is missing entirely, not
+        # when it is present with a None value -- normalize here so callers
+        # never see None (#648).
+        user_configurable = user_config.pop("configurable", {}) or {}
         config["configurable"].update(user_configurable)
         config["configurable"]["thread_id"] = thread_id
         config.update(user_config)
@@ -368,7 +376,7 @@ def _build_threadless_config(
     config: dict[str, Any] = {}
     if run_req.config:
         user_config = dict(run_req.config)
-        user_configurable = user_config.pop("configurable", {})
+        user_configurable = user_config.pop("configurable", {}) or {}
         config["configurable"] = user_configurable
         config.update(user_config)
     if config.get("configurable", {}).get("thread_id") is not None:
