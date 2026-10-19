@@ -394,7 +394,17 @@ async def _sse_event_stream(
         payload = json.dumps({"error": "stream processing failed", "request_id": ctx.run_id})
         yield f"event: error\ndata: {payload}\n\n"
     finally:
-        await events.aclose()
+        try:
+            await events.aclose()
+        except Exception:
+            # Swallow a cleanup failure here rather than letting it replace
+            # whatever is currently propagating (a primary stream exception,
+            # or a CancelledError/GeneratorExit from the except branches
+            # above, which must still win and re-raise cleanly). The lock
+            # must still be released below either way (#656).
+            logger.exception("Graph %s stream cleanup (aclose) failed", graph_name)
+            if stream_error is None:
+                stream_error = RuntimeError("stream cleanup failed")
         if lock_token is not None and thread_id is not None:
             await release_thread_lock(thread_lock, graph_name, thread_id, lock_token)
 
