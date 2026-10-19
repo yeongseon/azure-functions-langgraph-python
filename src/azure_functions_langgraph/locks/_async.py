@@ -84,15 +84,24 @@ async def release_thread_lock(
         raise cancellation
 
 
-@asynccontextmanager
-async def async_thread_lock(
-    thread_lock: ThreadLock, graph_name: str, thread_id: str | None
-) -> AsyncIterator[str | None]:
-    """Acquire and release an owner token without losing it to cancellation."""
-    if thread_id is None:
-        yield None
-        return
+async def acquire_thread_lock(
+    thread_lock: ThreadLock, graph_name: str, thread_id: str
+) -> str | None:
+    """Acquire one owner token without losing it to cancellation.
 
+    Unlike :func:`async_thread_lock`, this does not also release the token --
+    use it when ownership must be handed off to something else (e.g. a
+    streaming response generator) that releases it later on its own
+    lifecycle, rather than when an ``async with`` block exits immediately
+    after acquiring.
+
+    If the caller is cancelled while the underlying synchronous ``acquire``
+    is still running in a worker thread, that acquisition cannot itself be
+    interrupted (see :meth:`concurrent.futures.Future.cancel`): this
+    function still awaits its eventual result, releases it immediately if a
+    token was in fact acquired, and re-raises the cancellation -- so a
+    cancelled caller never leaks an acquired-but-never-tracked token.
+    """
     caller = asyncio.current_task()
     cancellation_count = caller.cancelling() if caller is not None else 0
     acquire_task = asyncio.create_task(
@@ -134,6 +143,19 @@ async def async_thread_lock(
                 pass
         raise cancellation
 
+    return token
+
+
+@asynccontextmanager
+async def async_thread_lock(
+    thread_lock: ThreadLock, graph_name: str, thread_id: str | None
+) -> AsyncIterator[str | None]:
+    """Acquire and release an owner token without losing it to cancellation."""
+    if thread_id is None:
+        yield None
+        return
+
+    token = await acquire_thread_lock(thread_lock, graph_name, thread_id)
     try:
         yield token
     finally:

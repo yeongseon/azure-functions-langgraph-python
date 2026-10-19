@@ -12,5 +12,6 @@ tests/test_production_persistent_agent_example.py
 tests/test_sdk_compat.py
 # Requires the azurefunctions-extensions-http-fastapi streaming extra.
 tests/test_streaming_app.py
+tests/test_streaming_cancellation_safe_acquire.py
 tests/test_sync_invoke_cancellation.py
 tests/test_true_streaming_example.py
