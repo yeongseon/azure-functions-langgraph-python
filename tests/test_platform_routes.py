@@ -4177,4 +4177,224 @@ class TestStoreRenewalWorkerOwnership:
         final = store.get(thread.thread_id)
         assert final is not None
         assert final.status == "idle"
+
+
+class _FakeContextGraph:
+    """Graph whose invoke/stream accept a context kwarg (#649)."""
+
+    checkpointer = None
+
+    def __init__(self) -> None:
+        self.invoke_kwargs: dict[str, Any] | None = None
+        self.stream_kwargs: dict[str, Any] | None = None
+
+    def invoke(
+        self, input: dict[str, Any], config: dict[str, Any] | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
+        self.invoke_kwargs = kwargs
+        return {"context_seen": kwargs.get("context")}
+
+    def stream(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "values",
+        **kwargs: Any,
+    ) -> Iterator[dict[str, Any]]:
+        self.stream_kwargs = kwargs
+        yield {"context_seen": kwargs.get("context")}
+
+
+class TestRunsContextAndMetadata:
+    """RunCreate.context is forwarded to invoke/stream when the target graph
+    accepts it (rejected with 422 otherwise), and RunCreate.metadata is
+    merged onto the thread for threaded runs (#649)."""
+
+    def test_threaded_wait_forwards_context_to_supporting_graph(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        g = _FakeContextGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/wait",
+            {"assistant_id": "agent", "input": {}, "context": {"user_id": "u1"}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        assert g.invoke_kwargs == {"context": {"user_id": "u1"}}
+
+    def test_threaded_stream_forwards_context_to_supporting_graph(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        g = _FakeContextGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "context": {"user_id": "u1"}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        assert g.stream_kwargs == {"context": {"user_id": "u1"}}
+
+    def test_threadless_wait_forwards_context_to_supporting_graph(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        g = _FakeContextGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+        req = _post_request(
+            "/api/runs/wait",
+            {"assistant_id": "agent", "input": {}, "context": {"user_id": "u1"}},
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        assert g.invoke_kwargs == {"context": {"user_id": "u1"}}
+
+    def test_threadless_stream_forwards_context_to_supporting_graph(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        g = _FakeContextGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream_threadless")
+        req = _post_request(
+            "/api/runs/stream",
+            {"assistant_id": "agent", "input": {}, "context": {"user_id": "u1"}},
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        assert g.stream_kwargs == {"context": {"user_id": "u1"}}
+
+    def test_threaded_wait_rejects_context_for_non_supporting_graph(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/wait",
+            {"assistant_id": "agent", "input": {}, "context": {"user_id": "u1"}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 422
+        assert "context" in json.loads(resp.get_body())["detail"]
+        after = store.get(thread.thread_id)
+        assert after is not None and after.status == "idle"
         assert store.try_acquire_run_lock(thread.thread_id) is not None
+
+    def test_threadless_wait_rejects_context_for_non_supporting_graph(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+        req = _post_request(
+            "/api/runs/wait",
+            {"assistant_id": "agent", "input": {}, "context": {"user_id": "u1"}},
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 422
+
+    def test_omitted_context_does_not_forward_to_non_supporting_graph(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/wait",
+            {"assistant_id": "agent", "input": {}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+
+    def test_threaded_wait_merges_metadata_preserving_existing_keys(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create(metadata={"existing": "kept"})
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/wait",
+            {"assistant_id": "agent", "input": {}, "metadata": {"request_tag": "t1"}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        after = store.get(thread.thread_id)
+        assert after is not None
+        assert after.metadata == {"existing": "kept", "request_tag": "t1"}
+
+    def test_threaded_stream_merges_metadata_preserving_existing_keys(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create(metadata={"existing": "kept"})
+
+        fn = _get_fn(fa, "aflg_platform_runs_stream")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/runs/stream",
+            {"assistant_id": "agent", "input": {}, "metadata": {"request_tag": "t1"}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        after = store.get(thread.thread_id)
+        assert after is not None
+        assert after.metadata == {"existing": "kept", "request_tag": "t1"}
+
+    def test_threadless_wait_accepts_metadata_without_persisting_it(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        """No thread exists for threadless execution, so metadata has
+        nowhere to persist -- it must be accepted (not an error), not
+        silently claimed as persisted anywhere (#649)."""
+        g = FakeCompiledGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+
+        fn = _get_fn(fa, "aflg_platform_runs_wait_threadless")
+        req = _post_request(
+            "/api/runs/wait",
+            {"assistant_id": "agent", "input": {}, "metadata": {"request_tag": "t1"}},
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
