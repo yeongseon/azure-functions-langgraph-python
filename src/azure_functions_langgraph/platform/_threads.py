@@ -36,6 +36,7 @@ from azure_functions_langgraph.platform.contracts import (
     ThreadSearch,
     ThreadState,
     ThreadStateUpdate,
+    ThreadStatus,
     ThreadUpdate,
 )
 from azure_functions_langgraph.protocols import (
@@ -43,6 +44,44 @@ from azure_functions_langgraph.protocols import (
     StateHistoryGraph,
     UpdatableStateGraph,
 )
+
+
+def _release_thread_state_lock(
+    deps: PlatformRouteDeps,
+    thread_id: str,
+    graph_name: str,
+    lock_token: str,
+    *,
+    status: ThreadStatus,
+    store_owner_token: str | None = None,
+) -> None:
+    """Release both the distributed thread lock and the store-backed run lock
+    held while a state update is in flight, returning the thread to *status*.
+
+    Mirrors ``_release_thread_run_lock`` in ``_runs.py`` (no renewal thread is
+    started here since ``update_state`` is a single synchronous call expected
+    to complete well within the store's lock-lease window).
+    """
+    try:
+        deps.thread_store.release_run_lock(
+            thread_id,
+            status=status,
+            owner_token=store_owner_token or lock_token,
+        )
+    except KeyError:
+        logger.warning(
+            "Thread %s disappeared before state-update lock release to %s",
+            thread_id,
+            status,
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error releasing state-update lock for thread %s (target status: %s)",
+            thread_id,
+            status,
+        )
+    finally:
+        deps.thread_lock.release(graph_name, thread_id, lock_token)
 
 
 def register_thread_routes(
@@ -331,13 +370,75 @@ def register_thread_routes(
         if isinstance(config, func.HttpResponse):
             return config
 
+        # _resolve_thread_graph already confirmed the thread exists and is
+        # bound to an assistant; re-fetch it to learn the graph name (for the
+        # distributed thread lock) and the thread's current terminal status,
+        # so the update can be coordinated with active native/Platform runs
+        # using the same single-writer exclusion, and so the prior status
+        # (idle/interrupted/error) is preserved across the update instead of
+        # being unconditionally forced back to "idle".
+        thread = deps.thread_store.get(thread_id)
+        if thread is None or thread.assistant_id is None:
+            return _platform_error(404, f"Thread {thread_id!r} not found")
+        graph_name = thread.assistant_id
+        prior_status = thread.status
+
+        lock_token = deps.thread_lock.acquire(graph_name, thread_id)
+        if lock_token is None:
+            return _platform_error(
+                409,
+                f"Thread {thread_id!r} is already busy. "
+                f"State updates are not supported while a run is active.",
+            )
+        try:
+            locked = deps.thread_store.try_acquire_run_lock(thread_id, assistant_id=graph_name)
+        except KeyError:
+            deps.thread_lock.release(graph_name, thread_id, lock_token)
+            return _platform_error(404, f"Thread {thread_id!r} not found")
+        except ValueError as exc:
+            deps.thread_lock.release(graph_name, thread_id, lock_token)
+            return _platform_error(409, str(exc))
+        if locked is None:
+            deps.thread_lock.release(graph_name, thread_id, lock_token)
+            return _platform_error(
+                409,
+                f"Thread {thread_id!r} is already busy. "
+                f"State updates are not supported while a run is active.",
+            )
+        store_lock_token = locked.lock_token or lock_token
+
         try:
             result = graph.update_state(config, update_req.values, as_node=update_req.as_node)
         except (KeyError, ValueError) as exc:
+            _release_thread_state_lock(
+                deps,
+                thread_id,
+                graph_name,
+                lock_token,
+                status="error",
+                store_owner_token=store_lock_token,
+            )
             return _platform_error(404, f"Cannot update state for thread {thread_id!r}: {exc}")
         except Exception:
             logger.exception("update_state failed for thread %s", thread_id)
+            _release_thread_state_lock(
+                deps,
+                thread_id,
+                graph_name,
+                lock_token,
+                status="error",
+                store_owner_token=store_lock_token,
+            )
             return _platform_error(500, "Internal error updating thread state")
+
+        _release_thread_state_lock(
+            deps,
+            thread_id,
+            graph_name,
+            lock_token,
+            status=prior_status,
+            store_owner_token=store_lock_token,
+        )
 
         result_configurable = result.get("configurable", {}) if isinstance(result, dict) else {}
         response_checkpoint = Checkpoint(

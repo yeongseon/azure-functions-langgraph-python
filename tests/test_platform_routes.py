@@ -3588,6 +3588,107 @@ class TestThreadsStateUpdate:
         assert resp.status_code == 400
         assert "node" in json.loads(resp.get_body())["detail"].lower()
 
+    def test_update_state_rejected_while_run_active(self, store: InMemoryThreadStore) -> None:
+        """A state update is rejected with 409 while a run holds the thread,
+        instead of writing a checkpoint concurrently with that run (#657)."""
+        g = FakeStatefulGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+
+        # Simulate an in-flight run: hold both the distributed thread lock and
+        # the store-backed run lock, exactly as runs_wait does before invoking.
+        thread_lock = app.thread_lock
+        assert thread_lock is not None
+        run_lock_token = thread_lock.acquire("agent", thread.thread_id)
+        assert run_lock_token is not None
+        locked = store.try_acquire_run_lock(thread.thread_id, assistant_id="agent")
+        assert locked is not None
+
+        fn = _get_fn(fa, "aflg_platform_threads_state_update")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/state",
+            {"values": {"value": 100}, "as_node": "work"},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 409
+        # The rejected update must not have touched the graph state; the
+        # thread is still busy and owned by the original run.
+        current = store.get(thread.thread_id)
+        assert current is not None
+        assert current.status == "busy"
+        assert current.lock_token == locked.lock_token
+
+        thread_lock.release("agent", thread.thread_id, run_lock_token)
+        store.release_run_lock(thread.thread_id, status="idle", owner_token=locked.lock_token)
+
+    def test_update_state_success_preserves_prior_status(self, store: InMemoryThreadStore) -> None:
+        """A successful update returns the thread to its prior terminal status
+        (not unconditionally "idle"), and releases both locks so a subsequent
+        run can acquire the thread (#657)."""
+        g = FakeStatefulGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent", status="interrupted")
+
+        fn = _get_fn(fa, "aflg_platform_threads_state_update")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/state",
+            {"values": {"k": "v"}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 200
+        current = store.get(thread.thread_id)
+        assert current is not None
+        assert current.status == "interrupted"
+        assert current.lock_token is None
+
+        # Both locks were released: a run can now acquire the thread.
+        thread_lock = app.thread_lock
+        assert thread_lock is not None
+        run_lock_token = thread_lock.acquire("agent", thread.thread_id)
+        assert run_lock_token is not None
+        locked = store.try_acquire_run_lock(thread.thread_id, assistant_id="agent")
+        assert locked is not None
+
+    def test_update_state_graph_failure_sets_error_and_releases_locks(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        """A graph.update_state() failure still releases both locks, leaving
+        the thread in "error" status rather than stuck "busy" (#657)."""
+        from tests.conftest import FakeFailingUpdateStateGraph
+
+        g = FakeFailingUpdateStateGraph()
+        app = _build_platform_app(graphs={"agent": g}, store=store)
+        fa = app.function_app
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+
+        fn = _get_fn(fa, "aflg_platform_threads_state_update")
+        req = _post_request(
+            f"/api/threads/{thread.thread_id}/state",
+            {"values": {"k": "v"}},
+            thread_id=thread.thread_id,
+        )
+        resp = fn(req)
+
+        assert resp.status_code == 500
+        current = store.get(thread.thread_id)
+        assert current is not None
+        assert current.status == "error"
+        assert current.lock_token is None
+
+        thread_lock = app.thread_lock
+        assert thread_lock is not None
+        run_lock_token = thread_lock.acquire("agent", thread.thread_id)
+        assert run_lock_token is not None
+
 
 # ---------------------------------------------------------------------------
 # POST /threads/{thread_id}/history — Issue #58
