@@ -14,7 +14,7 @@ gated step.
 |---|---|
 | `release-please.yml` | version calculation, `CHANGELOG.md`, the Release PR, the tag, the GitHub Release |
 | `e2e-azure.yml` | real-Azure certification of one exact commit |
-| `publish-pypi.yml` | the only path that uploads to PyPI (`workflow_dispatch` only) |
+| `publish-pypi.yml` | the only path that uploads to PyPI (runs on the release tag push, or via `workflow_dispatch` to retry) |
 
 **Do not hand-edit** `src/azure_functions_langgraph/__init__.py` version strings, `CHANGELOG.md`, or
 `.release-please-manifest.json`. Release Please maintains all three.
@@ -42,13 +42,12 @@ Use scopes for more context: `fix(scope): short imperative summary`
 |--------|--------------------|
 | `feat:` | Features |
 | `fix:` | Bug Fixes |
-| `docs:` | Documentation |
-| `refactor:` | Refactor |
-| `style:` | Styling |
-| `test:` | Testing |
 | `perf:` | Performance |
-| `ci:` / `chore:` | Miscellaneous Tasks |
-| `build:` | Other |
+| `revert:` | Reverts |
+
+`docs:`, `refactor:`, `style:`, `test:`, `ci:`, `chore:`, and `build:` commits are accepted but
+marked `"hidden": true` in `release-please-config.json`, so they do not appear in `CHANGELOG.md` and
+do not by themselves justify a release — a batch containing only these types produces no Release PR.
 
 These are configured in `release-please-config.json` under `changelog-sections`.
 
@@ -74,7 +73,7 @@ it does, or no Release PR will appear.
 The tag starts `publish-pypi.yml`. Everything else is automatic:
 
 ```
-build -> lib-tests -> wheel-tests -> azure-e2e -> publish
+build -> lib-tests, wheel-tests, runtime-audit, azure-e2e -> publish -> notify-cookbook
 ```
 
 | Tier | Catches |
@@ -82,8 +81,12 @@ build -> lib-tests -> wheel-tests -> azure-e2e -> publish
 | `build` | tag/`__version__` mismatch; produces the one artifact that is later uploaded |
 | `lib-tests` | library unit regressions against the **source tree** — this is where the ≥95% coverage gate is enforced |
 | `wheel-tests` | packaging regressions — runs the **same unit suite (including the `examples/` smoke tests) against the *installed built wheel*** (imports resolve from site-packages, not `src/`), so missing wheel files, bad metadata, or install-only import errors fail fast. This is how the examples are exercised against a built wheel, not just the source tree. Coverage is not re-measured here. |
+| `runtime-audit` | candidate runtime dependency audit against the built distribution — resolves and records the dependency closure actually shipped in the artifact |
 | `azure-e2e` | cloud-only drift — deploys this package's own `examples/e2e_app/` to real Azure (Y1 Consumption), runs the native LangGraph HTTP e2e (health/invoke/stream), and uploads an `azure-cert` record keyed by commit SHA + version. |
 | `publish` | uploads the exact artifact `build` produced; it never rebuilds |
+
+`lib-tests`, `wheel-tests`, `runtime-audit`, and `azure-e2e` all depend only on `build` and run in
+parallel; `publish` waits on all four.
 
 `azure-e2e` calls `e2e-azure.yml` as a reusable workflow at the same ref being published, so
 certification covers the exact published commit by construction. There is no separate certification
@@ -94,8 +97,14 @@ Publication uses PyPI Trusted Publishing (OIDC); there is no API token to manage
 To re-run after a failed gate (nothing was uploaded, so the version is still free):
 
 ```bash
-gh workflow run publish-pypi.yml --ref main -f tag=v0.9.0
+gh workflow run publish-pypi.yml --ref v0.9.0
 ```
+
+The dispatch declares no inputs. Selecting the existing tag with `--ref` makes `github.ref_name`
+match the package version validation the workflow performs. This retries the *same* release
+candidate after a transient or external failure (e.g. a flaky Azure deploy, a PyPI outage). A source
+or workflow fix instead requires a new commit on `main` and a new Release PR/tag — it is never
+applied retroactively to an already-cut tag. Never move or reuse a tag.
 
 ---
 
