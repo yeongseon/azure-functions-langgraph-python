@@ -239,21 +239,20 @@ class InMemoryThreadStore:
                 raise KeyError(thread_id)
 
             existing = self._threads[thread_id]
-            data = existing.model_dump()
-            data["updated_at"] = self._now()
+            update: dict[str, Any] = {"updated_at": self._now()}
 
             if metadata is not None:
-                data["metadata"] = dict(metadata)
+                update["metadata"] = dict(metadata)
             if status is not None:
-                data["status"] = status
+                update["status"] = status
             if values is not None:
-                data["values"] = values
+                update["values"] = values
             if interrupts is not None:
-                data["interrupts"] = interrupts
+                update["interrupts"] = interrupts
             if assistant_id is not None:
-                data["assistant_id"] = assistant_id
+                update["assistant_id"] = assistant_id
 
-            updated = Thread.model_validate(data)
+            updated = existing.model_copy(update=update)
             self._threads[thread_id] = updated
             return self._deep_copy(updated)
 
@@ -286,14 +285,16 @@ class InMemoryThreadStore:
                 )
             if existing.status == "busy":
                 return None
-            data = existing.model_dump()
-            data["status"] = "busy"
-            data["updated_at"] = self._now()
-            data["lock_token"] = uuid.uuid4().hex
-            data["lock_expires_at"] = data["updated_at"] + timedelta(seconds=60)
+            now = self._now()
+            update: dict[str, Any] = {
+                "status": "busy",
+                "updated_at": now,
+                "lock_token": uuid.uuid4().hex,
+                "lock_expires_at": now + timedelta(seconds=60),
+            }
             if existing.assistant_id is None and assistant_id is not None:
-                data["assistant_id"] = assistant_id
-            updated = Thread.model_validate(data)
+                update["assistant_id"] = assistant_id
+            updated = existing.model_copy(update=update)
             self._threads[thread_id] = updated
             return self._deep_copy(updated)
 
@@ -314,14 +315,15 @@ class InMemoryThreadStore:
             existing = self._threads[thread_id]
             if owner_token is not None and existing.lock_token != owner_token:
                 return self._deep_copy(existing)
-            data = existing.model_dump()
-            data["status"] = status
-            data["updated_at"] = self._now()
-            data["lock_token"] = None
-            data["lock_expires_at"] = None
+            update: dict[str, Any] = {
+                "status": status,
+                "updated_at": self._now(),
+                "lock_token": None,
+                "lock_expires_at": None,
+            }
             if values is not None:
-                data["values"] = values
-            updated = Thread.model_validate(data)
+                update["values"] = values
+            updated = existing.model_copy(update=update)
             self._threads[thread_id] = updated
             return self._deep_copy(updated)
 
@@ -330,11 +332,11 @@ class InMemoryThreadStore:
             existing = self._threads.get(thread_id)
             if existing is None or existing.lock_token != owner_token:
                 return False
-            data = existing.model_dump()
             now = self._now()
-            data["updated_at"] = now
-            data["lock_expires_at"] = now + timedelta(seconds=60)
-            self._threads[thread_id] = Thread.model_validate(data)
+            updated = existing.model_copy(
+                update={"updated_at": now, "lock_expires_at": now + timedelta(seconds=60)}
+            )
+            self._threads[thread_id] = updated
             return True
 
     def _filtered_threads(

@@ -4117,3 +4117,64 @@ class TestReleaseThreadRunLockSuppression:
         with patch.object(store, "release_run_lock", side_effect=RuntimeError("boom")):
             # Should NOT raise
             _release_thread_run_lock(deps, thread.thread_id, "agent", "lock-token", status="idle")
+
+
+class TestStoreRenewalWorkerOwnership:
+    """A Platform run's first scheduled renewal must not leave the thread
+    permanently busy after a successful release (#640). Uses a fake
+    threading.Event.wait() so the test fires a renewal deterministically
+    instead of sleeping the real 20-second interval."""
+
+    def test_first_scheduled_renewal_then_release_does_not_strand_thread(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        import threading
+        import time
+        from unittest.mock import patch
+
+        from azure_functions_langgraph.platform._runs import (
+            _release_thread_run_lock,
+            _start_store_renewal,
+        )
+
+        deps = PlatformRouteDeps(
+            registrations={},
+            thread_store=store,
+            thread_lock=InProcessThreadLock(),
+            auth_level=func.AuthLevel.ANONYMOUS,
+            max_stream_response_bytes=1024,
+        )
+        thread = store.create()
+        acquired = store.try_acquire_run_lock(thread.thread_id)
+        assert acquired is not None and acquired.lock_token is not None
+        token = acquired.lock_token
+
+        wait_calls: list[float | None] = []
+
+        def fake_wait(_self: threading.Event, timeout: float | None = None) -> bool:
+            wait_calls.append(timeout)
+            # First call: let one renewal fire. Second call: tell the
+            # worker loop to stop (as if .set() had been called).
+            return len(wait_calls) > 1
+
+        with patch.object(threading.Event, "wait", fake_wait):
+            _start_store_renewal(deps, thread.thread_id, token)
+
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and len(wait_calls) < 2:
+                time.sleep(0.01)
+
+        assert len(wait_calls) >= 2, "renewal worker did not run deterministically"
+
+        after_renewal = store.get(thread.thread_id)
+        assert after_renewal is not None
+        assert after_renewal.lock_token == token, "renewal must preserve the owner token"
+
+        _release_thread_run_lock(
+            deps, thread.thread_id, "agent", token, status="idle", store_owner_token=token
+        )
+
+        final = store.get(thread.thread_id)
+        assert final is not None
+        assert final.status == "idle"
+        assert store.try_acquire_run_lock(thread.thread_id) is not None
