@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import inspect
 import json
 import logging
 import os
@@ -307,7 +308,8 @@ def _validate_run_io_structure(
     run_req: RunCreate,
     deps: PlatformRouteDeps,
 ) -> func.HttpResponse | None:
-    """Validate the ``input`` and ``config`` structure depth/breadth limits."""
+    """Validate the ``input``/``config``/``context``/``metadata`` structure
+    depth/breadth limits."""
     if run_req.input:
         input_err = validate_input_structure(
             run_req.input,
@@ -327,6 +329,22 @@ def _validate_run_io_structure(
         configurable = run_req.config.get("configurable")
         if configurable is not None and not isinstance(configurable, dict):
             return _platform_error(400, "config.configurable must be a JSON object or null")
+    if run_req.context:
+        context_err = validate_input_structure(
+            run_req.context,
+            max_depth=deps.max_input_depth,
+            max_nodes=deps.max_input_nodes,
+        )
+        if context_err:
+            return _platform_error(400, context_err)
+    if run_req.metadata:
+        metadata_err = validate_input_structure(
+            run_req.metadata,
+            max_depth=deps.max_input_depth,
+            max_nodes=deps.max_input_nodes,
+        )
+        if metadata_err:
+            return _platform_error(400, metadata_err)
     return None
 
 
@@ -382,6 +400,44 @@ def _build_threadless_config(
     if config.get("configurable", {}).get("thread_id") is not None:
         return _platform_error(422, "thread_id is not allowed on threadless runs")
     return config
+
+
+def _method_accepts_context(method: Any) -> bool:
+    """Return ``True`` if *method* accepts a ``context`` keyword argument.
+
+    Mirrors ``_handlers._method_accepts_version``: matches an explicit
+    ``context`` parameter or a ``**kwargs`` catch-all; returns ``False`` when
+    the signature cannot be introspected (e.g. some C-level callables).
+    """
+    try:
+        sig = inspect.signature(method)
+    except (TypeError, ValueError):
+        return False
+    for param in sig.parameters.values():
+        if param.name == "context" or param.kind is inspect.Parameter.VAR_KEYWORD:
+            return True
+    return False
+
+
+def _resolve_context_kwarg(
+    method: Any, context: dict[str, Any] | None, graph_name: str
+) -> dict[str, dict[str, Any]] | func.HttpResponse:
+    """Resolve the caller's ``RunCreate.context`` into forwardable kwargs.
+
+    Returns ``{}`` when no context was supplied, ``{"context": context}`` when
+    the target method accepts it, or a ``422`` error when the caller supplied
+    a context but the graph method has no ``context``/``**kwargs`` parameter
+    to receive it -- an unsupported request must be rejected, not silently
+    dropped.
+    """
+    if context is None:
+        return {}
+    if not _method_accepts_context(method):
+        return _platform_error(
+            422,
+            f"Graph {graph_name!r} does not accept a 'context' argument",
+        )
+    return {"context": context}
 
 
 def _read_json_body(

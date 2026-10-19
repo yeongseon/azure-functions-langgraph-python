@@ -30,6 +30,7 @@ from azure_functions_langgraph.platform._common import (
     _normalize_stream_mode,
     _parse_run_create,
     _platform_error,
+    _resolve_context_kwarg,
     _resolve_run_graph,
     logger,
 )
@@ -133,6 +134,10 @@ def register_run_routes(
         if isinstance(reg, func.HttpResponse):
             return reg
 
+        context_kwargs = _resolve_context_kwarg(reg.graph.invoke, run_req.context, reg.name)
+        if isinstance(context_kwargs, func.HttpResponse):
+            return context_kwargs
+
         run_id = request_id_from_headers(req.headers)
         ctx = new_run_context(
             reg.name,
@@ -179,10 +184,14 @@ def register_run_routes(
 
         config = _build_threaded_config(run_req, thread_id)
 
+        if run_req.metadata:
+            merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
+            deps.thread_store.update(thread_id, metadata=merged_metadata)
+
         graph_input = run_req.input or {}
         safe_observer_call(deps.observer, "on_run_started", ctx)
         try:
-            result = reg.graph.invoke(graph_input, config=config)
+            result = reg.graph.invoke(graph_input, config=config, **context_kwargs)
         except Exception as exc:
             logger.exception(
                 "Graph %s invoke failed for thread %s",
@@ -256,6 +265,10 @@ def register_run_routes(
                 f"Graph {run_req.assistant_id!r} does not support streaming",
             )
 
+        context_kwargs = _resolve_context_kwarg(reg.graph.stream, run_req.context, reg.name)
+        if isinstance(context_kwargs, func.HttpResponse):
+            return context_kwargs
+
         run_id = request_id_from_headers(req.headers)
         ctx = new_run_context(
             reg.name,
@@ -302,6 +315,10 @@ def register_run_routes(
 
         config = _build_threaded_config(run_req, thread_id)
 
+        if run_req.metadata:
+            merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
+            deps.thread_store.update(thread_id, metadata=merged_metadata)
+
         graph_input = run_req.input or {}
         chunks: list[str] = []
         buffered_bytes = 0
@@ -336,6 +353,7 @@ def register_run_routes(
                 graph_input,
                 config=config,
                 stream_mode=stream_mode,
+                **context_kwargs,
             ):
                 chunk = format_data_event(stream_mode, event)
                 chunk_bytes = len(chunk.encode())
@@ -425,6 +443,10 @@ def register_run_routes(
         if isinstance(config, func.HttpResponse):
             return config
 
+        context_kwargs = _resolve_context_kwarg(exec_graph.invoke, run_req.context, reg.name)
+        if isinstance(context_kwargs, func.HttpResponse):
+            return context_kwargs
+
         run_id = request_id_from_headers(req.headers)
         ctx = new_run_context(
             reg.name,
@@ -436,7 +458,7 @@ def register_run_routes(
         graph_input = run_req.input or {}
         safe_observer_call(deps.observer, "on_run_started", ctx)
         try:
-            result = exec_graph.invoke(graph_input, config=config)
+            result = exec_graph.invoke(graph_input, config=config, **context_kwargs)
         except Exception as exc:
             logger.exception(
                 "Graph %s invoke failed (threadless)",
@@ -491,6 +513,10 @@ def register_run_routes(
         if isinstance(config, func.HttpResponse):
             return config
 
+        context_kwargs = _resolve_context_kwarg(exec_graph.stream, run_req.context, reg.name)
+        if isinstance(context_kwargs, func.HttpResponse):
+            return context_kwargs
+
         run_id = request_id_from_headers(req.headers)
         ctx = new_run_context(
             reg.name,
@@ -527,6 +553,7 @@ def register_run_routes(
                 graph_input,
                 config=config,
                 stream_mode=stream_mode,
+                **context_kwargs,
             ):
                 chunk = format_data_event(stream_mode, event)
                 chunk_bytes = len(chunk.encode())
