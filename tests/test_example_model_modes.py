@@ -33,6 +33,7 @@ def _load_graph(example: str, monkeypatch: pytest.MonkeyPatch) -> Any:
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     sys.modules.pop("model_config", None)
+    sys.modules.pop("tools", None)
     monkeypatch.syspath_prepend(str(example_dir))
     spec.loader.exec_module(module)
     return module

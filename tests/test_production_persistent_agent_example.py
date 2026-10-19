@@ -47,6 +47,7 @@ def _load_example_graph_module() -> Any:
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
     sys.modules.pop("model_config", None)
+    sys.modules.pop("tools", None)
     sys.path.insert(0, str(EXAMPLE_DIR))
     try:
         spec.loader.exec_module(mod)
