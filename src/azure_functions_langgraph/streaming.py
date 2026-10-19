@@ -73,7 +73,11 @@ from azure_functions_langgraph.contracts import (
     _is_model_type,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
-from azure_functions_langgraph.locks._async import release_thread_lock
+from azure_functions_langgraph.locks._async import (
+    acquire_thread_lock,
+    async_thread_lock,
+    release_thread_lock,
+)
 from azure_functions_langgraph.observability import (
     NoOpRunObserver,
     RunContext,
@@ -731,10 +735,9 @@ class StreamingLangGraphApp:
         if isinstance(version_kwargs, _JsonError):
             return self._reject(JSONResponse, observer, ctx, "unsupported_version", version_kwargs)
 
-        lock_token: str | None = None
-        if has_cp and thread_id:
-            lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
-            if not lock_token:
+        lock_thread_id = thread_id if has_cp else None
+        async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
+            if lock_thread_id is not None and lock_token is None:
                 return self._reject(
                     JSONResponse,
                     observer,
@@ -743,21 +746,18 @@ class StreamingLangGraphApp:
                     _JsonError(409, f"Thread {thread_id!r} is currently in use by another request"),
                 )
 
-        safe_observer_call(observer, "on_run_started", ctx)
-        try:
-            if is_async:
-                result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
-            else:
-                result = await asyncio.to_thread(
-                    lambda: reg.graph.invoke(request.input, config=config, **version_kwargs)
-                )
-        except Exception as exc:  # noqa: BLE001 - reported and returned as 500
-            logger.exception("Graph %s invoke failed", reg.name)
-            safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
-            return self._json_error(JSONResponse, 500, "Graph execution failed", ctx.run_id)
-        finally:
-            if lock_token is not None and thread_id is not None:
-                await asyncio.to_thread(thread_lock.release, reg.name, thread_id, lock_token)
+            safe_observer_call(observer, "on_run_started", ctx)
+            try:
+                if is_async:
+                    result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
+                else:
+                    result = await asyncio.to_thread(
+                        lambda: reg.graph.invoke(request.input, config=config, **version_kwargs)
+                    )
+            except Exception as exc:  # noqa: BLE001 - reported and returned as 500
+                logger.exception("Graph %s invoke failed", reg.name)
+                safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
+                return self._json_error(JSONResponse, 500, "Graph execution failed", ctx.run_id)
 
         safe_observer_call(observer, "on_run_completed", finish_context(ctx))
         output = _serialize_graph_output(result)
@@ -825,10 +825,11 @@ class StreamingLangGraphApp:
         if isinstance(version_kwargs, _JsonError):
             return self._reject(JSONResponse, observer, ctx, "unsupported_version", version_kwargs)
 
+        lock_thread_id = thread_id if has_cp else None
         lock_token: str | None = None
-        if has_cp and thread_id:
-            lock_token = await asyncio.to_thread(thread_lock.acquire, reg.name, thread_id)
-            if not lock_token:
+        if lock_thread_id is not None:
+            lock_token = await acquire_thread_lock(thread_lock, reg.name, lock_thread_id)
+            if lock_token is None:
                 return self._reject(
                     JSONResponse,
                     observer,
@@ -839,32 +840,41 @@ class StreamingLangGraphApp:
 
         # Past this point the response headers are committed and the run has
         # started; any further failure is delivered as an in-band SSE error
-        # frame by the generator, not an HTTP status code.
+        # frame by the generator, not an HTTP status code. Ownership of
+        # lock_token transfers to the generator below, which releases it on
+        # its own lifecycle (#651) -- but if constructing the generator or
+        # response itself fails before that handoff completes, release here
+        # instead of leaking the token.
         safe_observer_call(observer, "on_run_started", ctx)
-        generator = _sse_event_stream(
-            graph=reg.graph,
-            graph_name=reg.name,
-            input_=request.input,
-            config=config,
-            stream_mode=request.stream_mode,
-            version_kwargs=version_kwargs,
-            thread_id=thread_id,
-            lock_token=lock_token,
-            thread_lock=thread_lock,
-            observer=observer,
-            ctx=ctx,
-            max_stream_events=self.max_stream_events,
-            async_mode=is_async,
-        )
-        return StreamingResponse(
-            generator,
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "X-Request-ID": ctx.run_id,
-            },
-        )
+        try:
+            generator = _sse_event_stream(
+                graph=reg.graph,
+                graph_name=reg.name,
+                input_=request.input,
+                config=config,
+                stream_mode=request.stream_mode,
+                version_kwargs=version_kwargs,
+                thread_id=thread_id,
+                lock_token=lock_token,
+                thread_lock=thread_lock,
+                observer=observer,
+                ctx=ctx,
+                max_stream_events=self.max_stream_events,
+                async_mode=is_async,
+            )
+            return StreamingResponse(
+                generator,
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                    "X-Request-ID": ctx.run_id,
+                },
+            )
+        except BaseException:
+            if lock_token is not None and thread_id is not None:
+                await release_thread_lock(thread_lock, reg.name, thread_id, lock_token)
+            raise
 
     # ------------------------------------------------------------------
     # Response helpers
