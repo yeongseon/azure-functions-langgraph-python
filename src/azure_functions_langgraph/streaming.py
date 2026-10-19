@@ -77,6 +77,7 @@ from azure_functions_langgraph.locks._async import (
     acquire_thread_lock,
     async_thread_lock,
     release_thread_lock,
+    run_sync_retaining_ownership,
 )
 from azure_functions_langgraph.observability import (
     NoOpRunObserver,
@@ -745,13 +746,12 @@ class StreamingLangGraphApp:
                     "lock_contention",
                     _JsonError(409, f"Thread {thread_id!r} is currently in use by another request"),
                 )
-
             safe_observer_call(observer, "on_run_started", ctx)
             try:
                 if is_async:
                     result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
                 else:
-                    result = await asyncio.to_thread(
+                    result = await run_sync_retaining_ownership(
                         lambda: reg.graph.invoke(request.input, config=config, **version_kwargs)
                     )
             except Exception as exc:  # noqa: BLE001 - reported and returned as 500

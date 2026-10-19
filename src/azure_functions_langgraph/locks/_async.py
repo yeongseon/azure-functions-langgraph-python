@@ -3,13 +3,63 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 import logging
+from typing import TypeVar
 
 from azure_functions_langgraph.locks.base import ThreadLock
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+
+
+async def run_sync_retaining_ownership(func: Callable[[], _T]) -> _T:
+    """Run a blocking ``func`` in a worker thread, retaining it across
+    cancellation so a caller never loses track of in-flight protected work.
+
+    A plain ``await asyncio.to_thread(func)`` lets a cancellation of the
+    awaiting task abandon the worker thread mid-flight: the thread keeps
+    running (a running :class:`concurrent.futures.Future` cannot be
+    cancelled) while the caller's lock-release ``finally`` already executed,
+    so a second caller can acquire the same lock while the first worker is
+    still mutating protected state (#652).
+
+    This instead retains the worker as a task and keeps awaiting it (shielded
+    from further cancellation) until it actually finishes, then re-raises the
+    cancellation -- so callers that hold a lock/owner-token scope around this
+    call do not release it until the worker is provably done.
+    """
+    caller = asyncio.current_task()
+    cancellation_count = caller.cancelling() if caller is not None else 0
+    worker_task = asyncio.create_task(asyncio.to_thread(func))
+    cancellation: asyncio.CancelledError | None = None
+    while not worker_task.done():
+        try:
+            await asyncio.shield(worker_task)
+        except asyncio.CancelledError as exc:
+            cancellation = exc
+        except Exception:
+            break
+
+    if cancellation is None and caller is not None and caller.cancelling() > cancellation_count:
+        cancellation = asyncio.CancelledError()
+
+    try:
+        result = await worker_task
+    except Exception:
+        if cancellation is not None:
+            logger.debug(
+                "Sync worker raised after caller cancellation; propagating cancellation",
+                exc_info=True,
+            )
+            raise cancellation from None
+        raise
+
+    if cancellation is not None:
+        raise cancellation
+    return result
 
 
 async def release_thread_lock(
