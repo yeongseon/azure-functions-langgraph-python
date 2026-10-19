@@ -105,9 +105,8 @@ def create_postgres_checkpointer(
     connect_kwargs: dict[str, Any] = {
         "autocommit": autocommit,
         "row_factory": dict_row,
+        "prepare_threshold": prepare_threshold,
     }
-    if prepare_threshold is not None:
-        connect_kwargs["prepare_threshold"] = prepare_threshold
 
     conn = Connection.connect(conn_string, **connect_kwargs)
     saver = PostgresSaver(conn)

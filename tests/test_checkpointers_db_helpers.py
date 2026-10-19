@@ -133,7 +133,36 @@ def test_postgres_helper_forwards_autocommit_and_prepare_threshold(monkeypatch: 
     )
 
     assert connect_calls[0]["autocommit"] is False
-    assert "prepare_threshold" not in connect_calls[0]
+    # None must be forwarded explicitly to disable prepared statements
+    # (e.g. behind PgBouncer) -- omitting the keyword falls back to
+    # Psycopg's own default of 5, silently changing an explicit caller
+    # choice into a different driver setting (#643).
+    assert "prepare_threshold" in connect_calls[0]
+    assert connect_calls[0]["prepare_threshold"] is None
+
+
+def test_postgres_helper_prepare_threshold_default_is_zero(monkeypatch: Any) -> None:
+    connect_calls: list[dict[str, Any]] = []
+    _install_fake_postgres(monkeypatch, connect_calls=connect_calls)
+
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.postgres")
+    importlib.reload(module)
+    module.create_postgres_checkpointer("postgresql://u:p@h/db")
+
+    assert connect_calls[0]["prepare_threshold"] == 0
+
+
+def test_postgres_helper_forwards_nondefault_integer_prepare_threshold(
+    monkeypatch: Any,
+) -> None:
+    connect_calls: list[dict[str, Any]] = []
+    _install_fake_postgres(monkeypatch, connect_calls=connect_calls)
+
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.postgres")
+    importlib.reload(module)
+    module.create_postgres_checkpointer("postgresql://u:p@h/db", prepare_threshold=5)
+
+    assert connect_calls[0]["prepare_threshold"] == 5
 
 
 def test_postgres_helper_missing_langgraph_postgres_raises_helpful_error(monkeypatch: Any) -> None:
