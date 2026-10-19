@@ -318,7 +318,7 @@ class InMemoryThreadStore:
             update: dict[str, Any] = {
                 "status": status,
                 "updated_at": self._now(),
-                "lock_token": None,
+                "lock_token": None,  # nosec B105 - clearing a lease token, not a password
                 "lock_expires_at": None,
             }
             if values is not None:
