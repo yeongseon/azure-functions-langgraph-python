@@ -130,6 +130,12 @@ class InProcessThreadLock:
                 thread_id,
             )
         with self._guard:
-            state.token = None
+            # Only clear ownership if it still matches the token we
+            # validated above. Between the underlying unlock() just above
+            # and re-acquiring the guard here, a new owner may already have
+            # acquired the lock and recorded its own token (#641) -- an
+            # unconditional clear would erase that newer owner's state.
+            if state.token == token:
+                state.token = None
             state.refs -= 1
             self._maybe_gc(key, state)
