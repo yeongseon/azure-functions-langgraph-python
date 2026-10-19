@@ -1015,3 +1015,85 @@ class TestPerLeaseRenewalIsolation:
         # Key was already popped/released during close(); release() must be safe.
         lock.release("graph", "t1", token)
         assert not lock._active_leases
+
+    def _run_close_during_inflight_acquire(self, *, lease_duration: int) -> dict[str, Any]:
+        """Shared harness for #642: close() races an in-flight acquire_lease()."""
+        import threading
+
+        container = MockContainerClient()
+        lock = _make_lock(container, lease_duration=lease_duration)
+        blob = container.get_blob_client(lock._blob_name("graph", "thread"))
+        original_acquire = blob.acquire_lease
+        server_acquired = threading.Event()
+        allow_return = threading.Event()
+        result: dict[str, Any] = {}
+
+        def delayed_acquire(*args: Any, **kwargs: Any) -> Any:
+            lease = original_acquire(*args, **kwargs)
+            result["lease"] = lease
+            server_acquired.set()
+            assert allow_return.wait(2), "probe scheduling timed out"
+            return lease
+
+        blob.acquire_lease = delayed_acquire  # type: ignore[method-assign]
+
+        def acquire_worker() -> None:
+            try:
+                result["token"] = lock.acquire("graph", "thread")
+            except RuntimeError as exc:
+                result["error"] = str(exc)
+
+        worker = threading.Thread(target=acquire_worker)
+        worker.start()
+        assert server_acquired.wait(2)
+        lock.close()
+        allow_return.set()
+        worker.join(2)
+        assert not worker.is_alive()
+        lock.close()  # repeated close() must remain idempotent
+        return {
+            "closed": lock._closed,
+            "token": result.get("token"),
+            "error": result.get("error"),
+            "tracked_leases": len(lock._active_leases),
+            "server_lease_released": result["lease"].released,
+        }
+
+    def test_close_during_inflight_acquire_releases_lease_finite(self) -> None:
+        """A finite-duration lease acquired while close() is in flight must be
+        released server-side and never returned as a usable token (#642)."""
+        outcome = self._run_close_during_inflight_acquire(lease_duration=15)
+
+        assert outcome["closed"] is True
+        assert outcome["token"] is None
+        assert outcome["error"] is not None
+        assert "closed" in outcome["error"]
+        assert outcome["tracked_leases"] == 0
+        assert outcome["server_lease_released"] is True
+
+    def test_close_during_inflight_acquire_releases_lease_infinite(self) -> None:
+        """Same race for an infinite (-1) lease duration, which has no
+        renewal worker to eventually expire it (#642)."""
+        outcome = self._run_close_during_inflight_acquire(lease_duration=-1)
+
+        assert outcome["closed"] is True
+        assert outcome["token"] is None
+        assert outcome["error"] is not None
+        assert outcome["tracked_leases"] == 0
+        assert outcome["server_lease_released"] is True
+
+    def test_polling_acquire_notices_close_before_retry(self) -> None:
+        """A blocking/polling acquire() must notice shutdown and raise
+        instead of creating a new tracked lease after close() stops the
+        renewal executor (#642)."""
+        container = MockContainerClient()
+        lock = _make_lock(container)
+        # Hold the lease so the first acquire_lease() call conflicts and the
+        # poll loop sleeps, giving us a window to call close() before retry.
+        holder_token = lock.acquire("graph", "thread")
+        assert holder_token is not None
+
+        lock.close()
+
+        with pytest.raises(RuntimeError, match="closed"):
+            lock.acquire("graph", "thread", timeout=1.0)
