@@ -512,14 +512,29 @@ class AzureTableThreadStore(ThreadStore):
         values: dict[str, Any] | None = None,
         owner_token: str | None = None,
     ) -> Thread:
-        """Release the per-thread run lock without ETag concurrency.
+        """Release the per-thread run lock with owner fencing and ETag CAS.
 
-        Lock release is **best-effort**: the merge update does *not*
-        use ETag concurrency because failing to release a lock is
-        operationally worse than a rare race.  If the Function host
-        is killed mid-execution, the lock is *not* released and the
-        thread remains ``busy`` until :meth:`reset_stale_locks` reclaims
-        it.
+        Before writing, this checks *two* things:
+
+        1. **Owner token** — if ``owner_token`` is supplied and does not match
+           the entity's current ``lock_token``, the release is ignored (a
+           warning is logged) and the current entity is returned unchanged.
+           This rejects a stale release from an execution whose lock has
+           since been reclaimed by :meth:`reset_stale_locks` or re-acquired
+           by a newer run.
+        2. **ETag compare-and-swap** — the merge update is sent with
+           ``match_condition=IfNotModified`` against the ETag read just
+           before the write. If a concurrent write (e.g. another owner-token
+           check, or a racing :meth:`reset_stale_locks` scan) changed the
+           entity first, the CAS is rejected and the *current* entity is
+           returned instead of overwriting that concurrent change.
+
+        Crash recovery is a separate concern from this ownership fencing: if
+        the Function host is killed mid-execution, *no* release call ever
+        fires — there is no owner-token or CAS check to lose, because
+        ``release_run_lock`` is simply never invoked. The thread remains
+        ``busy`` until :meth:`reset_stale_locks` reclaims it from a periodic
+        sweep.
         """
         if status == "busy":
             raise ValueError("release_run_lock cannot set status to 'busy'")
