@@ -81,7 +81,7 @@ def register_with_openapi(app: LangGraphApp) -> int:
                 tags=[graph_meta.name],
                 request_body=request_body,
                 response_model=response_model,
-                parameters=list(route.parameters) if route.parameters else None,
+                parameters=_build_parameters(route.parameters),
             )
             count += 1
 
@@ -93,11 +93,29 @@ def register_with_openapi(app: LangGraphApp) -> int:
             summary=route.summary,
             description=route.description,
             tags=["system"],
-            parameters=list(route.parameters) if route.parameters else None,
+            parameters=_build_parameters(route.parameters),
         )
         count += 1
 
     return count
+
+
+def _build_parameters(
+    parameters: tuple[Any, ...] | None,
+) -> list[dict[str, Any]] | None:
+    """Convert immutable route-parameter metadata into plain dicts.
+
+    ``LangGraphApp.get_app_metadata()`` freezes each route parameter as a
+    ``MappingProxyType`` so the app's public metadata snapshot cannot be
+    mutated by a consumer. The OpenAPI registration API requires concrete
+    ``dict`` parameter objects (and rejects any other mapping type), so the
+    immutable elements must be converted at this bridge boundary rather than
+    forwarded unchanged (#655). The source metadata itself is untouched --
+    each ``dict(...)`` call is a shallow copy.
+    """
+    if not parameters:
+        return None
+    return [dict(param) for param in parameters]
 
 
 def _validate_model(model: object, label: str) -> None:
