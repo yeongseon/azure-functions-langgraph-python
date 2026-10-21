@@ -158,7 +158,7 @@ exec "$REAL_GIT" "$@"
 
 
 def test_non_ancestor_push_range_fails_safe(tmp_path: Path) -> None:
-    repo, base, _ = _repo(tmp_path)
+    repo, base, original_head = _repo(tmp_path)
     _git(repo, "checkout", "--detach", base)
     (repo / "README.md").write_text("replacement\n")
     _git(repo, "add", "README.md")
@@ -171,7 +171,7 @@ def test_non_ancestor_push_range_fails_safe(tmp_path: Path) -> None:
         event_name="push",
         base=base,
         head=replacement_head,
-        before=_git(repo, "rev-parse", "master"),
+        before=original_head,
     )
 
     assert result.process.returncode == 0
