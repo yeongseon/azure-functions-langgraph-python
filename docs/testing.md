@@ -8,6 +8,40 @@ make test
 
 This runs pytest with coverage reporting. The minimum coverage threshold is 95%.
 
+## Verification contract
+
+`make test` selects only offline/unit/mock tests (including mocked SDK storage
+flows). Live fixtures are not collected. `make check` is the complete non-mutating
+quality gate without system-service requirements. `make integration` runs owned
+Azurite Table/Blob round trips, Cosmos, deterministic checkpoint/locking tests,
+and real native/streaming hosts. `make verify` adds check, offline tests,
+installed-wheel graph smoke, packaging and strict docs; `make check-all` is its
+exact alias. `make doctor` reports prerequisites read-only; `make report` reads
+saved evidence only. `make clean` preserves environments/shared resources;
+`clean-all` keeps historical deep cleanup.
+
+Storage and host services use temporary storage, unique loopback ports and owned
+process groups or `lg-verify-<random>` Compose projects. Occupied explicit ports
+are refused, never stopped/adopted. Required JUnit counters, nonzero cases, zero
+unexpected skips and expected Table/Blob/example areas share one local/CI policy.
+`test-table`, `test-cosmos`, `test-openapi` and `certify-examples-*` stay PARTIAL.
+
+Gitignored `test-results/` holds offline JUnit/coverage, per-backend and host
+summaries/logs, integration JUnit, full-local summary/environment, wheel identity,
+and separate Azure E2E evidence. Schema-versioned summaries use
+PASS/FAIL/INCOMPLETE/NOT_APPLICABLE with counts, required flag, scope, exit code and
+artifact paths. Missing tools/packages/emulators, absent results and unexpected
+skips never pass. Logs/JUnit/console/Actions summaries redact credentials.
+
+Cosmos nightly/manual CI remains non-gating, not release proof. Local verify
+requires Cosmos execution; unavailable emulator means INCOMPLETE, test regression
+means FAIL. Azure native/two-app/streaming tests and optional Flex SDK 2.x remain
+separate profiles. Declared candidate SHA/version/digest do not prove a remote
+version endpoint; `deployed_artifact_identity=INCOMPLETE` records that limitation.
+Release deployment provenance remains the workflow's job.
+See the root [Contributing Guide](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CONTRIBUTING.md#services-and-evidence)
+for exact variables, TLS and port overrides.
+
 ## Example verification levels
 
 The repository uses four distinct checks. Passing one does not imply the others:
