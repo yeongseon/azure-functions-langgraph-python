@@ -70,4 +70,12 @@ jobs:
           COSMOS_EMULATOR_ENDPOINT: https://localhost:8081
           REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
           SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-        run: pytest -v -m integration tests/integration/ --no-cov
+          VERIFICATION_OPTIONAL: nightly-cosmos
+        run: python -m tools.verification cosmos
+
+      - name: Upload nightly Cosmos evidence (non-gating, not release certification)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nightly-cosmos-evidence
+          path: test-results/**
