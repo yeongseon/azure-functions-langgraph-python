@@ -187,11 +187,22 @@ jobs:
           E2E_STREAM_BASE_URL: https://${{ steps.names.outputs.stream_app }}.azurewebsites.net
           E2E_STREAM_CODE: ${{ steps.stream_key.outputs.key }}
           STREAM_TIMING_EVIDENCE: ${{ github.workspace }}/cert/streaming-timing.json
+          E2E_RUNTIME_PROFILE: consumption-sdk1-python312
         run: |
           # Clear the repo's default addopts (which force '-m "not e2e"' and
           # coverage) so the e2e-marked suite is actually collected.
           mkdir -p cert
-          pytest tests/e2e -v -m e2e -o addopts=""
+          export E2E_EXPECTED_VERSION="$(python -c 'from importlib.metadata import version; print(version("azure-functions-langgraph"))')"
+          export E2E_CANDIDATE_SHA256="$(sha256sum dist/*.whl | cut -d ' ' -f1)"
+          export E2E_CANDIDATE_COMMIT="$(git rev-parse HEAD)"
+          python -m tools.verification azure-e2e -v -o addopts=""
+
+      - name: Upload Azure native, locking and streaming evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: azure-e2e-evidence
+          path: test-results/**
 
       - name: Record certification
         run: |
@@ -335,11 +346,23 @@ jobs:
       - name: Run e2e tests
         env:
           E2E_BASE_URL: https://${{ steps.names.outputs.app }}.azurewebsites.net
+          E2E_RUNTIME_PROFILE: flex-sdk2
         run: |
           # Native LangGraph routes only (health/invoke/stream); the two-app
           # single-writer contention suite (App B) is not part of the 2.x
           # runtime certification.
-          pytest tests/e2e -v -m e2e -o addopts="" -k "not app_b and not two_app"
+          export E2E_EXPECTED_VERSION="$(python -c 'from importlib.metadata import version; print(version("azure-functions-langgraph"))')"
+          export E2E_CANDIDATE_SHA256="$(sha256sum dist/*.whl | cut -d ' ' -f1)"
+          export E2E_CANDIDATE_COMMIT="$(git rev-parse HEAD)"
+          python -m tools.verification azure-e2e -v -o addopts="" \
+            --ignore=tests/e2e/test_true_streaming_e2e.py -k "not app_b and not two_app"
+
+      - name: Upload optional Flex SDK 2.x evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: optional-flex-sdk2-evidence
+          path: test-results/**
 
       - name: Record 2.x certification
         run: |

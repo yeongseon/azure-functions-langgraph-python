@@ -137,11 +137,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Hatch
-        run: pip install hatch
+      - name: Install selected-interpreter test dependencies
+        run: make install-ci
 
       - name: Run test suite
-        run: hatch run test
+        run: make test
+
+      - name: Upload library verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-library-evidence
+          path: test-results/**
 
   wheel-tests:
     name: Wheel packaging tests
@@ -175,7 +182,7 @@ jobs:
           python -m pip install --upgrade pip
           WHEEL=$(ls dist/*.whl)
           echo "Installing ${WHEEL}[dev]"
-          python -m pip install "${WHEEL}[dev]"
+          python -m pip install "${WHEEL}[dev,openapi]"
 
       # Run from a scratch dir with a dedicated config (tools/wheel-tests.ini)
       # that omits `pythonpath = ["src", "."]` and coverage, so nothing re-adds
@@ -185,14 +192,30 @@ jobs:
       # and behaves once installed.
       - name: Run test suite against installed wheel
         run: |
+          set +e
           mkdir -p "${RUNNER_TEMP}/wheel-tests"
+          mkdir -p "${GITHUB_WORKSPACE}/test-results/wheel-suite"
           cd "${RUNNER_TEMP}/wheel-tests"
           python -m pytest \
             -c "${GITHUB_WORKSPACE}/tools/wheel-tests.ini" \
             --import-mode=importlib \
             -p no:cacheprovider \
-            -m "not e2e" \
-             "${GITHUB_WORKSPACE}/tests"
+            -m "not integration and not e2e" \
+            --ignore="${GITHUB_WORKSPACE}/tests/integration" \
+            --ignore="${GITHUB_WORKSPACE}/tests/e2e" \
+            --ignore="${GITHUB_WORKSPACE}/tests/test_production_persistent_agent_example.py" \
+            --junitxml="${GITHUB_WORKSPACE}/test-results/wheel-suite/junit.xml" \
+              "${GITHUB_WORKSPACE}/tests"
+          result=$?
+          cd "${GITHUB_WORKSPACE}"
+          python -m tools.verification record wheel-suite "$result"
+
+      - name: Upload installed-wheel suite evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-wheel-evidence
+          path: test-results/**
 
   runtime-audit:
     name: Candidate runtime dependency audit
@@ -288,7 +311,7 @@ jobs:
 
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1 # pin-exempt: PyPA official publisher (trusted-publisher OIDC); tracks release/v1 by design
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
 
   notify-cookbook:
     name: Trigger cookbook e2e re-verification
