@@ -97,6 +97,18 @@ FAIL. The one explicitly unsupported minimal-family release-policy test remains
 an expected offline skip; live skips are never allowed. NOT_APPLICABLE is reserved
 for explicitly unsupported lanes, not missing prerequisites.
 
+The `minimum` dependency profile permits only the named cases and reasons in
+`tools/verification_skips.py`: two version-v2 cases (LangGraph 1.0 lacks that API),
+the OpenAPI module and Blob conformance case (extras absent at the dependency
+floor), and the SQLite walkthrough/stream case (SQLite is absent at the floor or
+its current extra requires checkpoint 4.x, incompatible with LangGraph 1.0's 2.x).
+Default-profile lanes permit none of those skips. Zero execution and all-skipped
+results remain INCOMPLETE even when every skip is expected.
+
+`tools/wheel-tests.ini` excludes source-only verification/workflow-tooling tests
+before collection; the source-tree suite still executes them. The wheel suite
+does not add the checkout or `src/` to Python's import path.
+
 Azure requires `E2E_BASE_URL`, `E2E_BASE_URL_B`, `E2E_STREAM_BASE_URL`,
 `E2E_STREAM_CODE`, `E2E_EXPECTED_VERSION`, `E2E_CANDIDATE_SHA256`,
 `E2E_CANDIDATE_COMMIT` and `E2E_RUNTIME_PROFILE`. These are declared deployment
