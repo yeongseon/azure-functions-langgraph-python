@@ -72,3 +72,21 @@ def test_minimum_profile_rejects_known_reason_on_unrelated_test(
     monkeypatch.setenv("VERIFICATION_DEPENDENCY_PROFILE", "minimum")
     # When collecting evidence, then the reason alone never authorizes a skip.
     assert collect(directory, ["pytest"], 0).status == "INCOMPLETE"
+
+
+@pytest.mark.parametrize(
+    "classname", ["tests.test_release_workflow_pins", "test_release_workflow_pins"]
+)
+def test_wheel_skip_identity_accepts_importlib_module_name(tmp_path: Path, classname: str) -> None:
+    # Given the same known policy test under source and isolated importlib collection.
+    directory = tmp_path / "wheel-suite"
+    directory.mkdir()
+    suite = ET.Element("testsuite", tests="2", failures="0", errors="0", skipped="1")
+    ET.SubElement(suite, "testcase", name="passes")
+    case = ET.SubElement(
+        suite, "testcase", classname=classname, name="test_detects_missing_runtime_tier"
+    )
+    ET.SubElement(case, "skipped", message="minimal family has no required runtime tier")
+    ET.ElementTree(suite).write(directory / "junit.xml")
+    # When recording the installed-wheel report, then its exact known skip is recognized.
+    assert collect(directory, ["pytest"], 0).status == "PASS"

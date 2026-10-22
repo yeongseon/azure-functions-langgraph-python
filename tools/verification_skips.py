@@ -10,7 +10,10 @@ def expected_skip(case: ET.Element, lane: str) -> bool:
         return False
     identity = (case.get("classname", ""), case.get("name", ""))
     message = skip.get("message", "")
-    if identity == ("tests.test_release_workflow_pins", "test_detects_missing_runtime_tier"):
+    if identity in {
+        ("tests.test_release_workflow_pins", "test_detects_missing_runtime_tier"),
+        ("test_release_workflow_pins", "test_detects_missing_runtime_tier"),
+    }:
         return message == "minimal family has no required runtime tier"
     if lane == "wheel-suite" or os.environ.get("VERIFICATION_DEPENDENCY_PROFILE") != "minimum":
         return False
