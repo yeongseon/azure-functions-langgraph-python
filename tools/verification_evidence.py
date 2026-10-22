@@ -11,6 +11,8 @@ import subprocess
 from typing import Literal
 import xml.etree.ElementTree as ET
 
+from tools.verification_skips import expected_skip
+
 Status = Literal["PASS", "FAIL", "INCOMPLETE", "NOT_APPLICABLE"]
 
 
@@ -119,38 +121,24 @@ def collect(
     failed = sum(c.find("failure") is not None or c.find("error") is not None for c in cases)
     skipped = sum(c.find("skipped") is not None for c in cases)
     passed = len(cases) - failed - skipped
-    unexpected_skips = skipped
-    if directory.name in {"test", "wheel-suite", "dependency"}:
-        unexpected_skips -= sum(
-            (skip := case.find("skipped")) is not None
-            and case.get("name") == "test_detects_missing_runtime_tier"
-            and skip.get("message") == "minimal family has no required runtime tier"
-            for case in cases
-        )
-    if (
-        directory.name in {"test", "dependency"}
-        and os.environ.get("VERIFICATION_DEPENDENCY_PROFILE") == "minimum"
-    ):
-        unexpected_skips -= sum(
-            (skip := case.find("skipped")) is not None
-            and skip.get("message")
-            in {
-                "langgraph<1.1 does not support version='v2'",
-                "requires the optional 'openapi' extra: "
-                "pip install azure-functions-langgraph[openapi]",
-            }
-            for case in cases
-        )
+    unexpected = [
+        case
+        for case in cases
+        if case.find("skipped") is not None and not expected_skip(case, directory.name)
+    ]
     identities = [" ".join((c.get("classname", ""), c.get("file", ""))) for c in cases]
     missing = [area for area in expected if not any(area in identity for identity in identities)]
     status: Status = "PASS"
     reason = ""
     if failed or exit_code not in (0, 5):
         status = "FAIL"
-    elif not passed or unexpected_skips or missing:
+    elif not passed or unexpected or missing:
         status, reason = (
             "INCOMPLETE",
-            "Missing execution, unexpected skips or areas: " + ", ".join(missing),
+            "Missing execution, unexpected skips or areas: "
+            + ", ".join(
+                [*missing, *(f"{c.get('classname')}::{c.get('name')}" for c in unexpected)]
+            ),
         )
     return Summary(
         1,
