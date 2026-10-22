@@ -646,7 +646,7 @@ jobs:
           for attempt in {1..30}; do
             if response="$(curl --fail --silent \
               --header 'Content-Type: application/json' \
-              --data '{"input":{"messages":[{"role":"user","content":"ping"}]}}' \
+              --data '{"input":{"messages":[{"role":"user","content":"ping"}]},"config":{"configurable":{"thread_id":"host-smoke"}}}' \
               http://127.0.0.1:7071/api/graphs/smoke/invoke)"; then
               python -c 'import json, sys; body=json.loads(sys.argv[1]); messages=body["output"]["messages"]; assert messages[-1]["content"] == "host smoke passed"; assert messages[-1]["type"] == "ai"' "$response"
               if grep -qE '0 functions|Worker failed|Host startup operation has been canceled|Error indexing method' /tmp/functions-host.log; then
