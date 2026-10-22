@@ -146,17 +146,17 @@ url = "https://test.pypi.org/legacy/"
 
 [tool.hatch.envs.default]
 python = "3.11"
-features = ["dev", "docs"]
+features = ["dev", "docs", "azure-blob", "azure-table", "cosmos", "openapi"]
 
 [tool.hatch.envs.default.scripts]
 format = "ruff format src tests"
 format-check = "ruff format --check src tests"
 style = "ruff check src tests && ruff format --check src tests"
-typecheck = "mypy src tests"
+typecheck = "mypy src tests tools/verification*.py"
 lint = "hatch run style && hatch run typecheck"
-test = "pytest -v tests"
+test = "python -m tools.verification test"
 cov = "pytest --cov-report=term-missing --cov-report=html --cov-report=xml tests/"
-e2e-azure = "pytest -v -m e2e tests/e2e/"
+e2e-azure = "python -m tools.verification azure-e2e"
 docs = "mkdocs serve"
 precommit = "pre-commit run --all-files"
 precommit-install = "pre-commit install"
@@ -209,7 +209,7 @@ module = "examples.*"
 follow_imports = "skip"
 
 [tool.pytest.ini_options]
-addopts = "--cov=src/azure_functions_langgraph --cov-report=xml --cov-report=term-missing -ra -q -m 'not e2e'"
+addopts = "--cov=src/azure_functions_langgraph --cov-report=xml --cov-report=term-missing -ra -q -m 'not e2e and not integration'"
 testpaths = ["tests"]
 pythonpath = ["src", "."]
 asyncio_mode = "auto"
