@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 import importlib
+import os
 from typing import Any, Protocol, cast
 import uuid
 
@@ -15,7 +16,8 @@ AZURITE_TABLE_CONNECTION_STRING = (
     "DefaultEndpointsProtocol=http;"
     "AccountName=devstoreaccount1;"
     "AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;"
-    "TableEndpoint=http://127.0.0.1:10002/devstoreaccount1"
+    f"TableEndpoint=http://127.0.0.1:{os.environ.get('AZURITE_TABLE_PORT', '10002')}"
+    "/devstoreaccount1"
 )
 
 pytestmark = pytest.mark.integration
@@ -42,7 +44,9 @@ class _TableClientProtocol(Protocol):
 
 @pytest.fixture
 def azurite_table_client() -> Iterator[_TableClientProtocol]:
-    require_tcp_service("127.0.0.1", 10002, "Azurite Table")
+    require_tcp_service(
+        "127.0.0.1", int(os.environ.get("AZURITE_TABLE_PORT", "10002")), "Azurite Table"
+    )
     try:
         tables_module = importlib.import_module("azure.data.tables")
         TableServiceClient = cast(
