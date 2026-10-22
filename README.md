@@ -136,8 +136,16 @@ For local development:
 ```bash
 git clone https://github.com/yeongseon/azure-functions-langgraph-python.git
 cd azure-functions-langgraph
-pip install -e .[dev]
+make install
 ```
+
+Install Hatch once before setup. `make check` is non-mutating quality;
+`make test` is offline/unit/mock tests with coverage >=95%. `make integration`
+owns local emulator/Functions-host lifecycles; `make verify` is the full local
+gate (`make check-all` is its exact alias). Missing live prerequisites never
+pass. `make report` displays saved `test-results/` evidence, and `make clean`
+removes generated artifacts only. Azure certification is separate. See
+[Contributing](CONTRIBUTING.md#project-commands) for setup, ports and evidence.
 
 ## Quick Start
 

@@ -24,7 +24,7 @@
 ## Checklist
 
 - [ ] My code follows the project's code style
-- [ ] I have run `make check` (lint + typecheck)
+- [ ] I have run `make check` (non-mutating quality) and recorded `make verify` results or missing prerequisites
 - [ ] I have run `make test` and all tests pass
 - [ ] I have added tests for new functionality (if applicable)
 - [ ] I have updated documentation (if applicable)
@@ -62,4 +62,3 @@
 - Material findings and disposition (fixed / acknowledged-wont-fix / deferred-with-issue), or "none":
 - Unresolved blockers, or "none":
 - R3 (workflow permissions, release/publishing, authorization/checkpoint deserialization boundaries, checkpoint retention or state mutation, ownership/fencing/cancellation/retry behavior, review-policy files): yes/no — if yes, human authorization record:
-

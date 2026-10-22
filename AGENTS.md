@@ -19,7 +19,7 @@
 
 ### Test Coverage
 - Maintain test coverage at **95% or above** for committed changes and PRs.
-- Run `hatch run pytest --cov --cov-report=term-missing -q` to verify before submitting changes.
+- Run `make test` for offline tests and coverage before submitting changes.
 - Any PR that drops coverage below 95% must include additional tests to compensate.
 - Runtime code must remain compatible with Python 3.11+.
 - Public APIs must be fully typed.
@@ -97,10 +97,18 @@ What problem this issue addresses and why now. Note the target release (e.g. vX.
 When splitting a large piece of work into focused issues, keep the umbrella open as a tracker that links each child issue with a checkbox; close it once every child is closed or explicitly deferred.
 
 ## Validation
-- `make test`
-- `make lint`
-- `make typecheck`
-- `make build`
+- `make doctor`: read-only prerequisites, reports system tools required for each lane.
+- `make check`: complete non-mutating quality gate, no service prerequisites.
+- `make test`: offline/unit/mock tests, coverage >=95%.
+- `make integration`: owned Azurite/Cosmos, deterministic locks and real hosts.
+- `make verify`: full local gate; `make check-all` is an exact alias.
+- `make report`: saved evidence only; `make clean`: generated artifacts only.
+
+Focused commands produce PARTIAL evidence. Missing required packages/emulators,
+zero/all-skipped tests and unexpected live skips never PASS. Cosmos nightly CI
+is non-gating; local verify requires it or reports INCOMPLETE. Azure/native
+streaming and optional Flex SDK 2.x certification remain separate runtime profiles.
+See CONTRIBUTING.md for evidence, safe port overrides and resource ownership.
 
 ## Release Process
 
@@ -167,13 +175,20 @@ Use Makefile entry points only. Do not bypass the Makefile in CI or contributor 
 | Purpose | Command |
 | --- | --- |
 | Environment setup | `make install` |
+| CI-selected interpreter setup | `make install-ci` |
+| Read-only prerequisites | `make doctor` |
 | Format code | `make format` |
 | Check formatting (`src`, `tests`) | `make format-check` |
 | Lint | `make lint` |
 | Type check | `make typecheck` |
-| Tests | `make test` |
+| Offline tests, coverage >=95% | `make test` |
+| Non-mutating quality | `make check` |
+| Owned service/host tests | `make integration` |
 | Coverage | `make cov` |
-| Full validation | `make check-all` |
+| Full local validation | `make verify` (`make check-all` exact alias) |
+| Explicit Azure candidate | `make e2e-azure` |
+| Saved evidence only | `make report` |
+| Generated artifacts only | `make clean` |
 | Docs build | `make docs` |
 | Package build | `make build` |
 

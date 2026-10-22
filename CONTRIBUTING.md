@@ -34,21 +34,86 @@ Recommended branch prefixes:
 
 ## Project Commands
 
-```bash
-make format      # Format code with ruff
-make lint        # Lint with ruff
-make typecheck   # Type check with mypy
-make test        # Run tests
-make cov         # Run tests with coverage
-make check-all   # Run the full local gate
-```
+Install Hatch once in an isolated tool environment, then run `make install`.
+Routine targets never upgrade pip or reinstall Hatch. Local execution uses
+Hatch's Python 3.11; CI uses its selected interpreter directly.
+
+| Command | Contract |
+| --- | --- |
+| `make install` | Idempotent Hatch development environment and local hooks |
+| `make install-ci` | Install dev/docs/storage extras into CI's selected Python |
+| `make doctor` | Read-only prerequisites; nonzero for missing required tools |
+| `make format` / `make format-check` | Explicit formatting mutation / read-only check |
+| `make lint` / `make typecheck` / `make security` | Ruff + strict mypy / strict mypy / Bandit |
+| `make check` | Complete non-mutating style, types once, security and workflow policy |
+| `make test` | Offline/unit/mock suite only; coverage >=95% |
+| `make integration` | Owned Azurite Table/Blob, Cosmos, deterministic storage/locks, native and streaming hosts |
+| `make verify` | Check + offline tests + all local integration + installed-wheel graph smoke + build + strict docs |
+| `make e2e-azure` | Explicit existing deployed candidate; no provisioning |
+| `make report` | Display saved evidence only, no tests |
+| `make clean` | Generated artifacts only; preserve environments/shared resources |
+
+`make check-all` is an exact alias of `make verify`. `clean-all` retains historical
+deep cleanup including `.venv` and bytecode. `test-table`, `test-cosmos`,
+`test-openapi`, `certify-examples-*`, `host-smoke`, `deterministic`, `wheel-smoke`,
+`build`, `docs` and `cov` are focused **PARTIAL** evidence, not full verification.
+`e2e-local` runs owned local hosts; it does not certify Azure.
+
+### Services and evidence
+
+`make check`/`make test` require no Docker, emulator, Functions host or Azure.
+`doctor` reports `docker` (Cosmos/Compose), `azurite` (integration/hosts), and
+`func` (host smoke) as required-for-target prerequisites without installing them.
+Integration prefers the Azurite executable with unique ports and temporary storage;
+its Docker fallback and Cosmos use unique `lg-verify-<random>` Compose projects.
+Occupied explicit ports are refused (INCOMPLETE), never adopted. Cleanup removes
+only owned process groups, temporary directories and the exact owned project.
+
+Compose publication always binds `127.0.0.1`. Override `AZURITE_BLOB_PORT`,
+`AZURITE_QUEUE_PORT`, `AZURITE_TABLE_PORT`, `COSMOS_PORT`, and
+`COSMOS_PORT_10250` through `COSMOS_PORT_10255` explicitly if needed. SDK direct-mode
+Cosmos ports may impose emulator constraints. The owned Cosmos certificate is
+fetched only from loopback and trusted for that subprocess run. The installed
+Azure Cosmos SDK itself bypasses verification for localhost emulator URLs and
+emits InsecureRequestWarning; that local SDK behavior is retained, not hidden.
+Never disable TLS
+certificate verification for production. Cosmos nightly/manual CI remains
+non-gating, not release proof. Locally Cosmos is required for FULL_LOCAL: an
+unavailable emulator makes verify INCOMPLETE/nonzero; failing tests make it FAIL.
+
+Gitignored `test-results/` contains `test/{junit.xml,coverage.xml,summary.json}`,
+`integration/{junit/,logs/,table/,cosmos/,summary.json}`, separate host/dependency/
+wheel lanes, `verify/{summary.json,environment.json,lanes.json}`, and
+`azure-e2e/{junit.xml,summary.json,logs/}`. Summaries carry schema version, command,
+lane, required flag, scope, selected/passed/failed/skipped counts, original exit
+code and artifact paths. Python/SDK/service/runtime versions and source commit
+are recorded; connection strings, Cosmos keys, SAS, tokens and function keys are
+redacted. Console and Actions Job Summary use the same renderer, and CI uploads
+available evidence with `if: always()`.
+
+PASS requires execution. Missing tools/packages/results, zero/all-skipped tests
+or unexpected required skips are INCOMPLETE/nonzero; failed cases/processes are
+FAIL. The one explicitly unsupported minimal-family release-policy test remains
+an expected offline skip; live skips are never allowed. NOT_APPLICABLE is reserved
+for explicitly unsupported lanes, not missing prerequisites.
+
+Azure requires `E2E_BASE_URL`, `E2E_BASE_URL_B`, `E2E_STREAM_BASE_URL`,
+`E2E_STREAM_CODE`, `E2E_EXPECTED_VERSION`, `E2E_CANDIDATE_SHA256`,
+`E2E_CANDIDATE_COMMIT` and `E2E_RUNTIME_PROFILE`. These are declared deployment
+provenance, not an inferred remote version endpoint (none exists):
+`deployed_artifact_identity=INCOMPLETE` remains explicit even when HTTP tests pass.
+Existing Azure
+OIDC/deployment certification remains separate. The optional `flex-sdk2` profile
+excludes two-app/streaming certification explicitly and never replaces the
+Consumption SDK 1.x release gate. Local host success never certifies either Azure
+production profile.
 
 Before opening a PR, run `ruff format --check <changed-python-files>` (or
 `ruff format <changed-python-files>` to fix them). `make format-check` checks
-`src` and `tests` without changing files. CI checks those same trees and also
+`src`, `tests` and verification tooling without changing files. CI checks those trees and also
 reports formatting failures on changed Python files in a dedicated step.
 
-Integration tests (Azurite, Cosmos) require docker-compose services. The
+Integration uses run-owned emulator services. The
 Cosmos emulator is known-flaky on GitHub-hosted runners, so CI does not run
 it on push or pull_request: it runs nightly on a schedule and on manual
 `workflow_dispatch`. Contributors touching Cosmos code should run
@@ -87,8 +152,6 @@ context never drifts from the pinned commit.
 permitted in this repository and are flagged with an inline comment at
 the call site:
 
-- `pypa/gh-action-pypi-publish@release/v1` — PyPA-maintained stable
-  release channel; this pinning style is explicitly recommended upstream.
 - Local composite actions (`uses: ./...`) — versioned with the repo.
 
 When adding a new external Action, resolve the SHA with
