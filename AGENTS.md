@@ -183,6 +183,9 @@ Titles for issues, pull requests, and commits follow the **Title Convention** in
 
 ## Agent Rules
 
+Security changes must follow [SECURITY.md](SECURITY.md), including exact scan
+scope, redacted evidence, expiring exceptions and documented authorization gaps.
+
 When using AI-assisted development:
 
 - Prefer small, reviewable changes.
