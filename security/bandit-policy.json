@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "inline_suppressions": [
+    {"id":"B311","file":"src/azure_functions_langgraph/checkpointers/azure_blob.py","line":233,"kind":"reviewed-static","reason":"Random suffix orders checkpoint versions; not a credential or security token","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B110","file":"src/azure_functions_langgraph/locks/azure_blob.py","line":660,"kind":"reviewed-static","reason":"Existing destructor best-effort cleanup; explicit close retains diagnostics","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B105","file":"src/azure_functions_langgraph/platform/stores.py","line":321,"kind":"reviewed-static","reason":"None clears a lease token; no password literal","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"}
+  ],
+  "exceptions": [
+    {"id":"B108","file":"examples/sqlite_checkpoint_local/function_app.py","line":12,"kind":"reviewed-static","reason":"Explicitly local-only SQLite demonstration; operator must select a private path on shared machines; not production guidance","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B404","file":"scripts/certify_primary_examples.py","line":10,"kind":"reviewed-static","reason":"Developer certification invokes explicit argv without a shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"scripts/certify_primary_examples.py","line":80,"kind":"reviewed-static","reason":"Developer-owned argv and environment; no shell or HTTP inputs","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"scripts/certify_primary_examples.py","line":174,"kind":"reviewed-static","reason":"Explicit uv install argv against checked-in negative fixture","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B404","file":"tools/check_pr_format.py","line":5,"kind":"reviewed-static","reason":"CI formatting tool invokes git and ruff without shell evaluation","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"tools/check_pr_format.py","line":10,"kind":"reviewed-static","reason":"git diff uses explicit argv and revision operands; no shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B607","file":"tools/check_pr_format.py","line":10,"kind":"reviewed-static","reason":"git resolved from controlled CI developer PATH","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"tools/check_pr_format.py","line":37,"kind":"reviewed-static","reason":"ruff argv separates file paths with --; no shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B607","file":"tools/check_pr_format.py","line":37,"kind":"reviewed-static","reason":"ruff resolved from controlled Hatch CI PATH","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B404","file":"tools/security_evidence.py","line":12,"kind":"reviewed-static","reason":"Scanner executed as fixed module with explicit argv","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"tools/security_evidence.py","line":82,"kind":"reviewed-static","reason":"Current interpreter runs fixed Bandit argv and fixed surfaces without shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B105","file":"tools/security_report.py","line":59,"kind":"reviewed-static","reason":"PASS is an evidence status enum not a password","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B404","file":"tools/audit_candidate.py","line":10,"kind":"reviewed-static","reason":"Candidate audit uses fixed pip and scanner module argv without shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"tools/audit_candidate.py","line":38,"kind":"reviewed-static","reason":"Current interpreter creates run-owned disposable venv with fixed argv","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"tools/audit_candidate.py","line":50,"kind":"reviewed-static","reason":"Installs caller-selected local candidate wheel in disposable venv; CI artifact is trusted input","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"tools/audit_candidate.py","line":73,"kind":"reviewed-static","reason":"Fixed pip-audit argv and validated advisory IDs; no shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"}
+  ]
+}
