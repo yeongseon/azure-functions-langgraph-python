@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+import sys
 from unittest.mock import patch
 from zipfile import ZipFile
 
@@ -28,7 +29,9 @@ def test_unpublished_candidate_is_verified_before_exclusion(
 
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         if "install" in command:
-            target = tmp_path / "runtime/lib/python3.11/site-packages"
+            target = tmp_path / (
+                f"runtime/lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
+            )
             for name, version in (
                 ("unique-candidate", "98" if outcome == "mismatch" else "99.0.1"),
                 ("idna", "3.11"),
