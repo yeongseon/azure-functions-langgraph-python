@@ -33,7 +33,7 @@ jobs:
 
       - name: Record full shipped-surface Bandit evidence
         if: always()
-        run: hatch run python -m tools.security_evidence bandit --output security-results/bandit
+        run: make security-bandit-evidence SECURITY_PYTHON="hatch run python"
 
       - name: Upload redacted Bandit evidence
         if: always()
@@ -66,7 +66,7 @@ jobs:
         if: always()
         env:
           SCAN_OUTCOME: ${{ steps.semgrep.outcome }}
-        run: python -m tools.security_evidence semgrep --outcome "$SCAN_OUTCOME" --output security-results/semgrep
+        run: make security-semgrep-evidence SECURITY_PYTHON=python
 
       - name: Upload redacted Semgrep evidence
         if: always()

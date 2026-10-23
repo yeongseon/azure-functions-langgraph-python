@@ -220,14 +220,14 @@ jobs:
           path: dist
 
       - name: Validate audit exceptions
-        run: python scripts/check_audit_exceptions.py .github/pip-audit-ignore.txt
+        run: make security-audit-policy SECURITY_PYTHON=python
 
       - name: Audit candidate runtime dependencies
         run: |
           set -euo pipefail
           python -m pip install "pip-audit==2.10.1"
-          python -m tools.audit_candidate --wheel dist/*.whl \
-            --profile '${{ matrix.profile }}'
+          make security-runtime-audit SECURITY_PYTHON=python WHEEL="$(echo dist/*.whl)" \
+            PROFILE='${{ matrix.profile }}'
 
       - name: Upload runtime audit evidence
         if: always()
