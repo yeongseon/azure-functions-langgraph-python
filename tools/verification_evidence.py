@@ -6,11 +6,21 @@ import json
 import os
 from pathlib import Path
 import platform
-import re
 import subprocess
 from typing import Literal
 import xml.etree.ElementTree as ET
 
+from tools.verification_redaction import (
+    _TEXT_SUFFIXES,
+    _redact_file_text,
+    dump_json,
+)
+from tools.verification_redaction import (
+    redact as redact,
+)
+from tools.verification_redaction import (
+    redact_json as redact_json,
+)
 from tools.verification_skips import expected_skip
 
 Status = Literal["PASS", "FAIL", "INCOMPLETE", "NOT_APPLICABLE"]
@@ -45,27 +55,6 @@ class Summary:
     candidate_commit: str = ""
     deployed_artifact_identity: Status = "NOT_APPLICABLE"
     dependency_profile: str = "resolved-default"
-
-
-def redact(text: str) -> str:
-    text = re.sub(r"(?im)(authorization[\"']?\s*[:=]\s*)[^\r\n<\"]+", r"\1[REDACTED]", text)
-    text = re.sub(r"(https?://)[^/@\s]+:[^/@\s]+@", r"\1[REDACTED]@", text)
-    text = re.sub(r"(?i)(DefaultEndpointsProtocol=)[^\s<\"']+", r"\1[REDACTED]", text)
-    text = re.sub(
-        r"(?i)(?<![\w-])((?:[\w-]*(?:token|password|secret|connection[_-]?string|"
-        r"cosmos[_-]?(?:emulator[_-]?)?key)|AccountKey|SharedAccessSignature|"
-        r"AzureWebJobsStorage|x-functions-key|code|sig|sas|api[_-]?key)"
-        r"[\"']?\s*[:=]\s*[\"']?)[^\s;&<\"']+",
-        r"\1[REDACTED]",
-        text,
-    )
-    for key, value in os.environ.items():
-        if len(value) >= 6 and re.search(r"(?i)secret|token|password|connection|key|sas", key):
-            text = text.replace(value, "[REDACTED]")
-    return text.replace(
-        "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==",
-        "[REDACTED]",
-    )
 
 
 def environment() -> dict[str, str]:
@@ -169,27 +158,59 @@ def publish(summary: Summary) -> None:
 def save(directory: Path, summary: Summary) -> Summary:
     directory.mkdir(parents=True, exist_ok=True)
     for path in directory.rglob("*"):
-        if path.is_file():
-            path.write_text(redact(path.read_text(encoding="utf-8")), encoding="utf-8")
-    (directory / "environment.json").write_text(json.dumps(environment(), indent=2) + "\n")
+        if path.is_symlink() or not path.is_file() or path.suffix not in _TEXT_SUFFIXES:
+            continue
+        try:
+            original = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        redacted = _redact_file_text(path.suffix, original)
+        if redacted != original:
+            path.write_text(redacted, encoding="utf-8")
+    (directory / "environment.json").write_text(dump_json(environment()))
     summary = replace(
         summary,
         dependency_profile=os.environ.get("VERIFICATION_DEPENDENCY_PROFILE", "resolved-default"),
         command=tuple(redact(p) for p in summary.command),
         reason=redact(summary.reason),
         supporting_files=tuple(
-            str(p) for p in sorted(directory.rglob("*")) if p.is_file() and p.name != "summary.json"
+            str(p)
+            for p in sorted(directory.rglob("*"))
+            if not p.is_symlink() and p.is_file() and p.name != "summary.json"
         ),
     )
-    serialized = redact(json.dumps(asdict(summary), indent=2))
-    (directory / "summary.json").write_text(serialized + "\n")
+    serialized = dump_json(asdict(summary))
+    (directory / "summary.json").write_text(serialized)
     return Summary(**json.loads(serialized))
 
 
 def report(root: Path) -> int:
     paths = sorted(root.rglob("summary.json"))
+    found = 0
+    required = {
+        "schema_version",
+        "lane",
+        "command",
+        "selected",
+        "passed",
+        "failed",
+        "skipped",
+        "status",
+        "exit_code",
+    }
     for path in paths:
-        publish(Summary(**json.loads(path.read_text())))
-    if not paths:
+        if path.is_symlink():
+            continue
+        data = json.loads(path.read_text())
+        if (
+            not isinstance(data, dict)
+            or data.get("schema_version") != 1
+            or not required <= data.keys()
+        ):
+            print("Skipping foreign summary: " + redact(str(path)))
+            continue
+        publish(Summary(**data))
+        found += 1
+    if not found:
         print("No saved verification results")
-    return int(not paths)
+    return int(not found)
