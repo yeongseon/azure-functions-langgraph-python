@@ -8,11 +8,15 @@ import sys
 
 def doctor() -> int:
     missing = []
+    development_missing = False
     for module in ("ruff", "mypy", "pytest", "bandit", "build", "mkdocs"):
         available = importlib.util.find_spec(module) is not None
         print(f"{module}: {'available' if available else 'MISSING'} (check/test/build/docs)")
         if not available:
             missing.append(module)
+            development_missing = True
+    if development_missing:
+        print("development environment not created: run make install")
     for tool, target in (
         ("docker", "Cosmos/Compose integration"),
         ("azurite", "integration/host-smoke"),

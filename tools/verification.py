@@ -105,11 +105,14 @@ def main() -> int:
             "focused",
             "record",
             "dependency",
+            "check",
         ),
     )
     parser.add_argument("--owned", action="store_true")
     args, extra = parser.parse_known_args()
     match args.lane:
+        case "check":
+            return focused("check", ["make", *extra])
         case "doctor":
             return doctor()
         case "clean":

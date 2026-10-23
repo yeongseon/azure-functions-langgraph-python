@@ -9,6 +9,14 @@ from unittest.mock import MagicMock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def isolate_verification_job_summary(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if request.node.path.name.startswith("test_verification"):
+        monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+
+
 def assert_schema_reference(
     schema: dict[str, Any], expected_ref: str, expected_description: str
 ) -> None:

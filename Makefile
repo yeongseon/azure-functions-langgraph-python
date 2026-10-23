@@ -6,6 +6,8 @@ RUN := $(HATCH) run python
 else
 RUN := $(PYTHON)
 endif
+MAINTENANCE := sh tools/verification_maintenance.sh
+QUALITY_TARGETS ?= style typecheck security lint-workflows
 
 .PHONY: bootstrap ensure-hatch install install-ci shell reset hatch-clean
 bootstrap ensure-hatch:
@@ -37,16 +39,15 @@ lint-workflows:
 	@$(RUN) tools/lint_release_workflows.py
 	@$(RUN) tools/lint_workflow_pins.py
 	@$(RUN) tools/lint_hatch_matrix.py
-check: style typecheck security lint-workflows
+check:
+	@$(RUN) -m tools.verification check $(QUALITY_TARGETS)
 check-all: verify
 
 .PHONY: test integration verify report doctor clean deterministic
-test integration verify report clean deterministic:
+test integration verify deterministic:
 	@$(RUN) -m tools.verification $@
-doctor:
-	@if [ -n "$$CI" ]; then $(PYTHON) -m tools.verification doctor; \
-	else environment=$$($(HATCH) env find) && test -x "$$environment/bin/python" && \
-	PATH="$$environment/bin:$$PATH" "$$environment/bin/python" -m tools.verification doctor; fi
+doctor report clean:
+	@HATCH="$(HATCH)" $(MAINTENANCE) $@
 
 .PHONY: test-table test-cosmos test-openapi host-smoke wheel-smoke cov e2e-azure e2e-local
 test-table:
