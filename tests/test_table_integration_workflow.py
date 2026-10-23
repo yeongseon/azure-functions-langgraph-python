@@ -24,6 +24,7 @@ def _junit_validator() -> str:
 def _validate_junit(report: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-c", _junit_validator()],
+        cwd=TABLE_WORKFLOW.parents[2],
         env={**os.environ, "JUNIT_XML": str(report)},
         capture_output=True,
         text=True,
@@ -55,7 +56,9 @@ def test_table_workflow_requires_azurite_tests_and_accepts_new_sdk_versions() ->
     assert "--strict-markers" in pytest_command("table", [])
 
 
-def test_junit_validator_accepts_complete_no_skip_report(tmp_path: Path) -> None:
+def test_junit_validator_accepts_complete_no_skip_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     report = tmp_path / "results.xml"
     report.write_text(
         """<testsuites tests="3" failures="0" errors="0" skipped="0">
@@ -67,6 +70,8 @@ def test_junit_validator_accepts_complete_no_skip_report(tmp_path: Path) -> None
         </testsuites>"""
     )
 
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     result = _validate_junit(report)
 
     assert result.returncode == 0, result.stderr
