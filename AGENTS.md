@@ -19,7 +19,7 @@
 
 ### Test Coverage
 - Maintain test coverage at **95% or above** for committed changes and PRs.
-- Run `hatch run pytest --cov --cov-report=term-missing -q` to verify before submitting changes.
+- For optional local verification, run `hatch run pytest --cov --cov-report=term-missing -q`; required GitHub CI remains authoritative.
 - Any PR that drops coverage below 95% must include additional tests to compensate.
 - Runtime code must remain compatible with Python 3.11+.
 - Public APIs must be fully typed.
@@ -31,6 +31,27 @@
 - English (`README.md`) is the **canonical** source of truth for all documentation. Translated READMEs (`README.ko.md`, `README.ja.md`, `README.zh-CN.md`) are **best-effort**, community-maintained, and may lag the English source.
 - Translation sync is **not** required in the same PR as an English change, and a PR is **never** blocked by translation drift. Update translations opportunistically; when you do, keep them faithful to the current English source.
 - Each translated README carries a staleness banner linking back to the canonical English README. Keep that banner in place so readers always know the translation may be out of date.
+
+## Unified PR Review and Merge Policy
+
+Use the same criteria for human-authored and AI-assisted changes,
+including OpenCode, Codex, Claude Code, ChatGPT, Copilot and other agents.
+No tool-specific AI review, design consultation or automated approval is
+required by policy.
+
+1. Keep one focused PR with tests, docs and honest validation evidence.
+2. Treat required **GitHub CI** checks on the final code state as
+   authoritative. Local tests are encouraged but not an extra merge
+   gate. Preserve the current type checks, coverage, security, runtime
+   compatibility, Azure tests and release requirements. CI runner type
+   is not prescribed here.
+3. Review correctness, regression risk, scope, security, and API
+   compatibility. Oracle, Copilot and `agent-review` are optional
+   **advisory** review sources, not human approval or test evidence.
+4. Confirm final required checks and resolve or disposition defects.
+   The responsible maintainer decides whether to merge. Changes to
+   credentials, workflow permissions or publishing receive independent
+   high-risk assessment.
 
 ## Issue Conventions
 
