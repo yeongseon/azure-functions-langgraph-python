@@ -149,7 +149,7 @@ def semgrep_evidence(outcome: str) -> Check:
         1 if outcome == "failure" else None,
         counts={"inventory_files": sum(len(list(Path(p).rglob("*.py"))) for p in SCOPE)},
         tool_versions={"action": "713efdd345f3035192eaa63f56867b88e63e4e5d"},
-        message="Reporting only: action outcome="
+        message="action outcome only; reporting only: action outcome="
         + (outcome if outcome in {"success", "failure", "skipped", "cancelled"} else "unknown")
         + "; analyzed files and findings unknown. Existing action remains blocking.",
     )
@@ -163,7 +163,7 @@ def main() -> int:
     args = parser.parse_args()
     check = run_bandit() if args.check == "bandit" else semgrep_evidence(args.outcome)
     code = write_report([check], args.output)
-    return code if args.check == "bandit" else 0
+    return code
 
 
 if __name__ == "__main__":

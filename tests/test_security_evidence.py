@@ -66,6 +66,12 @@ def test_clean_nonempty_audit_passes() -> None:
     assert result.counts["packages"] == 1
 
 
+def test_semgrep_success_is_explicit_action_outcome_only() -> None:
+    result = semgrep_evidence("success")
+    assert result.status == Status.INCOMPLETE
+    assert "action outcome only" in result.message
+
+
 @pytest.mark.parametrize(
     "raw", ["", "{}", '{"metrics":{"_totals":{"loc":0}},"results":[],"errors":[]}']
 )
