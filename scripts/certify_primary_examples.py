@@ -168,8 +168,8 @@ def _smoke(example: str, venv: Path, repo: Path, lane: str) -> tuple[str, str]:
     return fake_output, real_output
 
 
-def _certify_negative_fixture(config: CertificationConfig, repo: Path) -> None:
-    venv = config.output_dir / "negative-venv"
+def _certify_negative_fixture(config: CertificationConfig, repo: Path, workspace: Path) -> None:
+    venv = workspace / "negative-venv"
     _run([config.uv, "venv", "--python", config.python, str(venv)])
     result = subprocess.run(
         [
@@ -190,13 +190,18 @@ def _certify_negative_fixture(config: CertificationConfig, repo: Path) -> None:
 
 
 def certify(config: CertificationConfig) -> None:
+    with tempfile.TemporaryDirectory(prefix="lg-certification-") as temporary:
+        _certify(config, Path(temporary))
+
+
+def _certify(config: CertificationConfig, workspace: Path) -> None:
     repo = Path(__file__).resolve().parents[1]
     config.output_dir.mkdir(parents=True, exist_ok=True)
-    _certify_negative_fixture(config, repo)
+    _certify_negative_fixture(config, repo, workspace)
     summary: dict[str, dict[str, str]] = {}
     for example in PRIMARY_EXAMPLES:
         example_output = config.output_dir / example
-        venv = example_output / "venv"
+        venv = workspace / example / "venv"
         if example_output.exists():
             shutil.rmtree(example_output)
         example_output.mkdir(parents=True)

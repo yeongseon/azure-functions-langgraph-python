@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+from dataclasses import replace
+from http.client import HTTPException
 import json
 import os
 from pathlib import Path
@@ -22,11 +24,26 @@ STORAGE_KEY = (
 )
 
 
+def wait_ready(url: str, name: str) -> None:
+    deadline = time.monotonic() + 100
+    while True:
+        try:
+            if requests.get(url + "/api/health", timeout=2).status_code == 200:
+                return
+        except (requests.RequestException, OSError, HTTPException):
+            if time.monotonic() >= deadline:
+                raise MissingPrerequisite(name + " host readiness timed out") from None
+        if time.monotonic() >= deadline:
+            raise MissingPrerequisite(name + " host readiness timed out")
+        time.sleep(0.5)
+
+
 def main() -> int:
     root = Path.cwd()
     directory = root / "test-results/host-smoke"
     fresh(directory)
     code, reason = 0, ""
+    streaming_summary: Summary | None = None
     try:
         if shutil.which("func") is None or shutil.which("azurite") is None:
             raise MissingPrerequisite("func and azurite on PATH are required")
@@ -72,20 +89,7 @@ def main() -> int:
                     app,
                 ):
                     url = f"http://127.0.0.1:{number}"
-                    deadline = time.monotonic() + 100
-                    while True:
-                        try:
-                            response = requests.get(url + "/api/health", timeout=2)
-                            if response.status_code == 200:
-                                break
-                        except requests.RequestException:
-                            if time.monotonic() >= deadline:
-                                raise MissingPrerequisite(
-                                    name + " host readiness timed out"
-                                ) from None
-                        if time.monotonic() >= deadline:
-                            raise MissingPrerequisite(name + " host readiness timed out")
-                        time.sleep(0.5)
+                    wait_ready(url, name)
                     if streaming:
                         with configured(
                             {
@@ -94,13 +98,13 @@ def main() -> int:
                                 "STREAM_TIMING_EVIDENCE": str(directory / "streaming-timing.json"),
                             }
                         ):
-                            code = execute("streaming-host", []).exit_code
-                        if code:
-                            raise MissingPrerequisite("Streaming host tests did not pass")
-                        shutil.copyfile(
-                            root / "test-results/streaming-host/junit.xml",
-                            directory / "streaming-junit.xml",
-                        )
+                            streaming_summary = execute("streaming-host", [])
+                            code = streaming_summary.exit_code
+                        source_junit = root / "test-results/streaming-host/junit.xml"
+                        if source_junit.is_file():
+                            shutil.copyfile(source_junit, directory / "streaming-junit.xml")
+                        elif streaming_summary.status != "FAIL":
+                            raise MissingPrerequisite("Streaming host execution evidence missing")
                     else:
                         response = requests.post(
                             url + "/api/graphs/smoke/invoke",
@@ -119,12 +123,23 @@ def main() -> int:
                         ET.SubElement(suite, "testcase", classname="native_host", name="invoke")
                         ET.ElementTree(suite).write(directory / "native-junit.xml")
             run(["func", "--version"], directory / "logs/version.log", 10)
-    except (MissingPrerequisite, OSError, requests.RequestException, AssertionError) as error:
+    except (MissingPrerequisite, OSError) as error:
         code, reason = 2, str(error)
+    except (requests.RequestException, AssertionError) as error:
+        code = 1
+        reason = str(error)
     except KeyboardInterrupt:
         code, reason = 130, "Interrupted; run-owned hosts terminated"
     summary = collect(directory, ["func", "start", "native+streaming"], code)
-    if reason:
+    if streaming_summary is not None and streaming_summary.status != "PASS":
+        summary = replace(
+            summary,
+            status=streaming_summary.status,
+            exit_code=streaming_summary.exit_code,
+            failed=max(summary.failed, streaming_summary.failed),
+            reason=streaming_summary.reason,
+        )
+    elif reason:
         summary = Summary(
             1,
             "host-smoke",
@@ -133,7 +148,7 @@ def main() -> int:
             summary.passed,
             summary.failed,
             summary.skipped,
-            "INCOMPLETE",
+            "FAIL" if code == 1 or summary.failed else "INCOMPLETE",
             code,
             reason=reason,
         )
