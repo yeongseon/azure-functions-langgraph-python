@@ -37,6 +37,9 @@ Recommended branch prefixes:
 Install Hatch once in an isolated tool environment, then run `make install`.
 Routine targets never upgrade pip or reinstall Hatch. Local execution uses
 Hatch's Python 3.11; CI uses its selected interpreter directly.
+Maintenance targets (`doctor`, `report`, `clean`) reuse an existing interpreter
+without creating or synchronizing a Hatch environment. On a fresh checkout,
+doctor reports missing development modules and directs you to `make install`.
 
 | Command | Contract |
 | --- | --- |
@@ -58,6 +61,8 @@ deep cleanup including `.venv` and bytecode. `test-table`, `test-cosmos`,
 `test-openapi`, `certify-examples-*`, `host-smoke`, `deterministic`, `wheel-smoke`,
 `build`, `docs` and `cov` are focused **PARTIAL** evidence, not full verification.
 `e2e-local` runs owned local hosts; it does not certify Azure.
+Certification virtual environments live in a run-owned temporary workspace outside
+`test-results/` and are removed on exit; only generated textual evidence is retained.
 
 ### Services and evidence
 
@@ -82,6 +87,7 @@ non-gating, not release proof. Locally Cosmos is required for FULL_LOCAL: an
 unavailable emulator makes verify INCOMPLETE/nonzero; failing tests make it FAIL.
 
 Gitignored `test-results/` contains `test/{junit.xml,coverage.xml,summary.json}`,
+`check/{logs/runner.log,summary.json}` (including failed quality commands),
 `integration/{junit/,logs/,table/,cosmos/,summary.json}`, separate host/dependency/
 wheel lanes, `verify/{summary.json,environment.json,lanes.json}`, and
 `azure-e2e/{junit.xml,summary.json,logs/}`. Summaries carry schema version, command,
