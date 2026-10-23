@@ -10,10 +10,9 @@ make install
 
 This will:
 
-1. Create a Python virtual environment in `.venv/`
-2. Install Hatch as the build and environment manager
-3. Create the Hatch environment with all dev dependencies
-4. Install pre-commit hooks
+1. Require Hatch, installed once in an isolated tool environment
+2. Create the Hatch Python 3.11 environment with dev/docs/storage dependencies
+3. Install pre-commit hooks
 
 ## Project structure
 
@@ -45,7 +44,9 @@ azure-functions-langgraph/
 | Command | Description |
 |---------|-------------|
 | `make install` | Create environment and install dependencies |
-| `make test` | Run pytest test suite |
+| `make install-ci` | Install into the actual CI-selected interpreter |
+| `make doctor` | Read-only prerequisites, nonzero when required tools are absent |
+| `make test` | Offline/unit/mock suite, coverage >=95% |
 | `make lint` | Run ruff check + mypy |
 | `make format` | Auto-format code with ruff |
 | `make typecheck` | Run mypy type checker |
@@ -54,10 +55,18 @@ azure-functions-langgraph/
 | `make cov` | Run tests with HTML coverage report |
 | `make docs` | Build MkDocs documentation |
 | `make docs-serve` | Serve docs locally |
-| `make check` | Run lint + typecheck |
-| `make check-all` | Run lint + typecheck + test + security |
+| `make check` | Non-mutating lint/format/types/security/workflow policy |
+| `make integration` | Run-owned storage emulators, deterministic locks and native/streaming hosts |
+| `make verify` / `make check-all` | Full local verification / exact alias |
+| `make e2e-azure` | Explicit deployed Azure candidate, separate from local verification |
+| `make report` | Display saved evidence without executing tests |
 | `make clean` | Remove build artifacts |
 | `make clean-all` | Remove all generated files including venv |
+
+See [Testing](testing.md#verification-contract) for evidence and prerequisite
+semantics. Focused commands are PARTIAL. Cosmos nightly/manual CI is non-gating;
+missing local Cosmos makes full verify INCOMPLETE, never PASS. Real Azure profiles
+and optional Flex/SDK 2.x certification remain separate.
 
 ## Code style
 

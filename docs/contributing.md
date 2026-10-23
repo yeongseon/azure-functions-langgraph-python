@@ -20,6 +20,11 @@ make install
 make check-all
 ```
 
+`check-all` is an exact alias of `verify`: quality, offline tests (>=95%),
+owned storage/host integration, installed wheel, build and docs. Focused tests
+are PARTIAL; local evidence is not Azure certification. See
+[Testing](testing.md#verification-contract) for safe lifecycle and saved reports.
+
 This runs:
 
 - `ruff check` — linting

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator, Sequence
 import importlib
+import os
 from typing import Any
 import uuid
 
@@ -33,7 +34,7 @@ AZURITE_BLOB_CONNECTION_STRING = (
     "DefaultEndpointsProtocol=http;"
     "AccountName=devstoreaccount1;"
     "AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;"
-    "BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1"
+    f"BlobEndpoint=http://127.0.0.1:{os.environ.get('AZURITE_BLOB_PORT', '10000')}/devstoreaccount1"
 )
 
 # The conformance harness is an optional dev dependency.
@@ -95,7 +96,9 @@ class _AsyncConformanceSaver(AzureBlobCheckpointSaver):
 @pytest.fixture
 def azurite_container_client() -> Iterator[Any]:
     """Yield a fresh, uniquely-named live Azurite blob ContainerClient."""
-    require_tcp_service("127.0.0.1", 10000, "Azurite Blob")
+    require_tcp_service(
+        "127.0.0.1", int(os.environ.get("AZURITE_BLOB_PORT", "10000")), "Azurite Blob"
+    )
     try:
         blob_module = importlib.import_module("azure.storage.blob")
         blob_service_client = blob_module.BlobServiceClient.from_connection_string(

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 
 import pytest
+
+from tools.verification_lanes import pytest_command
 
 TABLE_WORKFLOW = (
     Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci-table-integration.yml"
@@ -14,17 +15,16 @@ TABLE_WORKFLOW = (
 
 
 def _junit_validator() -> str:
-    workflow = TABLE_WORKFLOW.read_text()
-    match = re.search(r"python - <<'VALIDATE'\n(?P<body>.*?)\n\s+VALIDATE", workflow, re.DOTALL)
-    assert match is not None
-    lines = match.group("body").splitlines()
-    indent = min(len(line) - len(line.lstrip()) for line in lines if line.strip())
-    return "\n".join(line[indent:] for line in lines)
+    return (
+        "import os, sys; from tools.verification_junit import main; "
+        "sys.argv = ['validate', os.environ['JUNIT_XML']]; main()"
+    )
 
 
 def _validate_junit(report: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-c", _junit_validator()],
+        cwd=TABLE_WORKFLOW.parents[2],
         env={**os.environ, "JUNIT_XML": str(report)},
         capture_output=True,
         text=True,
@@ -50,12 +50,15 @@ def test_table_workflow_covers_all_service_integration_inputs() -> None:
 def test_table_workflow_requires_azurite_tests_and_accepts_new_sdk_versions() -> None:
     workflow = TABLE_WORKFLOW.read_text()
 
-    assert "--skipApiVersionCheck" in workflow
-    assert "AZURITE_REQUIRED: true" in workflow
-    assert "--strict-markers" in workflow
+    root = TABLE_WORKFLOW.parents[2]
+    assert "make test-table" in workflow
+    assert "--skipApiVersionCheck" in (root / "docker-compose.azurite.yml").read_text()
+    assert "--strict-markers" in pytest_command("table", [])
 
 
-def test_junit_validator_accepts_complete_no_skip_report(tmp_path: Path) -> None:
+def test_junit_validator_accepts_complete_no_skip_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     report = tmp_path / "results.xml"
     report.write_text(
         """<testsuites tests="3" failures="0" errors="0" skipped="0">
@@ -67,6 +70,8 @@ def test_junit_validator_accepts_complete_no_skip_report(tmp_path: Path) -> None
         </testsuites>"""
     )
 
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     result = _validate_junit(report)
 
     assert result.returncode == 0, result.stderr
@@ -148,7 +153,7 @@ def test_junit_validator_counts_nested_suite_cases_once(tmp_path: Path) -> None:
               <error />
             </testcase>
             </testsuite></testsuites>""",
-            "{'tests': 1, 'failures': 0, 'errors': 1, 'skipped': 0}",
+            "{'tests': 1, 'failures': 1, 'errors': 0, 'skipped': 0}",
         ),
         (
             """<testsuites><testsuite tests="1" failures="0" errors="0" skipped="1">
@@ -163,7 +168,7 @@ def test_junit_validator_counts_nested_suite_cases_once(tmp_path: Path) -> None:
             <testcase classname="tests.integration.test_table_store_integration" />
             <testcase classname="tests.integration.test_checkpoint_conformance" />
             </testsuite></testsuites>""",
-            "missing expected integration areas: ['production persistent agent']",
+            "production_persistent_agent",
         ),
         (
             """<testsuites><testsuite tests="3" failures="0" errors="0" skipped="0">

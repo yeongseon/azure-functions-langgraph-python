@@ -157,16 +157,11 @@ def test_malformed_checkpoint_record_raises_from_upstream(
     # corrupted in place through the raw Cosmos SDK container, preserving
     # its actual id, partition_key and the rest of the document envelope.
     raw_container = getattr(saver, "container")
-    query = "SELECT * FROM c WHERE c.id=@id"
-    parameters = [{"name": "@id", "value": saved_cfg["configurable"]["checkpoint_id"]}]
-    matches = list(
-        raw_container.query_items(
-            query=query, parameters=parameters, enable_cross_partition_query=True
-        )
-    )
+    query = "SELECT * FROM c WHERE IS_DEFINED(c.checkpoint)"
+    matches = list(raw_container.query_items(query=query, enable_cross_partition_query=True))
     assert len(matches) == 1, "expected exactly one stored document for the checkpoint just written"
     stored_doc = matches[0]
-    assert "id" in stored_doc and "checkpoint" not in stored_doc.get("id", "")
+    assert stored_doc["id"].endswith(saved_cfg["configurable"]["checkpoint_id"])
     stored_doc["checkpoint"] = "not-a-valid-checkpoint-payload"
     raw_container.upsert_item(stored_doc)
 

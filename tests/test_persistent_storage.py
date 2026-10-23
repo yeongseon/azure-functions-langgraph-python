@@ -542,7 +542,6 @@ def azure_backend() -> Any:  # Generator[_BackendContext, None, None]
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.integration
 class TestPersistentStorageFlows:
     """End-to-end flows exercised through the SDK layer against both backends."""
 
@@ -798,7 +797,6 @@ class TestPersistentStorageFlows:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.integration
 class TestPersistentRestart:
     """Verify that state survives process restart (new saver/store instances
     pointing to the same backing storage)."""
