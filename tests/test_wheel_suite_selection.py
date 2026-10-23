@@ -11,6 +11,8 @@ def test_wheel_config_collects_runtime_but_not_repository_tooling(tmp_path: Path
     (tmp_path / "test_app.py").write_text("def test_runtime():\n    assert True\n")
     for name in (
         "test_audit_candidate.py",
+        "test_candidate_inventory.py",
+        "test_security_workflow_contract.py",
         "test_audit_exception_policy.py",
         "test_security_evidence.py",
         "test_host_smoke_contract.py",
