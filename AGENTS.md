@@ -163,6 +163,9 @@ Unlike the sibling repos, this package has **no** cookbook host-smoke tier. The 
 ## Golden Commands
 
 Use Makefile entry points only. Do not bypass the Makefile in CI or contributor guidance.
+Security entry points and verified candidate-inventory rules are documented in
+[SECURITY.md](SECURITY.md#automated-security-controls). `make security` includes
+the expanded executable-surface inventory used by CI.
 
 | Purpose | Command |
 | --- | --- |

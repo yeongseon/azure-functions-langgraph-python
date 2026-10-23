@@ -64,6 +64,29 @@ with `pip-audit==2.10.1`. `dev` and `docs` are not production profiles. This is
 not certification of every extras combination, oldest dependency constraint,
 Python 3.12–3.14 environment, or deployment's own dependencies. Resolution errors
 block that profile as `TOOL_ERROR`; optional extras are never silently skipped.
+The wheel METADATA name/version must exactly match the installed candidate before
+exclusion. A pip-free target venv is installed through external `pip --python`;
+only that verified candidate is excluded from the frozen third-party closure.
+Absent/mismatched identity, empty inventories and skipped third-party packages
+remain blocking. Unpublished first-party versions do not require a PyPI lookup.
+
+## Automated security controls
+
+Use Makefile entry points locally and in CI:
+
+- `make security` includes the expanded executable-surface inventory scan.
+- `make security-inventory` / `make security-bandit-evidence` write Bandit evidence.
+- `make security-semgrep-evidence SCAN_OUTCOME=success` records **action outcome only**
+  as INCOMPLETE and tolerates exactly exit 3; the pinned action remains the gate.
+  An action failure remains nonzero and is never converted to success.
+- `make security-audit-policy` validates expiring runtime exceptions.
+- `make security-runtime-audit WHEEL=/path/to/candidate.whl PROFILE=base` blocks
+  unsafe or incomplete resolved candidate evidence (repeat for each listed profile).
+- `make security-runtime-report REPORT=/path/to/audit.json AUDIT_EXIT=0` classifies
+  saved evidence without rerunning installation or scanning; non-PASS still exits nonzero.
+
+Set `SECURITY_PYTHON=python` in selected-interpreter CI; local targets default to
+the existing Hatch interpreter. Collectors and artifact uploads use `if: always()`.
 
 Evidence statuses and helper exits: `PASS`/0 (usable nonempty evidence, no blocking
 findings), `FAIL`/1 (unexcepted findings), `TOOL_ERROR`/2 (scanner/installation,
