@@ -5,15 +5,16 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 import hashlib
-from importlib.metadata import distributions
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from zipfile import BadZipFile
 
 from scripts.check_audit_exceptions import AuditExceptionError, parse_exceptions
+from tools.candidate_inventory import Candidate
 from tools.runtime_audit import classify_audit
-from tools.security_report import Check, Status, write_report
+from tools.security_report import Check, EvidenceError, Status, write_report
 
 PROFILES = (
     "base",
@@ -34,9 +35,10 @@ def audit(wheel: Path, profile: str, temporary: Path) -> Check:
     result = Check("runtime-audit", (profile,), Status.TOOL_ERROR, None)
     try:
         ignores = parse_exceptions(Path(".github/pip-audit-ignore.txt"))
+        candidate = Candidate.from_wheel(wheel)
         environment = temporary / "runtime"
         subprocess.run(
-            [sys.executable, "-m", "venv", str(environment)],
+            [sys.executable, "-m", "venv", "--without-pip", str(environment)],
             capture_output=True,
             text=True,
             check=True,
@@ -48,7 +50,7 @@ def audit(wheel: Path, profile: str, temporary: Path) -> Check:
         )
         spec = str(wheel.resolve()) + (f"[{profile}]" if profile != "base" else "")
         install = subprocess.run(
-            [str(python), "-m", "pip", "install", spec],
+            [sys.executable, "-m", "pip", "--python", str(python), "install", spec],
             capture_output=True,
             text=True,
             check=False,
@@ -60,12 +62,7 @@ def audit(wheel: Path, profile: str, temporary: Path) -> Check:
                 exit_status=install.returncode,
                 message="Candidate profile installation failed; diagnostics discarded.",
             )
-        packages = sorted(
-            f"{dist.metadata['Name']}=={dist.version}"
-            for dist in distributions(path=[str(target)])
-            if dist.metadata["Name"].lower().replace("_", "-")
-            not in {"azure-functions-langgraph", "pip", "setuptools"}
-        )
+        packages = candidate.freeze(target)
         if not packages:
             return replace(result, status=Status.INCOMPLETE, message="Zero runtime dependencies.")
         requirements = temporary / "requirements.txt"
@@ -91,11 +88,17 @@ def audit(wheel: Path, profile: str, temporary: Path) -> Check:
             timeout=300,
         )
         check = classify_audit(process.stdout, process.returncode)
+        if check.status in {Status.PASS, Status.FAIL}:
+            candidate.verify_report(process.stdout, packages)
         return replace(
             check,
             scope=(profile,),
             exceptions_applied=ignores,
             message="Candidate SHA256: " + hashlib.sha256(wheel.read_bytes()).hexdigest(),
+        )
+    except EvidenceError:
+        return replace(
+            result, status=Status.INCOMPLETE, message="Candidate identity absent or mismatched."
         )
     except (
         OSError,
@@ -103,6 +106,7 @@ def audit(wheel: Path, profile: str, temporary: Path) -> Check:
         subprocess.CalledProcessError,
         AuditExceptionError,
         ValueError,
+        BadZipFile,
     ):
         return replace(result, message="Audit tool, installation or exception policy failed.")
 

@@ -18,9 +18,9 @@
     {"id":"B404","file":"tools/security_evidence.py","line":12,"kind":"reviewed-static","reason":"Scanner executed as fixed module with explicit argv","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B603","file":"tools/security_evidence.py","line":82,"kind":"reviewed-static","reason":"Current interpreter runs fixed Bandit argv and fixed surfaces without shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B105","file":"tools/security_report.py","line":59,"kind":"reviewed-static","reason":"PASS is an evidence status enum not a password","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
-    {"id":"B404","file":"tools/audit_candidate.py","line":10,"kind":"reviewed-static","reason":"Candidate audit uses fixed pip and scanner module argv without shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
-    {"id":"B603","file":"tools/audit_candidate.py","line":38,"kind":"reviewed-static","reason":"Current interpreter creates run-owned disposable venv with fixed argv","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
-    {"id":"B603","file":"tools/audit_candidate.py","line":50,"kind":"reviewed-static","reason":"Installs caller-selected local candidate wheel in disposable venv; CI artifact is trusted input","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
-    {"id":"B603","file":"tools/audit_candidate.py","line":73,"kind":"reviewed-static","reason":"Fixed pip-audit argv and validated advisory IDs; no shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"}
+    {"id":"B404","file":"tools/audit_candidate.py","line":9,"kind":"reviewed-static","reason":"Candidate audit uses fixed pip and scanner module argv without shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"tools/audit_candidate.py","line":40,"kind":"reviewed-static","reason":"Current interpreter creates run-owned disposable pip-free venv with fixed argv","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"tools/audit_candidate.py","line":52,"kind":"reviewed-static","reason":"External pip targets caller-selected local candidate wheel in disposable venv; CI artifact is trusted input","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B603","file":"tools/audit_candidate.py","line":70,"kind":"reviewed-static","reason":"Fixed pip-audit argv and validated advisory IDs; no shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"}
   ]
 }
