@@ -3,7 +3,8 @@
 ``e2e-azure.yml`` is the Azure gate of every release, and pytest exiting 0 does not prove that its
 tests ran: each e2e module skips itself when its input is unset. Both pytest runs of the workflow
 must therefore be followed by ``tools/check_junit.py`` on the report they wrote, nothing may mask
-that validator, and the certification must not be recorded without it.
+that validator, and the certification must not be recorded without it. Both runs also print short
+tracebacks, so that a failing run cannot print the streaming function key.
 """
 
 from __future__ import annotations
@@ -97,6 +98,14 @@ def test_nothing_masks_the_validator_or_records_certification_without_it(job: st
     assert not {"if", "continue-on-error"} & set(steps[record])
     assert "||" not in step["run"]
     assert "set +e" not in step["run"]
+
+
+@pytest.mark.parametrize("job", SELECTED)
+def test_pytest_prints_short_tracebacks_so_the_function_key_stays_out_of_the_log(job: str) -> None:
+    pytest_run, _ = _pytest_and_validator(job)
+
+    # The default style prints the call arguments of urllib3's frames, request headers included.
+    assert [word for word in pytest_run if word.startswith("--tb")] == ["--tb=short"]
 
 
 @pytest.mark.parametrize(("job", "modules"), SELECTED.items())

@@ -193,8 +193,10 @@ jobs:
           # Exit status 0 does not prove the tests ran: a test whose input is unset
           # skips. check_junit.py fails this step on zero tests, any skip or failure,
           # or a module that never ran, so "Record certification" cannot report success.
+          # --tb=short: the default traceback prints the call arguments of urllib3's frames,
+          # request headers (the function key) included, into the log and the JUnit report.
           mkdir -p cert
-          pytest tests/e2e -v -m e2e -o addopts="" --junitxml=cert/e2e-results.xml
+          pytest tests/e2e -v -m e2e -o addopts="" --tb=short --junitxml=cert/e2e-results.xml
           python tools/check_junit.py cert/e2e-results.xml \
             --area "native routes=test_langgraph_e2e" \
             --area "two-app lock=test_langgraph_lock_e2e" \
@@ -347,9 +349,10 @@ jobs:
           # single-writer contention suite (App B) and the true-streaming suite
           # (its own app) are not deployed by this job, so they are not selected:
           # a selected test that cannot run skips, and check_junit.py fails the
-          # step on any skip, zero tests or a module that never ran.
+          # step on any skip, zero tests or a module that never ran. --tb=short as in the
+          # 1.x job, so that no request header can reach a traceback.
           mkdir -p cert-2x
-          pytest tests/e2e/test_langgraph_e2e.py -v -m e2e -o addopts="" --junitxml=cert-2x/e2e-results.xml
+          pytest tests/e2e/test_langgraph_e2e.py -v -m e2e -o addopts="" --tb=short --junitxml=cert-2x/e2e-results.xml
           python tools/check_junit.py cert-2x/e2e-results.xml \
             --area "native routes=test_langgraph_e2e"
 

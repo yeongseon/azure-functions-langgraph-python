@@ -3,7 +3,8 @@
 An e2e module skips itself when its ``E2E_*`` input is unset, so a run that was never pointed at a
 deployment used to end with every test skipped and exit status 0. Under the dedicated ``-m e2e``
 selector ``tests/e2e/conftest.py`` fails that run instead. The streaming function key must also
-travel in a header, so that it never lands in a URL.
+travel in a header, so that it never lands in a URL, and a failing run must not print it: pytest's
+default traceback prints the call arguments of urllib3's frames, request headers included.
 """
 
 from __future__ import annotations
@@ -20,11 +21,14 @@ from typing import Any
 
 import pytest
 
+from tests.test_e2e_azure_workflow import _pytest_and_validator
+
 ROOT = Path(__file__).resolve().parents[1]
 E2E = ROOT / "tests" / "e2e"
 INPUTS = ("E2E_BASE_URL", "E2E_BASE_URL_B", "E2E_STREAM_BASE_URL", "E2E_STREAM_CODE")
 MODULES = ["test_langgraph_e2e", "test_langgraph_lock_e2e", "test_true_streaming_e2e"]
 ALL_SET = dict.fromkeys(INPUTS[:3], "https://example.test")
+CANARY = "synthetic-function-key-canary"
 
 
 def _load(name: str, path: Path) -> Any:
@@ -64,8 +68,12 @@ def test_a_module_the_guard_does_not_know_fails_closed() -> None:
 
 
 def _pytest(*arguments: str, **inputs: str) -> subprocess.CompletedProcess[str]:
-    """Run pytest in the repository with every E2E_* input unset except ``inputs``."""
-    environment = {key: value for key, value in os.environ.items() if key not in INPUTS}
+    """Run pytest in the repository with every E2E_* input and proxy unset except ``inputs``."""
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in INPUTS and not key.lower().endswith("_proxy")
+    }
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *arguments],
         cwd=ROOT,
@@ -141,11 +149,15 @@ def test_a_run_that_collects_e2e_tests_without_the_selector_still_skips_them() -
     assert re.search(r"\d+ skipped", result.stdout)
 
 
-def test_hatch_scripts_run_the_dedicated_selector_without_coverage() -> None:
+def _hatch_scripts() -> Any:
+    hatch = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["hatch"]
+    return hatch["envs"]["default"]["scripts"]
+
+
+def test_hatch_scripts_select_e2e_without_coverage_and_with_short_tracebacks() -> None:
     # Coverage (fail_under = 95) fails any run that does not import src/, so even an all-green
     # e2e run would exit non-zero without --no-cov.
-    hatch = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["hatch"]
-    scripts = hatch["envs"]["default"]["scripts"]
+    scripts = _hatch_scripts()
     for name, path in (
         ("e2e-azure", "tests/e2e/"),
         ("e2e-local", "tests/e2e/test_langgraph_e2e.py"),
@@ -154,6 +166,7 @@ def test_hatch_scripts_run_the_dedicated_selector_without_coverage() -> None:
         assert words[0] == "pytest"
         assert words[words.index("-m") + 1] == "e2e"
         assert {"--no-cov", path} <= set(words)
+        assert [word for word in words if word.startswith("--tb")] == ["--tb=short"]
 
 
 def _stream_call(monkeypatch: pytest.MonkeyPatch, key: str) -> tuple[str, dict[str, Any]]:
@@ -183,3 +196,36 @@ def test_no_key_header_is_sent_when_there_is_no_function_key(
 
     assert request["headers"] == {}
     assert "params" not in request
+
+
+# The pytest command of each entry point that runs the streaming module, and so can carry its key.
+KEY_ENTRY_POINTS = {
+    "release-gate": lambda: _pytest_and_validator("deploy_and_test")[0],
+    "hatch-e2e-azure": lambda: shlex.split(_hatch_scripts()["e2e-azure"]),
+}
+
+
+@pytest.mark.parametrize("entry_point", KEY_ENTRY_POINTS)
+def test_a_failing_run_never_prints_the_function_key(tmp_path: Path, entry_point: str) -> None:
+    # Given: the entry point's own pytest arguments, with the report path replaced
+    _, *words = KEY_ENTRY_POINTS[entry_point]()
+    arguments = [word for word in words if not word.startswith("--junitxml=")]
+    report = tmp_path / "e2e-results.xml"
+
+    # When: it runs the streaming tests against a closed local port, so every request is refused
+    result = _pytest(
+        *arguments,
+        "-k",
+        "true_streaming",
+        f"--junitxml={report}",
+        E2E_STREAM_BASE_URL="http://127.0.0.1:1",
+        E2E_STREAM_CODE=CANARY,
+    )
+
+    # Then: the run failed on the refused connection, and the key is in no output or report
+    report_text = report.read_text(encoding="utf-8")
+    assert result.returncode == 1
+    assert "ConnectionError" in report_text
+    assert CANARY not in result.stdout
+    assert CANARY not in result.stderr
+    assert CANARY not in report_text
