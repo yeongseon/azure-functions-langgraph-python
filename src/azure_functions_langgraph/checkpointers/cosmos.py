@@ -37,7 +37,7 @@ import logging
 import os
 import threading
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlsplit
+from urllib.parse import urlparse, urlsplit
 import warnings
 import weakref
 
@@ -50,30 +50,48 @@ logger = logging.getLogger(__name__)
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
-def _is_loopback_endpoint(endpoint: str) -> bool:
-    """Return True only if every URL parser agrees the host is a loopback name.
+def _endpoint_host(endpoint: str) -> str | None:
+    """Return the endpoint host, or raise ``ValueError`` if the URL is ambiguous.
 
-    Fails closed. The HTTP client (``requests``/``urllib3``) parses URLs
-    differently from :func:`urllib.parse.urlsplit` (for example backslashes),
-    so the decision must not rest on one parser. Endpoints containing
-    backslashes, whitespace/control or non-ASCII characters, or userinfo
-    (``@``) are rejected, and ``urlsplit`` and ``urllib3.util.parse_url`` must
-    both extract a loopback host.
+    Ambiguous means different parsers could disagree about where the request
+    goes: backslashes, whitespace/control or non-ASCII characters, userinfo
+    (``@`` in the authority), a parse failure, or a host that
+    ``urllib.parse.urlparse`` (used by azure-cosmos to decide whether to skip
+    TLS verification), ``urlsplit`` and ``urllib3.util.parse_url`` (used by
+    ``requests``) do not extract identically. The message never contains the
+    endpoint.
     """
+    error = ValueError(
+        "Cosmos DB endpoint is malformed or ambiguous (backslash, whitespace, control or "
+        "non-ASCII character, userinfo, or inconsistent host); refusing to build a client."
+    )
     if not endpoint.isascii() or not endpoint.isprintable():
-        return False
+        raise error
     if any(ch.isspace() or ch == "\\" for ch in endpoint):
-        return False
+        raise error
     try:
-        split = urlsplit(endpoint)
-        if "@" in split.netloc:
-            return False
-        split_host = split.hostname
-        parsed = importlib.import_module("urllib3.util").parse_url(endpoint)
-    except Exception:  # noqa: BLE001 - any parser failure means "not loopback"
+        parsed = urlparse(endpoint)
+        if "@" in parsed.netloc:
+            raise error
+        host = parsed.hostname
+        split_host = urlsplit(endpoint).hostname
+        url_host = importlib.import_module("urllib3.util").parse_url(endpoint).host
+    except ValueError as exc:
+        raise error from exc
+    except Exception as exc:  # urllib3 LocationParseError and friends
+        raise error from exc
+    url_host = url_host.strip("[]").lower() if url_host else None
+    if host != split_host or host != url_host:
+        raise error
+    return host
+
+
+def _is_loopback_endpoint(endpoint: str) -> bool:
+    """Return True only for an unambiguous endpoint whose host is loopback."""
+    try:
+        return _endpoint_host(endpoint) in _LOOPBACK_HOSTS
+    except ValueError:
         return False
-    url_host = (parsed.host or "").strip("[]").lower()
-    return split_host in _LOOPBACK_HOSTS and url_host == split_host
 
 
 _EXTRA_HINT = (
@@ -131,7 +149,9 @@ def create_cosmos_checkpointer(
     Raises:
         TypeError: If ``key`` and ``credential`` are both provided, or if
             ``credential`` is not a string.
-        ValueError: If no key can be resolved from parameters or environment.
+        ValueError: If no key can be resolved from parameters or environment,
+            or if ``endpoint`` is malformed or ambiguous (raised before any
+            client is created).
         ImportError: If ``langgraph-checkpoint-cosmosdb`` is not installed.
             Install via the ``cosmos`` extra.
     """
@@ -178,6 +198,11 @@ def create_cosmos_checkpointer(
         DeprecationWarning,
         stacklevel=2,
     )
+
+    # Validate BEFORE any client exists: azure-cosmos disables TLS verification
+    # for hosts it parses as localhost/127.0.0.1, so an ambiguous endpoint must
+    # never reach the upstream constructor.
+    _endpoint_host(endpoint)
 
     # --- Import upstream ---
     try:

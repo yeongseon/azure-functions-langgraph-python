@@ -77,6 +77,19 @@ certificate verification for the emulator's self-signed certificate. It is
 honored only when the endpoint host is `localhost`, `127.0.0.1` or `::1`; for
 any other host it is ignored, verification stays on and a warning is logged.
 
+`create_cosmos_checkpointer` also validates the endpoint before any Cosmos
+client is built and raises `ValueError` for an ambiguous endpoint (backslash,
+whitespace/control or non-ASCII character, userinfo such as `user@host`, or a
+host that `urlparse`, `urlsplit` and `urllib3` do not extract identically),
+whether or not `COSMOS_DISABLE_SSL` is set. azure-cosmos itself skips
+verification for hosts it parses as `localhost`/`127.0.0.1`, so such an
+endpoint must never reach the SDK.
+
+Compatibility note: non-loopback emulator hostnames (for example a Docker
+network name such as `https://cosmos-emulator:8081`) cannot use
+`COSMOS_DISABLE_SSL`. Use a trusted certificate (`REQUESTS_CA_BUNDLE` /
+`SSL_CERT_FILE`) or a supported loopback endpoint published on the host.
+
 ## GitHub Actions Pinning
 
 All external `uses:` references in `.github/workflows/` MUST pin to a

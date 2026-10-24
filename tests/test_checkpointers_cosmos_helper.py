@@ -596,8 +596,6 @@ def test_disable_ssl_honored_for_loopback(monkeypatch: Any, endpoint: str, value
         "https://acct.documents.azure.com:443/",
         "https://localhost.evil.com:8081",
         "https://127.0.0.1.nip.io:8081",
-        "https://localhost@evil.com",
-        "https://evil.com@localhost.evil.com",
         "https://evillocalhost:8081",
         "https://127.0.0.2:8081",
         "https://[::2]:8081",
@@ -657,17 +655,56 @@ _DIFFERENTIAL_ENDPOINTS = [
 ]
 
 
-@_parametrize("endpoint", _DIFFERENTIAL_ENDPOINTS)
-def test_disable_ssl_ignored_for_parser_differential_endpoints(
-    monkeypatch: Any, caplog: Any, endpoint: str
+@_parametrize("endpoint", [*_DIFFERENTIAL_ENDPOINTS, "https://evil.com@localhost.evil.com"])
+def test_ambiguous_endpoint_rejected_before_any_client_is_built(
+    monkeypatch: Any, endpoint: str
 ) -> None:
-    caplog.set_level("WARNING")
-    client_cls = _create_for_endpoint(monkeypatch, endpoint, "true")
+    constructor_calls: list[dict[str, Any]] = []
+    _install_fake_cosmos(monkeypatch, constructor_calls=constructor_calls)
+    client_cls = _install_fake_sdk(monkeypatch)
+    module = _reload_cosmos_module(monkeypatch)
+    monkeypatch.setenv("COSMOS_DISABLE_SSL", "true")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with pytest.raises(ValueError, match="ambiguous") as info:
+            module.create_cosmos_checkpointer(
+                endpoint=endpoint, key=_SECRET_KEY, database_name="db", container_name="ctr"
+            )
+    assert constructor_calls == []
     client_cls.assert_not_called()
-    messages = "\n".join(r.getMessage() for r in caplog.records)
-    assert "COSMOS_DISABLE_SSL" in messages
-    assert _SECRET_KEY not in messages
-    assert "attacker" not in messages
+    assert _SECRET_KEY not in str(info.value)
+    assert "attacker" not in str(info.value)
+
+
+@_parametrize("backslashes", ["\\", "\\\\"])
+def test_real_sdk_never_sends_unverified_to_attacker_host(
+    monkeypatch: Any, backslashes: str
+) -> None:
+    """Real CosmosDBSaver + azure-cosmos, ``requests.Session.send`` intercepted."""
+    requests = pytest.importorskip("requests")
+    pytest.importorskip("azure.cosmos")
+    pytest.importorskip("langgraph_checkpoint_cosmosdb")
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    sent: list[tuple[str, Any]] = []
+
+    def fake_send(self: Any, request: Any, **kwargs: Any) -> Any:
+        sent.append((request.url, kwargs.get("verify")))
+        raise RuntimeError("network blocked")
+
+    monkeypatch.setattr(requests.Session, "send", fake_send)
+    monkeypatch.setenv("COSMOS_DISABLE_SSL", "true")
+    endpoint = f"https://attacker.invalid{backslashes}@localhost"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        with pytest.raises(ValueError, match="ambiguous"):
+            module.create_cosmos_checkpointer(
+                endpoint=endpoint,
+                key="Zm9v",
+                database_name="db",
+                container_name="ctr",
+            )
+    # Rejected before ANY client was built, so nothing was prepared or sent.
+    assert sent == []
 
 
 def test_loopback_with_port_still_allowed_by_both_parsers() -> None:
