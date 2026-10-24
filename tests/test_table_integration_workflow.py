@@ -18,6 +18,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 TABLE_WORKFLOW = ROOT / ".github" / "workflows" / "ci-table-integration.yml"
+COSMOS_WORKFLOW = ROOT / ".github" / "workflows" / "ci-cosmos-integration.yml"
 CHECK_JUNIT = ROOT / "tools" / "check_junit.py"
 
 
@@ -253,6 +254,58 @@ def _suite(classname: str, outcome: str = "", *, count: int = 6, **declared: int
     return f"<testsuites><testsuite {attributes}>{cases}</testsuite></testsuites>"
 
 
+def test_cosmos_lane_accepts_a_report_where_every_cosmos_test_passed(tmp_path: Path) -> None:
+    report = tmp_path / "results.xml"
+    report.write_text(_suite(COSMOS_CLASS))
+
+    result = _validate_junit(report, COSMOS_WORKFLOW)
+
+    assert result.returncode == 0, result.stderr
+    assert "Validated 6 no-skip integration tests" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("xml", "expected_error"),
+    [
+        pytest.param(
+            _suite(COSMOS_CLASS, '<skipped message="emulator unavailable"/>', skipped=6),
+            "{'tests': 6, 'failures': 0, 'errors': 0, 'skipped': 6}",
+            id="every-test-skipped",
+        ),
+        pytest.param(
+            _suite(COSMOS_CLASS, '<skipped message="emulator unavailable"/>'),
+            "JUnit summary does not match testcase outcomes: counter=skipped, reported=0, actual=6",
+            id="skips-hidden-by-forged-counter",
+        ),
+        pytest.param(
+            _suite(COSMOS_CLASS, '<error message="emulator unavailable"/>', errors=6),
+            "{'tests': 6, 'failures': 0, 'errors': 6, 'skipped': 0}",
+            id="fixture-errors",
+        ),
+        pytest.param(
+            _suite(COSMOS_CLASS, count=0),
+            "no tests ran: {'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}",
+            id="zero-tests",
+        ),
+        pytest.param(
+            _suite("tests.integration.test_table_store_integration"),
+            "missing expected integration areas: ['Cosmos integration']",
+            id="cosmos-tests-not-collected",
+        ),
+    ],
+)
+def test_cosmos_lane_rejects_reports_that_do_not_prove_the_tests_ran(
+    tmp_path: Path, xml: str, expected_error: str
+) -> None:
+    report = tmp_path / "results.xml"
+    report.write_text(xml)
+
+    result = _validate_junit(report, COSMOS_WORKFLOW)
+
+    assert result.returncode == 1
+    assert expected_error in result.stderr
+
+
 @pytest.mark.parametrize("area_arguments", [[], ["--area", ""], ["--area", "Cosmos="]])
 def test_check_junit_refuses_to_run_without_a_usable_area(
     tmp_path: Path, area_arguments: list[str]
@@ -284,6 +337,7 @@ def test_check_junit_matches_a_bare_area_marker_case_insensitively(tmp_path: Pat
             {"table_store_integration", "checkpoint_conformance", "production_persistent_agent"},
             id="table",
         ),
+        pytest.param(COSMOS_WORKFLOW, "COSMOS_REQUIRED", {"test_cosmos_integration"}, id="cosmos"),
     ],
 )
 def test_required_lane_validates_the_report_its_pytest_run_wrote(
@@ -302,6 +356,13 @@ def test_required_lane_validates_the_report_its_pytest_run_wrote(
     assert not [
         item for job in jobs for item in (job, *job["steps"]) if "continue-on-error" in item
     ]
+
+
+def test_cosmos_lane_stays_nightly_and_non_gating() -> None:
+    workflow = _workflow(COSMOS_WORKFLOW)
+    triggers = workflow[True] if True in workflow else workflow["on"]
+
+    assert set(triggers) == {"schedule", "workflow_dispatch"}
 
 
 def test_table_workflow_reruns_when_the_validator_changes() -> None:
