@@ -104,19 +104,27 @@ certify-examples-candidate: ensure-hatch
 	@test -n "$(WHEEL)" || (echo "WHEEL=/path/to/candidate.whl is required" && exit 2)
 	@$(HATCH) run python scripts/certify_primary_examples.py candidate --wheel "$(WHEEL)"
 
+# Emulator lanes: each run starts its own Compose project (lg-<lane>-<shell pid>) with the emulator
+# published on 127.0.0.1 only, and removes that project on success, failure or interrupt. A run
+# never stops or removes a project it did not start. The INT/TERM/HUP trap is what makes /bin/sh
+# (dash) run the EXIT trap on a signal; without it an interrupted run leaves the emulator up.
 .PHONY: test-cosmos
 test-cosmos: ensure-hatch
-	@set -e; \
-	trap 'docker compose -f docker-compose.cosmos.yml down' EXIT; \
-	docker compose -f docker-compose.cosmos.yml up -d --wait; \
-	COSMOS_EMULATOR_ENDPOINT=https://localhost:8081 COSMOS_DISABLE_SSL=true $(HATCH) run cosmos:test
+	@set -e; p="lg-cosmos-$$$$"; cert="$$(mktemp)"; \
+	trap 'rm -f "$$cert"; docker compose -p "$$p" -f docker-compose.cosmos.yml down -v' EXIT; \
+	trap 'exit 130' INT TERM HUP; \
+	docker compose -p "$$p" -f docker-compose.cosmos.yml up -d --wait; \
+	curl -fsk https://localhost:8081/_explorer/emulator.pem -o "$$cert"; \
+	COSMOS_EMULATOR_ENDPOINT=https://localhost:8081 COSMOS_REQUIRED=true \
+	REQUESTS_CA_BUNDLE="$$cert" SSL_CERT_FILE="$$cert" $(HATCH) run cosmos:test
 
 .PHONY: test-table
 test-table: ensure-hatch
-	@set -e; \
-	trap 'docker compose -f docker-compose.azurite.yml down' EXIT; \
-	docker compose -f docker-compose.azurite.yml up -d --wait; \
-	$(HATCH) run table:test
+	@set -e; p="lg-table-$$$$"; \
+	trap 'docker compose -p "$$p" -f docker-compose.azurite.yml down -v' EXIT; \
+	trap 'exit 130' INT TERM HUP; \
+	docker compose -p "$$p" -f docker-compose.azurite.yml up -d --wait; \
+	AZURITE_REQUIRED=true $(HATCH) run table:test
 
 .PHONY: test-openapi
 test-openapi: ensure-hatch
