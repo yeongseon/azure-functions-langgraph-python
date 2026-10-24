@@ -136,14 +136,16 @@ cov: ensure-hatch
 	@echo "Open htmlcov/index.html in your browser to view the coverage report."
 	@echo "coverage.xml generated for Codecov upload."
 
+# e2e lanes: a run whose inputs are unset fails instead of skipping (tests/e2e/conftest.py), so a
+# missing deployment can never look like a pass. One local host serves only the native routes.
 .PHONY: e2e-local
 e2e-local: ensure-hatch
-	@echo "Running e2e tests against local Azurite (E2E_BASE_URL=http://localhost:7071)..."
-	@E2E_BASE_URL=http://localhost:7071 $(HATCH) run e2e-azure
+	@echo "Running the native-route e2e tests against a local host (E2E_BASE_URL=http://localhost:7071)..."
+	@E2E_BASE_URL=http://localhost:7071 $(HATCH) run e2e-local
 
 .PHONY: e2e-azure
 e2e-azure: ensure-hatch
-	@echo "Running e2e tests against Azure (E2E_BASE_URL must be set)..."
+	@echo "Running all e2e tests against Azure (E2E_BASE_URL, E2E_BASE_URL_B and E2E_STREAM_BASE_URL must be set)..."
 	@$(HATCH) run e2e-azure
 
 .PHONY: build

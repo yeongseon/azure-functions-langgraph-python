@@ -7,10 +7,11 @@ gate's Azure certification.
 
 Usage::
 
-    E2E_BASE_URL=https://<app>.azurewebsites.net pytest tests/e2e -v -m e2e
+    E2E_BASE_URL=https://<app>.azurewebsites.net pytest tests/e2e/test_langgraph_e2e.py -v -m e2e
 
-Every test is marked ``e2e`` and skips automatically when ``E2E_BASE_URL`` is
-unset (so ordinary unit runs, which exclude ``-m e2e``, never hit the network).
+Every test is marked ``e2e``, so ordinary unit runs (``-m "not e2e"``) never hit
+the network. Under the dedicated ``-m e2e`` selector an unset ``E2E_BASE_URL``
+fails the run (see ``tests/e2e/conftest.py``) instead of skipping it.
 """
 
 from __future__ import annotations
