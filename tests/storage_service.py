@@ -6,8 +6,8 @@ import socket
 import pytest
 
 
-def fail_or_skip_service(message: str) -> None:
-    if os.getenv("AZURITE_REQUIRED") == "true":
+def fail_or_skip_service(message: str, *, required_env: str = "AZURITE_REQUIRED") -> None:
+    if os.getenv(required_env) == "true":
         pytest.fail(message)
     pytest.skip(message)
 

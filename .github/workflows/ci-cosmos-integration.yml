@@ -14,6 +14,11 @@ name: Cosmos Integration
 # NOT block merges; persistent failures should be filed as a follow-up issue.
 # Local validation: contributors can run `make test-cosmos` against the
 # docker-compose emulator before merging Cosmos-touching changes.
+#
+# A green run means the Cosmos tests really ran and passed. COSMOS_REQUIRED=true
+# turns an unreachable emulator or an untrusted certificate into a test error
+# instead of a skip, and tools/check_junit.py fails the job on zero tests, any
+# skipped test, inconsistent JUnit counters or a missing Cosmos test module.
 
 on:
   schedule:
@@ -65,9 +70,24 @@ jobs:
             /usr/local/share/ca-certificates/cosmos-emulator.crt
           sudo update-ca-certificates
 
-      - name: Run cosmos integration tests
+      - name: Run Cosmos integration tests without skips
         env:
           COSMOS_EMULATOR_ENDPOINT: https://localhost:8081
+          COSMOS_REQUIRED: true
           REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt
           SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-        run: pytest -v -m integration tests/integration/ --no-cov
+        run: |
+          pytest -v --strict-markers -m integration \
+            tests/integration/test_cosmos_integration.py \
+            --no-cov --junitxml=/tmp/cosmos-results.xml
+          python tools/check_junit.py /tmp/cosmos-results.xml \
+            --area "Cosmos integration=test_cosmos_integration"
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cosmos-integration-junit
+          path: /tmp/cosmos-results.xml
+          retention-days: 7
+          if-no-files-found: warn

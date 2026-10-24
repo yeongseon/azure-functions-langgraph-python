@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+import importlib.util
+from pathlib import Path
 import socket
+import sys
+import types
+from typing import cast
 
 import pytest
 
@@ -49,3 +55,68 @@ def test_available_service_closes_preflight_socket(monkeypatch: pytest.MonkeyPat
     require_tcp_service("127.0.0.1", 10000, "Azurite Blob")
 
     assert connection.closed
+
+
+COSMOS_CONFTEST = Path(__file__).parent / "integration" / "conftest.py"
+UNREACHABLE = "Cosmos emulator not available at https://emulator.invalid:8081: emulator unreachable"
+
+
+def _cosmos_fixture(
+    monkeypatch: pytest.MonkeyPatch, *, installed: bool
+) -> Callable[[], Iterator[object]]:
+    """The real cosmos_emulator_target fixture, with an azure.cosmos that cannot connect."""
+
+    class UnreachableClient:
+        def __init__(self, **_: object) -> None:
+            raise ConnectionError("emulator unreachable")
+
+    cosmos = types.SimpleNamespace(CosmosClient=UnreachableClient, PartitionKey=dict)
+    exceptions = types.SimpleNamespace(CosmosHttpResponseError=Exception)
+    monkeypatch.setitem(sys.modules, "azure.cosmos", cosmos if installed else None)
+    monkeypatch.setitem(sys.modules, "azure.cosmos.exceptions", exceptions)
+    monkeypatch.setenv("COSMOS_EMULATOR_ENDPOINT", "https://emulator.invalid:8081")
+    spec = importlib.util.spec_from_file_location("cosmos_integration_conftest", COSMOS_CONFTEST)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return cast(Callable[[], Iterator[object]], module.cosmos_emulator_target.__wrapped__)
+
+
+@pytest.mark.parametrize(
+    ("installed", "message"),
+    [
+        pytest.param(True, UNREACHABLE, id="unreachable-emulator"),
+        pytest.param(False, "Cosmos dependencies unavailable", id="missing-package"),
+    ],
+)
+def test_cosmos_fixture_skips_when_cosmos_is_not_required(
+    monkeypatch: pytest.MonkeyPatch, installed: bool, message: str
+) -> None:
+    fixture = _cosmos_fixture(monkeypatch, installed=installed)
+    # The Azurite lane's flag must not make the Cosmos fixture strict.
+    monkeypatch.setenv("AZURITE_REQUIRED", "true")
+    monkeypatch.delenv("COSMOS_REQUIRED", raising=False)
+
+    with pytest.raises(pytest.skip.Exception, match=message):
+        next(fixture())
+
+
+@pytest.mark.parametrize(
+    ("installed", "message"),
+    [
+        pytest.param(True, UNREACHABLE, id="unreachable-emulator"),
+        pytest.param(False, "Cosmos dependencies unavailable", id="missing-package"),
+    ],
+)
+def test_cosmos_fixture_errors_instead_of_skipping_when_cosmos_is_required(
+    monkeypatch: pytest.MonkeyPatch, installed: bool, message: str
+) -> None:
+    fixture = _cosmos_fixture(monkeypatch, installed=installed)
+    # COSMOS_REQUIRED alone makes the Cosmos fixture strict.
+    monkeypatch.delenv("AZURITE_REQUIRED", raising=False)
+    monkeypatch.setenv("COSMOS_REQUIRED", "true")
+
+    with pytest.raises(BaseException, match=message) as raised:
+        next(fixture())
+
+    assert raised.type is pytest.fail.Exception

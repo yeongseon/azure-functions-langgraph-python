@@ -15,6 +15,7 @@ on:
       - "tests/test_production_persistent_agent_example.py"
       - "examples/production_persistent_agent/**"
       - "pyproject.toml"
+      - "tools/check_junit.py"
       - ".github/workflows/ci-table-integration.yml"
   push:
     branches: [main]
@@ -30,6 +31,7 @@ on:
       - "tests/test_production_persistent_agent_example.py"
       - "examples/production_persistent_agent/**"
       - "pyproject.toml"
+      - "tools/check_junit.py"
       - ".github/workflows/ci-table-integration.yml"
 
 permissions:
@@ -77,61 +79,16 @@ jobs:
             tests/integration/test_checkpoint_conformance.py \
             tests/test_production_persistent_agent_example.py \
             --no-cov --junitxml=/tmp/azurite-results.xml
-          JUNIT_XML=/tmp/azurite-results.xml python - <<'VALIDATE'
-          import os
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
+          python tools/check_junit.py /tmp/azurite-results.xml \
+            --area "Table integration=table_store_integration" \
+            --area "Blob conformance=checkpoint_conformance" \
+            --area "production persistent agent=production_persistent_agent"
 
-          report = Path(os.environ["JUNIT_XML"])
-          root = ET.parse(report).getroot()
-          suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
-          assert suites, "JUnit report contains no testsuite elements"
-          cases = list(root.iter("testcase"))
-          counter_outcomes = {
-              "failures": "failure",
-              "errors": "error",
-              "skipped": "skipped",
-          }
-          for suite in suites:
-              suite_cases = list(suite.iter("testcase"))
-              declared_tests = int(suite.attrib["tests"])
-              assert declared_tests == len(suite_cases), (
-                  "JUnit testsuite test count does not match testcase descendants: "
-                  f"reported={declared_tests}, actual={len(suite_cases)}"
-              )
-              for counter, outcome in counter_outcomes.items():
-                  declared = int(suite.attrib[counter])
-                  actual = sum(case.find(outcome) is not None for case in suite_cases)
-                  assert declared == actual, (
-                      "JUnit summary does not match testcase outcomes: "
-                      f"counter={counter}, reported={declared}, actual={actual}"
-                  )
-
-          totals = {
-              "tests": len(cases),
-              **{
-                  counter: sum(case.find(outcome) is not None for case in cases)
-                  for counter, outcome in counter_outcomes.items()
-              },
-          }
-          assert totals["tests"] > 0, totals
-          assert totals["failures"] == 0, totals
-          assert totals["errors"] == 0, totals
-          assert totals["skipped"] == 0, totals
-
-          identities = {
-              " ".join((case.attrib.get("classname", ""), case.attrib.get("file", ""))).lower()
-              for case in cases
-          }
-          expected_areas = {
-              "Table integration": "table_store_integration",
-              "Blob conformance": "checkpoint_conformance",
-              "production persistent agent": "production_persistent_agent",
-          }
-          missing = {
-              area for area, marker in expected_areas.items()
-              if not any(marker in identity for identity in identities)
-          }
-          assert not missing, f"missing expected integration areas: {sorted(missing)}"
-          print(f"Validated {totals['tests']} no-skip integration tests across all expected areas")
-          VALIDATE
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: table-integration-junit
+          path: /tmp/azurite-results.xml
+          retention-days: 7
+          if-no-files-found: warn

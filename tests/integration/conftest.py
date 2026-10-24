@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
+from functools import partial
 import importlib
 import os
 from typing import Protocol, cast
 import uuid
 
 import pytest
+
+from tests.storage_service import fail_or_skip_service
+
+fail_or_skip_cosmos = partial(fail_or_skip_service, required_env="COSMOS_REQUIRED")
 
 EMULATOR_KEY = (
     "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
@@ -31,7 +36,7 @@ def cosmos_emulator_target() -> Iterator[tuple[str, str, str, str]]:
         cosmos_module = importlib.import_module("azure.cosmos")
         exceptions_module = importlib.import_module("azure.cosmos.exceptions")
     except Exception as exc:
-        pytest.skip(f"Cosmos dependencies unavailable: {exc}")
+        fail_or_skip_cosmos(f"Cosmos dependencies unavailable: {exc}")
 
     CosmosClient = cast(Callable[..., object], getattr(cosmos_module, "CosmosClient"))
     PartitionKey = cast(Callable[..., object], getattr(cosmos_module, "PartitionKey"))
@@ -47,7 +52,7 @@ def cosmos_emulator_target() -> Iterator[tuple[str, str, str, str]]:
         )
         _ = list(client.list_databases())
     except Exception as exc:
-        pytest.skip(f"Cosmos emulator not available: {exc}")
+        fail_or_skip_cosmos(f"Cosmos emulator not available at {endpoint}: {exc}")
 
     database_name = f"aflg-int-{uuid.uuid4().hex[:12]}"
     container_name = f"checkpoints-{uuid.uuid4().hex[:8]}"
@@ -59,7 +64,7 @@ def cosmos_emulator_target() -> Iterator[tuple[str, str, str, str]]:
             partition_key=PartitionKey(path="/partition_key"),
         )
     except CosmosHttpResponseError as exc:
-        pytest.skip(f"Cosmos emulator not available: {exc}")
+        fail_or_skip_cosmos(f"Cosmos emulator not available at {endpoint}: {exc}")
 
     try:
         yield endpoint, EMULATOR_KEY, database_name, container_name
