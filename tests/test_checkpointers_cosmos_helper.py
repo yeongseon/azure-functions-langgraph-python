@@ -9,6 +9,7 @@ import sys
 import types
 from typing import Any, cast
 from unittest.mock import MagicMock
+from urllib.parse import urlsplit
 import warnings
 
 pytest = cast(Any, importlib.import_module("pytest"))
@@ -628,3 +629,76 @@ def test_disable_ssl_not_set_keeps_verification_on(
     client_cls = _create_for_endpoint(monkeypatch, "https://localhost:8081", value)
     client_cls.assert_not_called()
     assert not any("COSMOS_DISABLE_SSL" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Parser differential: the guard must agree with the HTTP client's parser
+# ---------------------------------------------------------------------------
+
+_DIFFERENTIAL_ENDPOINTS = [
+    "https://attacker.invalid\\@localhost",
+    "https://attacker.invalid\\\\@localhost",
+    "https://localhost\\@attacker.invalid",
+    "https://localhost@evil.com",
+    "https://evil.com@localhost",
+    "https://user:pw@localhost:8081",
+    "https://local host:8081",
+    "https://localhost\t.evil.com",
+    "https://localhost\n.evil.com",
+    "https://localhost\r\n@evil.com",
+    "https://localhost:8081 ",
+    " https://localhost:8081",
+    "https://%6cocalhost:8081",
+    "https://localhost%2eevil.com",
+    "https://127.0.0.1%2f@evil.com",
+    "https://\uff4c\uff4f\uff43\uff41\uff4c\uff48\uff4f\uff53\uff54",
+    "https://loc\u0430lhost",
+    "https://localhost\u3002evil.com",
+]
+
+
+@_parametrize("endpoint", _DIFFERENTIAL_ENDPOINTS)
+def test_disable_ssl_ignored_for_parser_differential_endpoints(
+    monkeypatch: Any, caplog: Any, endpoint: str
+) -> None:
+    caplog.set_level("WARNING")
+    client_cls = _create_for_endpoint(monkeypatch, endpoint, "true")
+    client_cls.assert_not_called()
+    messages = "\n".join(r.getMessage() for r in caplog.records)
+    assert "COSMOS_DISABLE_SSL" in messages
+    assert _SECRET_KEY not in messages
+    assert "attacker" not in messages
+
+
+def test_loopback_with_port_still_allowed_by_both_parsers() -> None:
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    assert module._is_loopback_endpoint("https://localhost\x00.evil.com") is False
+    for ep in ("https://localhost:8081", "https://127.0.0.1:8081/", "https://[::1]:8081"):
+        assert module._is_loopback_endpoint(ep) is True
+
+
+def test_guard_decision_matches_prepared_request_host() -> None:
+    """When the guard allows verify=False, requests really targets loopback."""
+    requests = pytest.importorskip("requests")
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.cosmos")
+    candidates = [
+        *_DIFFERENTIAL_ENDPOINTS,
+        "https://localhost:8081",
+        "https://127.0.0.1:8081",
+        "https://[::1]:8081",
+        "https://LOCALHOST:8081/",
+    ]
+    allowed = 0
+    for ep in candidates:
+        if not module._is_loopback_endpoint(ep):
+            continue
+        allowed += 1
+        prepared = requests.Request("GET", ep).prepare()
+        host = urlsplit(prepared.url).hostname
+        assert host in {"localhost", "127.0.0.1", "::1"}, (ep, prepared.url)
+    assert allowed == 4
+    # The reported bypass: urlsplit says localhost, requests targets attacker.invalid.
+    bypass = "https://attacker.invalid\\@localhost"
+    assert urlsplit(bypass).hostname == "localhost"
+    assert urlsplit(requests.Request("GET", bypass).prepare().url).hostname == "attacker.invalid"
+    assert module._is_loopback_endpoint(bypass) is False

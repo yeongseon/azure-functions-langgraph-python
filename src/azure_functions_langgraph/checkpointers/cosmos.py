@@ -51,12 +51,29 @@ _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def _is_loopback_endpoint(endpoint: str) -> bool:
-    """Return True only if the parsed URL host is exactly a loopback name."""
-    try:
-        host = urlsplit(endpoint).hostname
-    except ValueError:
+    """Return True only if every URL parser agrees the host is a loopback name.
+
+    Fails closed. The HTTP client (``requests``/``urllib3``) parses URLs
+    differently from :func:`urllib.parse.urlsplit` (for example backslashes),
+    so the decision must not rest on one parser. Endpoints containing
+    backslashes, whitespace/control or non-ASCII characters, or userinfo
+    (``@``) are rejected, and ``urlsplit`` and ``urllib3.util.parse_url`` must
+    both extract a loopback host.
+    """
+    if not endpoint.isascii() or not endpoint.isprintable():
         return False
-    return host in _LOOPBACK_HOSTS
+    if any(ch.isspace() or ch == "\\" for ch in endpoint):
+        return False
+    try:
+        split = urlsplit(endpoint)
+        if "@" in split.netloc:
+            return False
+        split_host = split.hostname
+        parsed = importlib.import_module("urllib3.util").parse_url(endpoint)
+    except Exception:  # noqa: BLE001 - any parser failure means "not loopback"
+        return False
+    url_host = (parsed.host or "").strip("[]").lower()
+    return split_host in _LOOPBACK_HOSTS and url_host == split_host
 
 
 _EXTRA_HINT = (
