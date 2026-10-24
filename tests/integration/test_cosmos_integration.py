@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import binascii
 from collections.abc import Callable, Iterator
 import importlib
 from typing import Protocol, TypedDict, cast
@@ -157,8 +158,12 @@ def test_malformed_checkpoint_record_raises_from_upstream(
     # corrupted in place through the raw Cosmos SDK container, preserving
     # its actual id, partition_key and the rest of the document envelope.
     raw_container = getattr(saver, "container")
-    query = "SELECT * FROM c WHERE c.id=@id"
-    parameters = [{"name": "@id", "value": saved_cfg["configurable"]["checkpoint_id"]}]
+    checkpoint_id = saved_cfg["configurable"]["checkpoint_id"]
+    # The upstream saver stores a composite document id
+    # ("checkpoint$<thread_id>$<checkpoint_ns>$<checkpoint_id>"), so the logical
+    # checkpoint id is only the suffix of the physical id.
+    query = "SELECT * FROM c WHERE ENDSWITH(c.id, @id)"
+    parameters = [{"name": "@id", "value": checkpoint_id}]
     matches = list(
         raw_container.query_items(
             query=query, parameters=parameters, enable_cross_partition_query=True
@@ -166,13 +171,15 @@ def test_malformed_checkpoint_record_raises_from_upstream(
     )
     assert len(matches) == 1, "expected exactly one stored document for the checkpoint just written"
     stored_doc = matches[0]
-    assert "id" in stored_doc and "checkpoint" not in stored_doc.get("id", "")
+    assert stored_doc["id"].endswith(checkpoint_id)
     stored_doc["checkpoint"] = "not-a-valid-checkpoint-payload"
     raw_container.upsert_item(stored_doc)
 
     # Then: the now-malformed persisted record is surfaced on the next read
-    # of that exact document, never silently treated as valid state.
-    with pytest.raises(Exception):
+    # of that exact document, never silently treated as valid state. The
+    # upstream serializer base64-decodes the payload first, so this payload
+    # fails with binascii.Error (a ValueError subclass).
+    with pytest.raises(binascii.Error):
         saver.get_tuple(cfg)
     close_cosmos_checkpointer(saver)
 
