@@ -1,35 +1,64 @@
+"""Regression tests for the required Azurite and Cosmos integration lanes.
+
+``tools/check_junit.py`` is the single JUnit validator behind both workflows. These tests run it
+with the ``--area`` arguments exactly as each workflow passes them, and check that each workflow
+is wired to validate the report its own pytest run wrote.
+"""
+
 from __future__ import annotations
 
-import os
 from pathlib import Path
-import re
+import shlex
 import subprocess
 import sys
+from typing import Any, cast
 
 import pytest
+import yaml
 
-TABLE_WORKFLOW = (
-    Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci-table-integration.yml"
-)
-
-
-def _junit_validator() -> str:
-    workflow = TABLE_WORKFLOW.read_text()
-    match = re.search(r"python - <<'VALIDATE'\n(?P<body>.*?)\n\s+VALIDATE", workflow, re.DOTALL)
-    assert match is not None
-    lines = match.group("body").splitlines()
-    indent = min(len(line) - len(line.lstrip()) for line in lines if line.strip())
-    return "\n".join(line[indent:] for line in lines)
+ROOT = Path(__file__).resolve().parents[1]
+TABLE_WORKFLOW = ROOT / ".github" / "workflows" / "ci-table-integration.yml"
+CHECK_JUNIT = ROOT / "tools" / "check_junit.py"
 
 
-def _validate_junit(report: Path) -> subprocess.CompletedProcess[str]:
+def _workflow(path: Path) -> dict[Any, Any]:
+    # PyYAML follows YAML 1.1, so the workflow's `on:` key loads as the boolean True.
+    return cast(dict[Any, Any], yaml.safe_load(path.read_text()))
+
+
+def _validation_step(workflow: Path) -> dict[str, Any]:
+    steps = [
+        step
+        for job in _workflow(workflow)["jobs"].values()
+        for step in job["steps"]
+        if "tools/check_junit.py" in step.get("run", "")
+    ]
+    assert len(steps) == 1
+    return cast(dict[str, Any], steps[0])
+
+
+def _validator_arguments(workflow: Path) -> list[str]:
+    """The arguments the workflow passes to tools/check_junit.py: the report, then the areas."""
+    script = _validation_step(workflow)["run"].replace("\\\n", " ")
+    command = next(line for line in script.splitlines() if "tools/check_junit.py" in line)
+    words = shlex.split(command)
+    return words[words.index("tools/check_junit.py") + 1 :]
+
+
+def _check_junit(*arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-c", _junit_validator()],
-        env={**os.environ, "JUNIT_XML": str(report)},
+        [sys.executable, str(CHECK_JUNIT), *arguments],
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+def _validate_junit(
+    report: Path, workflow: Path = TABLE_WORKFLOW
+) -> subprocess.CompletedProcess[str]:
+    _, *areas = _validator_arguments(workflow)
+    return _check_junit(str(report), *areas)
 
 
 def test_table_workflow_covers_all_service_integration_inputs() -> None:
@@ -205,3 +234,75 @@ def test_junit_validator_rejects_missing_report(tmp_path: Path) -> None:
     result = _validate_junit(tmp_path / "missing.xml")
 
     assert result.returncode != 0
+
+
+COSMOS_CLASS = "tests.integration.test_cosmos_integration"
+
+
+def _suite(classname: str, outcome: str = "", *, count: int = 6, **declared: int) -> str:
+    """A pytest-shaped JUnit report of ``count`` identical testcases.
+
+    The suite counters default to "everything passed", so a test states only what it forges.
+    """
+    counters = {"tests": count, "failures": 0, "errors": 0, "skipped": 0, **declared}
+    attributes = " ".join(f'{name}="{value}"' for name, value in counters.items())
+    cases = "".join(
+        f'<testcase classname="{classname}" name="test_{number}">{outcome}</testcase>'
+        for number in range(count)
+    )
+    return f"<testsuites><testsuite {attributes}>{cases}</testsuite></testsuites>"
+
+
+@pytest.mark.parametrize("area_arguments", [[], ["--area", ""], ["--area", "Cosmos="]])
+def test_check_junit_refuses_to_run_without_a_usable_area(
+    tmp_path: Path, area_arguments: list[str]
+) -> None:
+    report = tmp_path / "results.xml"
+    report.write_text(_suite(COSMOS_CLASS))
+
+    result = _check_junit(str(report), *area_arguments)
+
+    assert result.returncode == 2
+    assert "--area" in result.stderr
+
+
+def test_check_junit_matches_a_bare_area_marker_case_insensitively(tmp_path: Path) -> None:
+    report = tmp_path / "results.xml"
+    report.write_text(_suite(COSMOS_CLASS))
+
+    result = _check_junit(str(report), "--area", "TEST_Cosmos_Integration")
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("workflow", "required_env", "markers"),
+    [
+        pytest.param(
+            TABLE_WORKFLOW,
+            "AZURITE_REQUIRED",
+            {"table_store_integration", "checkpoint_conformance", "production_persistent_agent"},
+            id="table",
+        ),
+    ],
+)
+def test_required_lane_validates_the_report_its_pytest_run_wrote(
+    workflow: Path, required_env: str, markers: set[str]
+) -> None:
+    step = _validation_step(workflow)
+    report, *areas = _validator_arguments(workflow)
+
+    assert f"--junitxml={report}" in step["run"]
+    assert step["run"].index("pytest") < step["run"].index("tools/check_junit.py")
+    assert step["env"][required_env] is True
+    assert set(areas[::2]) == {"--area"}
+    assert {area.partition("=")[2] for area in areas[1::2]} == markers
+    assert "<<" not in step["run"]
+    jobs = _workflow(workflow)["jobs"].values()
+    assert not [
+        item for job in jobs for item in (job, *job["steps"]) if "continue-on-error" in item
+    ]
+
+
+def test_table_workflow_reruns_when_the_validator_changes() -> None:
+    assert TABLE_WORKFLOW.read_text().count('"tools/check_junit.py"') == 2
