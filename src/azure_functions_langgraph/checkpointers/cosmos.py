@@ -33,14 +33,65 @@ extra when the upstream package is missing.
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 import threading
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse, urlsplit
 import warnings
 import weakref
 
 if TYPE_CHECKING:
     from langgraph_checkpoint_cosmosdb import CosmosDBSaver
+
+
+logger = logging.getLogger(__name__)
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _endpoint_host(endpoint: str) -> str | None:
+    """Return the endpoint host, or raise ``ValueError`` if the URL is ambiguous.
+
+    Ambiguous means different parsers could disagree about where the request
+    goes: backslashes, whitespace/control or non-ASCII characters, userinfo
+    (``@`` in the authority), a parse failure, or a host that
+    ``urllib.parse.urlparse`` (used by azure-cosmos to decide whether to skip
+    TLS verification), ``urlsplit`` and ``urllib3.util.parse_url`` (used by
+    ``requests``) do not extract identically. The message never contains the
+    endpoint.
+    """
+    error = ValueError(
+        "Cosmos DB endpoint is malformed or ambiguous (backslash, whitespace, control or "
+        "non-ASCII character, userinfo, or inconsistent host); refusing to build a client."
+    )
+    if not endpoint.isascii() or not endpoint.isprintable():
+        raise error
+    if any(ch.isspace() or ch == "\\" for ch in endpoint):
+        raise error
+    try:
+        parsed = urlparse(endpoint)
+        if "@" in parsed.netloc:
+            raise error
+        host = parsed.hostname
+        split_host = urlsplit(endpoint).hostname
+        url_host = importlib.import_module("urllib3.util").parse_url(endpoint).host
+    except ValueError as exc:
+        raise error from exc
+    except Exception as exc:  # urllib3 LocationParseError and friends
+        raise error from exc
+    url_host = url_host.strip("[]").lower() if url_host else None
+    if host != split_host or host != url_host:
+        raise error
+    return host
+
+
+def _is_loopback_endpoint(endpoint: str) -> bool:
+    """Return True only for an unambiguous endpoint whose host is loopback."""
+    try:
+        return _endpoint_host(endpoint) in _LOOPBACK_HOSTS
+    except ValueError:
+        return False
 
 
 _EXTRA_HINT = (
@@ -98,7 +149,9 @@ def create_cosmos_checkpointer(
     Raises:
         TypeError: If ``key`` and ``credential`` are both provided, or if
             ``credential`` is not a string.
-        ValueError: If no key can be resolved from parameters or environment.
+        ValueError: If no key can be resolved from parameters or environment,
+            or if ``endpoint`` is malformed or ambiguous (raised before any
+            client is created).
         ImportError: If ``langgraph-checkpoint-cosmosdb`` is not installed.
             Install via the ``cosmos`` extra.
     """
@@ -146,6 +199,11 @@ def create_cosmos_checkpointer(
         stacklevel=2,
     )
 
+    # Validate BEFORE any client exists: azure-cosmos disables TLS verification
+    # for hosts it parses as localhost/127.0.0.1, so an ambiguous endpoint must
+    # never reach the upstream constructor.
+    _endpoint_host(endpoint)
+
     # --- Import upstream ---
     try:
         cosmos_module = importlib.import_module("langgraph_checkpoint_cosmosdb")
@@ -170,9 +228,17 @@ def create_cosmos_checkpointer(
                 database_name=database_name,
                 container_name=container_name,
             )
-            # When running against the Cosmos emulator (self-signed cert),
+            # When running against the local Cosmos emulator (self-signed cert),
             # replace the internal client with one that skips SSL verification.
-            if os.environ.get("COSMOS_DISABLE_SSL", "").lower() in ("true", "1", "yes"):
+            # Honored only for loopback endpoints; ignored for any other host.
+            disable_ssl = os.environ.get("COSMOS_DISABLE_SSL", "").lower() in ("true", "1", "yes")
+            if disable_ssl and not _is_loopback_endpoint(endpoint):
+                logger.warning(
+                    "COSMOS_DISABLE_SSL is ignored because the Cosmos endpoint is not a "
+                    "loopback host (localhost, 127.0.0.1, ::1); TLS verification stays enabled."
+                )
+                disable_ssl = False
+            if disable_ssl:
                 cosmos_sdk = importlib.import_module("azure.cosmos")
                 CosmosClientCls = getattr(cosmos_sdk, "CosmosClient")
                 saver.client = CosmosClientCls(
