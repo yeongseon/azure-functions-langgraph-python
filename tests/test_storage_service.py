@@ -10,7 +10,7 @@ from typing import cast
 
 import pytest
 
-from tests.storage_service import fail_or_skip_service, require_tcp_service
+from tests.storage_service import require_tcp_service
 
 
 def test_unavailable_optional_service_skips_before_client_creation(
@@ -57,28 +57,6 @@ def test_available_service_closes_preflight_socket(monkeypatch: pytest.MonkeyPat
     assert connection.closed
 
 
-def test_unavailable_cosmos_emulator_skips_unless_cosmos_is_required(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("AZURITE_REQUIRED", "true")
-    monkeypatch.delenv("COSMOS_REQUIRED", raising=False)
-
-    with pytest.raises(pytest.skip.Exception, match="Cosmos emulator not available"):
-        fail_or_skip_service("Cosmos emulator not available", required_env="COSMOS_REQUIRED")
-
-
-def test_unavailable_required_cosmos_emulator_fails_instead_of_skipping(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("AZURITE_REQUIRED", raising=False)
-    monkeypatch.setenv("COSMOS_REQUIRED", "true")
-
-    with pytest.raises(BaseException, match="Cosmos emulator not available") as raised:
-        fail_or_skip_service("Cosmos emulator not available", required_env="COSMOS_REQUIRED")
-
-    assert raised.type is pytest.fail.Exception
-
-
 COSMOS_CONFTEST = Path(__file__).parent / "integration" / "conftest.py"
 UNREACHABLE = "Cosmos emulator not available at https://emulator.invalid:8081: emulator unreachable"
 
@@ -115,6 +93,8 @@ def test_cosmos_fixture_skips_when_cosmos_is_not_required(
     monkeypatch: pytest.MonkeyPatch, installed: bool, message: str
 ) -> None:
     fixture = _cosmos_fixture(monkeypatch, installed=installed)
+    # The Azurite lane's flag must not make the Cosmos fixture strict.
+    monkeypatch.setenv("AZURITE_REQUIRED", "true")
     monkeypatch.delenv("COSMOS_REQUIRED", raising=False)
 
     with pytest.raises(pytest.skip.Exception, match=message):
@@ -132,6 +112,8 @@ def test_cosmos_fixture_errors_instead_of_skipping_when_cosmos_is_required(
     monkeypatch: pytest.MonkeyPatch, installed: bool, message: str
 ) -> None:
     fixture = _cosmos_fixture(monkeypatch, installed=installed)
+    # COSMOS_REQUIRED alone makes the Cosmos fixture strict.
+    monkeypatch.delenv("AZURITE_REQUIRED", raising=False)
     monkeypatch.setenv("COSMOS_REQUIRED", "true")
 
     with pytest.raises(BaseException, match=message) as raised:

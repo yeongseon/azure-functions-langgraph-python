@@ -8,7 +8,7 @@ import pytest
 
 def fail_or_skip_service(message: str, *, required_env: str = "AZURITE_REQUIRED") -> None:
     if os.getenv(required_env) == "true":
-        pytest.fail(message, pytrace=False)
+        pytest.fail(message)
     pytest.skip(message)
 
 
