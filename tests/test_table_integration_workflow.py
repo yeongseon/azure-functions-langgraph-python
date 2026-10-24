@@ -2,7 +2,8 @@
 
 ``tools/check_junit.py`` is the single JUnit validator behind both workflows. These tests run it
 with the ``--area`` arguments exactly as each workflow passes them, and check that each workflow
-is wired to validate the report its own pytest run wrote.
+is wired to validate the report its own pytest run wrote, and to upload it even when the lane
+fails.
 """
 
 from __future__ import annotations
@@ -27,15 +28,20 @@ def _workflow(path: Path) -> dict[Any, Any]:
     return cast(dict[Any, Any], yaml.safe_load(path.read_text()))
 
 
-def _validation_step(workflow: Path) -> dict[str, Any]:
+def _step(workflow: Path, key: str, marker: str) -> dict[str, Any]:
+    """The one step of the workflow whose ``key`` (``run`` or ``uses``) contains ``marker``."""
     steps = [
         step
         for job in _workflow(workflow)["jobs"].values()
         for step in job["steps"]
-        if "tools/check_junit.py" in step.get("run", "")
+        if marker in step.get(key, "")
     ]
     assert len(steps) == 1
     return cast(dict[str, Any], steps[0])
+
+
+def _validation_step(workflow: Path) -> dict[str, Any]:
+    return _step(workflow, "run", "tools/check_junit.py")
 
 
 def _validator_arguments(workflow: Path) -> list[str]:
@@ -385,6 +391,9 @@ def test_required_lane_validates_the_report_its_pytest_run_wrote(
 
     assert f"--junitxml={report}" in step["run"]
     assert step["run"].index("pytest") < step["run"].index("tools/check_junit.py")
+    upload = _step(workflow, "uses", "actions/upload-artifact@")
+    assert upload["if"] == "always()"
+    assert upload["with"]["path"] == report
     assert step["env"][required_env] is True
     assert set(areas[::2]) == {"--area"}
     assert {area.partition("=")[2] for area in areas[1::2]} == markers

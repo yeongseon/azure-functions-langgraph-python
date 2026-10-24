@@ -82,3 +82,12 @@ jobs:
             --no-cov --junitxml=/tmp/cosmos-results.xml
           python tools/check_junit.py /tmp/cosmos-results.xml \
             --area "Cosmos integration=test_cosmos_integration"
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cosmos-integration-junit
+          path: /tmp/cosmos-results.xml
+          retention-days: 7
+          if-no-files-found: warn
