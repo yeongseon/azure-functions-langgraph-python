@@ -1,6 +1,27 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.12.3](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.12.2...v0.12.3) (2026-10-24)
+
+
+### Bug Fixes
+
+* **cosmos:** honor COSMOS_DISABLE_SSL only for loopback endpoints ([#721](https://github.com/yeongseon/azure-functions-langgraph-python/issues/721)) ([dae81a0](https://github.com/yeongseon/azure-functions-langgraph-python/commit/dae81a0239b5b582536ba47afd99bcae7e132a33))
+* **durable:** honor automatic async-only graph detection ([#676](https://github.com/yeongseon/azure-functions-langgraph-python/issues/676)) ([041cd2c](https://github.com/yeongseon/azure-functions-langgraph-python/commit/041cd2cd80fa58422e5d3313dcb944e610c77152)), closes [#653](https://github.com/yeongseon/azure-functions-langgraph-python/issues/653)
+* **locks:** keep owner bookkeeping atomic when handing off an in-process lock ([#663](https://github.com/yeongseon/azure-functions-langgraph-python/issues/663)) ([4c42e4f](https://github.com/yeongseon/azure-functions-langgraph-python/commit/4c42e4fed2b17179c3c207d11623a37ce4188ccb)), closes [#641](https://github.com/yeongseon/azure-functions-langgraph-python/issues/641)
+* **locks:** release leases acquired concurrently with close ([#665](https://github.com/yeongseon/azure-functions-langgraph-python/issues/665)) ([062cb41](https://github.com/yeongseon/azure-functions-langgraph-python/commit/062cb41ae95caf59cf2884ea81120ed8e5db2901)), closes [#642](https://github.com/yeongseon/azure-functions-langgraph-python/issues/642)
+* **observability:** track overlapping spans independently of caller request IDs ([#677](https://github.com/yeongseon/azure-functions-langgraph-python/issues/677)) ([e92df35](https://github.com/yeongseon/azure-functions-langgraph-python/commit/e92df35e9208ee67e1fe67c23be4c164e79adbc5)), closes [#654](https://github.com/yeongseon/azure-functions-langgraph-python/issues/654)
+* **openapi:** convert immutable route parameters at the companion-package boundary ([#678](https://github.com/yeongseon/azure-functions-langgraph-python/issues/678)) ([6969c18](https://github.com/yeongseon/azure-functions-langgraph-python/commit/6969c1861c6da7812d0223c941609e5c3794d0e3)), closes [#655](https://github.com/yeongseon/azure-functions-langgraph-python/issues/655)
+* **platform:** honor supported RunCreate context and metadata fields ([#672](https://github.com/yeongseon/azure-functions-langgraph-python/issues/672)) ([2335299](https://github.com/yeongseon/azure-functions-langgraph-python/commit/2335299d243fba27c225904552b074ba3a245631)), closes [#649](https://github.com/yeongseon/azure-functions-langgraph-python/issues/649)
+* **platform:** serialize state updates with active graph runs ([#680](https://github.com/yeongseon/azure-functions-langgraph-python/issues/680)) ([9b7b0fe](https://github.com/yeongseon/azure-functions-langgraph-python/commit/9b7b0feb66c9d578c2a12c2d997f32a8f863aa5f)), closes [#657](https://github.com/yeongseon/azure-functions-langgraph-python/issues/657)
+* **platform:** validate configurable before acquiring run locks ([#671](https://github.com/yeongseon/azure-functions-langgraph-python/issues/671)) ([c046c3f](https://github.com/yeongseon/azure-functions-langgraph-python/commit/c046c3fc39fcff0f4b5d719ec52f1f164f1caf74)), closes [#648](https://github.com/yeongseon/azure-functions-langgraph-python/issues/648)
+* **postgres:** forward None to disable prepared statements ([#666](https://github.com/yeongseon/azure-functions-langgraph-python/issues/666)) ([03fcc8d](https://github.com/yeongseon/azure-functions-langgraph-python/commit/03fcc8d930b93cc139a96446f4a9fa2dd6414bd0)), closes [#643](https://github.com/yeongseon/azure-functions-langgraph-python/issues/643)
+* **runtime:** retain thread ownership until cancelled synchronous invokes finish ([#675](https://github.com/yeongseon/azure-functions-langgraph-python/issues/675)) ([5acb9fe](https://github.com/yeongseon/azure-functions-langgraph-python/commit/5acb9fe174621aa2014dc1086bf9d231a12ea804))
+* **stores:** retain in-memory run ownership during renewal and updates ([#662](https://github.com/yeongseon/azure-functions-langgraph-python/issues/662)) ([51c4cba](https://github.com/yeongseon/azure-functions-langgraph-python/commit/51c4cbaa8564941849c3d7bbb156dae6483be962))
+* **stream:** finish buffered async iterator cleanup before releasing the thread lock ([#673](https://github.com/yeongseon/azure-functions-langgraph-python/issues/673)) ([b9019cd](https://github.com/yeongseon/azure-functions-langgraph-python/commit/b9019cd5024eadd0367a77f160b887a627561233)), closes [#650](https://github.com/yeongseon/azure-functions-langgraph-python/issues/650)
+* **streaming:** release thread locks when iterator cleanup fails ([#679](https://github.com/yeongseon/azure-functions-langgraph-python/issues/679)) ([6a779c1](https://github.com/yeongseon/azure-functions-langgraph-python/commit/6a779c14989a3fe5942dba242c5359c8c9810af0)), closes [#656](https://github.com/yeongseon/azure-functions-langgraph-python/issues/656)
+* **streaming:** retain tokens acquired after request cancellation ([#674](https://github.com/yeongseon/azure-functions-langgraph-python/issues/674)) ([24e9f7e](https://github.com/yeongseon/azure-functions-langgraph-python/commit/24e9f7ec8e0626fef975489fa6c11bce0a83b343))
+
 ## [0.12.2](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.12.1...v0.12.2) (2026-10-16)
 
 
