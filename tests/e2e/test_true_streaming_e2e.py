@@ -19,7 +19,8 @@ pytestmark = pytest.mark.e2e
 def _stream(*, thread_id: str, fail: bool = False) -> requests.Response:
     return requests.post(
         f"{BASE_URL}/api/graphs/true_streaming_agent/stream",
-        params={"code": FUNCTION_KEY},
+        # A header, never `?code=`: a URL ends up in logs and in `requests` connection errors.
+        headers={"x-functions-key": FUNCTION_KEY} if FUNCTION_KEY else {},
         json={
             "input": {
                 "messages": [{"role": "human", "content": "certify streaming"}],

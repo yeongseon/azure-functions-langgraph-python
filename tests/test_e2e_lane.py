@@ -2,7 +2,8 @@
 
 An e2e module skips itself when its ``E2E_*`` input is unset, so a run that was never pointed at a
 deployment used to end with every test skipped and exit status 0. Under the dedicated ``-m e2e``
-selector ``tests/e2e/conftest.py`` fails that run instead.
+selector ``tests/e2e/conftest.py`` fails that run instead. The streaming function key must also
+travel in a header, so that it never lands in a URL.
 """
 
 from __future__ import annotations
@@ -160,3 +161,32 @@ def test_hatch_scripts_run_the_dedicated_selector_without_coverage() -> None:
         assert words[0] == "pytest"
         assert words[words.index("-m") + 1] == "e2e"
         assert {"--no-cov", path} <= set(words)
+
+
+def _stream_call(monkeypatch: pytest.MonkeyPatch, key: str) -> tuple[str, dict[str, Any]]:
+    module = _load("e2e_true_streaming", E2E / "test_true_streaming_e2e.py")
+    calls: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(module, "BASE_URL", "https://stream.example.test")
+    monkeypatch.setattr(module, "FUNCTION_KEY", key)
+    monkeypatch.setattr(module.requests, "post", lambda url, **kw: calls.append((url, kw)))
+    module._stream(thread_id="thread-1")
+    return calls[0]
+
+
+def test_function_key_travels_in_a_header_never_in_the_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    url, request = _stream_call(monkeypatch, "s3cret-key")
+
+    assert request["headers"] == {"x-functions-key": "s3cret-key"}
+    assert "s3cret-key" not in url
+    assert "params" not in request
+
+
+def test_no_key_header_is_sent_when_there_is_no_function_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, request = _stream_call(monkeypatch, "")
+
+    assert request["headers"] == {}
+    assert "params" not in request
