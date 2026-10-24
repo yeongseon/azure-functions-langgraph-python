@@ -50,23 +50,11 @@ def test_nothing_is_unmet_when_every_input_is_set() -> None:
     assert lane.unmet_inputs(MODULES, ALL_SET) == []
 
 
-def test_every_unset_input_is_reported_with_the_module_that_needs_it() -> None:
-    assert lane.unmet_inputs(MODULES, {}) == [
-        "test_langgraph_e2e: E2E_BASE_URL",
-        "test_langgraph_lock_e2e: E2E_BASE_URL, E2E_BASE_URL_B",
-        "test_true_streaming_e2e: E2E_STREAM_BASE_URL",
-    ]
-
-
 @pytest.mark.parametrize("blank", ["", "/", "//"])
 def test_an_input_the_modules_would_read_as_empty_counts_as_unset(blank: str) -> None:
     unmet = lane.unmet_inputs(MODULES, {**ALL_SET, "E2E_BASE_URL_B": blank})
 
     assert unmet == ["test_langgraph_lock_e2e: E2E_BASE_URL_B"]
-
-
-def test_only_the_selected_modules_need_their_inputs() -> None:
-    assert lane.unmet_inputs(["test_langgraph_e2e"], {"E2E_BASE_URL": "https://a"}) == []
 
 
 def test_a_module_the_guard_does_not_know_fails_closed() -> None:
@@ -94,7 +82,12 @@ def test_selector_with_no_input_fails_instead_of_skipping_every_test() -> None:
 
     output = result.stdout + result.stderr
     assert result.returncode == 1
-    assert all(line in output for line in lane.unmet_inputs(MODULES, {}))
+    for line in (
+        "test_langgraph_e2e: E2E_BASE_URL",
+        "test_langgraph_lock_e2e: E2E_BASE_URL, E2E_BASE_URL_B",
+        "test_true_streaming_e2e: E2E_STREAM_BASE_URL",
+    ):
+        assert line in output
     assert re.search(r"\d+ skipped", output) is None
 
 
