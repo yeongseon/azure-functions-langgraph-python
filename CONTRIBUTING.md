@@ -87,8 +87,8 @@ endpoint must never reach the SDK.
 
 Compatibility note: non-loopback emulator hostnames (for example a Docker
 network name such as `https://cosmos-emulator:8081`) cannot use
-`COSMOS_DISABLE_SSL`. Use a trusted certificate (`REQUESTS_CA_BUNDLE` /
-`SSL_CERT_FILE`) or a supported loopback endpoint published on the host.
+`COSMOS_DISABLE_SSL`. Use a trusted certificate (`REQUESTS_CA_BUNDLE`;
+`SSL_CERT_FILE` is not honored by this client) or a supported loopback endpoint published on the host.
 
 ## GitHub Actions Pinning
 
