@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import importlib
 import os
 import sys
@@ -11,6 +12,7 @@ from unittest.mock import MagicMock
 import warnings
 
 pytest = cast(Any, importlib.import_module("pytest"))
+_parametrize = cast(Callable[..., Callable[[Any], Any]], pytest.mark.parametrize)
 
 
 # ---------------------------------------------------------------------------
@@ -536,3 +538,93 @@ def test_checkpointers_package_exports_close_helper() -> None:
     pkg = importlib.import_module("azure_functions_langgraph.checkpointers")
     assert "close_cosmos_checkpointer" in pkg.__all__
     assert callable(pkg.close_cosmos_checkpointer)
+
+
+# ---------------------------------------------------------------------------
+# COSMOS_DISABLE_SSL is honored only for loopback endpoints
+# ---------------------------------------------------------------------------
+
+_SECRET_KEY = "super-secret-account-key"
+
+
+def _install_fake_sdk(monkeypatch: Any) -> MagicMock:
+    """Inject a fake ``azure.cosmos`` and return the fake ``CosmosClient`` class."""
+    client_cls = MagicMock(name="CosmosClient")
+    sdk = types.ModuleType("azure.cosmos")
+    setattr(sdk, "CosmosClient", client_cls)
+    setattr(sdk, "PartitionKey", MagicMock(name="PartitionKey"))
+    monkeypatch.setitem(sys.modules, "azure.cosmos", sdk)
+    return client_cls
+
+
+def _create_for_endpoint(monkeypatch: Any, endpoint: str, value: str | None) -> MagicMock:
+    _install_fake_cosmos(monkeypatch)
+    client_cls = _install_fake_sdk(monkeypatch)
+    module = _reload_cosmos_module(monkeypatch)
+    if value is None:
+        monkeypatch.delenv("COSMOS_DISABLE_SSL", raising=False)
+    else:
+        monkeypatch.setenv("COSMOS_DISABLE_SSL", value)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        module.create_cosmos_checkpointer(
+            endpoint=endpoint, key=_SECRET_KEY, database_name="db", container_name="ctr"
+        )
+    return client_cls
+
+
+@_parametrize(
+    "endpoint",
+    [
+        "https://localhost:8081",
+        "https://LOCALHOST:8081/",
+        "https://127.0.0.1:8081",
+        "https://[::1]:8081/",
+    ],
+)
+@_parametrize("value", ["true", "1", "yes", "TRUE"])
+def test_disable_ssl_honored_for_loopback(monkeypatch: Any, endpoint: str, value: str) -> None:
+    client_cls = _create_for_endpoint(monkeypatch, endpoint, value)
+    client_cls.assert_called_once()
+    assert client_cls.call_args.kwargs["connection_verify"] is False
+
+
+@_parametrize(
+    "endpoint",
+    [
+        "https://acct.documents.azure.com:443/",
+        "https://localhost.evil.com:8081",
+        "https://127.0.0.1.nip.io:8081",
+        "https://localhost@evil.com",
+        "https://evil.com@localhost.evil.com",
+        "https://evillocalhost:8081",
+        "https://127.0.0.2:8081",
+        "https://[::2]:8081",
+        "https://evil.com/localhost",
+        "https://evil.com/?h=127.0.0.1",
+        "localhost:8081",
+        "",
+    ],
+)
+def test_disable_ssl_ignored_for_non_loopback_and_warns(
+    monkeypatch: Any, caplog: Any, endpoint: str
+) -> None:
+    caplog.set_level("WARNING")
+    client_cls = _create_for_endpoint(monkeypatch, endpoint, "true")
+    client_cls.assert_not_called()
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("COSMOS_DISABLE_SSL" in m for m in messages)
+    joined = "\n".join(messages)
+    assert _SECRET_KEY not in joined
+    assert "evil" not in joined
+    assert "documents.azure.com" not in joined
+
+
+@_parametrize("value", [None, "", "0", "false", "no", "off"])
+def test_disable_ssl_not_set_keeps_verification_on(
+    monkeypatch: Any, caplog: Any, value: str | None
+) -> None:
+    caplog.set_level("WARNING")
+    client_cls = _create_for_endpoint(monkeypatch, "https://localhost:8081", value)
+    client_cls.assert_not_called()
+    assert not any("COSMOS_DISABLE_SSL" in r.getMessage() for r in caplog.records)

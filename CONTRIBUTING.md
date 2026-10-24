@@ -72,6 +72,11 @@ it on push or pull_request: it runs nightly on a schedule and on manual
 `workflow_dispatch`. Contributors touching Cosmos code should run
 `make test-cosmos` locally before merging.
 
+`COSMOS_DISABLE_SSL=true|1|yes` makes `create_cosmos_checkpointer` skip TLS
+certificate verification for the emulator's self-signed certificate. It is
+honored only when the endpoint host is `localhost`, `127.0.0.1` or `::1`; for
+any other host it is ignored, verification stays on and a warning is logged.
+
 ## GitHub Actions Pinning
 
 All external `uses:` references in `.github/workflows/` MUST pin to a

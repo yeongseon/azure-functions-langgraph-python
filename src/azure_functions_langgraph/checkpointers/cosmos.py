@@ -33,14 +33,30 @@ extra when the upstream package is missing.
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 import threading
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 import warnings
 import weakref
 
 if TYPE_CHECKING:
     from langgraph_checkpoint_cosmosdb import CosmosDBSaver
+
+
+logger = logging.getLogger(__name__)
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _is_loopback_endpoint(endpoint: str) -> bool:
+    """Return True only if the parsed URL host is exactly a loopback name."""
+    try:
+        host = urlsplit(endpoint).hostname
+    except ValueError:
+        return False
+    return host in _LOOPBACK_HOSTS
 
 
 _EXTRA_HINT = (
@@ -170,9 +186,17 @@ def create_cosmos_checkpointer(
                 database_name=database_name,
                 container_name=container_name,
             )
-            # When running against the Cosmos emulator (self-signed cert),
+            # When running against the local Cosmos emulator (self-signed cert),
             # replace the internal client with one that skips SSL verification.
-            if os.environ.get("COSMOS_DISABLE_SSL", "").lower() in ("true", "1", "yes"):
+            # Honored only for loopback endpoints; ignored for any other host.
+            disable_ssl = os.environ.get("COSMOS_DISABLE_SSL", "").lower() in ("true", "1", "yes")
+            if disable_ssl and not _is_loopback_endpoint(endpoint):
+                logger.warning(
+                    "COSMOS_DISABLE_SSL is ignored because the Cosmos endpoint is not a "
+                    "loopback host (localhost, 127.0.0.1, ::1); TLS verification stays enabled."
+                )
+                disable_ssl = False
+            if disable_ssl:
                 cosmos_sdk = importlib.import_module("azure.cosmos")
                 CosmosClientCls = getattr(cosmos_sdk, "CosmosClient")
                 saver.client = CosmosClientCls(
