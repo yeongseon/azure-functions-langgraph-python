@@ -306,7 +306,16 @@ def test_cosmos_lane_rejects_reports_that_do_not_prove_the_tests_ran(
     assert expected_error in result.stderr
 
 
-@pytest.mark.parametrize("area_arguments", [[], ["--area", ""], ["--area", "Cosmos="]])
+@pytest.mark.parametrize(
+    "area_arguments",
+    [
+        pytest.param([], id="no-area"),
+        pytest.param(["--area", ""], id="empty-spec"),
+        pytest.param(["--area", COSMOS_CLASS], id="bare-marker-without-name"),
+        pytest.param(["--area", f"={COSMOS_CLASS}"], id="blank-name"),
+        pytest.param(["--area", "Cosmos="], id="blank-marker"),
+    ],
+)
 def test_check_junit_refuses_to_run_without_a_usable_area(
     tmp_path: Path, area_arguments: list[str]
 ) -> None:
@@ -319,13 +328,41 @@ def test_check_junit_refuses_to_run_without_a_usable_area(
     assert "--area" in result.stderr
 
 
-def test_check_junit_matches_a_bare_area_marker_case_insensitively(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "markers", [("not_collected", COSMOS_CLASS), (COSMOS_CLASS, "not_collected")]
+)
+def test_check_junit_enforces_every_area_when_a_name_repeats(
+    tmp_path: Path, markers: tuple[str, str]
+) -> None:
     report = tmp_path / "results.xml"
     report.write_text(_suite(COSMOS_CLASS))
+    areas = [argument for marker in markers for argument in ("--area", f"Cosmos={marker}")]
 
-    result = _check_junit(str(report), "--area", "TEST_Cosmos_Integration")
+    result = _check_junit(str(report), *areas)
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
+    assert "missing expected integration areas: ['Cosmos']" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "counters",
+    [
+        pytest.param('failures="0" errors="0" skipped="0"', id="missing-tests"),
+        pytest.param('tests="many" failures="0" errors="0" skipped="0"', id="non-integer-tests"),
+        pytest.param('tests="1" failures="0" errors="0"', id="missing-skipped"),
+        pytest.param('tests="1" failures="zero" errors="0" skipped="0"', id="non-integer-failures"),
+    ],
+)
+def test_check_junit_fails_closed_on_a_missing_or_non_integer_counter(
+    tmp_path: Path, counters: str
+) -> None:
+    report = tmp_path / "results.xml"
+    report.write_text(f'<testsuite {counters}><testcase classname="{COSMOS_CLASS}"/></testsuite>')
+
+    result = _check_junit(str(report), "--area", f"Cosmos={COSMOS_CLASS}")
+
+    assert result.returncode == 1
+    assert "invalid or unreadable JUnit report:" in result.stderr
 
 
 @pytest.mark.parametrize(
