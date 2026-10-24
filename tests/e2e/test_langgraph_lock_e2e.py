@@ -17,9 +17,10 @@ gamble) by gating on observed state:
 4. Let App A finish (200) and assert the final checkpoint reflects exactly one
    run id (App A's) — App B never wrote anything.
 
-Requires BOTH ``E2E_BASE_URL`` (App A) and ``E2E_BASE_URL_B`` (App B). Skips
-otherwise, so ordinary unit runs (``-m "not e2e"``) and single-app local e2e
-runs never hit this test.
+Requires BOTH ``E2E_BASE_URL`` (App A) and ``E2E_BASE_URL_B`` (App B).
+Ordinary unit runs (``-m "not e2e"``) never reach this test; under the dedicated
+``-m e2e`` selector an unset input fails the run (see ``tests/e2e/conftest.py``),
+so a single-app local run selects only ``test_langgraph_e2e.py``.
 """
 
 from __future__ import annotations
