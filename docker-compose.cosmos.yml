@@ -2,8 +2,8 @@ services:
   cosmos-emulator:
     image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator
     ports:
-      - "8081:8081"
-      - "10250-10255:10250-10255"
+      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:10250-10255:10250-10255"
     environment:
       - AZURE_COSMOS_EMULATOR_PARTITION_COUNT=2
       - AZURE_COSMOS_EMULATOR_ENABLE_DATA_PERSISTENCE=false
@@ -11,4 +11,4 @@ services:
       test: ["CMD", "curl", "-fk", "https://localhost:8081/_explorer/emulator.pem"]
       interval: 10s
       timeout: 5s
-      retries: 30
+      retries: 90
