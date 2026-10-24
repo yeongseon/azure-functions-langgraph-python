@@ -190,8 +190,15 @@ jobs:
         run: |
           # Clear the repo's default addopts (which force '-m "not e2e"' and
           # coverage) so the e2e-marked suite is actually collected.
+          # Exit status 0 does not prove the tests ran: a test whose input is unset
+          # skips. check_junit.py fails this step on zero tests, any skip or failure,
+          # or a module that never ran, so "Record certification" cannot report success.
           mkdir -p cert
-          pytest tests/e2e -v -m e2e -o addopts=""
+          pytest tests/e2e -v -m e2e -o addopts="" --junitxml=cert/e2e-results.xml
+          python tools/check_junit.py cert/e2e-results.xml \
+            --area "native routes=test_langgraph_e2e" \
+            --area "two-app lock=test_langgraph_lock_e2e" \
+            --area "true streaming=test_true_streaming_e2e"
 
       - name: Record certification
         run: |
@@ -336,10 +343,15 @@ jobs:
         env:
           E2E_BASE_URL: https://${{ steps.names.outputs.app }}.azurewebsites.net
         run: |
-          # Native LangGraph routes only (health/invoke/stream); the two-app
-          # single-writer contention suite (App B) is not part of the 2.x
-          # runtime certification.
-          pytest tests/e2e -v -m e2e -o addopts="" -k "not app_b and not two_app"
+          # Native LangGraph routes only (health/invoke/stream). The two-app
+          # single-writer contention suite (App B) and the true-streaming suite
+          # (its own app) are not deployed by this job, so they are not selected:
+          # a selected test that cannot run skips, and check_junit.py fails the
+          # step on any skip, zero tests or a module that never ran.
+          mkdir -p cert-2x
+          pytest tests/e2e/test_langgraph_e2e.py -v -m e2e -o addopts="" --junitxml=cert-2x/e2e-results.xml
+          python tools/check_junit.py cert-2x/e2e-results.xml \
+            --area "native routes=test_langgraph_e2e"
 
       - name: Record 2.x certification
         run: |
