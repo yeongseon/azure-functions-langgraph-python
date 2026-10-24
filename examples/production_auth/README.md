@@ -1,6 +1,8 @@
 # Production auth example
 
-Demonstrates the per-graph `auth_level` override pattern: a public, anonymous health endpoint and demo agent alongside a private function-key-protected agent — all on the same `LangGraphApp`.
+Demonstrates per-graph host `auth_level` overrides, not per-user thread ownership.
+The anonymous demo agent is **local-only**; remove it before production deployment.
+The health endpoint in this example is protected.
 
 ## Auth model
 
@@ -12,7 +14,9 @@ The app uses `auth_level=AuthLevel.FUNCTION` as the default (so all endpoints re
 | `POST /api/graphs/public_agent/{invoke,stream}` | ANONYMOUS | Demo / public surface |
 | `POST /api/graphs/private_agent/{invoke,stream}` | FUNCTION | Requires `?code=<FUNCTION_KEY>` |
 
-> **Tip:** For a public health endpoint, omit `health_auth_level` (defaults to `ANONYMOUS`). For a mostly-public service, set `LangGraphApp(auth_level=ANONYMOUS)` and protect only specific graphs with `auth_level=FUNCTION`.
+> The minimal liveness probe can deliberately be anonymous. Keep the application
+> FUNCTION default for production; a key is not user/tenant authorization. Review
+> [the security route boundaries](../../docs/security.md) before using stateful agents.
 
 ## Files
 
@@ -30,7 +34,9 @@ pip install -r requirements.txt
 func start
 ```
 
-`func start` prints a per-function key for `private_agent`; copy that for the curl below. Locally, function-level auth still requires a key — the host generates one and prints it on startup.
+Core Tools does **not** enforce function keys locally. The key-denial checks below
+must target a deployed Azure host; local success without a key is not a security
+failure and cannot prove deployed protection.
 
 ## Verify
 
@@ -58,7 +64,7 @@ curl -s -X POST "http://localhost:7071/api/graphs/private_agent/invoke?code=$FUN
 Or run the bundled script:
 
 ```bash
-FUNCTION_KEY="<key from func start output>" ./verify.sh
+BASE="https://<app>.azurewebsites.net/api" FUNCTION_KEY="<function-key>" ./verify.sh
 ```
 
 ## Production deployment notes

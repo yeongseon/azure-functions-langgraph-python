@@ -19,7 +19,9 @@ parse_exceptions = check_audit_exceptions.parse_exceptions
 def test_parse_exceptions_returns_active_ids(tmp_path: Path) -> None:
     # Given: a documented exception with a future expiry
     exceptions = tmp_path / "exceptions.txt"
-    exceptions.write_text("GHSA-abcd-1234-efgh  # upstream fix pending  # expires 2999-01-01\n")
+    exceptions.write_text(
+        "GHSA-abcd-1234-efgh # upstream fix pending # owner maintainer # expires 2026-11-01\n"
+    )
 
     # When: the exception file is parsed
     result = parse_exceptions(exceptions, today=date(2026, 10, 11))
