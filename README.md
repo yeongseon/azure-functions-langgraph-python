@@ -563,6 +563,17 @@ state as usual. Durable dependencies stay optional behind the `durable` extra.
 See [`examples/durable_async_agent/`](examples/durable_async_agent/) for a full
 create → poll → result → cancel walkthrough.
 
+Activity output is converted to plain JSON **before** the observer reports
+completion and before Durable persists the result. LangChain messages, including
+those nested in lists or dictionaries, retain structured `message_to_dict` data.
+Other custom values follow the existing JSON codec's string fallback. If encoding
+fails (for example, circular containers, unsupported dictionary keys, non-finite
+numbers, or a failing string conversion), the activity returns a normalized
+`error` with a generic serialization message and emits `on_run_failed`, never
+`on_run_completed`. It does not retry graph execution just to encode its output.
+Durable delivery remains **at-least-once**: duplicate deliveries or host failure
+can still execute the graph again, so graph side effects must be idempotent.
+
 
 ### Per-graph auth
 
