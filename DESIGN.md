@@ -19,6 +19,25 @@ youngest surfaces, not the stable core.
 
 ## Architecture
 
+### Core adapter and deployment extensions
+
+The core path is `LangGraphApp` → `register()` → `function_app`, with a
+LangGraph checkpointer attached at compile time when graph state is needed.
+`ThreadLock` is the writer-exclusion protocol; the default `InProcessThreadLock`
+is **single-process only**, including when one Azure instance has multiple
+workers. Checkpoint backends and thread locking remain **Beta** under the
+README stability policy, not Stable merely because the core uses them.
+
+Distributed topology is a separate decision: the shipped Blob lease lock is a
+low-cost option, not a mandatory backend. Platform `ThreadStore` CAS maintains
+thread metadata/run ownership and is not acquired by native or trigger runs.
+Mixed surfaces must share the distributed lock configuration and graph/thread
+keys. Durable is an opt-in execution/polling lifecycle; Service Bus sessions
+are sender-configured ordering within one queue/subscription. Neither is a
+universal single-writer workaround. The
+[production guide](docs/production-guide.md#distributed-deployment) owns wiring,
+guards, lease lifetime, cancellation and recovery guidance.
+
 ```mermaid
 flowchart TB
     subgraph App ["App / Core"]
@@ -65,8 +84,12 @@ Future versions may adopt the app-wide FastAPI/ASGI streaming model (`azurefunct
 ### 3. Thread ID in request body config (native routes)
 For native routes (`/graphs/{name}/invoke`, etc.), `thread_id` is passed in `config.configurable.thread_id`, not as a URL path parameter. This keeps the native API surface minimal and compatible with LangGraph's client patterns. Platform-compatible routes use path parameters (`/threads/{thread_id}/...`) to match the LangGraph Platform REST API.
 
-### 4. No Durable Functions dependency (v0.1)
-The v0.1 release is HTTP-only. This keeps the dependency footprint small and the mental model simple. Durable Functions can be added later for timeout extension and fan-out patterns.
+### 4. No mandatory Durable Functions dependency
+The default adapter remains HTTP-first with no Durable dependency. The shipped
+experimental `async_runs="durable"` opt-in adds long-running execution and
+polling via the `durable` extra, not global thread serialization. Graphs execute
+inside activities, never orchestrators; checkpoints and writer exclusion remain
+separate responsibilities.
 
 ### 5. Per-graph auth override (v0.2)
 Each graph registration can override the app-level `auth_level`. This enables mixed-auth deployments where public-facing graphs use `ANONYMOUS` while admin graphs require `FUNCTION` keys. The override is stored per-registration and applied at route creation time.
@@ -84,7 +107,13 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 
 **Non-goals**: Async I/O (synchronous for v0.4), concurrent-writer conflict resolution (single-writer assumed).
 
-**⚠️ Concurrency constraint**: The checkpointer assumes a single writer per thread. Concurrent writes to the same thread from multiple Azure Functions instances may corrupt checkpoint data. The write order (values -> metadata -> checkpoint commit marker -> latest hint) is designed for recoverability under single-writer semantics only. To serialize access per thread across instances, wire the ready-made blob-lease lock the package already ships: `AzureBlobLeaseThreadLock` (`src/azure_functions_langgraph/locks/azure_blob.py`), which uses Azure Blob lease compare-and-swap (with background lease renewal) as the coordination primitive — pass it via `LangGraphApp(thread_lock=AzureBlobLeaseThreadLock(container_client=...))`. Alternatively, route through Platform-compatible runs with `AzureTableThreadStore` (ETag-based run locking), or serialize externally (e.g. queue-triggered processing). See the `production_persistent_agent` example for the wiring and `docs/production-guide.md` for the scale-out matrix.
+**⚠️ Concurrency constraint**: The checkpointer assumes a single writer per
+thread. The write order (values → metadata → checkpoint commit marker → latest
+hint) supports recovery under that assumption, not concurrent-write conflict
+resolution. Use a distributed `ThreadLock` for shared writers, or an explicitly
+single-writer topology. Platform Table CAS covers Platform operations only;
+queueing alone does not serialize a thread. See the
+[deployment decision table](docs/production-guide.md#distributed-deployment).
 
 ### 8. Azure Table Storage thread store (v0.4)
 

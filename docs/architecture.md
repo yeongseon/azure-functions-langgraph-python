@@ -44,9 +44,10 @@ The surface deliberately splits into two layers so the package's identity — **
 most natural way to deploy an already-built LangGraph graph on Azure Functions** —
 stays crisp:
 
-- **Core adapter (stable).** Native routes (`invoke` / `stream` / `state` /
-  health), auth, route + endpoint metadata, and checkpointer pass-through. Always
-  registered; this is the supported product.
+- **Core adapter.** Stable native HTTP contracts (`invoke` / `stream` / `state` /
+  health) and auth, with checkpointer pass-through. Checkpoint backends and
+  thread locking remain **Beta**, not Stable; see the canonical
+  [per-surface stability table](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/README.md#azure-functions-langgraph).
 - **Experimental Platform Compatibility (optional).** The `langgraph-sdk`-compatible
   thread / run / assistant / state routes under `platform/`. Registered **only**
   when `platform_compat=True`.
@@ -62,6 +63,40 @@ reimplementation of LangGraph Platform on Azure Functions.
 > Platform-compatible routes; and LangGraph **`BaseStore`** (long-term cross-thread
 > memory) is **not implemented by this package**. `AzureTableThreadStore` is not a
 > `BaseStore`.
+
+## Core state and thread exclusion
+
+The first-use path is `LangGraphApp` → `register(graph=...)` → `function_app`.
+Compile with a LangGraph checkpointer when you need graph state, and pass
+`config.configurable.thread_id` on native requests. No Platform thread registry,
+broker or Durable orchestration is needed for that path.
+
+`thread_lock` accepts the `ThreadLock` protocol (`azure_functions_langgraph.locks`):
+`acquire(graph_name, thread_id, timeout=0.0)` returns an opaque owner token or
+`None` on contention; `release(graph_name, thread_id, token)` relinquishes that
+ownership. Native invoke/stream use it for checkpointed graphs with a thread ID.
+The default `InProcessThreadLock` excludes concurrent writers for that key
+**inside one Python process only**, not across workers on one instance or
+across instances. Persistence alone does not provide writer exclusion.
+
+### Production and distributed extensions
+
+Choose these separately after the core path works:
+
+- **Shared writers:** a distributed `ThreadLock`, such as the shipped low-cost
+  `AzureBlobLeaseThreadLock`, with lease-loss and shutdown planning.
+- **Platform compatibility:** `platform_compat=True` and a `ThreadStore` for
+  thread metadata/status. Azure Table CAS coordinates Platform operations, not
+  every writer to the checkpointer.
+- **Long-running execution:** optional Durable create/poll/cancel; activities
+  still use the configured thread lock and at-least-once delivery.
+- **Message delivery:** optional Service Bus; sender-configured sessions order
+  one queue/subscription, not HTTP or other queues writing the same thread.
+
+The [production deployment decision table](production-guide.md#distributed-deployment)
+owns backend wiring, guards, operation/lease lifetime, run-lock recovery and
+mixed-surface requirements. These are deployment choices, not core dependencies
+or an automatic backend switch. Thread locking stays **Beta**.
 
 ## Design Objectives
 
@@ -149,11 +184,12 @@ sequenceDiagram
     Routes->>Routes: Validate thread_id, body, assistant_id
     Routes->>Store: get thread by ID
     Store-->>Routes: Thread record
-    Routes->>Routes: Optional assistant bind (first run on thread)
-    Routes->>Store: update thread status → busy
+    Routes->>Routes: Acquire shared ThreadLock(graph_name, thread_id)
+    Routes->>Store: try_acquire_run_lock + assistant binding (atomic)
     Routes->>Graph: graph.invoke(input, config)
     Graph-->>Routes: result dict
-    Routes->>Store: update thread status → idle (or error on failure)
+    Routes->>Store: release_run_lock (owner-token guarded)
+    Routes->>Routes: Release shared ThreadLock
     Routes-->>AzureFunctions: HttpResponse (200, final values JSON + Content-Location header)
     AzureFunctions-->>SDK: JSON response
 ```
@@ -173,8 +209,9 @@ stateDiagram-v2
     idle --> [*]: thread deleted
 ```
 
-A thread holds at most one in-flight run. Acquisition is an atomic ETag
-compare-and-swap; release is best-effort. A concurrent run attempt while `busy`
+A Platform thread's store run lock admits one owner. With `AzureTableThreadStore`,
+acquisition is an atomic ETag compare-and-swap; release is owner-token guarded
+and can fail. A concurrent run attempt while `busy`
 returns **409** (`multitask_strategy=reject`). If a host is terminated mid-run the
 thread stays `busy` until `reset_stale_locks()` reclaims it. See the
 [production guide](production-guide.md) for the operational runbook.
@@ -356,7 +393,7 @@ When `platform_compat=True`, the library registers routes that mirror the LangGr
 
 ### Azure Blob Storage checkpointer (v0.4)
 
-`AzureBlobCheckpointSaver` provides durable checkpoint persistence across Azure Functions instances. Installed as optional extra (`[azure-blob]`). Synchronous I/O, single-writer assumed.
+`AzureBlobCheckpointSaver` provides durable checkpoint persistence across Azure Functions instances. Installed as optional extra (`[azure-blob]`). Supports sync I/O and optional native async Blob I/O; single-writer assumed.
 
 **⚠️ Concurrency constraint**: The checkpointer assumes a single writer per thread. Concurrent writes to the same thread from multiple Azure Functions instances may corrupt checkpoint data. The write order (values -> metadata -> checkpoint commit marker -> latest hint) is designed for recoverability under single-writer semantics only. If multi-writer support is needed, add blob lease or ETag coordination. For production deployments with multiple instances, ensure serialized access to each thread (e.g., via queue-triggered processing or external locking).
 
@@ -375,11 +412,13 @@ When `platform_compat=True`, the library registers routes that mirror the LangGr
 
 ### Single-writer constraint for thread operations
 
-Thread-assistant binding uses a read-then-write pattern: first run on a thread binds `assistant_id`, and the binding is immutable. This is not atomic; there is an inherent TOCTOU (time-of-check-time-of-use) race between reading and updating.
-
-`InMemoryThreadStore` (single-process) uses an `RLock`, which is sufficient in-process. Durable backends such as `AzureTableThreadStore` can see conflicting first-run bindings under concurrent writes across instances.
-
-Deployments on multi-instance Azure Functions should enforce single-writer-per-thread semantics (for example, queue-based serialization), or explicitly accept last-writer-wins behavior until atomic compare-and-set is added to `ThreadStore`.
+Platform run acquisition binds the first assistant atomically with store
+ownership; `InMemoryThreadStore` uses an in-process lock and
+`AzureTableThreadStore` uses ETag CAS. Conflicting assistant bindings are
+rejected. Platform state updates also acquire the shared `ThreadLock` and store
+run lock. Native HTTP and trigger runs use the shared lock, not the Platform
+store lock. See [mixed-surface concurrency](production-guide.md#interaction-with-platform-compatible-runs)
+before sharing checkpoint state across routes or apps.
 
 ### Metadata API and OpenAPI bridge (v0.5)
 
