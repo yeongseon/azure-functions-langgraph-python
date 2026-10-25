@@ -71,6 +71,40 @@ def _new_store(table_client: _TableClientProtocol) -> AzureTableThreadStore:
     return AzureTableThreadStore.from_table_client(cast(Any, table_client))
 
 
+def test_large_json_create_update_release_and_shrink(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given actual Azure SDK I/O against Azurite with multi-property Unicode JSON.
+    store = _new_store(azurite_table_client)
+    payload = {"text": "한😀" * 12000}
+    thread = store.create(metadata=payload)
+    locked = store.try_acquire_run_lock(thread.thread_id)
+    assert locked is not None
+
+    # When final values and subsequent shrinking updates replace the persisted documents.
+    store.release_run_lock(
+        thread.thread_id, status="idle", values=payload, owner_token=locked.lock_token
+    )
+    persisted = store.get(thread.thread_id)
+    assert persisted is not None
+    assert persisted.values == payload
+    assert persisted.metadata == payload
+    store.update(thread.thread_id, values={}, metadata={})
+
+    # Then replacement really removes superseded chunks on the service, not just in a fake.
+    rows = list(
+        cast(
+            Iterable[dict[str, Any]],
+            azurite_table_client.query_entities(f"RowKey eq '{thread.thread_id}'"),
+        )
+    )
+    assert len(rows) == 1
+    assert not any(name.startswith("values_json_") for name in rows[0])
+    shrunk = store.get(thread.thread_id)
+    assert shrunk is not None
+    assert shrunk.values == {}
+
+
 def _set_updated_at(
     table_client: _TableClientProtocol,
     thread_id: str,

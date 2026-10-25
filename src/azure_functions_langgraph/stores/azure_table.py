@@ -16,6 +16,7 @@ import uuid
 from ..platform.contracts import Interrupt, Thread, ThreadStatus
 from ..platform.stores import ThreadStore
 from ._errors import RunLockReleaseError
+from ._table_json import read_json, validate_entity, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -225,13 +226,6 @@ class AzureTableThreadStore(ThreadStore):
             return value.replace(tzinfo=UTC)
         return value.astimezone(UTC)
 
-    @staticmethod
-    def _json_default(value: Any) -> Any:
-        dump = getattr(value, "model_dump", None)
-        if callable(dump):
-            return dump()
-        raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
-
     def _warn_entity_size(self, entity: dict[str, Any], thread_id: str) -> None:
         serialized = json.dumps(entity, default=str)
         size_bytes = len(serialized.encode("utf-8"))
@@ -269,26 +263,20 @@ class AzureTableThreadStore(ThreadStore):
             "created_at": self._normalize_datetime(created_at),
             "updated_at": self._normalize_datetime(updated_at),
             "status": status,
-            "interrupts_json": json.dumps(interrupts, default=self._json_default),
         }
+        write_json(entity, "interrupts_json", interrupts)
         if metadata is not None:
-            entity["metadata_json"] = json.dumps(dict(metadata), default=self._json_default)
+            write_json(entity, "metadata_json", dict(metadata))
         if values is not None:
-            entity["values_json"] = json.dumps(values, default=self._json_default)
+            write_json(entity, "values_json", values)
         if assistant_id is not None:
             entity["assistant_id"] = assistant_id
         return entity
 
     def _entity_to_thread(self, entity: dict[str, Any]) -> Thread:
-        metadata_json = entity.get("metadata_json")
-        values_json = entity.get("values_json")
-        interrupts_json = entity.get("interrupts_json")
-
-        metadata_value = None if metadata_json is None else json.loads(metadata_json)
-        values_value = None if values_json is None else json.loads(values_json)
-        interrupts_value = {}
-        if interrupts_json is not None:
-            interrupts_value = json.loads(interrupts_json)
+        metadata_value = read_json(entity, "metadata_json")
+        values_value = read_json(entity, "values_json")
+        interrupts_value = read_json(entity, "interrupts_json", {})
 
         return Thread.model_validate(
             {
@@ -345,6 +333,7 @@ class AzureTableThreadStore(ThreadStore):
             interrupts=thread.interrupts,
         )
         self._warn_entity_size(entity, thread_id)
+        validate_entity(entity)
         self._table_client.create_entity(entity)
         return self._entity_to_thread(entity)
 
@@ -370,35 +359,43 @@ class AzureTableThreadStore(ThreadStore):
         assistant_id: str | None = None,
     ) -> Thread:
         not_found_error = self._not_found_exception()
-        patch: dict[str, Any] = {
-            "PartitionKey": self._partition_key(),
-            "RowKey": thread_id,
-            "updated_at": self._now(),
-        }
-
-        if metadata is not None:
-            patch["metadata_json"] = json.dumps(dict(metadata), default=self._json_default)
-        if status is not None:
-            patch["status"] = status
-        if values is not None:
-            patch["values_json"] = json.dumps(values, default=self._json_default)
-        if interrupts is not None:
-            patch["interrupts_json"] = json.dumps(interrupts, default=self._json_default)
-        if assistant_id is not None:
-            patch["assistant_id"] = assistant_id
-
-        self._warn_entity_size(patch, thread_id)
-        try:
-            self._table_client.update_entity(patch, mode="merge")
-        except not_found_error as exc:
-            raise KeyError(thread_id) from exc
-
-        # Re-read the merged entity to return accurate state
-        merged = self._table_client.get_entity(
-            partition_key=self._partition_key(),
-            row_key=thread_id,
-        )
-        return self._entity_to_thread(merged)
+        for attempt in range(3):
+            try:
+                entity = self._table_client.get_entity(
+                    partition_key=self._partition_key(), row_key=thread_id
+                )
+                entity_metadata = getattr(entity, "metadata", {})
+                etag = entity_metadata.get("etag") or entity.get("etag")
+                replacement = {
+                    key: value for key, value in entity.items() if key not in {"etag", "Timestamp"}
+                }
+                replacement["updated_at"] = self._now()
+                for field, value in (
+                    ("metadata_json", metadata),
+                    ("values_json", values),
+                    ("interrupts_json", interrupts),
+                ):
+                    if value is not None:
+                        write_json(replacement, field, value)
+                if status is not None:
+                    replacement["status"] = status
+                if assistant_id is not None:
+                    replacement["assistant_id"] = assistant_id
+                validate_entity(replacement)
+                self._table_client.update_entity(
+                    replacement,
+                    mode="replace",
+                    etag=etag,
+                    match_condition=self._match_conditions.IfNotModified,
+                )
+            except self._modified_error:
+                if attempt == 2:
+                    raise
+                continue
+            except not_found_error as exc:
+                raise KeyError(thread_id) from exc
+            return self._entity_to_thread(replacement)
+        raise AssertionError("unreachable update retry exit")
 
     def delete(self, thread_id: str) -> None:
         not_found_error = self._not_found_exception()
@@ -475,6 +472,7 @@ class AzureTableThreadStore(ThreadStore):
             if thread.assistant_id is None and assistant_id is not None:
                 patch["assistant_id"] = assistant_id
 
+            validate_entity({**entity, **patch})
             try:
                 self._table_client.update_entity(
                     patch,
@@ -566,8 +564,9 @@ class AzureTableThreadStore(ThreadStore):
             }
             replacement.update(status=status, updated_at=self._now())
             if values is not None:
-                replacement["values_json"] = json.dumps(values, default=self._json_default)
+                write_json(replacement, "values_json", values)
             self._warn_entity_size(replacement, thread_id)
+            validate_entity(replacement)
             try:
                 self._table_client.update_entity(
                     replacement,
