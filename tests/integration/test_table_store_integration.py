@@ -280,3 +280,47 @@ def test_reset_stale_locks_projection_returns_usable_etag(
         "projected query result must expose a usable ETag via "
         "entity.metadata['etag'] or entity['etag']"
     )
+
+
+def test_release_removes_lease_fields_after_renewal_conflict(
+    azurite_table_client: _TableClientProtocol,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given a real Azure Tables ETag invalidated by a same-owner renewal.
+    from unittest.mock import DEFAULT, patch
+
+    store = _new_store(azurite_table_client)
+    thread = store.create(metadata={"preserved": True})
+    locked = store.try_acquire_run_lock(thread.thread_id, assistant_id="agent")
+    assert locked is not None and locked.lock_token is not None
+    token = locked.lock_token
+    update = azurite_table_client.update_entity
+    renewed = False
+
+    def renew_before_release(*args: object, **kwargs: object) -> object:
+        nonlocal renewed
+        if not renewed:
+            renewed = True
+            with patch.object(azurite_table_client, "update_entity", update):
+                assert store.renew_run_lock(thread.thread_id, token)
+                store.update(thread.thread_id, metadata={"concurrent": True})
+        return DEFAULT
+
+    with patch.object(
+        azurite_table_client, "update_entity", side_effect=renew_before_release, wraps=update
+    ):
+        # When release retries the server's 412 response.
+        released = store.release_run_lock(
+            thread.thread_id, status="idle", values={"done": True}, owner_token=token
+        )
+
+    # Then the persisted entity has no obsolete lease fields and keeps concurrent data.
+    persisted = store.get(thread.thread_id)
+    assert persisted == released
+    assert released.metadata == {"concurrent": True}
+    assert released.values == {"done": True}
+    assert released.assistant_id == "agent"
+    rows = list(cast(Any, azurite_table_client.query_entities)("PartitionKey eq 'thread'"))
+    assert "lock_token" not in rows[0]
+    assert "lock_expires_at" not in rows[0]
+    assert not store.renew_run_lock(thread.thread_id, token)

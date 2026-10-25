@@ -71,7 +71,7 @@ def _release_thread_run_lock(
     status: ThreadStatus,
     values: dict[str, Any] | None = None,
     store_owner_token: str | None = None,
-) -> None:
+) -> bool:
     renewal = _STORE_RENEWALS.pop(store_owner_token or "", None)
     if renewal is not None:
         renewal.set()
@@ -94,11 +94,13 @@ def _release_thread_run_lock(
             thread_id,
             status,
         )
+        return False
     finally:
         try:
             deps.thread_lock.release(graph_name, thread_id, lock_token)
         except Exception:
             logger.exception("Unexpected error releasing thread lock for thread %s", thread_id)
+    return True
 
 
 def register_run_routes(
@@ -217,7 +219,7 @@ def register_run_routes(
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             return _platform_error(500, "Graph execution failed", ctx.run_id)
         finally:
-            _release_thread_run_lock(
+            released = _release_thread_run_lock(
                 deps,
                 thread_id,
                 reg.name,
@@ -226,6 +228,15 @@ def register_run_routes(
                 values=output if status == "idle" else None,
                 store_owner_token=store_lock_token,
             )
+            if not released:
+                if status == "idle":
+                    safe_observer_call(
+                        deps.observer,
+                        "on_run_failed",
+                        finish_context(ctx),
+                        RuntimeError("Run-lock release failed"),
+                    )
+                return _platform_error(500, "Run-lock release failed", ctx.run_id)
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
         return response
 
@@ -389,7 +400,7 @@ def register_run_routes(
             )
 
         finally:
-            _release_thread_run_lock(
+            released = _release_thread_run_lock(
                 deps,
                 thread_id,
                 reg.name,
@@ -397,6 +408,15 @@ def register_run_routes(
                 status=status,
                 store_owner_token=store_lock_token,
             )
+            if not released:
+                if status == "idle":
+                    safe_observer_call(
+                        deps.observer,
+                        "on_run_failed",
+                        finish_context(ctx),
+                        RuntimeError("Run-lock release failed"),
+                    )
+                return _platform_error(500, "Run-lock release failed", ctx.run_id)
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
         return response
 
