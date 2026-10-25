@@ -159,7 +159,7 @@ POST /api/graphs/simple_agent/stream
 $ curl -s http://localhost:7071/api/health
 {"status":"ok"}
 $ curl -s -X POST http://localhost:7071/api/graphs/simple_agent/invoke -H "Content-Type: application/json" -d '{"input":{"messages":[{"role":"human","content":"World"}],"greeting":""}}'
-{"output":{"messages":[{"role":"human","content":"World"},{"role":"assistant","content":"Hello, World! Goodbye!"}],"greeting":"Hello, World!"}}
+{"output": {"messages": [{"role": "human", "content": "World"}, {"role": "assistant", "content": "Hello, World! Goodbye!"}], "greeting": "Hello, World!"}}
 ```
 
 `/api/health` is the minimal anonymous liveness probe; `/api/health/details` is
@@ -645,6 +645,15 @@ With `platform_compat=True`, you also get SDK-compatible endpoints:
 - `POST /threads/{id}/history` — get state history
 
 ### Request format
+
+Native invoke responses keep the `{"output": ...}` envelope and use the shared
+JSON codec: nested LangChain messages retain structured `message_to_dict` data,
+Pydantic models use JSON-mode dumps, and other custom values (including datetime,
+set and bytes values nested in dictionaries) use the codec's `str` fallback.
+Response encoding finishes before `on_run_completed`. If encoding fails, the
+adapter returns a sanitized HTTP 500 with the same `X-Request-ID`, emits one
+`on_run_failed` event instead of completion, and releases the thread lock.
+Graph execution is not retried to serialize its output.
 
 ```json
 {

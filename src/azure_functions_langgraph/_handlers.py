@@ -39,7 +39,6 @@ from azure_functions_langgraph.authorization import (
 from azure_functions_langgraph.contracts import (
     ErrorResponse,
     InvokeRequest,
-    InvokeResponse,
     StateResponse,
     StreamRequest,
 )
@@ -352,6 +351,7 @@ def handle_invoke(
     safe_observer_call(observer, "on_run_started", ctx)
     try:
         result = reg.graph.invoke(request.input, config=config, **version_kwargs)
+        body = dumps({"output": _serialize_graph_output(result)}, allow_nan=False)
     except Exception as exc:
         logger.exception("Graph %s invoke failed", reg.name)
         safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
@@ -361,10 +361,8 @@ def handle_invoke(
             thread_lock.release(reg.name, thread_id, lock_token)
 
     safe_observer_call(observer, "on_run_completed", finish_context(ctx))
-    output = _serialize_graph_output(result)
-    response = InvokeResponse(output=output)
     return func.HttpResponse(
-        body=response.model_dump_json(),
+        body=body,
         mimetype="application/json",
         status_code=200,
         headers={"X-Request-ID": ctx.run_id},
@@ -605,16 +603,15 @@ async def handle_invoke_async(
         safe_observer_call(observer, "on_run_started", ctx)
         try:
             result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
+            body = dumps({"output": _serialize_graph_output(result)}, allow_nan=False)
         except Exception as exc:
             logger.exception("Graph %s ainvoke failed", reg.name)
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
             return _error_response(500, "Graph execution failed", ctx.run_id)
 
     safe_observer_call(observer, "on_run_completed", finish_context(ctx))
-    output = _serialize_graph_output(result)
-    response = InvokeResponse(output=output)
     return func.HttpResponse(
-        body=response.model_dump_json(),
+        body=body,
         mimetype="application/json",
         status_code=200,
         headers={"X-Request-ID": ctx.run_id},
