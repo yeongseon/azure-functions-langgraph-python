@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import threading
+import sys
 from typing import Any
 
 import azure.functions as func
@@ -40,26 +40,17 @@ from azure_functions_langgraph.platform._sse import (
     format_error_event,
     format_metadata_event,
 )
+from azure_functions_langgraph.platform._store_renewal import (
+    _STORE_RENEWALS as _STORE_RENEWALS,
+)
+from azure_functions_langgraph.platform._store_renewal import (
+    _start_store_renewal as _start_store_renewal,
+)
+from azure_functions_langgraph.platform._store_renewal import (
+    stop_store_renewal,
+)
 from azure_functions_langgraph.platform.contracts import ThreadStatus
 from azure_functions_langgraph.protocols import StreamableGraph
-
-_STORE_RENEWALS: dict[str, threading.Event] = {}
-
-
-def _start_store_renewal(deps: PlatformRouteDeps, thread_id: str, owner_token: str) -> None:
-    renew = getattr(deps.thread_store, "renew_run_lock", None)
-    if not callable(renew):
-        return
-    stop = threading.Event()
-    _STORE_RENEWALS[owner_token] = stop
-
-    def worker() -> None:
-        while not stop.wait(20):
-            if not renew(thread_id, owner_token):
-                logger.warning("Run-lock renewal lost ownership for thread %s", thread_id)
-                return
-
-    threading.Thread(target=worker, daemon=True).start()
 
 
 def _release_thread_run_lock(
@@ -72,10 +63,10 @@ def _release_thread_run_lock(
     values: dict[str, Any] | None = None,
     store_owner_token: str | None = None,
 ) -> Exception | None:
-    failure: Exception | None = None
-    renewal = _STORE_RENEWALS.pop(store_owner_token or "", None)
-    if renewal is not None:
-        renewal.set()
+    failure = stop_store_renewal(store_owner_token or "")
+    if failure is not None:
+        status = "error"
+        values = None
     try:
         deps.thread_store.release_run_lock(
             thread_id,
@@ -84,14 +75,14 @@ def _release_thread_run_lock(
             owner_token=store_owner_token or lock_token,
         )
     except KeyError as exc:
-        failure = exc
+        failure = failure or exc
         logger.warning(
             "Thread %s disappeared before run lock release to %s",
             thread_id,
             status,
         )
     except Exception as exc:
-        failure = exc
+        failure = failure or exc
         logger.exception(
             "Unexpected error releasing run lock for thread %s (target status: %s)",
             thread_id,
@@ -234,7 +225,9 @@ def register_run_routes(
                 values=output if status == "idle" else None,
                 store_owner_token=store_lock_token,
             )
-            if release_error is not None:
+            if release_error is not None and (
+                sys.exception() is None or isinstance(sys.exception(), Exception)
+            ):
                 if primary_error is None and status == "idle":
                     safe_observer_call(
                         deps.observer,
@@ -417,7 +410,9 @@ def register_run_routes(
                 status=status,
                 store_owner_token=store_lock_token,
             )
-            if release_error is not None:
+            if release_error is not None and (
+                sys.exception() is None or isinstance(sys.exception(), Exception)
+            ):
                 if primary_error is None and status == "idle":
                     safe_observer_call(
                         deps.observer,
