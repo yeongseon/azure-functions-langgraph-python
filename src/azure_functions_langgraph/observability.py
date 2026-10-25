@@ -41,6 +41,7 @@ RunRejectedReason = Literal[
     "unsupported_version",
     "streaming_unsupported",
     "lock_contention",
+    "authorization_denied",
 ]
 
 

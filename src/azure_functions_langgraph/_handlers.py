@@ -19,6 +19,10 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from pydantic import ValidationError
 
 from azure_functions_langgraph._json import dumps
+from azure_functions_langgraph._run_authorization import (
+    native_authorization_status,
+    native_authorization_status_async,
+)
 from azure_functions_langgraph._validation import (
     ValidationErrorDetail,
     sanitized_validation_errors,
@@ -292,6 +296,7 @@ def handle_invoke(
     max_input_depth: int,
     max_input_nodes: int,
     observer: RunObserver = NOOP_OBSERVER,
+    authorize: ThreadAuthorizer | None = None,
 ) -> func.HttpResponse:
     """Handle a synchronous invoke request."""
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
@@ -322,6 +327,13 @@ def handle_invoke(
     ):
         return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id)
+    status = native_authorization_status(
+        authorize, AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req)
+    )
+    if status is not None:
+        return _reject(
+            observer, ctx, "authorization_denied", _error_response(status, "Access denied")
+        )
     version_kwargs = _resolve_version_kwarg(reg.graph.invoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
@@ -374,6 +386,7 @@ def handle_stream(
     max_input_depth: int,
     max_input_nodes: int,
     observer: RunObserver = NOOP_OBSERVER,
+    authorize: ThreadAuthorizer | None = None,
 ) -> func.HttpResponse:
     """Handle a streaming request.
 
@@ -428,6 +441,13 @@ def handle_stream(
     ):
         return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
+    status = native_authorization_status(
+        authorize, AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req)
+    )
+    if status is not None:
+        return _reject(
+            observer, ctx, "authorization_denied", _error_response(status, "Access denied")
+        )
     version_kwargs = _resolve_version_kwarg(reg.graph.stream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
@@ -524,6 +544,7 @@ async def handle_invoke_async(
     max_input_depth: int,
     max_input_nodes: int,
     observer: RunObserver = NOOP_OBSERVER,
+    authorize: ThreadAuthorizer | None = None,
 ) -> func.HttpResponse:
     """Handle an invoke request against an async graph via ``ainvoke``.
 
@@ -560,6 +581,13 @@ async def handle_invoke_async(
     ):
         return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id)
+    status = await native_authorization_status_async(
+        authorize, AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req)
+    )
+    if status is not None:
+        return _reject(
+            observer, ctx, "authorization_denied", _error_response(status, "Access denied")
+        )
     version_kwargs = _resolve_version_kwarg(reg.graph.ainvoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
@@ -608,6 +636,7 @@ async def handle_stream_async(
     max_input_depth: int,
     max_input_nodes: int,
     observer: RunObserver = NOOP_OBSERVER,
+    authorize: ThreadAuthorizer | None = None,
 ) -> func.HttpResponse:
     """Handle a streaming request against an async graph via ``astream``.
 
@@ -660,6 +689,13 @@ async def handle_stream_async(
     ):
         return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
+    status = await native_authorization_status_async(
+        authorize, AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req)
+    )
+    if status is not None:
+        return _reject(
+            observer, ctx, "authorization_denied", _error_response(status, "Access denied")
+        )
     version_kwargs = _resolve_version_kwarg(reg.graph.astream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
