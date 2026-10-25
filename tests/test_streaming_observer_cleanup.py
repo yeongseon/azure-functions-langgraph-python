@@ -59,6 +59,55 @@ async def test_observer_fails_once_when_lock_release_raises(
     assert len(exporter.get_finished_spans()) == 1
 
 
+async def test_cancellation_during_cap_cleanup_propagates(
+    telemetry: tuple[CountingObserver, InMemorySpanExporter],
+) -> None:
+    observer, exporter = telemetry
+    closing = anyio.Event()
+
+    class ClosingGraph(Graph):
+        async def astream(
+            self, input: dict[str, int], **kwargs: str
+        ) -> AsyncIterator[dict[str, int]]:
+            try:
+                yield {}
+                yield {}
+            finally:
+                closing.set()
+                await anyio.sleep_forever()
+
+    lock = InProcessThreadLock()
+    app = StreamingLangGraphApp(observer=observer, thread_lock=lock, max_stream_events=1)
+    app.register(ClosingGraph("success"), "agent", async_mode=True)
+    response = await app._handle_stream(
+        request(),
+        app._registrations["agent"],
+        True,
+        JSONResponse,
+        StreamingResponse,
+        observer,
+        lock,
+    )
+    propagated = anyio.Event()
+
+    async def consume() -> None:
+        try:
+            async for _ in response.body_iterator:
+                pass
+        except anyio.get_cancelled_exc_class():
+            propagated.set()
+            raise
+
+    async with anyio.create_task_group() as tasks:
+        tasks.start_soon(consume)
+        await closing.wait()
+        tasks.cancel_scope.cancel()
+
+    assert propagated.is_set()
+    assert observer.events == ["started", "failed"]
+    assert len(exporter.get_finished_spans()) == 1
+
+
 async def test_cancelled_stream_preserves_cancellation_when_release_fails(
     telemetry: tuple[CountingObserver, InMemorySpanExporter],
 ) -> None:
