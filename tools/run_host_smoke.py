@@ -126,7 +126,10 @@ def run_hosts(temporary: Path) -> None:
                     ) as response:
                         response.raise_for_status()
                         message = response.json()["output"]["messages"][-1]
-                        if message["content"] != "host smoke passed" or message["type"] != "ai":
+                        if (
+                            message["data"]["content"] != "host smoke passed"
+                            or message["type"] != "ai"
+                        ):
                             raise RuntimeError("native invoke returned the wrong graph output")
                     with requests.get(
                         url + "/api/graphs/smoke/threads/host-smoke/state", timeout=30
