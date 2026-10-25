@@ -146,8 +146,10 @@ async def test_stream_terminal_callback_when_consumer_closes(
     lock.release("agent", "t", token)
 
 
+@pytest.mark.parametrize("release_fails", [False, True])
 async def test_invoke_terminal_callback_when_async_execution_is_cancelled(
     telemetry: tuple[CountingObserver, InMemorySpanExporter],
+    release_fails: bool,
 ) -> None:
     # Given an invoke blocked inside async graph execution.
     observer, exporter = telemetry
@@ -159,7 +161,13 @@ async def test_invoke_terminal_callback_when_async_execution_is_cancelled(
             await anyio.sleep_forever()
             raise AssertionError("unreachable after cancellation")
 
-    lock = InProcessThreadLock()
+    class InvokeLock(InProcessThreadLock):
+        def release(self, graph_name: str, thread_id: str, token: str) -> None:
+            super().release(graph_name, thread_id, token)
+            if release_fails:
+                raise RuntimeError("release failed")
+
+    lock = InvokeLock()
     app = StreamingLangGraphApp(observer=observer, thread_lock=lock)
     app.register(BlockingGraph("success"), "agent", async_mode=True)
     propagated = anyio.Event()
