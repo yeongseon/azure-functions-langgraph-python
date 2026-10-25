@@ -1,1 +1,2 @@
-# One exception per line: ID  # reason  # expires YYYY-MM-DD
+# One exception per line: ID # reason # owner NAME # expires YYYY-MM-DD
+# Expiry must be in the future and at most 90 days away; renewal requires review.

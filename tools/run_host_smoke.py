@@ -121,12 +121,18 @@ def run_hosts(temporary: Path) -> None:
                     with requests.post(
                         url + "/api/graphs/smoke/invoke",
                         json={"input": {"messages": [{"role": "user", "content": "ping"}]}},
+                        headers={"x-smoke-principal": "owner"},
                         timeout=30,
                     ) as response:
                         response.raise_for_status()
                         message = response.json()["output"]["messages"][-1]
                         if message["content"] != "host smoke passed" or message["type"] != "ai":
                             raise RuntimeError("native invoke returned the wrong graph output")
+                    with requests.get(
+                        url + "/api/graphs/smoke/threads/host-smoke/state", timeout=30
+                    ) as response:
+                        if response.status_code != 401 or "host-credential-canary" in response.text:
+                            raise RuntimeError("native state callback denial failed")
                 else:
                     report = temporary / "streaming.xml"
                     subprocess.run(
@@ -157,6 +163,8 @@ def run_hosts(temporary: Path) -> None:
                     )
             if HOST_FAILURE.search(log.read_text()):
                 raise RuntimeError(f"{name} host emitted a startup/indexing failure")
+            if "host-credential-canary" in log.read_text():
+                raise RuntimeError("host leaked authorization diagnostics")
 
 
 def interrupted(signum: int, _frame: object) -> None:

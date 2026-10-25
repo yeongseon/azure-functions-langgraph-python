@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, START, MessagesState, StateGraph
 
 from azure_functions_langgraph import LangGraphApp
+from azure_functions_langgraph.authorization import AuthorizationContext, UnauthenticatedError
 
 
 def answer(_state: MessagesState) -> dict[str, Any]:
@@ -17,6 +18,13 @@ builder.add_node("answer", RunnableLambda(answer))
 builder.add_edge(START, "answer")
 builder.add_edge("answer", END)
 
-langgraph_app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
+
+def authorize(context: AuthorizationContext) -> bool:
+    if context.request.headers.get("x-smoke-principal") != "owner":
+        raise UnauthenticatedError("host-credential-canary")
+    return True
+
+
+langgraph_app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION, authorize=authorize)
 langgraph_app.register(graph=builder.compile(), name="smoke", stream=False)
 app = langgraph_app.function_app
