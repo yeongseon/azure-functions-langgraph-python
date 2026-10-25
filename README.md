@@ -370,6 +370,13 @@ native invoke/stream run and every Platform `runs/wait` / `runs/stream` run. Eac
 callback receives an immutable `RunContext` of **correlation identifiers and
 timing only** — never input, output, config, headers, or secrets.
 
+On the true-streaming surface, each started run receives exactly one terminal
+callback, including invoke cancellation, stream disconnection and iterator
+cleanup failures. Stream callbacks finish after iterator cleanup and lock
+release, before the final `event: end` frame is yielded, so closing at that
+frame cannot leave a span open. Cancellation and generator close still
+propagate; they are not reported as successful graph results.
+
 The package ships a built-in, dependency-free `LoggingRunObserver` for
 zero-boilerplate telemetry:
 

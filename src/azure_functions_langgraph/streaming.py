@@ -381,39 +381,63 @@ async def _sse_event_stream(
                 break
             yield _format_data_event(event)
             count += 1
-    except asyncio.CancelledError:
+    except asyncio.CancelledError as exc:
         logger.info("Graph %s stream cancelled (client disconnect)", graph_name)
-        safe_observer_call(observer, "on_run_failed", finish_context(ctx), asyncio.CancelledError())
+        stream_error = exc
         raise
     except GeneratorExit as exc:
-        safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
+        stream_error = exc
         raise
     except Exception as exc:  # noqa: BLE001 - surfaced as an SSE error frame
         logger.exception("Graph %s stream failed", graph_name)
         stream_error = exc
         payload = json.dumps({"error": "stream processing failed", "request_id": ctx.run_id})
         yield f"event: error\ndata: {payload}\n\n"
+    except BaseException as exc:
+        stream_error = exc
+        raise
     finally:
+        primary_error = stream_error
+        cleanup_cancellation: BaseException | None = None
         try:
-            await events.aclose()
-        except Exception:
-            # Swallow a cleanup failure here rather than letting it replace
-            # whatever is currently propagating (a primary stream exception,
-            # or a CancelledError/GeneratorExit from the except branches
-            # above, which must still win and re-raise cleanly). The lock
-            # must still be released below either way (#656).
-            logger.exception("Graph %s stream cleanup (aclose) failed", graph_name)
-            if stream_error is None:
-                stream_error = RuntimeError("stream cleanup failed")
-        if lock_token is not None and thread_id is not None:
-            await release_thread_lock(thread_lock, graph_name, thread_id, lock_token)
+            try:
+                await events.aclose()
+            except BaseException as exc:
+                logger.exception("Graph %s stream cleanup (aclose) failed", graph_name)
+                if isinstance(exc, (asyncio.CancelledError, GeneratorExit)):
+                    cleanup_cancellation = exc
+                    if not isinstance(primary_error, (asyncio.CancelledError, GeneratorExit)):
+                        if primary_error is None:
+                            stream_error = exc
+                        raise
+                if primary_error is None:
+                    stream_error = exc
+                    if not isinstance(exc, Exception):
+                        raise
+            finally:
+                if lock_token is not None and thread_id is not None:
+                    try:
+                        await release_thread_lock(thread_lock, graph_name, thread_id, lock_token)
+                    except BaseException as exc:
+                        if isinstance(exc, (asyncio.CancelledError, GeneratorExit)):
+                            if cleanup_cancellation is None and not isinstance(
+                                primary_error, (asyncio.CancelledError, GeneratorExit)
+                            ):
+                                if stream_error is None:
+                                    stream_error = exc
+                                raise
+                        if primary_error is None and stream_error is None:
+                            stream_error = exc
+                            raise
+                        logger.exception("Graph %s stream lock release failed", graph_name)
+        finally:
+            terminal_error = primary_error or stream_error
+            if terminal_error is not None:
+                safe_observer_call(observer, "on_run_failed", finish_context(ctx), terminal_error)
+            else:
+                safe_observer_call(observer, "on_run_completed", finish_context(ctx))
 
     yield "event: end\ndata: {}\n\n"
-
-    if stream_error is not None:
-        safe_observer_call(observer, "on_run_failed", finish_context(ctx), stream_error)
-    else:
-        safe_observer_call(observer, "on_run_completed", finish_context(ctx))
 
 
 # ------------------------------------------------------------------
@@ -747,32 +771,52 @@ class StreamingLangGraphApp:
             return self._reject(JSONResponse, observer, ctx, "unsupported_version", version_kwargs)
 
         lock_thread_id = thread_id if has_cp else None
-        async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
-            if lock_thread_id is not None and lock_token is None:
-                return self._reject(
-                    JSONResponse,
-                    observer,
-                    ctx,
-                    "lock_contention",
-                    _JsonError(409, f"Thread {thread_id!r} is currently in use by another request"),
-                )
-            safe_observer_call(observer, "on_run_started", ctx)
-            try:
-                if is_async:
-                    result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
-                else:
-                    result = await run_sync_retaining_ownership(
-                        lambda: reg.graph.invoke(request.input, config=config, **version_kwargs)
+        started = False
+        invoke_error: BaseException | None = None
+        execution_error: BaseException | None = None
+        try:
+            async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
+                if lock_thread_id is not None and lock_token is None:
+                    return self._reject(
+                        JSONResponse,
+                        observer,
+                        ctx,
+                        "lock_contention",
+                        _JsonError(
+                            409, f"Thread {thread_id!r} is currently in use by another request"
+                        ),
                     )
-            except Exception as exc:  # noqa: BLE001 - reported and returned as 500
-                logger.exception("Graph %s invoke failed", reg.name)
-                safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
-                return self._json_error(JSONResponse, 500, "Graph execution failed", ctx.run_id)
-
-        safe_observer_call(observer, "on_run_completed", finish_context(ctx))
-        output = _serialize_graph_output(result)
-        response = InvokeResponse(output=output)
-        return JSONResponse(content=json.loads(response.model_dump_json()), status_code=200)
+                safe_observer_call(observer, "on_run_started", ctx)
+                started = True
+                try:
+                    if is_async:
+                        result = await reg.graph.ainvoke(
+                            request.input, config=config, **version_kwargs
+                        )
+                    else:
+                        result = await run_sync_retaining_ownership(
+                            lambda: reg.graph.invoke(request.input, config=config, **version_kwargs)
+                        )
+                except BaseException as exc:
+                    execution_error = exc
+                    raise
+            output = _serialize_graph_output(result)
+            response = InvokeResponse(output=output)
+            return JSONResponse(content=json.loads(response.model_dump_json()), status_code=200)
+        except BaseException as exc:
+            invoke_error = (
+                execution_error if isinstance(exc, Exception) and execution_error else exc
+            )
+            if not isinstance(invoke_error, Exception):
+                raise invoke_error
+            logger.exception("Graph %s invoke failed", reg.name)
+            return self._json_error(JSONResponse, 500, "Graph execution failed", ctx.run_id)
+        finally:
+            if started:
+                if invoke_error is not None:
+                    safe_observer_call(observer, "on_run_failed", finish_context(ctx), invoke_error)
+                else:
+                    safe_observer_call(observer, "on_run_completed", finish_context(ctx))
 
     async def _handle_stream(
         self,
@@ -881,9 +925,14 @@ class StreamingLangGraphApp:
                     "X-Request-ID": ctx.run_id,
                 },
             )
-        except BaseException:
-            if lock_token is not None and thread_id is not None:
-                await release_thread_lock(thread_lock, reg.name, thread_id, lock_token)
+        except BaseException as exc:
+            try:
+                if lock_token is not None and thread_id is not None:
+                    await release_thread_lock(thread_lock, reg.name, thread_id, lock_token)
+            except BaseException:
+                logger.exception("Graph %s stream response cleanup failed", reg.name)
+            finally:
+                safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
             raise
 
     # ------------------------------------------------------------------
