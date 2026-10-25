@@ -828,7 +828,26 @@ Notes:
 
 - **Single partition** — `AzureTableThreadStore` keys every thread under a single PartitionKey, capped by Azure Table per-partition throughput (~2000 entities/sec on Standard accounts). Search and count beyond `status` filtering are **client-side**; see [COMPATIBILITY.md](COMPATIBILITY.md).
 - **Prefix scans** — `AzureBlobCheckpointSaver` lists checkpoints via blob prefix scans; transaction count and latency grow with checkpoints-per-thread. Use the retention helpers below to keep that bounded.
-- **Entity size** — Azure Table entities are capped at 1 MB; the store logs a warning at 90% of the threshold.
+- **Table JSON capacity** — metadata, values and interrupts use legacy single-string properties
+  when they fit, or versioned `utf16-v1` chunks of at most 64 KiB per UTF-16 property.
+  Legacy entities remain readable. The store rejects content before writing if the
+  complete entity exceeds its conservative 1-MiB budget (including property names,
+  overhead and 4 KiB reserved for service/lock properties), or Azure's 255-property
+  limit. `TableStorageLimitError` is a `ValueError` with size and limit attributes:
+  reduce thread data or supply a Blob-backed custom `ThreadStore`; data is never
+  truncated. Conditional replacements remove obsolete chunks when documents shrink,
+  preserve unrelated fields, and retry ETag conflicts up to three times. Readers
+  must be upgraded before writers: older package versions cannot read chunked JSON.
+  Datetimes become strings, LangChain messages retain structured message dictionaries,
+  and Pydantic models use JSON-mode dumps through the shared JSON encoder.
+
+Platform wait and buffered-stream runs return a sanitized HTTP 500 when final
+storage persistence or outer-lock release fails, rather than reporting completion.
+The failure observer receives the actual exception; if graph execution failed
+first, that primary exception is retained and cleanup failures are logged separately.
+Outer-lock release is always attempted. A failed Table write can leave the row busy:
+inspect storage errors and use the stale-lock recovery procedure below; do not
+blindly retry a graph with non-idempotent side effects.
 
 #### Retention helpers
 

@@ -218,7 +218,7 @@ def test_update_partial_fields_and_merge_mode() -> None:
     assert updated.metadata == {"env": "prod", "tier": "free"}
     assert updated.created_at == created.created_at
     assert updated.updated_at >= created.updated_at
-    assert table_client.last_update_mode == "merge"
+    assert table_client.last_update_mode == "replace"
 
 
 def test_update_all_fields() -> None:
@@ -754,9 +754,6 @@ def test_internal_helper_branches(monkeypatch: Any, caplog: Any) -> None:
 
     naive = datetime(2026, 1, 1)
     assert AzureTableThreadStore._normalize_datetime(naive).tzinfo is not None
-
-    with pytest.raises(TypeError):
-        AzureTableThreadStore._json_default(object())
 
     caplog.set_level("WARNING")
     large_entity = {"payload": "x" * (1024 * 1024)}
