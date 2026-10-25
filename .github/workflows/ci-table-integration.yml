@@ -57,7 +57,7 @@ jobs:
       - name: Start Azurite with storage SDK API-version compatibility
         run: |
           docker run --detach --rm --name azurite \
-            --publish 10000:10000 --publish 10001:10001 --publish 10002:10002 \
+            --publish 127.0.0.1:10000:10000 --publish 127.0.0.1:10001:10001 --publish 127.0.0.1:10002:10002 \
             mcr.microsoft.com/azure-storage/azurite \
             azurite --skipApiVersionCheck \
               --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0
