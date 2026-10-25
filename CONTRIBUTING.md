@@ -72,6 +72,32 @@ it on push or pull_request: it runs nightly on a schedule and on manual
 `workflow_dispatch`. Contributors touching Cosmos code should run
 `make test-cosmos` locally before merging.
 
+Setup is explicit: install Hatch on PATH (or run `make bootstrap` once and pass
+`HATCH=.venv/bin/hatch`), then `make install`. Routine commands never upgrade pip
+or reinstall Hatch. `make doctor` only inspects the existing Hatch environment;
+it installs nothing and fails when prerequisites for `check` or `test` are missing.
+`make check` runs style checks and one type-check pass.
+
+`make test-table` and `make test-cosmos` create a per-run Compose project on
+loopback-only default ports, and remove only that project on return, failure or
+interrupt. Stop your own conflicting services yourself; these targets never
+reuse them. Both targets use `tools/check_junit.py`, the same validator as CI,
+to reject empty, skipped, failed or inconsistent reports. The nightly Cosmos
+lane remains non-gating and is not release certification.
+
+`make host-smoke` needs Core Tools (`func`), `azurite` and the development extras.
+It starts native and true-streaming hosts on run-selected ports, exercises native
+invoke plus incremental streaming/error/disconnect cases, rejects startup/indexing
+log failures, and reaps its own process groups and temporary storage on success,
+failure or interrupt. It does not stop existing hosts or emulators.
+
+`make e2e-azure` needs `E2E_BASE_URL`, `E2E_BASE_URL_B` and `E2E_STREAM_BASE_URL`
+pointing at deployed native, second lock-test and streaming apps. Configure keys
+with `E2E_CODE` and `E2E_STREAM_CODE`, never URL query parameters. Missing targets,
+unexpected skips and zero selected tests fail rather than certify a deployment.
+The release workflow uses the same strict validator; its certification and gates
+are unchanged.
+
 `COSMOS_DISABLE_SSL=true|1|yes` makes `create_cosmos_checkpointer` skip TLS
 certificate verification for the emulator's self-signed certificate. It is
 honored only when the endpoint host is `localhost`, `127.0.0.1` or `::1`; for
