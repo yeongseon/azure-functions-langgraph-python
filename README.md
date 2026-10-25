@@ -492,8 +492,34 @@ to customize.
 `thread_id_factory=...` to derive a checkpoint `thread_id` from a message; when
 it returns a value **and** the graph has a checkpointer, the app-level
 `thread_lock` guards the run so concurrent deliveries for the same logical
-thread do not mutate checkpoints concurrently. If the lock cannot be acquired a
-`ThreadContentionError` is raised so the binding abandons and retries.
+thread do not mutate checkpoints concurrently. Each delivery waits up to
+`lock_timeout=5.0` seconds (configurable on `register_service_bus`) before
+raising `ThreadContentionError` so the binding abandons and retries. The value
+must be finite and non-negative; `0.0` restores immediate contention failure.
+The adapter makes one `ThreadLock.acquire(..., timeout=...)` call, delegating
+blocking/backoff to the backend rather than busy-spinning. Async acquisition
+runs in a worker thread, not on the event loop. HTTP lock behavior is unchanged.
+
+**Wait budget and delivery safety.** The ceiling is per acquisition, not per
+message across redeliveries, and assumes the lock backend honors its timeout
+(configure bounded SDK/network timeouts on distributed backends too). Waiting,
+graph execution, result handling and settlement must fit within your queue or
+subscription's message lock duration, the host's `maxAutoLockRenewalDuration`
+for single-message triggers, and `functionTimeout`, with safety margin.
+Renewal can fail: this adapter neither renews broker locks nor reads remaining
+message/session lock lifetime. If sessions are explicitly enabled, budget for
+session lock/renewal limits as well; sessions remain **off by default**.
+`clientRetryOptions` controls broker operations, not function-execution retries.
+See the [Service Bus binding settings](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-service-bus).
+
+Host cancellation during async acquisition waits for the bounded worker to
+finish, releases any late-acquired token, then propagates cancellation without
+running the graph. Synchronous acquisition cannot be interrupted by Python;
+allow shutdown grace for its wait and backend cleanup. Abrupt process termination
+cannot guarantee cleanup. Waiting reduces rapid abandon/redelivery cycles but
+**cannot prevent dead-lettering** after `maxDeliveryCount` is exhausted. Delivery
+remains **at-least-once**, not exactly-once: make graphs and result handlers
+idempotent (for example using a durable message-ID record).
 
 **Error handling and telemetry.** Graph exceptions are **not swallowed** — a
 failing run propagates so the message is retried / dead-lettered per your
