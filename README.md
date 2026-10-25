@@ -305,6 +305,19 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 
 ### Streaming behavior
 
+Native buffered `POST /api/graphs/{name}/stream` responses encode each graph
+event directly as JSON in an `event: data` SSE frame, on both sync and async
+paths. Dictionaries remain JSON objects, tuples/lists become arrays, and scalars
+retain their JSON types (including `null`). In `stream_mode="messages"`, the
+message/metadata tuple becomes a two-element array; LangChain messages, including
+nested messages, retain structured `message_to_dict` data. Pydantic models use
+JSON-mode dumps; unsupported custom objects use the shared codec's `str` fallback.
+Non-dictionary events no longer use the lossy `{"data": "<Python repr>"}` envelope.
+Clients should JSON-decode each frame's `data:` value rather than assume an object.
+Non-finite numbers and other encoding failures produce the existing sanitized
+`event: error` frame, followed by `event: end`; normal completion also ends with
+`event: end`. Platform-compatible and true-streaming transports are unchanged.
+
 > **Default (`LangGraphApp`): buffered SSE.** All `/stream` endpoints on the classic
 > `LangGraphApp` (the native `POST /api/graphs/{name}/stream` and the
 > Platform-compatible `POST /threads/{id}/runs/stream` and `POST /runs/stream`)
