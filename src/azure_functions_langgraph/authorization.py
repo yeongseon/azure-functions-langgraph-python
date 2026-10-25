@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Awaitable
 from dataclasses import dataclass
 from enum import StrEnum
+import inspect
 from typing import Protocol
 
 import azure.functions as func
@@ -53,6 +54,21 @@ def authorization_status(
                 return await result
 
             allowed = asyncio.run(await_result())
+    except UnauthenticatedError:
+        return 401
+    return None if allowed else 403
+
+
+async def authorization_status_async(
+    authorize: ThreadAuthorizer | None,
+    context: AuthorizationContext,
+) -> int | None:
+    """Evaluate sync or async policies without starting a nested event loop."""
+    if authorize is None:
+        return None
+    try:
+        result = authorize(context)
+        allowed = await result if inspect.isawaitable(result) else result
     except UnauthenticatedError:
         return 401
     return None if allowed else 403

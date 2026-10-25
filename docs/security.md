@@ -6,13 +6,31 @@ Azure Functions `FUNCTION` keys authenticate an application caller, not an end
 user, and they do not establish ownership of a LangGraph `thread_id`. Use
 Microsoft Entra ID through App Service Authentication (Easy Auth) to establish
 the principal, then supply `LangGraphApp(authorize=...)` to enforce resource
-ownership before thread CRUD, runs, state, history, and native state access.
+ownership before thread CRUD, Platform runs, state, history, and native
+invoke/stream/state access.
 
 The hook receives an immutable `AuthorizationContext` containing the action,
 graph name, thread ID (when applicable), and raw `HttpRequest`. Return `True` to
 allow, `False` for a uniform 403, or raise `UnauthenticatedError` for 401. Denial
 happens before resource lookup, so missing and forbidden resources are not
 distinguishable.
+
+Native invoke and buffered stream routes evaluate `AuthorizationAction.RUN`
+after request/config validation and before acquiring a thread lock or executing
+the graph (including checkpoint reads/writes). Both synchronous and asynchronous
+graph handlers accept synchronous or asynchronous callbacks. A policy failure
+returns a sanitized JSON 401/403; an unexpected callback exception fails closed
+with a sanitized 500. Each rejection emits exactly one `on_run_rejected` event
+with reason `authorization_denied`, never a run-started event.
+
+`RUN` is independent of `STATE_READ`: a policy that denies state inspection
+must also deny `RUN` if the caller must not execute or resume that thread.
+The context carries the registered graph name, validated
+`config.configurable.thread_id` (or `None` for threadless execution), and the
+original request. Policies must explicitly decide whether threadless runs are
+permitted; a missing thread ID is not proof of identity. Omitting `authorize`
+preserves permissive resource access and provides no per-user isolation.
+The separate experimental `StreamingLangGraphApp` does not expose this hook.
 
 ```python
 import base64

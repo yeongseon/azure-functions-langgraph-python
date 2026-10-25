@@ -896,6 +896,7 @@ class LangGraphApp:
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
             observer=observer,
+            authorize=self.authorize,
         )
 
     async def _handle_invoke_async(
@@ -914,6 +915,7 @@ class LangGraphApp:
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
             observer=observer,
+            authorize=self.authorize,
         )
 
     def _handle_stream(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
@@ -931,6 +933,7 @@ class LangGraphApp:
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
             observer=observer,
+            authorize=self.authorize,
         )
 
     async def _handle_stream_async(
@@ -950,6 +953,7 @@ class LangGraphApp:
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
             observer=observer,
+            authorize=self.authorize,
         )
 
     def _handle_state(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
