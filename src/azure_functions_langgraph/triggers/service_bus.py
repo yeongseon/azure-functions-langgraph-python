@@ -131,6 +131,7 @@ class _ServiceBusRegistration:
     thread_id_factory: ThreadIdFactory | None = None
     result_handler: ResultHandler | None = None
     async_mode: bool = False
+    lock_timeout: float = 5.0
     binding_kwargs: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -164,7 +165,7 @@ def process_service_bus_message(
 
     Emits the observer lifecycle (started → completed/failed) around the graph
     ``invoke``. When a ``thread_id`` is derived and the graph is checkpointed, a
-    non-blocking thread lock guards the run; contention raises
+    bounded thread-lock wait guards the run; exhausted contention raises
     :class:`ThreadContentionError` so the broker retries. Graph exceptions are
     re-raised unchanged (never swallowed). A supplied ``result_handler`` runs
     only on success, **outside** the observed block, so its failure does not
@@ -188,7 +189,7 @@ def process_service_bus_message(
     lock_token: str | None = None
     use_lock = bool(thread_id) and _has_checkpointer(reg.graph)
     if use_lock and thread_id is not None:
-        lock_token = thread_lock.acquire(reg.name, thread_id)
+        lock_token = thread_lock.acquire(reg.name, thread_id, timeout=reg.lock_timeout)
         if not lock_token:
             raise ThreadContentionError(
                 f"Thread {thread_id!r} for graph {reg.name!r} is currently in use; "
@@ -243,7 +244,9 @@ async def process_service_bus_message_async(
 
     use_lock = bool(thread_id) and _has_checkpointer(reg.graph)
     lock_thread_id = thread_id if use_lock else None
-    async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
+    async with async_thread_lock(
+        thread_lock, reg.name, lock_thread_id, timeout=reg.lock_timeout
+    ) as lock_token:
         if lock_thread_id is not None and lock_token is None:
             raise ThreadContentionError(
                 f"Thread {thread_id!r} for graph {reg.name!r} is currently in use; "

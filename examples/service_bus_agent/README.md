@@ -70,9 +70,20 @@ By default runs are **threadless** — no `thread_id` is derived and no lock is
 taken. Pass `thread_id_factory=...` to derive a checkpoint `thread_id` from a
 message; when it returns a value **and** the graph has a checkpointer, the
 app-level `thread_lock` guards the run so concurrent deliveries for the same
-logical thread do not mutate checkpoints concurrently. If the lock cannot be
-acquired, a `ThreadContentionError` is raised so the binding abandons and
-retries the message.
+logical thread do not mutate checkpoints concurrently. Acquisition waits up to
+`lock_timeout=5.0` seconds per delivery before `ThreadContentionError` fails the
+invocation for broker retry. Set a finite non-negative `lock_timeout` on
+`register_service_bus` to tune the ceiling (`0.0` restores immediate failure).
+The async handler offloads waiting and releases tokens acquired after cancellation.
+
+Budget waiting **plus execution and settlement** below the message/session lock,
+host auto-renewal and function timeout limits, with shutdown/cleanup margin.
+The adapter does not renew broker locks or enable sessions by default. A lock
+backend must honor its timeout; distributed SDK calls also need bounded network
+timeouts. Retries can still exhaust `maxDeliveryCount` and dead-letter a valid
+message. Delivery is at-least-once, never exactly-once: make graph side effects
+and result handlers idempotent. See the
+[full contention and cancellation guidance](../../README.md#service-bus-trigger-experimental).
 
 ## Error handling
 

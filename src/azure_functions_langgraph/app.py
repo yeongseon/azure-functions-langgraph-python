@@ -396,6 +396,7 @@ class LangGraphApp:
         thread_id_factory: Callable[[Any], str | None] | None = None,
         result_handler: Callable[[Any, Any], None] | None = None,
         async_mode: bool = False,
+        lock_timeout: float = 5.0,
         binding_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Register a compiled graph to be driven by an Azure Service Bus message.
@@ -425,6 +426,10 @@ class LangGraphApp:
                 message; this package ships no Service Bus output binding.
             async_mode: Route through an async handler that awaits
                 ``ainvoke``. Required for async-only graphs.
+            lock_timeout: Finite, non-negative seconds to wait for a checkpoint
+                thread lock per delivery (default 5). Zero fails immediately.
+                Budget waiting plus graph execution within the broker lock,
+                host auto-renewal and function timeout limits.
             binding_kwargs: Extra keyword arguments forwarded verbatim to the
                 underlying Azure Functions trigger decorator (escape hatch for
                 sessions, cardinality, access rights, etc.).
@@ -469,6 +474,8 @@ class LangGraphApp:
             )
         if is_topic and (topic_name is None or subscription_name is None):
             raise ValueError("A topic trigger requires both topic_name and subscription_name")
+        if not math.isfinite(lock_timeout) or lock_timeout < 0:
+            raise ValueError("lock_timeout must be finite and non-negative")
 
         effective_async = async_mode or not has_sync_invoke
         self._sb_registrations[name] = _ServiceBusRegistration(
@@ -482,6 +489,7 @@ class LangGraphApp:
             thread_id_factory=thread_id_factory,
             result_handler=result_handler,
             async_mode=effective_async,
+            lock_timeout=lock_timeout,
             binding_kwargs=dict(binding_kwargs or {}),
         )
         # Reset cached function app so routes are re-generated.
