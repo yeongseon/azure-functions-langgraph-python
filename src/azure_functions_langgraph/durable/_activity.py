@@ -19,8 +19,10 @@ activity retry). This keeps a single logical run record per ``run_id``.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import json
 from typing import Any, Protocol, runtime_checkable
 
+from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph.durable._state import DurableRunPayload, DurableRunResult
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.locks._async import async_thread_lock, run_sync_retaining_ownership
@@ -38,6 +40,11 @@ __all__ = ["GraphRegistrationLike", "execute_langgraph_run_impl"]
 # The generic trigger label stamped onto every RunContext this adapter emits so
 # exporters can distinguish durable async runs from HTTP invoke/stream runs.
 TRIGGER_TYPE = "durable"
+
+
+class _OutputSerializationError(ValueError):
+    def __str__(self) -> str:
+        return "Graph output could not be serialized as JSON"
 
 
 @runtime_checkable
@@ -128,6 +135,10 @@ async def execute_langgraph_run_impl(
         safe_observer_call(observer, "on_run_started", ctx)
         try:
             result = await _invoke_graph(reg, payload.input, config)
+            try:
+                result = json.loads(dumps(result, allow_nan=False))
+            except Exception:  # noqa: BLE001 - user-defined encoding can raise arbitrary errors
+                raise _OutputSerializationError() from None
         except BaseException as exc:  # noqa: BLE001 - captured into a normalized result
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
             return DurableRunResult.failure(payload.run_id, exc)

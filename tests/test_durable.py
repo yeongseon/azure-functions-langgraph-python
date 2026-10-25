@@ -313,7 +313,7 @@ class TestActivity:
         )
 
         assert result.activity_status == "success"
-        assert result.result["messages"][-1].content == "thread-from-payload"
+        assert result.result["messages"][-1]["data"]["content"] == "thread-from-payload"
 
 
 # --------------------------------------------------------------------------
