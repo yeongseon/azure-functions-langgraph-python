@@ -2,6 +2,7 @@
 tests/integration
 # Requires the azure-functions-durable optional extra for DFApp registration.
 tests/test_durable.py
+tests/test_durable_serialization.py
 # Exercises newer langgraph-sdk client methods absent from the 0.2.2 floor.
 tests/test_persistent_storage.py
 # Exercises newer langgraph-sdk client methods absent from the 0.2.2 floor.
