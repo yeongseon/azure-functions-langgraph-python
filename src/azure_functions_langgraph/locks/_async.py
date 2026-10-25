@@ -85,7 +85,7 @@ async def release_thread_lock(
 
 
 async def acquire_thread_lock(
-    thread_lock: ThreadLock, graph_name: str, thread_id: str
+    thread_lock: ThreadLock, graph_name: str, thread_id: str, *, timeout: float = 0.0
 ) -> str | None:
     """Acquire one owner token without losing it to cancellation.
 
@@ -105,7 +105,7 @@ async def acquire_thread_lock(
     caller = asyncio.current_task()
     cancellation_count = caller.cancelling() if caller is not None else 0
     acquire_task = asyncio.create_task(
-        asyncio.to_thread(thread_lock.acquire, graph_name, thread_id)
+        asyncio.to_thread(thread_lock.acquire, graph_name, thread_id, timeout=timeout)
     )
     cancellation: asyncio.CancelledError | None = None
     while not acquire_task.done():
@@ -148,14 +148,14 @@ async def acquire_thread_lock(
 
 @asynccontextmanager
 async def async_thread_lock(
-    thread_lock: ThreadLock, graph_name: str, thread_id: str | None
+    thread_lock: ThreadLock, graph_name: str, thread_id: str | None, *, timeout: float = 0.0
 ) -> AsyncIterator[str | None]:
     """Acquire and release an owner token without losing it to cancellation."""
     if thread_id is None:
         yield None
         return
 
-    token = await acquire_thread_lock(thread_lock, graph_name, thread_id)
+    token = await acquire_thread_lock(thread_lock, graph_name, thread_id, timeout=timeout)
     try:
         yield token
     finally:
