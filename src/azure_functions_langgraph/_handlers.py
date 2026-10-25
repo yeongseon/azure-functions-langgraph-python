@@ -493,10 +493,7 @@ def handle_stream(
             stream_mode=request.stream_mode,
             **version_kwargs,
         ):
-            serialized = dumps(
-                event if isinstance(event, dict) else {"data": str(event)},
-                allow_nan=False,
-            )
+            serialized = dumps(event, allow_nan=False)
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
                 stream_error = RuntimeError("stream response exceeded max buffered size")
                 break
@@ -741,10 +738,7 @@ async def handle_stream_async(
         try:
             try:
                 async for event in agen:
-                    serialized = dumps(
-                        event if isinstance(event, dict) else {"data": str(event)},
-                        allow_nan=False,
-                    )
+                    serialized = dumps(event, allow_nan=False)
                     if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
                         stream_error = RuntimeError("stream response exceeded max buffered size")
                         break
