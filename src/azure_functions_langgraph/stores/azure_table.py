@@ -15,6 +15,7 @@ import uuid
 
 from ..platform.contracts import Interrupt, Thread, ThreadStatus
 from ..platform.stores import ThreadStore
+from ._errors import RunLockReleaseError
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class AzureTableThreadStore(ThreadStore):
         expensive. See DESIGN.md decision #8 for scale envelope details.
 
     Also provides atomic run-lock acquisition via Azure Table ETag
-    compare-and-swap and best-effort lock release via merge updates.
+    compare-and-swap and owner-fenced lock release via conditional replacement.
     """
 
     def __init__(
@@ -522,12 +523,16 @@ class AzureTableThreadStore(ThreadStore):
            This rejects a stale release from an execution whose lock has
            since been reclaimed by :meth:`reset_stale_locks` or re-acquired
            by a newer run.
-        2. **ETag compare-and-swap** — the merge update is sent with
+        2. **ETag compare-and-swap** — the replacement is sent with
            ``match_condition=IfNotModified`` against the ETag read just
            before the write. If a concurrent write (e.g. another owner-token
            check, or a racing :meth:`reset_stale_locks` scan) changed the
-           entity first, the CAS is rejected and the *current* entity is
-           returned instead of overwriting that concurrent change.
+            entity first, retry with a fresh read and owner check, up to three
+            attempts. Exhaustion raises :class:`RunLockReleaseError`.
+
+        A successful replacement preserves the latest entity properties except
+        the obsolete ``lock_token`` and ``lock_expires_at`` properties, which
+        are removed atomically with the terminal status and optional values.
 
         Crash recovery is a separate concern from this ownership fencing: if
         the Function host is killed mid-execution, *no* release call ever
@@ -539,43 +544,44 @@ class AzureTableThreadStore(ThreadStore):
         if status == "busy":
             raise ValueError("release_run_lock cannot set status to 'busy'")
         not_found_error = self._not_found_exception()
-        entity = self._table_client.get_entity(
-            partition_key=self._partition_key(), row_key=thread_id
-        )
-        if owner_token is not None and entity.get("lock_token") != owner_token:
-            logger.warning("Stale run-lock release ignored for thread %s", thread_id)
-            return self._entity_to_thread(entity)
-        metadata = getattr(entity, "metadata", None)
-        etag = metadata.get("etag") if isinstance(metadata, Mapping) else entity.get("etag")
-        patch: dict[str, Any] = {
-            "PartitionKey": self._partition_key(),
-            "RowKey": thread_id,
-            "status": status,
-            "updated_at": self._now(),
-        }
-        if values is not None:
-            patch["values_json"] = json.dumps(values, default=self._json_default)
-        self._warn_entity_size(patch, thread_id)
-        try:
-            self._table_client.update_entity(
-                patch,
-                mode="merge",
-                etag=etag,
-                match_condition=self._match_conditions.IfNotModified,
-            )
-        except self._modified_error:
-            logger.warning("Run-lock release CAS lost for thread %s", thread_id)
-            current = self._table_client.get_entity(
-                partition_key=self._partition_key(), row_key=thread_id
-            )
-            return self._entity_to_thread(current)
-        except not_found_error as exc:
-            raise KeyError(thread_id) from exc
-        merged = self._table_client.get_entity(
-            partition_key=self._partition_key(),
-            row_key=thread_id,
-        )
-        return self._entity_to_thread(merged)
+        last_conflict: BaseException | None = None
+        for _attempt in range(3):
+            try:
+                entity = self._table_client.get_entity(
+                    partition_key=self._partition_key(), row_key=thread_id
+                )
+            except not_found_error as exc:
+                raise KeyError(thread_id) from exc
+            if owner_token is not None and entity.get("lock_token") != owner_token:
+                logger.warning("Stale run-lock release ignored for thread %s", thread_id)
+                return self._entity_to_thread(entity)
+            metadata = getattr(entity, "metadata", None)
+            etag = metadata.get("etag") if isinstance(metadata, Mapping) else None
+            if etag is None:
+                etag = entity.get("etag")
+            replacement = {
+                key: value
+                for key, value in entity.items()
+                if key not in {"lock_token", "lock_expires_at", "etag", "Timestamp"}
+            }
+            replacement.update(status=status, updated_at=self._now())
+            if values is not None:
+                replacement["values_json"] = json.dumps(values, default=self._json_default)
+            self._warn_entity_size(replacement, thread_id)
+            try:
+                self._table_client.update_entity(
+                    replacement,
+                    mode="replace",
+                    etag=etag,
+                    match_condition=self._match_conditions.IfNotModified,
+                )
+            except self._modified_error as exc:
+                last_conflict = exc
+                continue
+            except not_found_error as exc:
+                raise KeyError(thread_id) from exc
+            return self._entity_to_thread(replacement)
+        raise RunLockReleaseError(thread_id) from last_conflict
 
     def renew_run_lock(self, thread_id: str, owner_token: str) -> bool:
         entity = self._table_client.get_entity(
