@@ -31,6 +31,19 @@ jobs:
       - name: Run Bandit
         run: make security
 
+      - name: Record full shipped-surface Bandit evidence
+        if: always()
+        run: make security-bandit-evidence SECURITY_PYTHON="hatch run python"
+
+      - name: Upload redacted Bandit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-bandit-${{ github.sha }}
+          path: security-results/
+          if-no-files-found: error
+          retention-days: 30
+
   semgrep:
     runs-on: ubuntu-latest
     steps:
@@ -38,6 +51,28 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run Semgrep
+        id: semgrep
         uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d # v1
         with:
           config: p/python
+
+      - name: Set up Python for evidence
+        if: always()
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Record Semgrep action evidence limitations
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.semgrep.outcome }}
+        run: make security-semgrep-evidence SECURITY_PYTHON=python
+
+      - name: Upload redacted Semgrep evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-semgrep-${{ github.sha }}
+          path: security-results/
+          if-no-files-found: error
+          retention-days: 30

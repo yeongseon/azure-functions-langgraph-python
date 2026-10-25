@@ -198,6 +198,10 @@ jobs:
     name: Candidate runtime dependency audit
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [base, azure-blob, azure-table, azure-identity, postgres, sqlite, cosmos, otel, streaming, durable, openapi]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -216,39 +220,21 @@ jobs:
           path: dist
 
       - name: Validate audit exceptions
-        run: python scripts/check_audit_exceptions.py .github/pip-audit-ignore.txt
+        run: make security-audit-policy SECURITY_PYTHON=python
 
       - name: Audit candidate runtime dependencies
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
           python -m pip install "pip-audit==2.10.1"
-          WHEEL=$(ls dist/*.whl)
-          python -m pip install --target "${RUNNER_TEMP}/runtime-site" "$WHEEL"
-          python -m pip list \
-            --path "${RUNNER_TEMP}/runtime-site" \
-            --format freeze \
-            --exclude azure-functions-langgraph \
-            > runtime-requirements.txt
-          IGNORE_ARGS=$(python scripts/check_audit_exceptions.py \
-            .github/pip-audit-ignore.txt --format pip-audit)
-          # shellcheck disable=SC2086 -- validator emits trusted flag/id pairs.
-          python -m pip_audit \
-            --requirement runtime-requirements.txt \
-            --no-deps \
-            --disable-pip \
-            --format json \
-            --output runtime-audit.json \
-            --progress-spinner off \
-            ${IGNORE_ARGS}
+          make security-runtime-audit SECURITY_PYTHON=python WHEEL="$(echo dist/*.whl)" \
+            PROFILE='${{ matrix.profile }}'
 
       - name: Upload runtime audit evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: runtime-audit-${{ github.sha }}
-          path: |
-            runtime-audit.json
-            runtime-requirements.txt
+          name: runtime-audit-${{ matrix.profile }}-${{ github.sha }}
+          path: security-results/
           if-no-files-found: error
           retention-days: 90
 

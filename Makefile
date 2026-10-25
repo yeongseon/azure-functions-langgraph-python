@@ -60,7 +60,7 @@ lint: ensure-hatch
 	@$(HATCH) run lint
 
 .PHONY: security
-security: ensure-hatch
+security: ensure-hatch security-inventory
 	@$(HATCH) run security
 
 .PHONY: check
@@ -223,3 +223,20 @@ clean-all: clean
 help:
 	@echo "Available commands:" && \
 	grep -E '^\.PHONY: ' Makefile | cut -d ':' -f2 | xargs -n1 echo "  - make"
+
+SECURITY_PYTHON ?= $(HATCH) run python
+SECURITY_OUTPUT ?= security-results
+PROFILE ?= base
+SCAN_OUTCOME ?= unknown
+.PHONY: security-inventory security-bandit-evidence security-semgrep-evidence security-audit-policy security-runtime-audit security-runtime-report
+security-inventory security-bandit-evidence:
+	@$(SECURITY_PYTHON) -m tools.security_evidence bandit --output "$(SECURITY_OUTPUT)/bandit"
+security-semgrep-evidence:
+	@$(SECURITY_PYTHON) -m tools.security_evidence semgrep --outcome "$(SCAN_OUTCOME)" --output "$(SECURITY_OUTPUT)/semgrep"; code=$$?; test $$code -eq 0 -o $$code -eq 3
+security-audit-policy:
+	@$(SECURITY_PYTHON) scripts/check_audit_exceptions.py .github/pip-audit-ignore.txt
+security-runtime-audit:
+	@test -n "$(WHEEL)" && test -f "$(WHEEL)" || { echo "WHEEL must name one existing candidate wheel"; exit 2; }
+	@$(SECURITY_PYTHON) -m tools.audit_candidate --wheel "$(WHEEL)" --profile "$(PROFILE)" --output "$(SECURITY_OUTPUT)/runtime-audit"
+security-runtime-report:
+	@$(SECURITY_PYTHON) -m tools.runtime_audit "$(REPORT)" --exit-status "$(AUDIT_EXIT)" --output "$(SECURITY_OUTPUT)/runtime-audit"

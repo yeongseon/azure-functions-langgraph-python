@@ -171,6 +171,12 @@ src/azure_functions_langgraph/
 
 ## Testing Strategy
 
+Authorization assurance distinguishes host-level keys from per-principal resource
+policy. See [the security threat model](docs/security.md#current-route-boundaries)
+for the exact callback surfaces, including native RUN enforcement (#687/#722). Negative tests
+exercise registered handlers with real checkpoint state; they do not implement
+identity verification or claim host-key enforcement under local Core Tools.
+
 - Unit tests use `FakeCompiledGraph` and `FakeStatefulGraph` mock objects
 - SDK compatibility tests use real `langgraph_sdk.SyncLangGraphClient` via `httpx.MockTransport`
 - Integration tests use real `StateGraph` compiled graphs with `MemorySaver` and mocked Azure backends

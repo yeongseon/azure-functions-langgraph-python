@@ -8,7 +8,9 @@ from pathlib import Path
 import re
 
 _ENTRY = re.compile(
-    r"^(?P<identifier>\S+)\s+#\s+(?P<reason>.+?)\s+#\s+expires\s+(?P<expiry>\d{4}-\d{2}-\d{2})$"
+    r"^(?P<identifier>CVE-\d{4}-\d{4,}|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})"
+    r"\s+#\s+(?P<reason>[^#]+?)\s+#\s+owner\s+[^#\s]+"
+    r"\s+#\s+expires\s+(?P<expiry>\d{4}-\d{2}-\d{2})$"
 )
 
 
@@ -32,14 +34,21 @@ def parse_exceptions(path: Path, *, today: date | None = None) -> tuple[str, ...
         if match is None:
             raise AuditExceptionError(
                 line_number=line_number,
-                reason="expected 'ID  # reason  # expires YYYY-MM-DD'",
+                reason="expected 'ID # reason # owner NAME # expires YYYY-MM-DD'",
             )
-        expiry = date.fromisoformat(match.group("expiry"))
+        try:
+            expiry = date.fromisoformat(match.group("expiry"))
+        except ValueError as error:
+            raise AuditExceptionError(line_number, "invalid expiry date") from error
         if expiry <= current_date:
             raise AuditExceptionError(
                 line_number=line_number,
                 reason=f"exception expired on {expiry.isoformat()}",
             )
+        if (expiry - current_date).days > 90:
+            raise AuditExceptionError(line_number, "expiry exceeds 90 days")
+        if match.group("identifier") in identifiers:
+            raise AuditExceptionError(line_number, "duplicate advisory")
         identifiers.append(match.group("identifier"))
     return tuple(identifiers)
 
