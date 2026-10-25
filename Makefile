@@ -1,21 +1,22 @@
 VENV_DIR := .venv
-PYTHON := $(VENV_DIR)/bin/python
+PYTHON ?= python3
 PIP := $(VENV_DIR)/bin/pip
-HATCH := $(VENV_DIR)/bin/hatch
+HATCH ?= hatch
+HOST_PYTHON ?= $(HATCH) run python
 
 .PHONY: bootstrap
 bootstrap:
 	@if [ ! -d "$(VENV_DIR)" ]; then \
 		echo "Creating virtual environment..."; \
-		python3 -m venv $(VENV_DIR); \
+		$(PYTHON) -m venv $(VENV_DIR); \
 	fi
 	@echo "Ensuring Hatch is installed in virtual environment..."
-	@$(PIP) install --upgrade pip > /dev/null
 	@$(PIP) install hatch > /dev/null
-	@echo "Hatch installed at $(HATCH)"
+	@echo "Hatch installed at $(VENV_DIR)/bin/hatch"
 
 .PHONY: ensure-hatch
-ensure-hatch: bootstrap
+ensure-hatch:
+	@command -v "$(HATCH)" >/dev/null || { echo 'Hatch is required; run make bootstrap, then set HATCH=.venv/bin/hatch'; exit 1; }
 
 .PHONY: install
 install: ensure-hatch
@@ -115,8 +116,13 @@ test-cosmos: ensure-hatch
 	trap 'exit 130' INT TERM HUP; \
 	docker compose -p "$$p" -f docker-compose.cosmos.yml up -d --wait; \
 	curl -fsk https://localhost:8081/_explorer/emulator.pem -o "$$cert"; \
+	report="$$(mktemp)"; \
+	trap 'rm -f "$$cert" "$$report"; docker compose -p "$$p" -f docker-compose.cosmos.yml down -v' EXIT; \
 	COSMOS_EMULATOR_ENDPOINT=https://localhost:8081 COSMOS_REQUIRED=true \
-	REQUESTS_CA_BUNDLE="$$cert" SSL_CERT_FILE="$$cert" $(HATCH) run cosmos:test
+	REQUESTS_CA_BUNDLE="$$cert" SSL_CERT_FILE="$$cert" $(HATCH) run cosmos:python -m pytest \
+		-v --strict-markers -m integration tests/integration/test_cosmos_integration.py \
+		--no-cov --junitxml="$$report"; \
+	$(HATCH) run cosmos:python tools/check_junit.py "$$report" --area 'Cosmos integration=test_cosmos_integration'
 
 .PHONY: test-table
 test-table: ensure-hatch
@@ -124,7 +130,15 @@ test-table: ensure-hatch
 	trap 'docker compose -p "$$p" -f docker-compose.azurite.yml down -v' EXIT; \
 	trap 'exit 130' INT TERM HUP; \
 	docker compose -p "$$p" -f docker-compose.azurite.yml up -d --wait; \
-	AZURITE_REQUIRED=true $(HATCH) run table:test
+	report="$$(mktemp)"; \
+	trap 'rm -f "$$report"; docker compose -p "$$p" -f docker-compose.azurite.yml down -v' EXIT; \
+	AZURITE_REQUIRED=true $(HATCH) run table:python -m pytest -v --strict-markers -m integration \
+		tests/integration/test_table_store_integration.py tests/integration/test_checkpoint_conformance.py \
+		tests/test_production_persistent_agent_example.py --no-cov --junitxml="$$report"; \
+	$(HATCH) run table:python tools/check_junit.py "$$report" \
+		--area 'Table integration=table_store_integration' \
+		--area 'Blob conformance=checkpoint_conformance' \
+		--area 'production persistent agent=production_persistent_agent'
 
 .PHONY: test-openapi
 test-openapi: ensure-hatch
@@ -146,7 +160,15 @@ e2e-local: ensure-hatch
 .PHONY: e2e-azure
 e2e-azure: ensure-hatch
 	@echo "Running all e2e tests against Azure (E2E_BASE_URL, E2E_BASE_URL_B and E2E_STREAM_BASE_URL must be set)..."
-	@$(HATCH) run e2e-azure
+	@set -e; report="$$(mktemp)"; trap 'rm -f "$$report"' EXIT; \
+	$(HATCH) run python -m pytest -v -m e2e tests/e2e/ --no-cov --tb=short --junitxml="$$report"; \
+	$(HATCH) run python tools/check_junit.py "$$report" \
+		--area 'native=test_langgraph_e2e' --area 'locks=test_langgraph_lock_e2e' \
+		--area 'streaming=test_true_streaming_e2e'
+
+.PHONY: host-smoke
+host-smoke: ensure-hatch
+	@$(HOST_PYTHON) tools/run_host_smoke.py
 
 .PHONY: build
 build: ensure-hatch
@@ -179,11 +201,13 @@ docs-serve: ensure-hatch
 
 .PHONY: doctor
 doctor:
-	@echo "Python version:" && $(PYTHON) --version
-	@echo "Installed packages:" && $(HATCH) env run pip list || echo "No hatch environment found"
-	@echo "Azure Function Core Tools version:" && func --version || echo "func not found"
-	@echo "Pre-commit hook installed:"
-	@if [ -f .git/hooks/pre-commit ]; then echo yes; else echo no; fi
+	@echo 'check/test require Hatch, Python 3.11+, ruff, mypy, pytest, pytest-cov and project dependencies.'
+	@echo 'test-table/test-cosmos require Docker Compose and free loopback ports; test-cosmos also needs curl and the cosmos extra.'
+	@echo 'host-smoke requires func, azurite and the dev extra; e2e-azure requires deployed E2E_BASE_URL, E2E_BASE_URL_B and E2E_STREAM_BASE_URL.'
+	@command -v "$(HATCH)" >/dev/null || { echo 'Missing Hatch: run make bootstrap'; exit 1; }
+	@env_path="$$($(HATCH) env find)"; \
+	test -x "$$env_path/bin/python" || { echo 'Missing Hatch environment: run make install'; exit 1; }; \
+	"$$env_path/bin/python" -c 'import sys, ruff, mypy, pytest, pytest_cov, azure_functions_langgraph; sys.exit(0 if sys.version_info >= (3, 11) else "Python 3.11+ required")'
 
 .PHONY: clean
 clean:

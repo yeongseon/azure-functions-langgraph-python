@@ -153,7 +153,7 @@ format = "ruff format src tests"
 format-check = "ruff format --check src tests"
 style = "ruff check src tests && ruff format --check src tests"
 typecheck = "mypy src tests"
-lint = "hatch run style && hatch run typecheck"
+lint = "ruff check src tests && ruff format --check src tests"
 test = "pytest -v tests"
 cov = "pytest --cov-report=term-missing --cov-report=html --cov-report=xml tests/"
 e2e-azure = "pytest -v -m e2e tests/e2e/ --no-cov --tb=short"
@@ -170,7 +170,7 @@ features = ["dev", "cosmos"]
 test = "pytest -v -m integration tests/integration/ --no-cov"
 
 [tool.hatch.envs.table]
-features = ["dev", "azure-table"]
+features = ["dev", "azure-table", "azure-blob"]
 
 [tool.hatch.envs.table.scripts]
 test = "pytest -v -m integration tests/integration/test_table_store_integration.py --no-cov"
