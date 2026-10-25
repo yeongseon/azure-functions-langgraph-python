@@ -164,7 +164,7 @@ class TestProcessSync:
         reg = _reg(graph, thread_id_factory=lambda m: "thread-A")
         process_service_bus_message(reg, FakeServiceBusMessage(b"hi"), thread_lock=lock)
         assert graph.calls[0][1] == {"configurable": {"thread_id": "thread-A"}}
-        acquire_spy.assert_called_once_with("agent", "thread-A")
+        acquire_spy.assert_called_once_with("agent", "thread-A", timeout=5.0)
         release_spy.assert_called_once()
 
     def test_thread_id_without_checkpointer_does_not_lock(self) -> None:
@@ -183,7 +183,7 @@ class TestProcessSync:
         lock = InProcessThreadLock()
         held = lock.acquire("agent", "thread-A")
         assert held is not None
-        reg = _reg(graph, thread_id_factory=lambda m: "thread-A")
+        reg = _reg(graph, thread_id_factory=lambda m: "thread-A", lock_timeout=0.0)
         with pytest.raises(ThreadContentionError):
             process_service_bus_message(reg, FakeServiceBusMessage(b"hi"), thread_lock=lock)
         # Graph never ran.
@@ -280,7 +280,7 @@ class TestProcessAsync:
         graph = AsyncRecordingGraph(checkpointer=MagicMock())
         lock = InProcessThreadLock()
         assert lock.acquire("agent", "t") is not None
-        reg = _reg(graph, thread_id_factory=lambda m: "t")
+        reg = _reg(graph, thread_id_factory=lambda m: "t", lock_timeout=0.0)
         with pytest.raises(ThreadContentionError):
             asyncio.run(
                 process_service_bus_message_async(
