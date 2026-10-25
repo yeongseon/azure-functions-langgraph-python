@@ -635,30 +635,13 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -r requirements.txt
 
-      - name: Start Azurite and Functions host
-        run: |
-          azurite --silent > /tmp/azurite.log 2>&1 &
-          cd tests/host_smoke
-          PATH="$PWD/.venv/bin:$PATH" func start --python --port 7071 > /tmp/functions-host.log 2>&1 &
+      - name: Install host smoke test and streaming dependencies
+        run: tests/host_smoke/.venv/bin/python -m pip install -e '.[dev]'
 
-      - name: Invoke the registered StateGraph through the native route
+      - name: Exercise native invoke and true streaming with owned processes
         run: |
-          for attempt in {1..30}; do
-            if response="$(curl --fail --silent \
-              --header 'Content-Type: application/json' \
-              --data '{"input":{"messages":[{"role":"user","content":"ping"}]}}' \
-              http://127.0.0.1:7071/api/graphs/smoke/invoke)"; then
-              python -c 'import json, sys; body=json.loads(sys.argv[1]); messages=body["output"]["messages"]; assert messages[-1]["content"] == "host smoke passed"; assert messages[-1]["type"] == "ai"' "$response"
-              if grep -qE '0 functions|Worker failed|Host startup operation has been canceled|Error indexing method' /tmp/functions-host.log; then
-                cat /tmp/functions-host.log
-                exit 1
-              fi
-              exit 0
-            fi
-            sleep 2
-          done
-          cat /tmp/functions-host.log
-          exit 1
+          export PATH="$PWD/tests/host_smoke/.venv/bin:$PATH"
+          make host-smoke HOST_PYTHON=python HATCH=python
 
   examples-published-onboarding:
     name: Primary examples published onboarding (Py 3.11)
