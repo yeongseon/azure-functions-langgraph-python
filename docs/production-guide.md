@@ -460,7 +460,7 @@ This removes most race windows and aligns with current storage assumptions.
 
 The native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) guard concurrent writes to the same `(graph_name, thread_id)` with a **per-thread lock**. The default backend, `InProcessThreadLock`, is a `threading.Lock` behind a small book-keeping layer — correct for single-instance deployments, but silently unsafe in horizontally scaled ones (two Function App instances can each acquire their own in-process lock for the same `thread_id`).
 
-For multi-instance deployments, `LangGraphApp` accepts any object satisfying the [`ThreadLock`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/src/azure_functions_langgraph/locks/base.py) protocol via the `thread_lock` constructor argument. The package ships one distributed implementation — `AzureBlobLeaseThreadLock` — which uses **Azure Blob lease compare-and-swap** as the underlying primitive; leases naturally expire (15–60 s) so a crashed host cannot orphan a lock indefinitely.
+For multi-instance deployments, `LangGraphApp` accepts any object satisfying the [`ThreadLock`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/src/azure_functions_langgraph/locks/base.py) protocol via the `thread_lock` constructor argument. The package ships one distributed implementation — `AzureBlobLeaseThreadLock` — which uses **Azure Blob lease compare-and-swap** as the underlying primitive. Finite leases naturally expire (15–60 s) after renewal stops; infinite leases require explicit recovery.
 
 > ℹ️ **Background renewal.** `AzureBlobLeaseThreadLock` renews leases in the background by default: a per-instance daemon thread renews every active lease at `lease_duration / 3` intervals until `close()` (or process exit). Pass `auto_renew=False` to opt out — a finite lease then silently expires mid-execution as it did before renewal support, and construction emits a `UserWarning` so the trade-off is visible. Infinite leases (`lease_duration=-1`) never need renewal but must be broken manually if a host crashes.
 >
@@ -486,6 +486,77 @@ and another instance may acquire the same lock. Infinite leases
 (`lease_duration=-1`) never expire and must be broken manually after a crash.
 See the *Distributed thread locking* subsection above for the full parameter
 reference.
+
+#### Blob lease safety and recovery
+
+The [0.13 evaluation (#697)](https://github.com/yeongseon/azure-functions-langgraph-python/issues/697)
+retains automatic bounded renewal and the compatible `ThreadLock` protocol.
+There is **no default change or migration**. A fixed 60-second lease is not a
+safe replacement for graphs that may run longer. The
+[Functions HTTP response limit](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger#limits)
+does not stop execution; a disconnected client or acquisition `timeout` is not
+a graph deadline either.
+
+| Configuration | Lifecycle | Failure / recovery |
+| --- | --- | --- |
+| Finite, `auto_renew=True` (default) | Acquire marker lease; renew on ticks of `lease_duration / 3`; owner-token release after work finishes | Transient failures retry on later ticks; three consecutive failures or definitive loss mark local ownership lost. Another host may acquire once the service lease expires/is broken, even while the old graph runs. |
+| Finite, `auto_renew=False` | Acquire, warn, no daemon/pool; release if work finishes before expiry | Lease can expire mid-run with no notification or cancellation. Only consider for explicitly bounded work with enforceable cancellation, completed cleanup and storage-side stale-write fencing; this adapter does not supply that fence. |
+| Infinite, `lease_duration=-1` | Acquire, no daemon/pool regardless of `auto_renew`; explicit release/close | No natural expiry; crash or failed release can strand the lease indefinitely. Use the recovery procedure below. |
+
+The lease covers a **lock marker**, not the graph's checkpoint blobs. The
+opaque token passed to `release()` prevents stale local release, not stale
+checkpoint writes. None of these modes automatically stops or fences an
+in-flight graph. A lost entry remains locally occupied until release, protecting
+that lock object only, not another host or even a separately constructed lock.
+An infinite lease can also lose exclusion through an operator break or early
+close. Do not treat a pre-write ownership check as a fence: a lease can expire
+between that check and the write; rejection must be atomic with the write.
+
+Renewal uses a bounded 16-worker pool and a tick wait timeout, so one stalled
+call need not stall unrelated leases when capacity remains. The timeout does
+**not** abort a running SDK request, and repeated hangs can exhaust workers and
+accumulate queued work. Configure client `connection_timeout`, `read_timeout`
+and retry budgets to fit the lease safety margin; Azure's operation `timeout`
+is server-side, not an end-to-end client deadline. Slow ticks plus retries are
+not a guarantee of two successful retries before expiry. Alert on renewal-loss
+warnings and stop accepting conflicting work while investigating.
+
+`close()` is terminal and best-effort: it signals shutdown, joins the daemon
+for at most five seconds, cancels queued renewals without waiting for running
+SDK calls, clears local entries, and attempts to release non-lost leases.
+Release errors are logged at DEBUG and swallowed; a locally lost lease is not
+released on the service and may still be held after a late successful renew.
+Finite leases eventually expire after the final renewal; infinite leases do
+not. Shutdown must **drain graph execution and checkpoint writes before close**;
+closing the lock does not cancel them. Async cancellation helpers retain sync
+worker ownership until completion, but cannot kill a hung Python thread.
+
+**Infinite-lease crash recovery (operator procedure):**
+
+1. Quiesce ingress and all workers that could execute the affected thread,
+   including other instances, old deployments and background tools. Establish
+   that the old writer cannot resume; if that cannot be established, keep
+   ingress paused rather than breaking a possibly live owner's lease.
+2. Identify the exact marker in the configured container/prefix:
+   `{blob_prefix}{percent_encoded_graph_name}/{percent_encoded_thread_id}`.
+   Confirm deployment/storage identity and preserve diagnostics. Do not break
+   every lease in the container or delete checkpoint data.
+3. With an authorized Blob client, call
+   `BlobLeaseClient(marker_blob_client).break_lease(lease_break_period=0)`.
+   A break requires no owner lease ID; allow any service-reported break period
+   to finish before reacquisition. Scope operator access to the lock container.
+4. Inspect/reconcile partially written state and non-idempotent side effects,
+   then restart workers and resume ingress. `reset_stale_locks()` on the Table
+   store does not break Blob marker leases. Never automate a break based only
+   on elapsed time: that recreates the unsafe fixed-lease failure mode.
+
+Controlled two-instance fake-lease tests cover long execution, renewal loss,
+failed close, acquisition timeout and running-worker cancellation. They model
+service time without sleeping through a real TTL and are **not** real-Azure
+certification. Existing transient-failure, isolated-renewal and close/acquire
+race regressions remain unchanged. See
+[Azure lease limits and break semantics](https://learn.microsoft.com/en-us/rest/api/storageservices/lease-blob)
+and the [Python BlobLeaseClient API](https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobleaseclient).
 
 ```python
 import azure.functions as func

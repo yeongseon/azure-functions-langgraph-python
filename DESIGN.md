@@ -144,6 +144,55 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 
 **Non-goals**: Environment-dependent defaults (surprising behavior), `DeprecationWarning` emission (ignored by default, creates noise without protection).
 
+### 14. Retain bounded Blob lease renewal (0.13 evaluation, #697)
+
+**Decision:** Keep `AzureBlobLeaseThreadLock`, its default 60-second finite lease
+with `auto_renew=True`, and the existing `ThreadLock.acquire` / owner-token
+`release` protocol unchanged. Retain the renewal daemon and bounded worker pool;
+do not replace them with a fixed lease or an infinite default in 0.13.
+
+**Evidence:** Evaluated against `ef72421` (2026-10-25), including the fixes for
+#384 (retry transient renewal failures and retain lost local ownership), #387
+(isolate slow renewals with bounded concurrency), and #642 (release acquisitions
+that cross terminal close). Controlled two-instance tests in
+`tests/test_blob_lease_evaluation.py` advance service time through 180 seconds:
+healthy renewal excludes a contender; expiration without renewal, or after
+renewal failure, admits a second owner while the first graph can still write.
+An acquisition wait timeout is not an execution deadline, and cancelling a
+running synchronous worker cannot stop it. Failed close recovers through finite
+expiry but leaves an infinite lease requiring operator intervention.
+
+**Alternatives evaluated:**
+
+| Alternative | Benefit | Safety / operational cost | Outcome |
+| --- | --- | --- | --- |
+| Retain / streamline bounded renewal | No extra service; supports work longer than 60 seconds; finite crash recovery | Best effort under network loss; worker threads cannot be forcibly stopped; no checkpoint write fence | Retain existing implementation, no speculative concurrency rewrite |
+| Fixed finite lease for explicitly bounded work | Removes renewal bookkeeping | Must enforce a deadline including graph, tools, checkpoint I/O and cleanup, cancel and join all work before expiry, and atomically reject stale writes at storage; not provided by the current protocol/checkpointer | Existing explicit opt-out only, not a safe automatic migration |
+| Non-expiring lease (`-1`) | Removes renewal and natural-expiry overlap | A crash strands ownership; break/release must follow verified worker quiescence or write fencing; operational recovery is mandatory | Existing opt-in only, not the default |
+
+Azure permits finite leases of 15–60 seconds or an infinite lease. Its lease
+protects the **marker blob**, not the separate checkpoint blobs. The opaque
+release token protects owner bookkeeping, not checkpoint writes. Neither
+renewal, opt-out, nor infinite leases automatically fence in-flight writes;
+manual breaks and premature `close()` can also admit a new owner. Checking a
+lease before writing is not an atomic write fence. An HTTP response timeout
+(including the Functions 230-second limit) does not terminate graph execution.
+
+**Consequences / migration:** No runtime, dependency, protocol, default or version
+change; no migration is required. This evaluation adds tests and operating
+guidance, not a stronger mutual-exclusion guarantee. Removing automatic renewal
+would require evidence of enforced cancellation **and** storage-side fencing
+before changing the default, plus explicit migration/release documentation.
+Do not present the retained lock as partition-proof or as real-Azure
+certification. Worker count is bounded, but hung SDK calls can exhaust that
+pool; queued submissions are not an admission-bounded queue. The tick wait
+timeout does not cancel network I/O. Keep SDK timeouts/retries bounded and
+drain graph work before closing the lock.
+
+See the [production lease lifecycle and recovery guidance](docs/production-guide.md#blob-lease-safety-and-recovery)
+and the authoritative [Azure lease semantics](https://learn.microsoft.com/en-us/rest/api/storageservices/lease-blob)
+and [Functions HTTP limits](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger#limits).
+
 ## Module Structure
 
 ```
