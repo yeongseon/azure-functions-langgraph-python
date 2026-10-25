@@ -95,7 +95,10 @@ def _release_thread_run_lock(
             status,
         )
     finally:
-        deps.thread_lock.release(graph_name, thread_id, lock_token)
+        try:
+            deps.thread_lock.release(graph_name, thread_id, lock_token)
+        except Exception:
+            logger.exception("Unexpected error releasing thread lock for thread %s", thread_id)
 
 
 def register_run_routes(
@@ -169,6 +172,12 @@ def register_run_routes(
         except ValueError as exc:
             deps.thread_lock.release(reg.name, thread_id, lock_token)
             return _platform_error(409, str(exc))
+        except Exception as exc:
+            try:
+                safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
+                return _platform_error(500, "Graph execution failed", ctx.run_id)
+            finally:
+                deps.thread_lock.release(reg.name, thread_id, lock_token)
         if locked is None:
             deps.thread_lock.release(reg.name, thread_id, lock_token)
             safe_observer_call(
@@ -180,53 +189,45 @@ def register_run_routes(
                 f"Concurrent runs are not supported (multitask_strategy=reject).",
             )
         store_lock_token = locked.lock_token or lock_token
-        _start_store_renewal(deps, thread_id, store_lock_token)
-
-        config = _build_threaded_config(run_req, thread_id)
-
-        if run_req.metadata:
-            merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
-            deps.thread_store.update(thread_id, metadata=merged_metadata)
-
-        graph_input = run_req.input or {}
-        safe_observer_call(deps.observer, "on_run_started", ctx)
+        status: ThreadStatus = "error"
+        output = None
         try:
+            _start_store_renewal(deps, thread_id, store_lock_token)
+            config = _build_threaded_config(run_req, thread_id)
+            if run_req.metadata:
+                merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
+                deps.thread_store.update(thread_id, metadata=merged_metadata)
+            graph_input = run_req.input or {}
+            safe_observer_call(deps.observer, "on_run_started", ctx)
             result = reg.graph.invoke(graph_input, config=config, **context_kwargs)
+            output = result if isinstance(result, dict) else {"result": result}
+            response = func.HttpResponse(
+                body=dumps(output),
+                mimetype="application/json",
+                status_code=200,
+                headers={"Content-Location": f"/api/threads/{thread_id}/runs/{run_id}"},
+            )
+            status = "idle"
         except Exception as exc:
             logger.exception(
                 "Graph %s invoke failed for thread %s",
                 run_req.assistant_id,
                 thread_id,
             )
+            safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
+            return _platform_error(500, "Graph execution failed", ctx.run_id)
+        finally:
             _release_thread_run_lock(
                 deps,
                 thread_id,
                 reg.name,
                 lock_token,
-                status="error",
+                status=status,
+                values=output if status == "idle" else None,
                 store_owner_token=store_lock_token,
             )
-            safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
-            return _platform_error(500, "Graph execution failed", ctx.run_id)
-
-        output = result if isinstance(result, dict) else {"result": result}
-        _release_thread_run_lock(
-            deps,
-            thread_id,
-            reg.name,
-            lock_token,
-            status="idle",
-            values=output,
-            store_owner_token=store_lock_token,
-        )
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
-
-        return func.HttpResponse(
-            body=dumps(output),
-            mimetype="application/json",
-            status_code=200,
-            headers={"Content-Location": f"/api/threads/{thread_id}/runs/{run_id}"},
-        )
+        return response
 
     @app.function_name(name="aflg_platform_runs_stream")
     @app.route(
@@ -300,6 +301,12 @@ def register_run_routes(
         except ValueError as exc:
             deps.thread_lock.release(reg.name, thread_id, lock_token)
             return _platform_error(409, str(exc))
+        except Exception as exc:
+            try:
+                safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
+                return _platform_error(500, "Graph execution failed", ctx.run_id)
+            finally:
+                deps.thread_lock.release(reg.name, thread_id, lock_token)
         if locked is None:
             deps.thread_lock.release(reg.name, thread_id, lock_token)
             safe_observer_call(
@@ -311,44 +318,33 @@ def register_run_routes(
                 f"Concurrent runs are not supported (multitask_strategy=reject).",
             )
         store_lock_token = locked.lock_token or lock_token
-        _start_store_renewal(deps, thread_id, store_lock_token)
-
-        config = _build_threaded_config(run_req, thread_id)
-
-        if run_req.metadata:
-            merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
-            deps.thread_store.update(thread_id, metadata=merged_metadata)
-
-        graph_input = run_req.input or {}
         chunks: list[str] = []
-        buffered_bytes = 0
-        max_bytes = deps.max_stream_response_bytes
-
-        meta_chunk = format_metadata_event(run_id)
-        chunks.append(meta_chunk)
-        buffered_bytes += len(meta_chunk.encode())
-        safe_observer_call(deps.observer, "on_run_started", ctx)
-
-        if _check_stream_overflow(chunks, buffered_bytes, 0, max_bytes):
-            _release_thread_run_lock(
-                deps,
-                thread_id,
-                reg.name,
-                lock_token,
-                status="error",
-                store_owner_token=store_lock_token,
-            )
-            safe_observer_call(
-                deps.observer,
-                "on_run_failed",
-                finish_context(ctx),
-                RuntimeError("stream response exceeded max buffered size"),
-            )
-            return _build_sse_response(
-                chunks,
-                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
-            )
+        status: ThreadStatus = "error"
         try:
+            _start_store_renewal(deps, thread_id, store_lock_token)
+            config = _build_threaded_config(run_req, thread_id)
+            if run_req.metadata:
+                merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
+                deps.thread_store.update(thread_id, metadata=merged_metadata)
+            graph_input = run_req.input or {}
+            buffered_bytes = 0
+            max_bytes = deps.max_stream_response_bytes
+            meta_chunk = format_metadata_event(run_id)
+            chunks.append(meta_chunk)
+            buffered_bytes += len(meta_chunk.encode())
+            safe_observer_call(deps.observer, "on_run_started", ctx)
+
+            if _check_stream_overflow(chunks, buffered_bytes, 0, max_bytes):
+                safe_observer_call(
+                    deps.observer,
+                    "on_run_failed",
+                    finish_context(ctx),
+                    RuntimeError("stream response exceeded max buffered size"),
+                )
+                return _build_sse_response(
+                    chunks,
+                    content_location=f"/api/threads/{thread_id}/runs/{run_id}",
+                )
             for event in reg.graph.stream(
                 graph_input,
                 config=config,
@@ -358,14 +354,6 @@ def register_run_routes(
                 chunk = format_data_event(stream_mode, event)
                 chunk_bytes = len(chunk.encode())
                 if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
-                    _release_thread_run_lock(
-                        deps,
-                        thread_id,
-                        reg.name,
-                        lock_token,
-                        status="error",
-                        store_owner_token=store_lock_token,
-                    )
                     safe_observer_call(
                         deps.observer,
                         "on_run_failed",
@@ -378,21 +366,21 @@ def register_run_routes(
                     )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
+            chunks.append(format_end_event())
+            response = _build_sse_response(
+                chunks,
+                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
+            )
+            status = "idle"
         except Exception as exc:
             logger.exception(
                 "Graph %s stream failed for thread %s",
                 run_req.assistant_id,
                 thread_id,
             )
-            _release_thread_run_lock(
-                deps,
-                thread_id,
-                reg.name,
-                lock_token,
-                status="error",
-                store_owner_token=store_lock_token,
-            )
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
+            if not chunks:
+                return _platform_error(500, "Graph execution failed", ctx.run_id)
             chunks.append(format_error_event("stream processing failed", ctx.run_id))
             chunks.append(format_end_event())
             return _build_sse_response(
@@ -400,22 +388,17 @@ def register_run_routes(
                 content_location=f"/api/threads/{thread_id}/runs/{run_id}",
             )
 
-        chunks.append(format_end_event())
-
-        _release_thread_run_lock(
-            deps,
-            thread_id,
-            reg.name,
-            lock_token,
-            status="idle",
-            store_owner_token=store_lock_token,
-        )
+        finally:
+            _release_thread_run_lock(
+                deps,
+                thread_id,
+                reg.name,
+                lock_token,
+                status=status,
+                store_owner_token=store_lock_token,
+            )
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
-
-        return _build_sse_response(
-            chunks,
-            content_location=f"/api/threads/{thread_id}/runs/{run_id}",
-        )
+        return response
 
     @app.function_name(name="aflg_platform_runs_wait_threadless")
     @app.route(route="runs/wait", methods=["POST"], auth_level=auth)
