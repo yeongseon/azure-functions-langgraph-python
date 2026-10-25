@@ -233,53 +233,6 @@ class TestInProcessThreadLockConcurrency:
         lock._maybe_gc(key, state)
         assert key not in lock._states
 
-    def test_release_does_not_clobber_newer_owner_acquired_during_handoff(self) -> None:
-        """A second request can acquire the lock in the window between the
-        first release's underlying unlock() and its bookkeeping cleanup.
-        The first release must not clear the new owner's token (#641)."""
-        lock = InProcessThreadLock()
-        first = lock.acquire("graph", "thread")
-        assert first
-        key = ("graph", "thread")
-        state = lock._states[key]
-        underlying = state.lock
-        unlocked = threading.Event()
-        acquired = threading.Event()
-        result: dict[str, str | None] = {}
-
-        class _PausedRelease:
-            def acquire(self, *args: object, **kwargs: object) -> bool:
-                return underlying.acquire(*args, **kwargs)  # type: ignore[arg-type]
-
-            def release(self) -> None:
-                underlying.release()
-                unlocked.set()
-                assert acquired.wait(2), "probe scheduling timed out"
-
-        state.lock = _PausedRelease()  # type: ignore[assignment]
-
-        def next_owner() -> None:
-            assert unlocked.wait(2), "probe scheduling timed out"
-            result["token"] = lock.acquire("graph", "thread")
-            acquired.set()
-
-        worker = threading.Thread(target=next_owner)
-        worker.start()
-        lock.release("graph", "thread", first)
-        worker.join(2)
-        assert not worker.is_alive()
-
-        second = result["token"]
-        assert second
-        assert state.token == second, "first release must not clobber the new owner's token"
-
-        state.lock = underlying
-        lock.release("graph", "thread", second)
-        third = lock.acquire("graph", "thread")
-        assert third
-        assert lock._states[key].refs == 1
-        lock.release("graph", "thread", third)
-
     def test_concurrent_stale_releases_do_not_corrupt_newer_owner(self) -> None:
         """Multiple stale/duplicate releases racing a new acquire must never
         clear the new owner's token or double-decrement refs (#641)."""

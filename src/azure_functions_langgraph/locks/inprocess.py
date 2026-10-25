@@ -106,36 +106,29 @@ class InProcessThreadLock:
         with self._guard:
             state = self._states.get(key)
             current_token = state.token if state is not None else None
-        if state is None:
-            logger.debug(
-                "release() called for unknown lock key %s/%s; ignoring", graph_name, thread_id
-            )
-            return
-        if current_token != token:
-            logger.debug(
-                "release() owner mismatch for %s/%s; lock is held by a newer "
-                "owner, ignoring stale release",
-                graph_name,
-                thread_id,
-            )
-            return
-        try:
-            state.lock.release()
-        except RuntimeError:
-            # Not held (or not held by us). Log and fall through so the ref is
-            # still dropped and the entry is cleaned up — never leak the state.
-            logger.debug(
-                "release() called on unheld lock for %s/%s; cleaning up",
-                graph_name,
-                thread_id,
-            )
-        with self._guard:
-            # Only clear ownership if it still matches the token we
-            # validated above. Between the underlying unlock() just above
-            # and re-acquiring the guard here, a new owner may already have
-            # acquired the lock and recorded its own token (#641) -- an
-            # unconditional clear would erase that newer owner's state.
-            if state.token == token:
-                state.token = None
+            if state is None:
+                logger.debug(
+                    "release() called for unknown lock key %s/%s; ignoring", graph_name, thread_id
+                )
+                return
+            if current_token != token:
+                logger.debug(
+                    "release() owner mismatch for %s/%s; lock is held by a newer "
+                    "owner, ignoring stale release",
+                    graph_name,
+                    thread_id,
+                )
+                return
+            try:
+                state.lock.release()
+            except RuntimeError:
+                # Preserve cleanup for a matching owner whose primitive was externally released.
+                logger.debug(
+                    "release() called on unheld lock for %s/%s; cleaning up",
+                    graph_name,
+                    thread_id,
+                )
+            # Validation, unlock and bookkeeping share one guard so duplicates cannot pass.
+            state.token = None
             state.refs -= 1
             self._maybe_gc(key, state)
