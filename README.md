@@ -947,6 +947,17 @@ When using `AzureTableThreadStore` with Platform-compatible runs, each graph exe
 
 **Owner fencing and CAS retries:** If an optional `owner_token` is supplied and no longer matches the thread's current `lock_token` (e.g. `reset_stale_locks()` already reclaimed it, or a newer run re-acquired it), the release is a no-op — the current entity is returned unchanged and a warning is logged. On an ETag conflict, release reads the latest entity and checks ownership again, for at most three conditional-write attempts. A same-owner renewal or metadata update therefore does not strand the thread after a single conflict; a newer owner is never overwritten. Successful release atomically persists the terminal status and optional values, preserves other current properties, and removes `lock_token` and `lock_expires_at` using replacement semantics (merging `None` does not delete Azure Table properties). Exhaustion raises `RunLockReleaseError` (a `RuntimeError` subclass); Platform run handlers report a sanitized HTTP 500 rather than success, while still releasing local exclusion. Missing or concurrently deleted threads raise `KeyError`.
 
+**Renewal failure:** Platform runs renew store ownership every 20 seconds. A
+negative renewal result or exception is retained for cleanup: wait and buffered
+stream handlers return a sanitized HTTP 500 instead of reporting completion,
+notify the failure observer, and do not persist final graph values. An earlier
+graph error remains the primary failure. Cleanup stops and joins the renewal
+worker before owner-fenced store release and always attempts outer-lock release;
+host cancellation propagates after cleanup. Configure bounded Azure SDK network
+timeouts: cleanup must wait for any in-flight renewal I/O. This does not interrupt
+an executing synchronous graph or roll back side effects, so graph operations
+must remain idempotent. A newer owner's store lock is never cleared.
+
 **What can still go wrong:** Owner fencing and CAS protect against *concurrent* writers, not against a writer that never arrives. If a Function host instance is terminated during graph execution (scale-in, deployment, crash), **no** release call is ever made — there is no owner-token or CAS check to lose, because `release_run_lock` is simply never invoked — so the thread remains in `busy` status indefinitely.
 
 **Recovery:** Use `reset_stale_locks()` from a periodic Timer Trigger to reclaim orphaned locks:
