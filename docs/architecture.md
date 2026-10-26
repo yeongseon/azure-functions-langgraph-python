@@ -395,7 +395,13 @@ When `platform_compat=True`, the library registers routes that mirror the LangGr
 
 `AzureBlobCheckpointSaver` provides durable checkpoint persistence across Azure Functions instances. Installed as optional extra (`[azure-blob]`). Supports sync I/O and optional native async Blob I/O; single-writer assumed.
 
-**⚠️ Concurrency constraint**: The checkpointer assumes a single writer per thread. Concurrent writes to the same thread from multiple Azure Functions instances may corrupt checkpoint data. The write order (values -> metadata -> checkpoint commit marker -> latest hint) is designed for recoverability under single-writer semantics only. If multi-writer support is needed, add blob lease or ETag coordination. For production deployments with multiple instances, ensure serialized access to each thread (e.g., via queue-triggered processing or external locking).
+**⚠️ Concurrency constraint**: The checkpointer assumes a single writer per
+thread. Its write order (values → metadata → checkpoint commit marker → latest
+hint) supports recovery under that assumption, not concurrent-write conflict
+resolution. Shared writers must use a distributed `ThreadLock` or an explicitly
+single-writer topology. Queue delivery alone does not serialize a thread, and
+Platform Table CAS does not cover native or trigger writers. See the
+[deployment decision table](production-guide.md#distributed-deployment).
 
 ### Azure Table Storage thread store (v0.4)
 
