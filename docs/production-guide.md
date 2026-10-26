@@ -485,6 +485,21 @@ expected run.
 
 ### Service Bus sessions and mixed surfaces
 
+`register_service_bus(..., session=True)` opts into session-aware binding and
+derives checkpoint `thread_id` from `msg.session_id`. A supplied
+`thread_id_factory` must return exactly the same ID; absent/empty/mismatched
+IDs fail before graph execution. Conflicting
+`binding_kwargs={"is_sessions_enabled": False}` is rejected. The default
+non-session path and Basic-tier support are unchanged.
+
+This opt-in deliberately **retains ThreadLock acquisition**. No topology is
+automatically proven exclusive, and this adapter cannot fence other apps or
+queues; there is no unsafe lock-bypass switch. Serial processing within a
+session is host configuration, not inferred from the session ID. Provision a
+session-enabled Standard/Premium entity and set sender `SessionId=thread_id`
+before delivery. Configure host message/session renewal budgets and retries;
+failures propagate for redelivery and delivery remains at-least-once.
+
 Queue-based execution is an optional delivery pattern, not mandatory production
 infrastructure and not automatic per-thread serialization:
 
