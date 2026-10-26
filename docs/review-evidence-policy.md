@@ -111,12 +111,12 @@ exceptions in PR history rather than being recorded as if a review had occurred:
 - **GitHub Actions SHA updates**: never auto-merged; require a human diff check confirming the
   pinned SHA matches its claimed tag (see AGENTS.md). This human check *is* the review evidence —
   record the SHA/tag comparison performed.
-- **Forks**: external PRs are reviewed by a maintainer before merge; Copilot review may be
-  unavailable or restricted on fork PRs depending on repository settings — record "unavailable"
-  explicitly rather than silently skipping the field.
-- **Reviewer outages / emergencies**: if Copilot review is unavailable (quota, outage, provider
-  error), record the unavailability and fall back to human review before merge. This is never a
-  reason to merge with the review field left blank.
+- **Forks**: external PRs are reviewed by a maintainer before merge. Ordinary human review
+  requires no AI-tool availability record; high-risk changes still require the reviewed
+  commit, material findings and explicit maintainer authorization described above.
+- **Reviewer outages / emergencies**: use human review when automated review is unavailable.
+  Routine PRs need no tooling-status field. Outages never waive required CI, conversation
+  resolution, human review or the high-risk authorization record.
 
 ## Provenance pitfalls (do not accept as evidence)
 
