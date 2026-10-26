@@ -827,7 +827,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_id: str,
     ) -> builtins.list[tuple[str, str, Any]]:
         writes_prefix = self._writes_prefix(thread_id, checkpoint_ns, checkpoint_id)
-        loaded: list[tuple[str, int, str, Any]] = []
+        loaded: list[tuple[str, str, int, str, Any]] = []
 
         for blob in self._container_client.list_blobs(name_starts_with=writes_prefix):
             # Parse relative to writes_prefix: expect "{task_id}/{idx}.bin"
@@ -861,10 +861,11 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             resolved_task_id = unquote(raw_metadata_task_id) if raw_metadata_task_id else task_id
 
             value = self.serde.loads_typed((typed_blob_result[0], typed_blob_result[1]))
-            loaded.append((resolved_task_id, write_index, channel, value))
+            task_path = unquote(blob_meta.get("task_path", ""))
+            loaded.append((task_path, resolved_task_id, write_index, channel, value))
 
-        loaded.sort(key=lambda item: (item[0], item[1]))
-        return [(task_id, channel, value) for task_id, _idx, channel, value in loaded]
+        loaded.sort(key=lambda item: (item[0], item[1], item[2]))
+        return [(task_id, channel, value) for _path, task_id, _idx, channel, value in loaded]
 
     def _find_latest_checkpoint_id(self, thread_id: str, checkpoint_ns: str) -> str | None:
         checkpoint_ids = self._list_checkpoint_ids(thread_id, checkpoint_ns)
@@ -1220,7 +1221,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         self, thread_id: str, checkpoint_ns: str, checkpoint_id: str
     ) -> builtins.list[tuple[str, str, Any]]:
         writes_prefix = self._writes_prefix(thread_id, checkpoint_ns, checkpoint_id)
-        loaded: list[tuple[str, int, str, Any]] = []
+        loaded: list[tuple[str, str, int, str, Any]] = []
 
         for blob in await self._alist_blob_items(writes_prefix):
             if not blob.name.startswith(writes_prefix):
@@ -1252,10 +1253,11 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             resolved_task_id = unquote(raw_metadata_task_id) if raw_metadata_task_id else task_id
 
             value = self.serde.loads_typed((typed_blob_result[0], typed_blob_result[1]))
-            loaded.append((resolved_task_id, write_index, channel, value))
+            task_path = unquote(blob_meta.get("task_path", ""))
+            loaded.append((task_path, resolved_task_id, write_index, channel, value))
 
-        loaded.sort(key=lambda item: (item[0], item[1]))
-        return [(task_id, channel, value) for task_id, _idx, channel, value in loaded]
+        loaded.sort(key=lambda item: (item[0], item[1], item[2]))
+        return [(task_id, channel, value) for _path, task_id, _idx, channel, value in loaded]
 
     async def _abuild_tuple(
         self,
