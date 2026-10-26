@@ -735,14 +735,15 @@ async def handle_stream_async(
 
         stream_error: BaseException | None = None
         safe_observer_call(observer, "on_run_started", ctx)
-        agen = reg.graph.astream(
-            request.input,
-            config=config,
-            stream_mode=request.stream_mode,
-            **version_kwargs,
-        )
+        agen = None
         try:
             try:
+                agen = reg.graph.astream(
+                    request.input,
+                    config=config,
+                    stream_mode=request.stream_mode,
+                    **version_kwargs,
+                )
                 async for event in agen:
                     serialized = dumps(event, allow_nan=False)
                     if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
@@ -761,7 +762,8 @@ async def handle_stream_async(
             # exit path: normal completion, the byte-cap break above, and
             # the astream() exception above. Breaking out of ``async for``
             # does not itself await that cleanup (#650).
-            await _aclose_async_iterator(agen)
+            if agen is not None:
+                await _aclose_async_iterator(agen)
 
     chunks.append("event: end\ndata: {}\n\n")
 
