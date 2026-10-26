@@ -269,6 +269,27 @@ curl -s "https://<your-app>.azurewebsites.net/api/health/details?code=<FUNCTION_
 > Response format verified against a temporary Azure Functions deployment of the `simple_agent` example in koreacentral (Python 3.12, Consumption plan). The Quick Start uses `echo_agent` for illustration; the health endpoint returns the same JSON structure regardless of graph name. URL anonymized.
 
 
+### Core adapter: state and thread exclusion
+
+Start with `LangGraphApp`, `register()` and `function_app`. For conversation
+state, compile your graph with a LangGraph checkpointer and send
+`config.configurable.thread_id`; a checkpointer persists graph state, not
+Platform thread records. Native routes do not require `platform_compat=True`,
+Azure Table Storage, Durable Functions or Service Bus.
+
+`thread_lock` accepts the `ThreadLock` protocol from
+`azure_functions_langgraph.locks`: `acquire(graph_name, thread_id, timeout=0.0)`
+returns an owner token (or `None` on contention), and `release(...)` receives
+that token. The default `InProcessThreadLock` guards checkpointed native
+invoke/stream runs for the same `(graph_name, thread_id)` **inside one Python
+process only**. Even one Function App instance can have multiple worker
+processes; local locking is not distributed exclusion.
+
+Before sharing checkpoint state across workers or apps, follow the
+[production and distributed deployment guidance](docs/production-guide.md#distributed-deployment).
+Persistence and exclusion are separate choices. Thread locking and checkpoint
+backends remain **Beta**, as listed in the stability table above.
+
 ### Production authentication
 
 > **Important:** `LangGraphApp` defaults to `AuthLevel.FUNCTION`, so deployed
@@ -458,6 +479,11 @@ input, output, config, headers, or secrets — and failures record the exception
 > onto whatever provider is installed. For a runnable local demo with a console
 > exporter, see [`examples/run_observer_otel/`](examples/run_observer_otel/).
 
+## Optional execution surfaces
+
+These opt-ins solve delivery or execution-lifetime needs, not universal
+concurrency problems. They are not prerequisites for the core HTTP adapter.
+
 ### Service Bus trigger (experimental)
 
 Beyond the HTTP surface, a compiled graph can be driven directly from an
@@ -529,6 +555,11 @@ for single-message triggers, and `functionTimeout`, with safety margin.
 Renewal can fail: this adapter neither renews broker locks nor reads remaining
 message/session lock lifetime. If sessions are explicitly enabled, budget for
 session lock/renewal limits as well; sessions remain **off by default**.
+Sessions require a session-enabled queue/subscription, a sender-supplied
+`SessionId`, and explicit `binding_kwargs={"is_sessions_enabled": True}`.
+They order related messages within that entity; they do not exclude HTTP,
+Durable, other queues or other subscriptions writing the same checkpoint.
+See [session ordering and mixed surfaces](docs/production-guide.md#service-bus-sessions-and-mixed-surfaces).
 `clientRetryOptions` controls broker operations, not function-execution retries.
 See the [Service Bus binding settings](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-service-bus).
 
@@ -594,6 +625,15 @@ numbers, or a failing string conversion), the activity returns a normalized
 Durable delivery remains **at-least-once**: duplicate deliveries or host failure
 can still execute the graph again, so graph side effects must be idempotent.
 
+Durable is a long-running execution/polling choice, not a global single-writer
+service. Activities use the configured `thread_lock` for checkpointed runs with
+a thread ID; separate apps must share a distributed lock configuration when
+they write the same thread. Terminating an orchestration does not forcibly
+stop an already-running activity or synchronous tool. See the
+[production guide](docs/production-guide.md#async-runs-via-durable-functions-experimental).
+
+
+## Core adapter reference
 
 ### Per-graph auth
 
@@ -704,6 +744,15 @@ Graph execution is not retried to serialize its output.
 }
 ```
 
+## Production and distributed deployment
+
+Keep the core adapter independent of deployment infrastructure. Choose a
+checkpointer for graph state, a `ThreadLock` for writer exclusion, and a
+Platform `ThreadStore` only if you expose Platform-compatible routes. The
+[production deployment decision table](docs/production-guide.md#distributed-deployment)
+covers scale-out, lease lifetime/recovery, mixed surfaces and optional triggers.
+No lock backend is switched automatically.
+
 ### Persistent storage (v0.4+)
 
 Platform thread records default to process-local memory, independently of graph
@@ -763,7 +812,10 @@ app.register(graph=graph, name="echo_agent")
 func_app = app.function_app
 ```
 
-Checkpoints and thread metadata survive Azure Functions restarts and scale across instances.
+Checkpoints and thread metadata survive Azure Functions restarts. This example
+wires persistence, not distributed exclusion: before scaling or mixing native
+and Platform writers, also supply a distributed `thread_lock` as described in
+the [production guide](docs/production-guide.md#distributed-thread-locking).
 
 #### Persistent storage with Managed Identity
 
@@ -1032,7 +1084,11 @@ Each reset uses ETag CAS so a thread that has been legitimately re-acquired sinc
 
 Native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) use an **in-process per-thread lock** when the graph has a checkpointer and the request includes `config.configurable.thread_id`. This prevents concurrent writes to single-writer checkpointers (e.g. `AzureBlobCheckpointSaver`) within the same Python worker process.
 
-> **Important:** The **default** backend is **in-process only** — it does not coordinate across multiple Function App instances, worker processes, or hosts. Multi-instance deployments (Flex Consumption / Elastic Premium) **must** either use a distributed `ThreadLock` backend (see below) or route through Platform-compatible runs (`platform_compat=True`) with `AzureTableThreadStore`, which provides ETag-based atomic locking.
+> **Important:** The **default** backend is **single-process only**. For shared
+> checkpoint writers across workers/hosts, use a distributed `ThreadLock`.
+> `AzureTableThreadStore` adds Platform run-lock CAS, but native, Durable and
+> Service Bus runs do not acquire that store lock. Table storage alone cannot
+> coordinate mixed surfaces.
 
 
 #### Distributed thread locking (v0.6+)
