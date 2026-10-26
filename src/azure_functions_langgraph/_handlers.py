@@ -96,6 +96,23 @@ def _require_checkpoint_thread_id(checkpointer: Any, thread_id: str | None) -> s
     return None
 
 
+def _validated_run_thread(
+    config: dict[str, Any], checkpointer: Any
+) -> tuple[str | None, str | None]:
+    thread_id, error = _extract_thread_id(config)
+    if error:
+        return None, error
+    return thread_id, _require_checkpoint_thread_id(checkpointer, thread_id)
+
+
+def _authorization_rejection(
+    status: int | None, observer: RunObserver, ctx: RunContext
+) -> func.HttpResponse | None:
+    if status is None:
+        return None
+    return _reject(observer, ctx, "authorization_denied", _error_response(status, "Access denied"))
+
+
 def _error_response(
     status_code: int,
     detail: str | list[ValidationErrorDetail],
@@ -328,21 +345,15 @@ def handle_invoke(
     request = parsed
 
     config = request.config or {}
-    thread_id, cfg_err = _extract_thread_id(config)
+    thread_id, cfg_err = _validated_run_thread(config, getattr(reg.graph, "checkpointer", None))
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
-    if thread_err := _require_checkpoint_thread_id(
-        getattr(reg.graph, "checkpointer", None), thread_id
-    ):
-        return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id)
     status = native_authorization_status(
         authorize, AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req)
     )
-    if status is not None:
-        return _reject(
-            observer, ctx, "authorization_denied", _error_response(status, "Access denied")
-        )
+    if denial := _authorization_rejection(status, observer, ctx):
+        return denial
     version_kwargs = _resolve_version_kwarg(reg.graph.invoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
@@ -442,21 +453,15 @@ def handle_stream(
     request = parsed
 
     config = request.config or {}
-    thread_id, cfg_err = _extract_thread_id(config)
+    thread_id, cfg_err = _validated_run_thread(config, getattr(reg.graph, "checkpointer", None))
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
-    if thread_err := _require_checkpoint_thread_id(
-        getattr(reg.graph, "checkpointer", None), thread_id
-    ):
-        return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
     status = native_authorization_status(
         authorize, AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req)
     )
-    if status is not None:
-        return _reject(
-            observer, ctx, "authorization_denied", _error_response(status, "Access denied")
-        )
+    if denial := _authorization_rejection(status, observer, ctx):
+        return denial
     version_kwargs = _resolve_version_kwarg(reg.graph.stream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
@@ -580,21 +585,15 @@ async def handle_invoke_async(
     request = parsed
 
     config = request.config or {}
-    thread_id, cfg_err = _extract_thread_id(config)
+    thread_id, cfg_err = _validated_run_thread(config, getattr(reg.graph, "checkpointer", None))
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
-    if thread_err := _require_checkpoint_thread_id(
-        getattr(reg.graph, "checkpointer", None), thread_id
-    ):
-        return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id)
     status = await native_authorization_status_async(
         authorize, AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req)
     )
-    if status is not None:
-        return _reject(
-            observer, ctx, "authorization_denied", _error_response(status, "Access denied")
-        )
+    if denial := _authorization_rejection(status, observer, ctx):
+        return denial
     version_kwargs = _resolve_version_kwarg(reg.graph.ainvoke, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
@@ -688,21 +687,15 @@ async def handle_stream_async(
     request = parsed
 
     config = request.config or {}
-    thread_id, cfg_err = _extract_thread_id(config)
+    thread_id, cfg_err = _validated_run_thread(config, getattr(reg.graph, "checkpointer", None))
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
-    if thread_err := _require_checkpoint_thread_id(
-        getattr(reg.graph, "checkpointer", None), thread_id
-    ):
-        return _reject(observer, ctx, "invalid_config", _error_response(400, thread_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
     status = await native_authorization_status_async(
         authorize, AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req)
     )
-    if status is not None:
-        return _reject(
-            observer, ctx, "authorization_denied", _error_response(status, "Access denied")
-        )
+    if denial := _authorization_rejection(status, observer, ctx):
+        return denial
     version_kwargs = _resolve_version_kwarg(reg.graph.astream, request.version, reg.name)
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
