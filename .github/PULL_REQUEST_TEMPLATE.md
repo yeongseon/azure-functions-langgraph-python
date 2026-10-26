@@ -49,5 +49,7 @@
 
 <!-- Required: Closes #123 (include every issue this PR resolves). -->
 
-<!-- Add review details for material security or release risks only, following
-     docs/review-evidence-policy.md. Avoid agent transcripts and empty risk fields. -->
+<!-- For the full high-risk R3 scope in docs/review-evidence-policy.md (including
+     security/release, checkpoint/state mutation, ownership/fencing/cancellation,
+     and policy-bearing files), record the reviewed commit, material findings and
+     explicit maintainer authorization. Avoid agent transcripts and empty fields. -->
