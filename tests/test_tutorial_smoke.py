@@ -23,7 +23,7 @@ from azure_functions_langgraph.app import LangGraphApp
 
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples" / "simple_agent"
 GRAPH_NAME = "simple_agent"
-ROOT_README = Path(__file__).resolve().parent.parent / "README.md"
+ROOT_README = Path(__file__).resolve().parent.parent / "docs" / "adapter-reference.md"
 
 
 def _load_compiled_graph() -> Any:
@@ -141,4 +141,4 @@ def test_readme_see_it_working_matches_registered_simple_agent() -> None:
     assert invoke.get_body().decode() in transcript
     assert "/api/health/details" in transcript
     assert "protected" in transcript
-    assert "docs/tutorial-5-min.md" in transcript
+    assert "tutorial-5-min.md" in transcript
