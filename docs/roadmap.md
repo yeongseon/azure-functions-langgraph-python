@@ -15,7 +15,25 @@ minimum/latest window instead of freezing a single pinned stack.
 > Reach an **expansion checkpoint** after Service Bus + Durable and re-evaluate
 > toward v1.0 stabilization.
 
-## Current status (2026-10-13)
+## Current status (2026-10-26)
+
+The expansion checkpoint decision is to consolidate the shipped adapter, not
+add another feature family. Native admission, checkpoint ordering, state-store
+guards and ownership cleanup take precedence. The README is now a concise
+entry point with a package-level Beta classifier; optional Platform, true
+streaming, Service Bus and Durable surfaces remain Experimental. Retain the
+finite SDK support matrix rather than chase Platform parity.
+
+Follow the [hardening dispositions](hardening-status.md) and remaining #701
+lifecycle work. #698 is a bounded session/thread-routing proposal, not permission
+to remove mixed-surface locking. No new backend, agent-builder layer, webhook,
+cron or full Store/Platform clone is approved. Future expansion still needs
+concrete user demand and an adapter-owned gap.
+
+#382 remains owner-blocked on credential scope/cutover/revocation; workflow
+hardening alone does not prove it. #371 remains non-blocking external outreach.
+The open Release Please PR is deliberately not merged by this backlog work.
+No new release or Azure deployment certification is claimed by this review.
 
 The adoption-first sequence is complete. Every example phase, runtime-fidelity
 phase, observability phase, true streaming, the Azure-native event-driven
