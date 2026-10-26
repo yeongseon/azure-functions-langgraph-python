@@ -706,6 +706,24 @@ With `platform_compat=True`, you also get SDK-compatible endpoints:
 
 ### Request format
 
+Native classic invoke/stream routes now accept only `config.configurable` from
+clients, with `thread_id` as the sole default key. Unapproved fields return HTTP
+400 before authorization, locking or graph execution. Execution controls such as
+`recursion_limit`, callbacks and unknown top-level keys cannot be supplied by a
+client; bind trusted defaults on the server (for example with `graph.with_config`).
+The existing input depth, node-count and body-size limits still apply.
+
+Migration: if your application intentionally exposes a custom configurable field,
+register it explicitly with
+`app.register(graph, "agent", allowed_configurable_keys=frozenset({"locale"}))`.
+Only allow keys whose values are safe for an untrusted client to choose. Opting
+in to `checkpoint_id` or `checkpoint_ns` deliberately grants checkpoint-selection
+control and requires corresponding ownership checks in the RUN authorizer.
+Internal `__*` keys remain forbidden even when allow-listed. `thread_id` remains
+subject to validation and RUN authorization; an allow-list is not authentication.
+This policy covers classic native sync/async invoke and buffered stream routes,
+not Platform, Durable, Service Bus or experimental true-streaming transports.
+
 Native invoke responses keep the `{"output": ...}` envelope and use the shared
 JSON codec: nested LangChain messages retain structured `message_to_dict` data,
 Pydantic models use JSON-mode dumps, and other custom values (including datetime,

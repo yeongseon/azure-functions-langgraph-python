@@ -203,6 +203,7 @@ def _parse_native_request(
     max_request_body_bytes: int,
     max_input_depth: int,
     max_input_nodes: int,
+    allowed_configurable_keys: frozenset[str] = frozenset(),
 ) -> _ParsableRequestT | func.HttpResponse:
     """Parse and validate a native invoke/stream request body.
 
@@ -243,6 +244,14 @@ def _parse_native_request(
         )
         if config_err:
             return _error_response(400, config_err)
+        if request.config.keys() - {"configurable"}:
+            return _error_response(400, "Only config.configurable is client configurable")
+        configurable = request.config.get("configurable")
+        if isinstance(configurable, dict):
+            if any(key.startswith("__") for key in configurable):
+                return _error_response(400, "Internal configurable keys are not permitted")
+            if configurable.keys() - ({"thread_id"} | allowed_configurable_keys):
+                return _error_response(400, "Unapproved config.configurable field")
     return request
 
 
@@ -309,6 +318,7 @@ def handle_invoke(
     parsed = _parse_native_request(
         req,
         InvokeRequest,
+        allowed_configurable_keys=getattr(reg, "allowed_configurable_keys", frozenset()),
         max_request_body_bytes=max_request_body_bytes,
         max_input_depth=max_input_depth,
         max_input_nodes=max_input_nodes,
@@ -422,6 +432,7 @@ def handle_stream(
     parsed = _parse_native_request(
         req,
         StreamRequest,
+        allowed_configurable_keys=getattr(reg, "allowed_configurable_keys", frozenset()),
         max_request_body_bytes=max_request_body_bytes,
         max_input_depth=max_input_depth,
         max_input_nodes=max_input_nodes,
@@ -559,6 +570,7 @@ async def handle_invoke_async(
     parsed = _parse_native_request(
         req,
         InvokeRequest,
+        allowed_configurable_keys=getattr(reg, "allowed_configurable_keys", frozenset()),
         max_request_body_bytes=max_request_body_bytes,
         max_input_depth=max_input_depth,
         max_input_nodes=max_input_nodes,
@@ -666,6 +678,7 @@ async def handle_stream_async(
     parsed = _parse_native_request(
         req,
         StreamRequest,
+        allowed_configurable_keys=getattr(reg, "allowed_configurable_keys", frozenset()),
         max_request_body_bytes=max_request_body_bytes,
         max_input_depth=max_input_depth,
         max_input_nodes=max_input_nodes,
