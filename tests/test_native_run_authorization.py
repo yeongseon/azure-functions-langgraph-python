@@ -103,6 +103,7 @@ async def test_denied_run_never_executes_or_locks(
     thread_id: str | None,
     unauthenticated: bool,
 ) -> None:
+    """RUN denial must precede checkpoint work, independent of STATE_READ permission."""
     # Given a policy explicitly denying RUN, independently of STATE_READ.
     contexts: list[AuthorizationContext] = []
 

@@ -105,6 +105,7 @@ async def _invoke_handler(
 
 @pytest.mark.parametrize("endpoint", ["invoke", "stream"])
 async def test_cancelled_handler_releases_token_acquired_later(endpoint: str) -> None:
+    """Cancellation must collect a late token without starting graph execution."""
     # Given a handler blocked inside synchronous lock acquisition.
     graph = _ControlledGraph()
     thread_lock = _ControlledLock()
@@ -123,6 +124,7 @@ async def test_cancelled_handler_releases_token_acquired_later(endpoint: str) ->
 
 
 async def test_cancelled_handler_before_worker_start_releases_eventual_token() -> None:
+    """Queued worker acquisition still owns cleanup after its awaiting task is cancelled."""
     # Given the event loop's only worker is occupied before invoke queues acquisition.
     blocker_entered = threading.Event()
     blocker_proceed = threading.Event()
@@ -179,6 +181,7 @@ async def test_cancelled_running_handler_releases_lock_once(endpoint: str) -> No
 
 @pytest.mark.parametrize("endpoint", ["invoke", "stream"])
 async def test_repeated_cancellation_cannot_interrupt_lock_cleanup(endpoint: str) -> None:
+    """A second cancellation must not abandon an already-owned release operation."""
     # Given cancellation has begun a deliberately blocked release.
     graph = _ControlledGraph()
     thread_lock = _ControlledLock()

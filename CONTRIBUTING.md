@@ -176,6 +176,13 @@ interpreted by your shell (notably zsh with `EXTENDED_GLOB`).
 
 ## Example Coverage Policy
 
+For complex checkpoint, authorization, streaming and cancellation regressions,
+add a concise English intent note when the name and assertions do not explain
+the invariant. Explain coordinated events, injected failures and ownership
+boundaries rather than narrating every assertion. Fake backends prove adapter
+behavior, not real Azure or cross-instance certification; name that limitation
+when it matters. Do not add notes mechanically to simple tests.
+
 Examples are part of the supported API experience and should stay verified.
 
 - Keep one representative example for the minimal LangGraph agent workflow.
@@ -240,6 +247,21 @@ Not accepted: `[Bug] crash on save` (bracket prefix, no type), `Fix: crash on sa
 Pull requests are squash-merged and the pull request title becomes the final commit title. GitHub appends the pull request number by itself, so `fix: release the thread lock after a graph error` lands on `main` as `fix: release the thread lock after a graph error (#503)`. Do not write that number into the title yourself — the check rejects a title ending in `(#123)`, because it would be doubled. Link the issue from the pull request body instead, for example `Closes #503`. The **PR title** check validates the format whenever a pull request is opened, edited, reopened, or updated. Individual commits on a branch are not checked.
 
 Issue titles are not enforced. Anyone can open an issue without knowing this convention; maintainers adjust the title during triage.
+
+### Breaking-change classification
+
+Use `!` in a Conventional Commit/PR title, or a `BREAKING CHANGE:` footer in the **final squash commit**, only when a change makes an existing supported consumer usage incompatible or changes a supported observable contract incompatibly. Base the decision on verified behavior before and after the change, not on size, risk, security motivation, or which tool authored it. Public APIs, required configuration, authentication defaults, supported runtimes, published output formats, and generated application behavior may all be contracts. A security fix can be breaking if it changes a supported calling pattern; a refactor, dependency bump, CI scan, test change, or performance fix is not automatically breaking. When unsure, verify the affected contract before applying the marker. The existing PR-title check validates **syntax**, not compatibility. A squash commit marker influences Release Please; a Markdown `## BREAKING CHANGE` heading in a PR body alone does **not** guarantee that the final commit is marked breaking.
+
+#### Local classification examples
+
+- **Breaking:** changing a documented graph invocation option or authentication
+  requirement for a previously supported caller (hypothetical; verify the actual
+  contract in the proposed PR). Restricting formerly accepted native client
+  configuration in #740 was marked breaking and includes migration guidance.
+- **Non-breaking:** internal run-lock cleanup that preserves documented calls,
+  errors and outputs. Compatible security hardening is not automatically breaking.
+- **Generated output:** assess callers that consume regenerated output separately
+  from existing deployments. Verify an uncertain contract before classifying it.
 
 ## Releases
 
