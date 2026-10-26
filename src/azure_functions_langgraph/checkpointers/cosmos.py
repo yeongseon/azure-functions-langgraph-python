@@ -241,9 +241,16 @@ def create_cosmos_checkpointer(
             if disable_ssl:
                 cosmos_sdk = importlib.import_module("azure.cosmos")
                 CosmosClientCls = getattr(cosmos_sdk, "CosmosClient")
-                saver.client = CosmosClientCls(
+                original_client = saver.client
+                replacement_client = CosmosClientCls(
                     url=endpoint, credential=resolved_key, connection_verify=False
                 )
+                try:
+                    original_client.close()
+                except BaseException:
+                    replacement_client.close()
+                    raise
+                saver.client = replacement_client
                 saver.database = saver.client.create_database_if_not_exists(id=database_name)
                 saver.container = saver.database.create_container_if_not_exists(
                     id=container_name,
