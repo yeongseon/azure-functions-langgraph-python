@@ -41,24 +41,16 @@ A review is evidence for the commit it evaluated — never for the PR as a whole
   aggregate or a resolved thread from a stale commit does not stand in for re-review of the
   current one.
 
-## Review budget
+## Review effort
 
-- Default: **two published AI review rounds per scoped PR/task.**
-- New commits do not reset the budget. Deduplicate by head SHA and purpose — re-requesting review
-  on an unrelated rebase is not a new round.
-- After budget exhaustion with findings still open, do not manufacture a third automated round.
-  Record the no-change outcome and leave the PR pending for an explicit maintainer decision, or
-  route to human review.
+Seek additional review when risk or unresolved findings justify it, without a mandatory number of AI review rounds. Maintain explicit human review for high-risk changes.
 
 ## What to record per PR
 
-In the PR body (see the extended `PULL_REQUEST_TEMPLATE.md` fields):
+For routine PRs, record a short summary, key changes, actual validation, and related issues. State significant findings and blockers when relevant. Do not require risk tiers, evidence placeholders, or agent process logs on ordinary PRs.
 
-- Linked issue(s).
-- Risk category (see "R3 scope" below).
-- Review source and the exact commit SHA it evaluated.
-- Material findings and their disposition (fixed / acknowledged-wont-fix / deferred-with-issue).
-- Unresolved blockers, if any, with the reason merging anyway is acceptable (or "none").
+For changes in the high-risk R3 scope below, additionally record the reviewed commit, material findings, and explicit maintainer authorization. This evidence can be a short dedicated section; AI review does not itself establish human approval.
+
 - For runtime/storage paths specifically: the actual ownership contract exercised — internal
   owner tokens and expiry surviving copies/serialization while remaining excluded from public
   responses; stale-owner renewal/release rejection; per-thread exclusion across the affected
@@ -81,11 +73,7 @@ In the PR body (see the extended `PULL_REQUEST_TEMPLATE.md` fields):
   Azure certification and publication. A matching source SHA or a healthy host alone does not
   establish these claims. Keep the existing release-guidance work (#645) separate.
 
-External contributors must not need an internal AI subscription, credentials, or local tooling to
-satisfy this — Copilot review runs automatically on PRs against this repository; a contributor
-without Copilot access simply records "no automated review available, human review requested."
-Deterministic fake-model examples remain the supported path for local checks that do not require
-a live LangGraph/model backend.
+External contributors may use ordinary human review without subscriptions or AI tooling.
 
 ## R3 scope
 
@@ -123,12 +111,12 @@ exceptions in PR history rather than being recorded as if a review had occurred:
 - **GitHub Actions SHA updates**: never auto-merged; require a human diff check confirming the
   pinned SHA matches its claimed tag (see AGENTS.md). This human check *is* the review evidence —
   record the SHA/tag comparison performed.
-- **Forks**: external PRs are reviewed by a maintainer before merge; Copilot review may be
-  unavailable or restricted on fork PRs depending on repository settings — record "unavailable"
-  explicitly rather than silently skipping the field.
-- **Reviewer outages / emergencies**: if Copilot review is unavailable (quota, outage, provider
-  error), record the unavailability and fall back to human review before merge. This is never a
-  reason to merge with the review field left blank.
+- **Forks**: external PRs are reviewed by a maintainer before merge. Ordinary human review
+  requires no AI-tool availability record; high-risk changes still require the reviewed
+  commit, material findings and explicit maintainer authorization described above.
+- **Reviewer outages / emergencies**: use human review when automated review is unavailable.
+  Routine PRs need no tooling-status field. Outages never waive required CI, conversation
+  resolution, human review or the high-risk authorization record.
 
 ## Provenance pitfalls (do not accept as evidence)
 
