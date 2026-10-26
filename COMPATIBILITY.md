@@ -29,6 +29,39 @@ is caught by the gate, not silently shipped.
 
 ## Platform Compatibility Layer
 
+### Retained experimental scope (2026-10-26 assessment)
+
+Retain the finite compatibility layer below, without expanding it toward full
+Platform parity. It gives existing SDK clients assistant discovery, thread
+metadata, blocking runs and state inspection over this adapter. The SDK example
+and real SDK client tests exercise those workflows; this establishes useful
+repository-local consumers, not external adoption statistics. No endpoint is
+removed or deprecated by this assessment, so no public migration is required.
+
+Native `LangGraphApp()` works with `platform_compat=False` (the default): it
+requires neither a Platform thread registry nor Azure Table, Durable or broker
+infrastructure. Platform-specific models, route translation and compatibility
+lanes are retained to prevent silent SDK drift; unsupported mirroring remains
+explicitly bounded by the matrix rather than becoming implementation promises.
+
+| Maintained workflow | Executable evidence | Observable boundary |
+| --- | --- | --- |
+| Discover registered assistants | `TestSdkAssistants` in `tests/test_sdk_compat.py` | Registered snapshots, unknown ID 404; no runtime assistant mutation |
+| Create/update/search/delete thread metadata | `TestSdkThreads` in the same file | 404 on missing records; filters are client-side; deletion does not delete checkpoints |
+| Threaded wait and multi-turn state | `TestSdkRuns.test_wait`, `test_multi_turn` | Blocking result and thread ownership; contention 409 |
+| Buffered SDK stream | `test_stream`, `test_stream_multi_turn` | Meaningful graph data after completion, not incremental token delivery |
+| Threadless wait/stream | `test_wait_threadless`, `test_stream_threadless` | Clone capability required; no thread-store accumulation |
+| State read/update/history | `test_get_state_after_run`, `test_update_state`, `test_get_history` | Unbound thread 409; graph capability required |
+| Unsupported controls/filters | Manifest-parametrized tests in `tests/test_sdk_compat.py` | Explicit 501 rather than silently claiming support |
+| Authentication/ownership | `tests/test_authorization_boundaries.py`, `tests/test_async_authorization_boundaries.py` | Denied callers cannot invoke or mutate another thread |
+
+These client tests use the actual supported SDK with an in-process HTTP
+transport and graph/storage fixtures. They prove request/response integration,
+not real Azure networking, storage or cross-instance execution. The existing
+release certification remains separate. Prefer native routes for new clients
+that do not need SDK shapes. Any future removal requires a staged documented
+migration and contract-based breaking classification, not an incidental cleanup.
+
 The `platform/` subpackage mirrors the LangGraph Platform REST API as understood by `langgraph-sdk >=0.2.2,<0.5`. This means:
 
 1. **Response shapes** — JSON response structures match what `langgraph-sdk` expects. Required fields, types, and nesting are tested via contract tests in `tests/test_sdk_contracts.py`.
@@ -191,4 +224,4 @@ CI tests include:
 |---|---|---|---|
 | `postgres` | `langgraph-checkpoint-postgres>=3.0,<4` | 3.11+ | Production DB checkpoint backend |
 | `sqlite` | `langgraph-checkpoint-sqlite>=3.0,<4` | 3.11+ | Local development |
-| `cosmos` | `langgraph-checkpoint-cosmosdb>=0.2.0,<0.3` | 3.11+ | Azure-native checkpoint backend. The `create_cosmos_checkpointer` helper is key-based; upstream `CosmosDBSaver` (≥0.2.8) also supports Managed Identity via `DefaultAzureCredential` when `COSMOSDB_KEY` is unset (see README). |
+| `cosmos` | `langgraph-checkpoint-cosmosdb>=0.2.0,<0.5` | 3.11+ | Azure-native checkpoint backend. The legacy helper is deprecated; configure credentials at process startup and construct upstream `CosmosDBSaver` directly. See the adapter reference. |
