@@ -21,6 +21,7 @@ nav:
       - Configuration: configuration.md
   - User Guide:
       - Usage: usage.md
+      - Adapter Reference & Migration: adapter-reference.md
       - Architecture: architecture.md
       - Operations & APIs: ops-and-apis.md
   - Deployment:
