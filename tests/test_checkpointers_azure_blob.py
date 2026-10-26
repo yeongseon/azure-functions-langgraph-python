@@ -489,6 +489,7 @@ def _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
 def test_value_write_failure_keeps_last_committed_checkpoint(
     saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient], monkeypatch: Any
 ) -> None:
+    """A partial value upload must never publish an uncommitted checkpoint in the fake store."""
     _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
         saver_and_container, monkeypatch, "value"
     )
@@ -497,6 +498,7 @@ def test_value_write_failure_keeps_last_committed_checkpoint(
 def test_metadata_write_failure_keeps_last_committed_checkpoint(
     saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient], monkeypatch: Any
 ) -> None:
+    """Failed metadata upload must leave the previous committed checkpoint readable."""
     _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
         saver_and_container, monkeypatch, "metadata"
     )
@@ -505,6 +507,7 @@ def test_metadata_write_failure_keeps_last_committed_checkpoint(
 def test_checkpoint_marker_failure_keeps_last_committed_checkpoint(
     saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient], monkeypatch: Any
 ) -> None:
+    """Uploaded values and metadata do not commit a checkpoint without its marker."""
     _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
         saver_and_container, monkeypatch, "checkpoint"
     )
@@ -514,6 +517,7 @@ def test_latest_hint_failure_preserves_committed_checkpoint(
     saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
     monkeypatch: Any,
 ) -> None:
+    """A failed latest hint must not hide a checkpoint whose commit marker succeeded."""
     # Given: a failure limited to the best-effort latest pointer write
     saver, _ = saver_and_container
     cfg = _config(thread_id="latest-fault", checkpoint_ns="ns")

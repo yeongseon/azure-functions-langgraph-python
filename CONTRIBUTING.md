@@ -176,6 +176,13 @@ interpreted by your shell (notably zsh with `EXTENDED_GLOB`).
 
 ## Example Coverage Policy
 
+For complex checkpoint, authorization, streaming and cancellation regressions,
+add a concise English intent note when the name and assertions do not explain
+the invariant. Explain coordinated events, injected failures and ownership
+boundaries rather than narrating every assertion. Fake backends prove adapter
+behavior, not real Azure or cross-instance certification; name that limitation
+when it matters. Do not add notes mechanically to simple tests.
+
 Examples are part of the supported API experience and should stay verified.
 
 - Keep one representative example for the minimal LangGraph agent workflow.
