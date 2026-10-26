@@ -105,7 +105,8 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 
 **Consequences**: Checkpoint data survives restarts and scales across instances. Blob Storage provides high throughput and automatic geo-replication. The `azure-storage-blob` dependency is optional — import fails with a helpful message if not installed.
 
-**Non-goals**: Async I/O (synchronous for v0.4), concurrent-writer conflict resolution (single-writer assumed).
+**Non-goals**: Concurrent-writer conflict resolution (single-writer assumed).
+Sync I/O and optional native async Blob I/O are supported.
 
 **⚠️ Concurrency constraint**: The checkpointer assumes a single writer per
 thread. The write order (values → metadata → checkpoint commit marker → latest
