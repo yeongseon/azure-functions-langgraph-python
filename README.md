@@ -706,6 +706,16 @@ Graph execution is not retried to serialize its output.
 
 ### Persistent storage (v0.4+)
 
+Platform thread records default to process-local memory, independently of graph
+checkpoints. Azure-hosted apps warn when the final store is still in memory;
+`AZFUNC_LANGGRAPH_THREAD_STORE=distributed` or
+`AZFUNC_LANGGRAPH_LOCK_BACKEND=distributed` makes that configuration fail before
+routes are exported. Set `app.thread_store` before `app.function_app`.
+Local single-process development needs neither setting nor external storage.
+The smoke-tested [Managed Identity storage recipe](examples/managed_identity_storage/)
+wires an explicit Azure Table store; a distributed lock alone does not share
+thread records.
+
 Use Azure Blob Storage for checkpoint persistence and Azure Table Storage for thread metadata:
 
 ```python
