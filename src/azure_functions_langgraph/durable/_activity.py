@@ -141,6 +141,8 @@ async def execute_langgraph_run_impl(
                 raise _OutputSerializationError() from None
         except BaseException as exc:  # noqa: BLE001 - captured into a normalized result
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
+            if not isinstance(exc, Exception):
+                raise
             return DurableRunResult.failure(payload.run_id, exc)
         else:
             safe_observer_call(observer, "on_run_completed", finish_context(ctx))
