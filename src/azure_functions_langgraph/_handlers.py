@@ -236,7 +236,7 @@ def _parse_native_request(
 
     try:
         body = req.get_json()
-    except ValueError:
+    except (ValueError, RecursionError):
         return _error_response(400, "Invalid JSON body")
 
     try:
