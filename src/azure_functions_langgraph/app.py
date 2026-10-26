@@ -547,13 +547,16 @@ class LangGraphApp:
 
             if isinstance(self._thread_store, InMemoryThreadStore):
                 env_store = os.environ.get("AZFUNC_LANGGRAPH_THREAD_STORE", "").strip().lower()
-                if env_store and env_store != "inmemory":
+                env_lock = os.environ.get("AZFUNC_LANGGRAPH_LOCK_BACKEND", "").strip().lower()
+                distributed_required = bool(env_lock and env_lock != "inprocess")
+                if (env_store and env_store != "inmemory") or distributed_required:
                     raise RuntimeError(
-                        f"AZFUNC_LANGGRAPH_THREAD_STORE={env_store!r} requires a "
+                        "The configured scale-out safety guard requires a "
                         "distributed thread store (for example AzureTableThreadStore), "
                         "but the final configured store is InMemoryThreadStore. Set "
                         "app.thread_store = ... before accessing app.function_app, or "
-                        "unset the env var for local dev."
+                        "unset AZFUNC_LANGGRAPH_THREAD_STORE and "
+                        "AZFUNC_LANGGRAPH_LOCK_BACKEND for local dev."
                     )
                 if _is_azure_hosted():
                     warnings.warn(
