@@ -2,11 +2,17 @@
 
 ## Summary
 
-<!-- Brief description of changes -->
+<!-- Explain what changed and why in plain English. -->
 
 ## Changes
 
-<!-- List the specific changes made -->
+<!-- Focus on significant technical changes and compatibility. -->
+
+-
+
+## Validation
+
+<!-- Actual commands and results; indicate important checks not run. -->
 
 -
 
@@ -20,15 +26,6 @@
 - [ ] Documentation update
 - [ ] Refactoring (no functional changes)
 - [ ] Chore (maintenance, dependencies, CI, etc.)
-
-## Checklist
-
-- [ ] My code follows the project's code style
-- [ ] I have run `make check` (lint + typecheck)
-- [ ] I have run `make test` and all tests pass
-- [ ] I have added tests for new functionality (if applicable)
-- [ ] I have updated documentation (if applicable)
-- [ ] My changes do not introduce new warnings
 
 ## Release Impact
 
@@ -52,14 +49,7 @@
 
 <!-- Required: Closes #123 (include every issue this PR resolves). -->
 
-## Review Evidence
-
-<!-- See docs/review-evidence-policy.md (advisory, not a required check).
-     Record review source/SHA so evidence can be checked against the
-     commit it actually evaluated, not just the PR as a whole. -->
-
-- Review source and reviewed commit SHA:
-- Material findings and disposition (fixed / acknowledged-wont-fix / deferred-with-issue), or "none":
-- Unresolved blockers, or "none":
-- R3 (workflow permissions, release/publishing, authorization/checkpoint deserialization boundaries, checkpoint retention or state mutation, ownership/fencing/cancellation/retry behavior, review-policy files): yes/no — if yes, human authorization record:
-
+<!-- For the full high-risk R3 scope in docs/review-evidence-policy.md (including
+     security/release, checkpoint/state mutation, ownership/fencing/cancellation,
+     and policy-bearing files), record the reviewed commit, material findings and
+     explicit maintainer authorization. Avoid agent transcripts and empty fields. -->

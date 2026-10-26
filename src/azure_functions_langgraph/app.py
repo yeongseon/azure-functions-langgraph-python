@@ -93,6 +93,7 @@ class _GraphRegistration:
     auth_level: func.AuthLevel | None = None
     request_model: type[Any] | None = None
     response_model: type[Any] | None = None
+    allowed_configurable_keys: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -306,6 +307,7 @@ class LangGraphApp:
         request_model: type[Any] | None = None,
         response_model: type[Any] | None = None,
         async_mode: bool = False,
+        allowed_configurable_keys: frozenset[str] = frozenset(),
     ) -> None:
         """Register a compiled LangGraph graph.
 
@@ -379,6 +381,7 @@ class LangGraphApp:
             auth_level=auth_level,
             request_model=request_model,
             response_model=response_model,
+            allowed_configurable_keys=frozenset(allowed_configurable_keys),
         )
         # Reset cached function app so routes are re-generated
         self._function_app = None
