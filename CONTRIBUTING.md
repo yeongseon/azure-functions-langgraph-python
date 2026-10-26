@@ -248,6 +248,21 @@ Pull requests are squash-merged and the pull request title becomes the final com
 
 Issue titles are not enforced. Anyone can open an issue without knowing this convention; maintainers adjust the title during triage.
 
+### Breaking-change classification
+
+Use `!` in a Conventional Commit/PR title, or a `BREAKING CHANGE:` footer in the **final squash commit**, only when a change makes an existing supported consumer usage incompatible or changes a supported observable contract incompatibly. Base the decision on verified behavior before and after the change, not on size, risk, security motivation, or which tool authored it. Public APIs, required configuration, authentication defaults, supported runtimes, published output formats, and generated application behavior may all be contracts. A security fix can be breaking if it changes a supported calling pattern; a refactor, dependency bump, CI scan, test change, or performance fix is not automatically breaking. When unsure, verify the affected contract before applying the marker. The existing PR-title check validates **syntax**, not compatibility. A squash commit marker influences Release Please; a Markdown `## BREAKING CHANGE` heading in a PR body alone does **not** guarantee that the final commit is marked breaking.
+
+#### Local classification examples
+
+- **Breaking:** changing a documented graph invocation option or authentication
+  requirement for a previously supported caller (hypothetical; verify the actual
+  contract in the proposed PR). Restricting formerly accepted native client
+  configuration in #740 was marked breaking and includes migration guidance.
+- **Non-breaking:** internal run-lock cleanup that preserves documented calls,
+  errors and outputs. Compatible security hardening is not automatically breaking.
+- **Generated output:** assess callers that consume regenerated output separately
+  from existing deployments. Verify an uncertain contract before classifying it.
+
 ## Releases
 
 Merging to `main` does not publish a release.
