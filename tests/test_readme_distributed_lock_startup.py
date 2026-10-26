@@ -22,7 +22,7 @@ import types
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-README = ROOT / "README.md"
+README = ROOT / "docs" / "adapter-reference.md"
 
 
 def _extract_readme_snippet() -> str:
