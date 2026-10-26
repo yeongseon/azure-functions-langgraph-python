@@ -1,5 +1,22 @@
 # Release Process
 
+## Optional downstream notification credential
+
+The post-publish notification uses `COOKBOOK_DISPATCH_TOKEN` only in its
+dispatch step, with a fixed HTTPS destination and bounded connection/total
+timeouts. Its job has only `contents: read`; do not broaden `GITHUB_TOKEN`
+permissions to enable cross-repository dispatch. The secret must be a
+fine-grained token limited to the destination repository's `contents: write`,
+or an equivalently scoped GitHub App installation token.
+
+Source code cannot inspect a stored secret's actual scopes or prove rotation.
+The repository owner must audit the credential in GitHub settings, replace it
+with the scoped credential, verify the first intended notification, and revoke
+the old credential. Record only token identity/expiry and cutover/revocation
+confirmation, never the token value. Missing notification credentials still
+skip this optional post-publish step; no publication or required CI gate is
+relaxed. Issue #382 remains open until owner-operated credential evidence exists.
+
 This document describes how a new version of **azure-functions-langgraph** reaches PyPI.
 
 Releases are automated by [Release Please](https://github.com/googleapis/release-please). It decides the
