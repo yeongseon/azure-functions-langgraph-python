@@ -133,6 +133,7 @@ class _ServiceBusRegistration:
     async_mode: bool = False
     lock_timeout: float = 5.0
     binding_kwargs: dict[str, Any] = field(default_factory=dict)
+    session: bool = False
 
     @property
     def is_topic(self) -> bool:
@@ -143,6 +144,18 @@ class _ServiceBusRegistration:
 def _has_checkpointer(graph: Any) -> bool:
     """Whether a compiled graph has a checkpointer attached."""
     return getattr(graph, "checkpointer", None) is not None
+
+
+def _message_thread_id(reg: _ServiceBusRegistration, msg: ServiceBusMessageLike) -> str | None:
+    thread_id = reg.thread_id_factory(msg) if reg.thread_id_factory is not None else None
+    if not reg.session:
+        return thread_id
+    session_id = getattr(msg, "session_id", None)
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise ValueError("session mode requires a nonempty message session_id")
+    if reg.thread_id_factory is not None and thread_id != session_id:
+        raise ValueError("thread_id_factory must match message session_id in session mode")
+    return session_id
 
 
 class ThreadContentionError(RuntimeError):
@@ -175,7 +188,7 @@ def process_service_bus_message(
     Returns the graph result so alternative drivers can post-process it.
     """
     graph_input = reg.input_mapper(msg)
-    thread_id = reg.thread_id_factory(msg) if reg.thread_id_factory is not None else None
+    thread_id = _message_thread_id(reg, msg)
     ctx = new_run_context(
         reg.name,
         "invoke",
@@ -231,7 +244,7 @@ async def process_service_bus_message_async(
     All ordering, contention, and result-handler semantics match the sync path.
     """
     graph_input = reg.input_mapper(msg)
-    thread_id = reg.thread_id_factory(msg) if reg.thread_id_factory is not None else None
+    thread_id = _message_thread_id(reg, msg)
     ctx = new_run_context(
         reg.name,
         "invoke",

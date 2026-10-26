@@ -401,6 +401,7 @@ class LangGraphApp:
         async_mode: bool = False,
         lock_timeout: float = 5.0,
         binding_kwargs: dict[str, Any] | None = None,
+        session: bool = False,
     ) -> None:
         """Register a compiled graph to be driven by an Azure Service Bus message.
 
@@ -436,6 +437,9 @@ class LangGraphApp:
             binding_kwargs: Extra keyword arguments forwarded verbatim to the
                 underlying Azure Functions trigger decorator (escape hatch for
                 sessions, cardinality, access rights, etc.).
+            session: Enable session binding and require a valid message session
+                ID as the checkpoint thread ID. A supplied thread factory must
+                match it. Shared thread locking remains enabled.
 
         Raises:
             TypeError: If *graph* does not satisfy the required protocol, or if
@@ -481,6 +485,11 @@ class LangGraphApp:
             raise ValueError("lock_timeout must be finite and non-negative")
 
         effective_async = async_mode or not has_sync_invoke
+        effective_binding = dict(binding_kwargs or {})
+        if session:
+            if effective_binding.get("is_sessions_enabled") is False:
+                raise ValueError("session=True conflicts with is_sessions_enabled=False")
+            effective_binding["is_sessions_enabled"] = True
         self._sb_registrations[name] = _ServiceBusRegistration(
             graph=graph,
             name=name,
@@ -493,7 +502,8 @@ class LangGraphApp:
             result_handler=result_handler,
             async_mode=effective_async,
             lock_timeout=lock_timeout,
-            binding_kwargs=dict(binding_kwargs or {}),
+            binding_kwargs=effective_binding,
+            session=session,
         )
         # Reset cached function app so routes are re-generated.
         self._function_app = None
