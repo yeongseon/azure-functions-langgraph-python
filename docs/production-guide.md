@@ -403,6 +403,12 @@ See `DESIGN.md` (thread-assistant binding design decision and concurrency notes)
 
 ### Blob checkpointer single-writer assumption
 
+Pending writes are replayed in `(task_path, task_id, write_index)` order on
+both synchronous and native async Blob reads. Legacy write blobs without
+`task_path` metadata use the empty path, preserving their task-ID/index order;
+new writes already persist URL-encoded task paths. This ordering does not
+provide concurrent-writer exclusion.
+
 `AzureBlobCheckpointSaver` is designed around single-writer-per-thread semantics.
 The implementation documents concurrent-writer conflict resolution as a non-goal.
 
