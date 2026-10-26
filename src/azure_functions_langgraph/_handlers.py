@@ -39,7 +39,6 @@ from azure_functions_langgraph.authorization import (
 from azure_functions_langgraph.contracts import (
     ErrorResponse,
     InvokeRequest,
-    InvokeResponse,
     StateResponse,
     StreamRequest,
 )
@@ -204,6 +203,7 @@ def _parse_native_request(
     max_request_body_bytes: int,
     max_input_depth: int,
     max_input_nodes: int,
+    allowed_configurable_keys: frozenset[str] = frozenset(),
 ) -> _ParsableRequestT | func.HttpResponse:
     """Parse and validate a native invoke/stream request body.
 
@@ -244,6 +244,14 @@ def _parse_native_request(
         )
         if config_err:
             return _error_response(400, config_err)
+        if request.config.keys() - {"configurable"}:
+            return _error_response(400, "Only config.configurable is client configurable")
+        configurable = request.config.get("configurable")
+        if isinstance(configurable, dict):
+            if any(key.startswith("__") for key in configurable):
+                return _error_response(400, "Internal configurable keys are not permitted")
+            if configurable.keys() - ({"thread_id"} | allowed_configurable_keys):
+                return _error_response(400, "Unapproved config.configurable field")
     return request
 
 
@@ -310,6 +318,7 @@ def handle_invoke(
     parsed = _parse_native_request(
         req,
         InvokeRequest,
+        allowed_configurable_keys=getattr(reg, "allowed_configurable_keys", frozenset()),
         max_request_body_bytes=max_request_body_bytes,
         max_input_depth=max_input_depth,
         max_input_nodes=max_input_nodes,
@@ -352,6 +361,7 @@ def handle_invoke(
     safe_observer_call(observer, "on_run_started", ctx)
     try:
         result = reg.graph.invoke(request.input, config=config, **version_kwargs)
+        body = dumps({"output": _serialize_graph_output(result)}, allow_nan=False)
     except Exception as exc:
         logger.exception("Graph %s invoke failed", reg.name)
         safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
@@ -361,10 +371,8 @@ def handle_invoke(
             thread_lock.release(reg.name, thread_id, lock_token)
 
     safe_observer_call(observer, "on_run_completed", finish_context(ctx))
-    output = _serialize_graph_output(result)
-    response = InvokeResponse(output=output)
     return func.HttpResponse(
-        body=response.model_dump_json(),
+        body=body,
         mimetype="application/json",
         status_code=200,
         headers={"X-Request-ID": ctx.run_id},
@@ -424,6 +432,7 @@ def handle_stream(
     parsed = _parse_native_request(
         req,
         StreamRequest,
+        allowed_configurable_keys=getattr(reg, "allowed_configurable_keys", frozenset()),
         max_request_body_bytes=max_request_body_bytes,
         max_input_depth=max_input_depth,
         max_input_nodes=max_input_nodes,
@@ -495,10 +504,7 @@ def handle_stream(
             stream_mode=request.stream_mode,
             **version_kwargs,
         ):
-            serialized = dumps(
-                event if isinstance(event, dict) else {"data": str(event)},
-                allow_nan=False,
-            )
+            serialized = dumps(event, allow_nan=False)
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
                 stream_error = RuntimeError("stream response exceeded max buffered size")
                 break
@@ -564,6 +570,7 @@ async def handle_invoke_async(
     parsed = _parse_native_request(
         req,
         InvokeRequest,
+        allowed_configurable_keys=getattr(reg, "allowed_configurable_keys", frozenset()),
         max_request_body_bytes=max_request_body_bytes,
         max_input_depth=max_input_depth,
         max_input_nodes=max_input_nodes,
@@ -605,16 +612,15 @@ async def handle_invoke_async(
         safe_observer_call(observer, "on_run_started", ctx)
         try:
             result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
+            body = dumps({"output": _serialize_graph_output(result)}, allow_nan=False)
         except Exception as exc:
             logger.exception("Graph %s ainvoke failed", reg.name)
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
             return _error_response(500, "Graph execution failed", ctx.run_id)
 
     safe_observer_call(observer, "on_run_completed", finish_context(ctx))
-    output = _serialize_graph_output(result)
-    response = InvokeResponse(output=output)
     return func.HttpResponse(
-        body=response.model_dump_json(),
+        body=body,
         mimetype="application/json",
         status_code=200,
         headers={"X-Request-ID": ctx.run_id},
@@ -672,6 +678,7 @@ async def handle_stream_async(
     parsed = _parse_native_request(
         req,
         StreamRequest,
+        allowed_configurable_keys=getattr(reg, "allowed_configurable_keys", frozenset()),
         max_request_body_bytes=max_request_body_bytes,
         max_input_depth=max_input_depth,
         max_input_nodes=max_input_nodes,
@@ -744,10 +751,7 @@ async def handle_stream_async(
         try:
             try:
                 async for event in agen:
-                    serialized = dumps(
-                        event if isinstance(event, dict) else {"data": str(event)},
-                        allow_nan=False,
-                    )
+                    serialized = dumps(event, allow_nan=False)
                     if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
                         stream_error = RuntimeError("stream response exceeded max buffered size")
                         break

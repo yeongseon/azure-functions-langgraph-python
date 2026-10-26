@@ -19,6 +19,25 @@ youngest surfaces, not the stable core.
 
 ## Architecture
 
+### Core adapter and deployment extensions
+
+The core path is `LangGraphApp` → `register()` → `function_app`, with a
+LangGraph checkpointer attached at compile time when graph state is needed.
+`ThreadLock` is the writer-exclusion protocol; the default `InProcessThreadLock`
+is **single-process only**, including when one Azure instance has multiple
+workers. Checkpoint backends and thread locking remain **Beta** under the
+README stability policy, not Stable merely because the core uses them.
+
+Distributed topology is a separate decision: the shipped Blob lease lock is a
+low-cost option, not a mandatory backend. Platform `ThreadStore` CAS maintains
+thread metadata/run ownership and is not acquired by native or trigger runs.
+Mixed surfaces must share the distributed lock configuration and graph/thread
+keys. Durable is an opt-in execution/polling lifecycle; Service Bus sessions
+are sender-configured ordering within one queue/subscription. Neither is a
+universal single-writer workaround. The
+[production guide](docs/production-guide.md#distributed-deployment) owns wiring,
+guards, lease lifetime, cancellation and recovery guidance.
+
 ```mermaid
 flowchart TB
     subgraph App ["App / Core"]
@@ -65,8 +84,12 @@ Future versions may adopt the app-wide FastAPI/ASGI streaming model (`azurefunct
 ### 3. Thread ID in request body config (native routes)
 For native routes (`/graphs/{name}/invoke`, etc.), `thread_id` is passed in `config.configurable.thread_id`, not as a URL path parameter. This keeps the native API surface minimal and compatible with LangGraph's client patterns. Platform-compatible routes use path parameters (`/threads/{thread_id}/...`) to match the LangGraph Platform REST API.
 
-### 4. No Durable Functions dependency (v0.1)
-The v0.1 release is HTTP-only. This keeps the dependency footprint small and the mental model simple. Durable Functions can be added later for timeout extension and fan-out patterns.
+### 4. No mandatory Durable Functions dependency
+The default adapter remains HTTP-first with no Durable dependency. The shipped
+experimental `async_runs="durable"` opt-in adds long-running execution and
+polling via the `durable` extra, not global thread serialization. Graphs execute
+inside activities, never orchestrators; checkpoints and writer exclusion remain
+separate responsibilities.
 
 ### 5. Per-graph auth override (v0.2)
 Each graph registration can override the app-level `auth_level`. This enables mixed-auth deployments where public-facing graphs use `ANONYMOUS` while admin graphs require `FUNCTION` keys. The override is stored per-registration and applied at route creation time.
@@ -82,9 +105,16 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 
 **Consequences**: Checkpoint data survives restarts and scales across instances. Blob Storage provides high throughput and automatic geo-replication. The `azure-storage-blob` dependency is optional — import fails with a helpful message if not installed.
 
-**Non-goals**: Async I/O (synchronous for v0.4), concurrent-writer conflict resolution (single-writer assumed).
+**Non-goals**: Concurrent-writer conflict resolution (single-writer assumed).
+Sync I/O and optional native async Blob I/O are supported.
 
-**⚠️ Concurrency constraint**: The checkpointer assumes a single writer per thread. Concurrent writes to the same thread from multiple Azure Functions instances may corrupt checkpoint data. The write order (values -> metadata -> checkpoint commit marker -> latest hint) is designed for recoverability under single-writer semantics only. To serialize access per thread across instances, wire the ready-made blob-lease lock the package already ships: `AzureBlobLeaseThreadLock` (`src/azure_functions_langgraph/locks/azure_blob.py`), which uses Azure Blob lease compare-and-swap (with background lease renewal) as the coordination primitive — pass it via `LangGraphApp(thread_lock=AzureBlobLeaseThreadLock(container_client=...))`. Alternatively, route through Platform-compatible runs with `AzureTableThreadStore` (ETag-based run locking), or serialize externally (e.g. queue-triggered processing). See the `production_persistent_agent` example for the wiring and `docs/production-guide.md` for the scale-out matrix.
+**⚠️ Concurrency constraint**: The checkpointer assumes a single writer per
+thread. The write order (values → metadata → checkpoint commit marker → latest
+hint) supports recovery under that assumption, not concurrent-write conflict
+resolution. Use a distributed `ThreadLock` for shared writers, or an explicitly
+single-writer topology. Platform Table CAS covers Platform operations only;
+queueing alone does not serialize a thread. See the
+[deployment decision table](docs/production-guide.md#distributed-deployment).
 
 ### 8. Azure Table Storage thread store (v0.4)
 
@@ -143,6 +173,55 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 **Decision history**: The original v0.5 plan was to keep `ANONYMOUS` as the default through v0.5.x-v0.6.x for backward compatibility and only switch to `FUNCTION` in v1.0. That plan was superseded: `FUNCTION` became the default in **v0.7.3** (#243), ahead of v1.0, because the security risk of an anonymous default outweighed the backward-compatibility concern.
 
 **Non-goals**: Environment-dependent defaults (surprising behavior), `DeprecationWarning` emission (ignored by default, creates noise without protection).
+
+### 14. Retain bounded Blob lease renewal (0.13 evaluation, #697)
+
+**Decision:** Keep `AzureBlobLeaseThreadLock`, its default 60-second finite lease
+with `auto_renew=True`, and the existing `ThreadLock.acquire` / owner-token
+`release` protocol unchanged. Retain the renewal daemon and bounded worker pool;
+do not replace them with a fixed lease or an infinite default in 0.13.
+
+**Evidence:** Evaluated against `ef72421` (2026-10-25), including the fixes for
+#384 (retry transient renewal failures and retain lost local ownership), #387
+(isolate slow renewals with bounded concurrency), and #642 (release acquisitions
+that cross terminal close). Controlled two-instance tests in
+`tests/test_blob_lease_evaluation.py` advance service time through 180 seconds:
+healthy renewal excludes a contender; expiration without renewal, or after
+renewal failure, admits a second owner while the first graph can still write.
+An acquisition wait timeout is not an execution deadline, and cancelling a
+running synchronous worker cannot stop it. Failed close recovers through finite
+expiry but leaves an infinite lease requiring operator intervention.
+
+**Alternatives evaluated:**
+
+| Alternative | Benefit | Safety / operational cost | Outcome |
+| --- | --- | --- | --- |
+| Retain / streamline bounded renewal | No extra service; supports work longer than 60 seconds; finite crash recovery | Best effort under network loss; worker threads cannot be forcibly stopped; no checkpoint write fence | Retain existing implementation, no speculative concurrency rewrite |
+| Fixed finite lease for explicitly bounded work | Removes renewal bookkeeping | Must enforce a deadline including graph, tools, checkpoint I/O and cleanup, cancel and join all work before expiry, and atomically reject stale writes at storage; not provided by the current protocol/checkpointer | Existing explicit opt-out only, not a safe automatic migration |
+| Non-expiring lease (`-1`) | Removes renewal and natural-expiry overlap | A crash strands ownership; break/release must follow verified worker quiescence or write fencing; operational recovery is mandatory | Existing opt-in only, not the default |
+
+Azure permits finite leases of 15–60 seconds or an infinite lease. Its lease
+protects the **marker blob**, not the separate checkpoint blobs. The opaque
+release token protects owner bookkeeping, not checkpoint writes. Neither
+renewal, opt-out, nor infinite leases automatically fence in-flight writes;
+manual breaks and premature `close()` can also admit a new owner. Checking a
+lease before writing is not an atomic write fence. An HTTP response timeout
+(including the Functions 230-second limit) does not terminate graph execution.
+
+**Consequences / migration:** No runtime, dependency, protocol, default or version
+change; no migration is required. This evaluation adds tests and operating
+guidance, not a stronger mutual-exclusion guarantee. Removing automatic renewal
+would require evidence of enforced cancellation **and** storage-side fencing
+before changing the default, plus explicit migration/release documentation.
+Do not present the retained lock as partition-proof or as real-Azure
+certification. Worker count is bounded, but hung SDK calls can exhaust that
+pool; queued submissions are not an admission-bounded queue. The tick wait
+timeout does not cancel network I/O. Keep SDK timeouts/retries bounded and
+drain graph work before closing the lock.
+
+See the [production lease lifecycle and recovery guidance](docs/production-guide.md#blob-lease-safety-and-recovery)
+and the authoritative [Azure lease semantics](https://learn.microsoft.com/en-us/rest/api/storageservices/lease-blob)
+and [Functions HTTP limits](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger#limits).
 
 ## Module Structure
 

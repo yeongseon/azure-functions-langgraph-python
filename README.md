@@ -159,7 +159,7 @@ POST /api/graphs/simple_agent/stream
 $ curl -s http://localhost:7071/api/health
 {"status":"ok"}
 $ curl -s -X POST http://localhost:7071/api/graphs/simple_agent/invoke -H "Content-Type: application/json" -d '{"input":{"messages":[{"role":"human","content":"World"}],"greeting":""}}'
-{"output":{"messages":[{"role":"human","content":"World"},{"role":"assistant","content":"Hello, World! Goodbye!"}],"greeting":"Hello, World!"}}
+{"output": {"messages": [{"role": "human", "content": "World"}, {"role": "assistant", "content": "Hello, World! Goodbye!"}], "greeting": "Hello, World!"}}
 ```
 
 `/api/health` is the minimal anonymous liveness probe; `/api/health/details` is
@@ -269,6 +269,27 @@ curl -s "https://<your-app>.azurewebsites.net/api/health/details?code=<FUNCTION_
 > Response format verified against a temporary Azure Functions deployment of the `simple_agent` example in koreacentral (Python 3.12, Consumption plan). The Quick Start uses `echo_agent` for illustration; the health endpoint returns the same JSON structure regardless of graph name. URL anonymized.
 
 
+### Core adapter: state and thread exclusion
+
+Start with `LangGraphApp`, `register()` and `function_app`. For conversation
+state, compile your graph with a LangGraph checkpointer and send
+`config.configurable.thread_id`; a checkpointer persists graph state, not
+Platform thread records. Native routes do not require `platform_compat=True`,
+Azure Table Storage, Durable Functions or Service Bus.
+
+`thread_lock` accepts the `ThreadLock` protocol from
+`azure_functions_langgraph.locks`: `acquire(graph_name, thread_id, timeout=0.0)`
+returns an owner token (or `None` on contention), and `release(...)` receives
+that token. The default `InProcessThreadLock` guards checkpointed native
+invoke/stream runs for the same `(graph_name, thread_id)` **inside one Python
+process only**. Even one Function App instance can have multiple worker
+processes; local locking is not distributed exclusion.
+
+Before sharing checkpoint state across workers or apps, follow the
+[production and distributed deployment guidance](docs/production-guide.md#distributed-deployment).
+Persistence and exclusion are separate choices. Thread locking and checkpoint
+backends remain **Beta**, as listed in the stability table above.
+
 ### Production authentication
 
 > **Important:** `LangGraphApp` defaults to `AuthLevel.FUNCTION`, so deployed
@@ -304,6 +325,19 @@ app_local = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS)
 > explicitly to expose it publicly (e.g. local development).
 
 ### Streaming behavior
+
+Native buffered `POST /api/graphs/{name}/stream` responses encode each graph
+event directly as JSON in an `event: data` SSE frame, on both sync and async
+paths. Dictionaries remain JSON objects, tuples/lists become arrays, and scalars
+retain their JSON types (including `null`). In `stream_mode="messages"`, the
+message/metadata tuple becomes a two-element array; LangChain messages, including
+nested messages, retain structured `message_to_dict` data. Pydantic models use
+JSON-mode dumps; unsupported custom objects use the shared codec's `str` fallback.
+Non-dictionary events no longer use the lossy `{"data": "<Python repr>"}` envelope.
+Clients should JSON-decode each frame's `data:` value rather than assume an object.
+Non-finite numbers and other encoding failures produce the existing sanitized
+`event: error` frame, followed by `event: end`; normal completion also ends with
+`event: end`. Platform-compatible and true-streaming transports are unchanged.
 
 > **Default (`LangGraphApp`): buffered SSE.** All `/stream` endpoints on the classic
 > `LangGraphApp` (the native `POST /api/graphs/{name}/stream` and the
@@ -356,6 +390,13 @@ run-lifecycle signals (`started` / `completed` / `failed` / `rejected`) for ever
 native invoke/stream run and every Platform `runs/wait` / `runs/stream` run. Each
 callback receives an immutable `RunContext` of **correlation identifiers and
 timing only** — never input, output, config, headers, or secrets.
+
+On the true-streaming surface, each started run receives exactly one terminal
+callback, including invoke cancellation, stream disconnection and iterator
+cleanup failures. Stream callbacks finish after iterator cleanup and lock
+release, before the final `event: end` frame is yielded, so closing at that
+frame cannot leave a span open. Cancellation and generator close still
+propagate; they are not reported as successful graph results.
 
 The package ships a built-in, dependency-free `LoggingRunObserver` for
 zero-boilerplate telemetry:
@@ -438,6 +479,11 @@ input, output, config, headers, or secrets — and failures record the exception
 > onto whatever provider is installed. For a runnable local demo with a console
 > exporter, see [`examples/run_observer_otel/`](examples/run_observer_otel/).
 
+## Optional execution surfaces
+
+These opt-ins solve delivery or execution-lifetime needs, not universal
+concurrency problems. They are not prerequisites for the core HTTP adapter.
+
 ### Service Bus trigger (experimental)
 
 Beyond the HTTP surface, a compiled graph can be driven directly from an
@@ -509,6 +555,11 @@ for single-message triggers, and `functionTimeout`, with safety margin.
 Renewal can fail: this adapter neither renews broker locks nor reads remaining
 message/session lock lifetime. If sessions are explicitly enabled, budget for
 session lock/renewal limits as well; sessions remain **off by default**.
+Sessions require a session-enabled queue/subscription, a sender-supplied
+`SessionId`, and explicit `binding_kwargs={"is_sessions_enabled": True}`.
+They order related messages within that entity; they do not exclude HTTP,
+Durable, other queues or other subscriptions writing the same checkpoint.
+See [session ordering and mixed surfaces](docs/production-guide.md#service-bus-sessions-and-mixed-surfaces).
 `clientRetryOptions` controls broker operations, not function-execution retries.
 See the [Service Bus binding settings](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-service-bus).
 
@@ -574,6 +625,15 @@ numbers, or a failing string conversion), the activity returns a normalized
 Durable delivery remains **at-least-once**: duplicate deliveries or host failure
 can still execute the graph again, so graph side effects must be idempotent.
 
+Durable is a long-running execution/polling choice, not a global single-writer
+service. Activities use the configured `thread_lock` for checkpointed runs with
+a thread ID; separate apps must share a distributed lock configuration when
+they write the same thread. Terminating an orchestration does not forcibly
+stop an already-running activity or synchronous tool. See the
+[production guide](docs/production-guide.md#async-runs-via-durable-functions-experimental).
+
+
+## Core adapter reference
 
 ### Per-graph auth
 
@@ -646,6 +706,33 @@ With `platform_compat=True`, you also get SDK-compatible endpoints:
 
 ### Request format
 
+Native classic invoke/stream routes now accept only `config.configurable` from
+clients, with `thread_id` as the sole default key. Unapproved fields return HTTP
+400 before authorization, locking or graph execution. Execution controls such as
+`recursion_limit`, callbacks and unknown top-level keys cannot be supplied by a
+client; bind trusted defaults on the server (for example with `graph.with_config`).
+The existing input depth, node-count and body-size limits still apply.
+
+Migration: if your application intentionally exposes a custom configurable field,
+register it explicitly with
+`app.register(graph, "agent", allowed_configurable_keys=frozenset({"locale"}))`.
+Only allow keys whose values are safe for an untrusted client to choose. Opting
+in to `checkpoint_id` or `checkpoint_ns` deliberately grants checkpoint-selection
+control and requires corresponding ownership checks in the RUN authorizer.
+Internal `__*` keys remain forbidden even when allow-listed. `thread_id` remains
+subject to validation and RUN authorization; an allow-list is not authentication.
+This policy covers classic native sync/async invoke and buffered stream routes,
+not Platform, Durable, Service Bus or experimental true-streaming transports.
+
+Native invoke responses keep the `{"output": ...}` envelope and use the shared
+JSON codec: nested LangChain messages retain structured `message_to_dict` data,
+Pydantic models use JSON-mode dumps, and other custom values (including datetime,
+set and bytes values nested in dictionaries) use the codec's `str` fallback.
+Response encoding finishes before `on_run_completed`. If encoding fails, the
+adapter returns a sanitized HTTP 500 with the same `X-Request-ID`, emits one
+`on_run_failed` event instead of completion, and releases the thread lock.
+Graph execution is not retried to serialize its output.
+
 ```json
 {
     "input": {
@@ -656,6 +743,15 @@ With `platform_compat=True`, you also get SDK-compatible endpoints:
     }
 }
 ```
+
+## Production and distributed deployment
+
+Keep the core adapter independent of deployment infrastructure. Choose a
+checkpointer for graph state, a `ThreadLock` for writer exclusion, and a
+Platform `ThreadStore` only if you expose Platform-compatible routes. The
+[production deployment decision table](docs/production-guide.md#distributed-deployment)
+covers scale-out, lease lifetime/recovery, mixed surfaces and optional triggers.
+No lock backend is switched automatically.
 
 ### Persistent storage (v0.4+)
 
@@ -706,7 +802,10 @@ app.register(graph=graph, name="echo_agent")
 func_app = app.function_app
 ```
 
-Checkpoints and thread metadata survive Azure Functions restarts and scale across instances.
+Checkpoints and thread metadata survive Azure Functions restarts. This example
+wires persistence, not distributed exclusion: before scaling or mixing native
+and Platform writers, also supply a distributed `thread_lock` as described in
+the [production guide](docs/production-guide.md#distributed-thread-locking).
 
 #### Persistent storage with Managed Identity
 
@@ -975,7 +1074,11 @@ Each reset uses ETag CAS so a thread that has been legitimately re-acquired sinc
 
 Native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) use an **in-process per-thread lock** when the graph has a checkpointer and the request includes `config.configurable.thread_id`. This prevents concurrent writes to single-writer checkpointers (e.g. `AzureBlobCheckpointSaver`) within the same Python worker process.
 
-> **Important:** The **default** backend is **in-process only** — it does not coordinate across multiple Function App instances, worker processes, or hosts. Multi-instance deployments (Flex Consumption / Elastic Premium) **must** either use a distributed `ThreadLock` backend (see below) or route through Platform-compatible runs (`platform_compat=True`) with `AzureTableThreadStore`, which provides ETag-based atomic locking.
+> **Important:** The **default** backend is **single-process only**. For shared
+> checkpoint writers across workers/hosts, use a distributed `ThreadLock`.
+> `AzureTableThreadStore` adds Platform run-lock CAS, but native, Durable and
+> Service Bus runs do not acquire that store lock. Table storage alone cannot
+> coordinate mixed surfaces.
 
 
 #### Distributed thread locking (v0.6+)
