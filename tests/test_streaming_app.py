@@ -926,7 +926,16 @@ class TestHandleStream:
             NoOpRunObserver(),
             lock,
         )
-        assert resp.status_code == 409
+        messages = []
+
+        async def send(message: Any) -> None:
+            messages.append(message)
+
+        async def receive() -> Any:
+            return {"type": "http.disconnect"}
+
+        await resp({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send)
+        assert messages[0]["status"] == 409
 
     async def test_success_streams_frames(self) -> None:
         app, reg = _app_with(FakeSyncGraph())
@@ -942,8 +951,8 @@ class TestHandleStream:
         )
         assert resp.media_type == "text/event-stream"
         assert resp.headers["X-Accel-Buffering"] == "no"
-        assert resp.headers["X-Request-ID"] == observer.contexts[0].run_id
         frames = await _read_stream_response(resp)
+        assert resp.headers["X-Request-ID"] == observer.contexts[0].run_id
         assert any(f.startswith("event: data\n") for f in frames)
         assert frames[-1] == "event: end\ndata: {}\n\n"
         # started emitted before headers; completed emitted as the stream drains.
