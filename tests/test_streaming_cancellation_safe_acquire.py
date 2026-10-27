@@ -123,7 +123,13 @@ async def test_cancellation_during_acquire_collects_and_releases_token(fn_name: 
     handler = _user_fn(app, fn_name)
 
     req = FakeRequest({"input": {}, "config": {"configurable": {"thread_id": "thread-one"}}})
-    task = asyncio.create_task(handler(req))
+
+    async def execute() -> None:
+        response = await handler(req)
+        if fn_name == "aflg_agent_stream":
+            await anext(response.body_iterator)
+
+    task = asyncio.create_task(execute())
     await _wait(lock.entered)
 
     task.cancel()

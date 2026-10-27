@@ -389,6 +389,14 @@ lifetime as separate concerns. A disconnect cancels response production, but a
 synchronous `graph.stream()` may already be running `next()` in a worker thread;
 Python cannot terminate that thread safely.
 
+Constructing a stream response does not acquire a lock, start a graph iterator,
+or open an observer span. Ownership begins when the ASGI transport executes the
+response (or a caller explicitly consumes its body). Acquisition still precedes
+response headers, so contention returns JSON HTTP 409 rather than an SSE error
+inside HTTP 200. The transport closes the prepared iterator even when header
+delivery fails before the first body pull. An abandoned, never-executed response
+therefore has no active token or span needing asynchronous finalization.
+
 The adapter therefore retains the thread-lock token until the single in-flight
 `next()` finishes, closes the iterator only after that worker has quiesced,
 releases the token exactly once, emits one failed observer outcome, and then

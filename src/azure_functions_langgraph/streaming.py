@@ -336,6 +336,7 @@ async def _sse_event_stream(
     ctx: RunContext,
     max_stream_events: int,
     async_mode: bool = False,
+    prime: bool = False,
 ) -> AsyncIterator[str]:
     """Produce a true-streaming SSE body, one frame at a time.
 
@@ -368,6 +369,8 @@ async def _sse_event_stream(
         async_mode=async_mode,
     )
     try:
+        if prime:
+            yield ""
         async for event in events:
             if count >= max_stream_events:
                 stream_error = RuntimeError(f"stream exceeded max events ({max_stream_events})")
@@ -879,6 +882,41 @@ class StreamingLangGraphApp:
         if isinstance(version_kwargs, _JsonError):
             return self._reject(JSONResponse, observer, ctx, "unsupported_version", version_kwargs)
 
+        from azure_functions_langgraph._stream_response import DeferredStreamingResponse
+
+        async def prepare() -> Any:
+            return await self._prepare_stream_response(
+                reg,
+                request,
+                config,
+                thread_id,
+                has_cp,
+                is_async,
+                version_kwargs,
+                JSONResponse,
+                StreamingResponse,
+                observer,
+                thread_lock,
+                ctx,
+            )
+
+        return DeferredStreamingResponse(prepare, ctx.run_id)
+
+    async def _prepare_stream_response(
+        self,
+        reg: _StreamRegistration,
+        request: StreamRequest,
+        config: dict[str, Any],
+        thread_id: str | None,
+        has_cp: bool,
+        is_async: bool,
+        version_kwargs: dict[str, str],
+        JSONResponse: Any,
+        StreamingResponse: Any,
+        observer: RunObserver,
+        thread_lock: ThreadLock,
+        ctx: RunContext,
+    ) -> Any:
         lock_thread_id = thread_id if has_cp else None
         lock_token: str | None = None
         if lock_thread_id is not None:
@@ -892,13 +930,6 @@ class StreamingLangGraphApp:
                     _JsonError(409, f"Thread {thread_id!r} is currently in use by another request"),
                 )
 
-        # Past this point the response headers are committed and the run has
-        # started; any further failure is delivered as an in-band SSE error
-        # frame by the generator, not an HTTP status code. Ownership of
-        # lock_token transfers to the generator below, which releases it on
-        # its own lifecycle (#651) -- but if constructing the generator or
-        # response itself fails before that handoff completes, release here
-        # instead of leaking the token.
         safe_observer_call(observer, "on_run_started", ctx)
         try:
             generator = _sse_event_stream(
@@ -915,8 +946,9 @@ class StreamingLangGraphApp:
                 ctx=ctx,
                 max_stream_events=self.max_stream_events,
                 async_mode=is_async,
+                prime=True,
             )
-            return StreamingResponse(
+            response = StreamingResponse(
                 generator,
                 media_type="text/event-stream",
                 headers={
@@ -925,6 +957,8 @@ class StreamingLangGraphApp:
                     "X-Request-ID": ctx.run_id,
                 },
             )
+            await anext(generator)
+            return response
         except BaseException as exc:
             try:
                 if lock_token is not None and thread_id is not None:
