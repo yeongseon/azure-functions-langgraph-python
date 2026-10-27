@@ -134,6 +134,7 @@ class _ServiceBusRegistration:
     lock_timeout: float = 5.0
     binding_kwargs: dict[str, Any] = field(default_factory=dict)
     session: bool = False
+    session_exclusive: bool = False
 
     @property
     def is_topic(self) -> bool:
@@ -200,7 +201,7 @@ def process_service_bus_message(
     )
 
     lock_token: str | None = None
-    use_lock = bool(thread_id) and _has_checkpointer(reg.graph)
+    use_lock = bool(thread_id) and _has_checkpointer(reg.graph) and not reg.session_exclusive
     if use_lock and thread_id is not None:
         lock_token = thread_lock.acquire(reg.name, thread_id, timeout=reg.lock_timeout)
         if not lock_token:
@@ -255,7 +256,7 @@ async def process_service_bus_message_async(
         trigger_type=TRIGGER_TYPE,
     )
 
-    use_lock = bool(thread_id) and _has_checkpointer(reg.graph)
+    use_lock = bool(thread_id) and _has_checkpointer(reg.graph) and not reg.session_exclusive
     lock_thread_id = thread_id if use_lock else None
     async with async_thread_lock(
         thread_lock, reg.name, lock_thread_id, timeout=reg.lock_timeout

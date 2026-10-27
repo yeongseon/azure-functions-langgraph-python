@@ -365,6 +365,8 @@ class LangGraphApp:
             raise ValueError(name_err)
         if name in self._registrations:
             raise ValueError(f"Graph {name!r} is already registered")
+        if any(reg.session_exclusive for reg in self._sb_registrations.values()):
+            raise ValueError("session-exclusive execution cannot expose HTTP graph routes")
         if auth_level == func.AuthLevel.ANONYMOUS:
             warnings.warn(
                 f"Graph {name!r} overrides auth_level to ANONYMOUS; authorization hooks "
@@ -402,6 +404,7 @@ class LangGraphApp:
         lock_timeout: float = 5.0,
         binding_kwargs: dict[str, Any] | None = None,
         session: bool = False,
+        session_exclusive: bool = False,
     ) -> None:
         """Register a compiled graph to be driven by an Azure Service Bus message.
 
@@ -440,6 +443,11 @@ class LangGraphApp:
             session: Enable session binding and require a valid message session
                 ID as the checkpoint thread ID. A supplied thread factory must
                 match it. Shared thread locking remains enabled.
+            session_exclusive: Explicit operator assertion that this entity is
+                the only checkpoint writer and broker session ownership lasts
+                through execution. Requires session mode, one registration,
+                single-message delivery, and no HTTP/Platform/Durable surfaces.
+                Bypasses ThreadLock; defaults to False.
 
         Raises:
             TypeError: If *graph* does not satisfy the required protocol, or if
@@ -486,6 +494,23 @@ class LangGraphApp:
 
         effective_async = async_mode or not has_sync_invoke
         effective_binding = dict(binding_kwargs or {})
+        if any(reg.session_exclusive for reg in self._sb_registrations.values()):
+            raise ValueError("session-exclusive execution cannot register another entity")
+        if session_exclusive:
+            from azure_functions_langgraph.triggers._session_topology import (
+                require_session_exclusive_topology,
+            )
+
+            require_session_exclusive_topology(
+                session=session,
+                isolated=not (
+                    self._registrations
+                    or self._sb_registrations
+                    or self.platform_compat
+                    or self.async_runs
+                ),
+                binding=effective_binding,
+            )
         if session:
             if effective_binding.get("is_sessions_enabled") is False:
                 raise ValueError("session=True conflicts with is_sessions_enabled=False")
@@ -504,6 +529,7 @@ class LangGraphApp:
             lock_timeout=lock_timeout,
             binding_kwargs=effective_binding,
             session=session,
+            session_exclusive=session_exclusive,
         )
         # Reset cached function app so routes are re-generated.
         self._function_app = None

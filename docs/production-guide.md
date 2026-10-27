@@ -500,9 +500,9 @@ IDs fail before graph execution. Conflicting
 `binding_kwargs={"is_sessions_enabled": False}` is rejected. The default
 non-session path and Basic-tier support are unchanged.
 
-This opt-in deliberately **retains ThreadLock acquisition**. No topology is
+This opt-in deliberately **retains ThreadLock acquisition by default**. No topology is
 automatically proven exclusive, and this adapter cannot fence other apps or
-queues; there is no unsafe lock-bypass switch. Serial processing within a
+queues. Serial processing within a
 session is host configuration, not inferred from the session ID. Provision a
 session-enabled Standard/Premium entity and set sender `SessionId=thread_id`
 before delivery. Configure host message/session renewal budgets and retries;
@@ -513,11 +513,11 @@ infrastructure and not automatic per-thread serialization:
 
 1. Provision a **session-enabled** queue or subscription (Service Bus Standard
    or Premium); send related messages with the same application-chosen
-   `SessionId` and opt into `binding_kwargs={"is_sessions_enabled": True}` on
+    `SessionId` and opt into `session=True` on
    `register_service_bus`. Sessions are off by default.
 2. Configure serial processing within each session and derive the checkpoint
-   thread ID consistently through `thread_id_factory`. The adapter does not
-   assign a sender's session ID or infer the checkpoint thread from it.
+    thread ID from the session ID (an optional factory must agree). The adapter
+    does not assign a sender's session ID.
 3. Session ownership orders messages for **that queue/subscription** only.
    Another queue, subscription, HTTP route or Durable activity can still write
    the same checkpoint. Use the shared distributed `ThreadLock` for those
@@ -525,7 +525,32 @@ infrastructure and not automatic per-thread serialization:
 4. Budget lock waiting (`lock_timeout=5.0` by default), graph execution, result
    handling and settlement within broker lock/renewal and Functions limits.
    Broker renewal is host-owned; the adapter does not renew message/session
-   locks. At-least-once delivery still requires idempotency and dead-letter handling.
+    locks. At-least-once delivery still requires idempotency and dead-letter handling.
+
+**Isolated session-only topology (experimental).**
+`register_service_bus(..., session=True, session_exclusive=True)` explicitly
+asserts that one session-enabled entity is the **only writer** of its checkpoint
+namespace, including writers in other deployments. Only use it when the broker
+guarantees exclusive session ownership for the entire graph and result-handler
+execution, and the host processes one message at a time per session. This bypasses
+the application ThreadLock, not broker locks. The app rejects native HTTP graph
+registration in either order, Platform compatibility, Durable runs, another
+Service Bus registration, and batch cardinality. Health routes remain available.
+These local checks cannot discover another app, a manually invoked activity,
+shared storage used under another graph name, or a session lease lost mid-run.
+Keep the default shared **distributed** lock whenever that external isolation or
+full-lifetime session ownership cannot be guaranteed. A session ID alone is not
+proof; lease expiry can allow a second owner while old user code still executes.
+
+Offline broker-double tests prove adapter routing, application-lock bypass,
+same-session exclusion under the double's contract, independent sessions, failure
+propagation and redelivery. **Live proof remains outstanding:** on a real
+Standard/Premium session-enabled queue and subscription, verify two competing
+Functions hosts, serial same-session execution, parallel different sessions,
+failure/redelivery, auto-renewal limits and session-lock loss during long work.
+Record host/runtime configuration and execution overlap evidence; never infer
+renewal/failover safety from the double. Do not use the bypass where loss allows
+overlapping checkpoint writes; retain distributed locking for that deployment.
 
 See [Service Bus sessions](https://learn.microsoft.com/en-us/azure/service-bus-messaging/message-sessions)
 and the [trigger example](../examples/service_bus_agent/). A plain queue with a
