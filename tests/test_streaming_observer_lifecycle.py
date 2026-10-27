@@ -234,7 +234,7 @@ async def test_stream_terminal_callback_when_response_construction_fails(
         raise failure
 
     with pytest.raises(RuntimeError) as raised:
-        await app._handle_stream(
+        response = await app._handle_stream(
             request(),
             app._registrations["agent"],
             False,
@@ -243,6 +243,7 @@ async def test_stream_terminal_callback_when_response_construction_fails(
             observer,
             lock,
         )
+        await anext(response.body_iterator)
     assert raised.value is failure
     assert observer.events == ["started", "failed"]
     assert observer.errors == [failure]
