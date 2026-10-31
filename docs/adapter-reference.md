@@ -708,7 +708,7 @@ With `platform_compat=True`, you also get SDK-compatible endpoints:
 
 ### Request format
 
-Native classic invoke/stream routes now accept only `config.configurable` from
+Native classic and true-stream invoke/stream routes accept only `config.configurable` from
 clients, with `thread_id` as the sole default key. Unapproved fields return HTTP
 400 before authorization, locking or graph execution. Execution controls such as
 `recursion_limit`, callbacks and unknown top-level keys cannot be supplied by a
@@ -720,11 +720,16 @@ register it explicitly with
 `app.register(graph, "agent", allowed_configurable_keys=frozenset({"locale"}))`.
 Only allow keys whose values are safe for an untrusted client to choose. Opting
 in to `checkpoint_id` or `checkpoint_ns` deliberately grants checkpoint-selection
-control and requires corresponding ownership checks in the RUN authorizer.
+control and requires corresponding ownership checks in the classic RUN authorizer
+or external streaming application/ingress policy.
 Internal `__*` keys remain forbidden even when allow-listed. `thread_id` remains
 subject to validation and RUN authorization; an allow-list is not authentication.
-This policy covers classic native sync/async invoke and buffered stream routes,
-not Platform, Durable, Service Bus or experimental true-streaming transports.
+This policy covers native sync/async invoke, buffered stream and experimental
+true-streaming routes, not Platform, Durable or Service Bus transports.
+The true-stream restriction is breaking for consumers that previously sent
+arbitrary config; move execution controls to server-owned defaults and opt in to
+safe application fields as described in [configuration](configuration.md#native-client-configuration-admission).
+Classic native admission semantics and the `thread_id` contract are unchanged.
 
 Native invoke responses keep the `{"output": ...}` envelope and use the shared
 JSON codec: nested LangChain messages retain structured `message_to_dict` data,
