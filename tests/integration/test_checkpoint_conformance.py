@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator, Sequence
 import importlib
+import json
 from typing import Any
 import uuid
 
@@ -25,6 +26,7 @@ import pytest
 
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
 from tests.storage_service import fail_or_skip_service, require_tcp_service
+from tests.test_checkpointers_azure_blob import _checkpoint, _config, _metadata
 
 pytestmark = pytest.mark.integration
 
@@ -137,3 +139,79 @@ async def test_conformance_base_capabilities_azurite(
         result = report.results[cap]
         assert result.detected, f"base capability {cap!r} was not detected"
         assert result.passed, f"base capability {cap!r} failed conformance: {result.failures!r}"
+
+
+@pytest.mark.parametrize("native", [False, True])
+async def test_native_and_fallback_conformance_azurite(
+    azurite_container_client: Any, native: bool
+) -> None:
+    aio_module = importlib.import_module("azure.storage.blob.aio")
+    async with aio_module.ContainerClient.from_connection_string(
+        AZURITE_BLOB_CONNECTION_STRING, azurite_container_client.container_name
+    ) as aio:
+
+        async def factory() -> Any:
+            yield AzureBlobCheckpointSaver(
+                container_client=azurite_container_client,
+                aio_container_client=aio if native else None,
+            )
+
+        report = await _validate(
+            _checkpointer_test(name=f"AzureBlobCheckpointSaver-azurite-{native}")(factory)
+        )
+        for cap in ("put", "put_writes", "get_tuple", "list", "delete_thread"):
+            result = report.results[cap]
+            assert result.detected
+            assert result.passed, result.failures
+
+
+@pytest.mark.parametrize("mode", ["sync", "native", "fallback"])
+async def test_latest_publication_failure_recovers_on_azurite(
+    azurite_container_client: Any, mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: A is stored on Azurite; only B's final clean publication is interrupted.
+    aio_module = importlib.import_module("azure.storage.blob.aio")
+    async with aio_module.ContainerClient.from_connection_string(
+        AZURITE_BLOB_CONNECTION_STRING, azurite_container_client.container_name
+    ) as aio:
+        saver = AzureBlobCheckpointSaver(
+            container_client=azurite_container_client,
+            aio_container_client=aio if mode == "native" else None,
+        )
+        cfg = _config(checkpoint_ns="recovery")
+        saver.put(cfg, _checkpoint("cp-001"), _metadata(), {})
+        upload = saver._upload_blob
+        aupload = saver._aupload_blob
+
+        def fail_clean(path: str, data: bytes, metadata: dict[str, str]) -> None:
+            if path.endswith("latest.json") and json.loads(data).get("dirty") is not True:
+                raise TimeoutError(path)
+            upload(path, data, metadata)
+
+        async def afail_clean(path: str, data: bytes, metadata: dict[str, str]) -> None:
+            if path.endswith("latest.json") and json.loads(data).get("dirty") is not True:
+                raise TimeoutError(path)
+            await aupload(path, data, metadata)
+
+        monkeypatch.setattr(saver, "_upload_blob", fail_clean)
+        monkeypatch.setattr(saver, "_aupload_blob", afail_clean)
+
+        # When: the real backend accepts B's marker and a fresh saver reads after failure.
+        with pytest.raises(TimeoutError):
+            if mode == "sync":
+                saver.put(cfg, _checkpoint("cp-002"), _metadata(), {})
+            else:
+                await saver.aput(cfg, _checkpoint("cp-002"), _metadata(), {})
+        reader = AzureBlobCheckpointSaver(
+            container_client=azurite_container_client,
+            aio_container_client=aio if mode == "native" else None,
+        )
+        latest = reader.get_tuple(cfg) if mode == "sync" else await reader.aget_tuple(cfg)
+
+        # Then: B is visible while explicit A and both history entries remain intact.
+        assert latest is not None
+        assert latest.checkpoint["id"] == "cp-002"
+        older = reader.get_tuple(_config(checkpoint_ns="recovery", checkpoint_id="cp-001"))
+        assert older is not None
+        assert older.checkpoint["id"] == "cp-001"
+        assert [c.checkpoint["id"] for c in reader.list(cfg)] == ["cp-002", "cp-001"]
