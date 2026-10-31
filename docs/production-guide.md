@@ -871,6 +871,31 @@ Both helpers only delete checkpoint marker, metadata, and write blobs. They inte
 
 > **Note** — `delete_old_checkpoints` / `delete_checkpoints_before` are safe but **not exhaustive**. Channel value blobs that were referenced *only* by the now-deleted checkpoints become orphaned and are not removed. For long-running threads with frequent checkpointing, those orphans can dominate the storage footprint over time. Run `collect_orphaned_values()` (below) on a schedule as the second step.
 
+#### Latest checkpoint crash recovery
+
+Each `put()` / native `aput()` persists a versioned dirty `latest.json` **before**
+uploading values or metadata, then commits `checkpoint.bin`, and finally
+publishes a clean monotonic pointer. If dirty-intent persistence fails, no new
+checkpoint data is uploaded. Failure before the marker leaves the prior state
+visible; hint failure or process exit after the marker leaves the new committed
+state discoverable by a fresh saver. A failed `put()` therefore does **not**
+imply rollback: reconcile committed state before retrying non-idempotent work.
+Explicit checkpoint-ID reads and history ordering are unchanged.
+
+Healthy version-1 clean hints load directly without listing checkpoint history
+(pending-write listing still occurs). Dirty, missing, invalid, dangling and
+legacy unversioned hints require a marker-prefix scan, whose cost grows with
+history. Readers do not clear dirty intent because a paused writer may still
+commit; the next successful write reconciles and republishes clean. Until then,
+recovery reads continue scanning and orphan GC skips the namespace. Drain old
+writers before upgrading: legacy writers do not publish dirty intent, so mixed
+versions cannot guarantee this recovery contract.
+
+This corrects crash/interrupted-publication visibility under the existing
+single-writer assumption, not arbitrary external rollback of a valid clean hint
+or multi-writer fencing. No reproduced cloud incident is claimed; deterministic
+fault-injection and Azurite checks are distinct from real-Azure certification.
+
 #### Garbage-collecting orphaned channel values
 
 After pruning checkpoints, `collect_orphaned_values()` walks the surviving checkpoints, builds the set of `(channel, version)` pairs they reference, and removes any `values/` blob outside that set. Default is **dry-run** so you can audit first:
@@ -885,7 +910,7 @@ print(f"Deleted {len(result.deleted)} orphaned value blobs")
 
 The helper is concurrency-safe by two complementary mechanisms: a recent-write grace period (default `grace_period_seconds=300`) defers deletion of any value blob whose `last_modified` is within the window — protecting the gap between a value blob upload and the corresponding `latest.json` finalization — and a per-orphan re-scan immediately before each delete preserves any older value blob that a newly finalized checkpoint started referencing after the snapshot.
 
-The helper **fails closed** per namespace: if `latest.json` is missing or any surviving checkpoint blob is unreadable / fails deserialization, the namespace is skipped (recorded in `result.skipped_namespaces`) so a misconfigured or transiently-unavailable store cannot trigger destructive deletion.
+The helper **fails closed** per namespace: if `latest.json` is dirty, legacy, missing or invalid, or any surviving checkpoint blob is unreadable / fails deserialization, the namespace is skipped (recorded in `result.skipped_namespaces`) so uncertain publication or an unavailable store cannot trigger destructive deletion. Publication trust is rechecked before each orphan deletion; coordinate maintenance with writers and retain the grace period, since this is not an atomic multi-writer fence.
 
 If you want absolute cutoffs instead of "keep N", use `delete_checkpoints_before(thread_id, before_checkpoint_id=...)`. Checkpoint ids are lexicographically sortable, so `before_checkpoint_id` can be the id of any boundary checkpoint your application picks (e.g. the last successful production checkpoint of a previous day).
 
