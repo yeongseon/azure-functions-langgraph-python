@@ -102,6 +102,28 @@ Check logs:
 func start --verbose
 ```
 
+### Platform state update returns 500 during lock release
+
+`POST /threads/{thread_id}/state` returns the sanitized error
+`Internal error releasing thread state lock` if the update succeeded but the
+store-backed or outer thread lock could not be released. A deleted thread or a
+store release that leaves another owner's lock intact also prevents an
+unqualified success. If the graph update itself failed, its original error
+response is preserved and secondary cleanup failures are logged. State updates
+do not emit run-lifecycle observer events.
+
+This response does **not** imply rollback: the checkpoint may already be
+committed. Before retrying, read the thread state and checkpoint/history to
+reconcile the intended change. Do not blindly repeat a potentially
+non-idempotent update; the adapter does not promise exactly-once updates.
+
+Inspect server logs for the failing cleanup boundary. While the store row is
+still `busy`, a subsequent update is rejected with 409. Recover ownership only
+after confirming the old writer has stopped, using the captured owner token or
+the Table store's expired-lock recovery procedure. Never clear a newer owner's
+lock to make a retry succeed. Successful cleanup restores the prior terminal
+status (`idle`, `interrupted`, or `error`); a failed graph update targets `error`.
+
 ## Getting help
 
 - [GitHub Issues](https://github.com/yeongseon/azure-functions-langgraph-python/issues) — questions, bug reports, and feature requests
