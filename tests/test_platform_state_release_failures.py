@@ -142,10 +142,20 @@ def test_cleanup_preserves_primary_response_and_releases_outer_once(
     )
 
 
-@pytest.mark.parametrize("boundary", ["deleted", "superseded", "cas_superseded", "cas_exhausted"])
+@pytest.mark.parametrize(
+    "boundary",
+    ["deleted", "superseded", "terminal_idle", "terminal_error", "cas_superseded", "cas_exhausted"],
+)
 @pytest.mark.parametrize("graph_fails", [False, True])
 def test_cleanup_reports_owner_uncertainty_without_mutating_newer_owner(
-    boundary: Literal["deleted", "superseded", "cas_superseded", "cas_exhausted"],
+    boundary: Literal[
+        "deleted",
+        "superseded",
+        "terminal_idle",
+        "terminal_error",
+        "cas_superseded",
+        "cas_exhausted",
+    ],
     graph_fails: bool,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -166,13 +176,18 @@ def test_cleanup_reports_owner_uncertainty_without_mutating_newer_owner(
     def replace_owner() -> None:
         store.update(thread.thread_id, status="idle", metadata={"newer": True})
         store.try_acquire_run_lock(thread.thread_id, assistant_id="agent")
+        # Terminal recovery can retain a newer owner's token; status alone is insufficient.
+        if boundary == "terminal_idle":
+            store.update(thread.thread_id, status="idle")
+        elif boundary == "terminal_error":
+            store.update(thread.thread_id, status="error")
         newer.update(table.entities[key])
 
     def update_state(*args: object, **kwargs: object) -> dict[str, object]:
         match boundary:
             case "deleted":
                 store.delete(thread.thread_id)
-            case "superseded":
+            case "superseded" | "terminal_idle" | "terminal_error":
                 replace_owner()
             case "cas_superseded" | "cas_exhausted":
                 pass
@@ -190,7 +205,7 @@ def test_cleanup_reports_owner_uncertainty_without_mutating_newer_owner(
                 raise FakeResourceModifiedError("private-cas-canary")
             case "cas_exhausted":
                 raise FakeResourceModifiedError("private-cas-canary")
-            case "deleted" | "superseded":
+            case "deleted" | "superseded" | "terminal_idle" | "terminal_error":
                 return DEFAULT
 
     handler: Callable[[func.HttpRequest], func.HttpResponse] = _get_fn(
