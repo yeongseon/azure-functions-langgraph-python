@@ -141,6 +141,10 @@ async def test_conformance_base_capabilities_azurite(
         assert result.passed, f"base capability {cap!r} failed conformance: {result.failures!r}"
 
 
+@pytest.mark.skipif(
+    not _HAS_CONFORMANCE,
+    reason="langgraph-checkpoint-conformance not installed",
+)
 @pytest.mark.parametrize("native", [False, True])
 async def test_native_and_fallback_conformance_azurite(
     azurite_container_client: Any, native: bool
