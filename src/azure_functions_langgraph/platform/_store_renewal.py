@@ -7,6 +7,10 @@ from typing import Final
 from azure_functions_langgraph.platform._common import PlatformRouteDeps, logger
 
 RENEWAL_INTERVAL: Final = 20
+# Upper bound (seconds) a request cleanup waits for a renewal worker that is
+# blocked inside a store call. The worker is a daemon and exits on its own once
+# that call returns; it is never force-stopped.
+RENEWAL_STOP_TIMEOUT: Final = 5.0
 
 
 @dataclass(slots=True)
@@ -20,6 +24,10 @@ class StoreRenewal:
 
 class RunLockRenewalError(RuntimeError):
     """The store no longer guarantees ownership of the active run."""
+
+
+class RunLockRenewalStopTimeoutError(RunLockRenewalError):
+    """The renewal worker was still inside a store call when cleanup stopped waiting."""
 
 
 _STORE_RENEWALS: dict[str, StoreRenewal] = {}
@@ -59,6 +67,16 @@ def stop_store_renewal(owner_token: str) -> Exception | None:
     if renewal is None:
         return None
     renewal.stop.set()
-    if renewal.worker is not None:
-        renewal.worker.join()
+    worker = renewal.worker
+    if worker is not None:
+        worker.join(RENEWAL_STOP_TIMEOUT)
+        if worker.is_alive() and renewal.failure is None:
+            # The in-flight renew cannot be cancelled. Report a terminal state so
+            # cleanup records an error; the later store release stays fenced by the
+            # owner token and ETag, so a late renew cannot mutate a newer owner.
+            logger.error(
+                "Run-lock renewal worker still blocked after %.1fs; abandoning it",
+                RENEWAL_STOP_TIMEOUT,
+            )
+            return RunLockRenewalStopTimeoutError()
     return renewal.failure
