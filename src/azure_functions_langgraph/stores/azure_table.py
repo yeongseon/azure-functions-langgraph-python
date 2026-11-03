@@ -277,6 +277,7 @@ class AzureTableThreadStore(ThreadStore):
         metadata_value = read_json(entity, "metadata_json")
         values_value = read_json(entity, "values_json")
         interrupts_value = read_json(entity, "interrupts_json", {})
+        lock_expires_at = entity.get("lock_expires_at")
 
         return Thread.model_validate(
             {
@@ -288,6 +289,12 @@ class AzureTableThreadStore(ThreadStore):
                 "values": values_value,
                 "assistant_id": entity.get("assistant_id"),
                 "interrupts": interrupts_value,
+                "lock_token": entity.get("lock_token"),
+                "lock_expires_at": (
+                    self._normalize_datetime(lock_expires_at)
+                    if lock_expires_at is not None
+                    else None
+                ),
             }
         )
 
