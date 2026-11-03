@@ -135,17 +135,17 @@ queueing alone does not serialize a thread. See the
 
 > **Provenance: every number below comes from a counting in-memory fake or from the Azurite emulator. None is an Azure Storage measurement, none includes real network latency, throttling or transaction billing, and none establishes a supported thread count.** Real-Azure measurement is still outstanding.
 
-Reproduce with `tools/benchmark_table_store.py` (see its docstring): `hatch run table:python tools/benchmark_table_store.py --sizes 1000,10000,100000` (fake), `... --azurite --sizes 1000,10000` (starts and removes its own Azurite process) and `... --prototype-check`. Synthetic threads: 80% `idle`, 10% `busy`, 7% `interrupted`, 3% `error`; metadata `tenant` (50 values, about 2% selectivity), `kind`, `user`. "Requests" are modeled as one per started page of 1,000 entities, the Table query page limit. Medians of 3 runs, one machine; compare ratios, not absolute values.
+Reproduce with `tools/benchmark_table_store.py` (see its docstring): `hatch run table:python tools/benchmark_table_store.py --sizes 1000,10000,100000` (fake), `... --azurite --azurite-port 10112 --sizes 1000,10000` against an Azurite table service you start yourself (the script only creates and deletes its own `bench<N>` tables) and `... --prototype-check`. Synthetic threads: about 80% `idle`, 10% `busy`, 7% `interrupted`, 3% `error`; metadata `tenant` (50 values, about 2% selectivity), `kind`, `user`. "Requests" are modeled as one per started page of 1,000 entities, the Table query page limit. Medians of 3 runs, one machine; compare ratios, not absolute values.
 
 Fake client (entities read, modeled requests, peak Python memory, median latency, which here is client-side CPU only):
 
 | Threads | `search(limit=10)` unfiltered | `search(status="idle", limit=10, offset=0.6N)` | `search(metadata={"tenant": "t7"}, limit=10)` | `count(status="busy")` | `count(metadata={"tenant": "t7"})` |
 |---:|---|---|---|---|---|
-| 1,000 | 1,000 / 1 / 1.6 MiB / 8 ms | 801 / 1 / 1.3 MiB / 6 ms | 1,000 / 1 / 1.6 MiB / 7 ms | 99 / 1 / 0.1 MiB / 1 ms | 1,000 / 1 / 1.6 MiB / 7 ms |
-| 10,000 | 10,000 / 10 / 16 MiB / 85 ms | 7,984 / 8 / 13 MiB / 71 ms | 10,000 / 10 / 16 MiB / 94 ms | 994 / 1 / 1.6 MiB / 10 ms | 10,000 / 10 / 16 MiB / 91 ms |
-| 100,000 | 100,000 / 100 / 161 MiB / 1,128 ms | 80,064 / 81 / 129 MiB / 924 ms | 100,000 / 100 / 158 MiB / 1,111 ms | 9,878 / 10 / 16 MiB / 136 ms | 100,000 / 100 / 158 MiB / 1,106 ms |
+| 1,000 | 1,000 / 1 / 1.6 MiB / 8 ms | 814 / 1 / 1.3 MiB / 6 ms | 1,000 / 1 / 1.6 MiB / 7 ms | 85 / 1 / 0.1 MiB / 1 ms | 1,000 / 1 / 1.6 MiB / 7 ms |
+| 10,000 | 10,000 / 10 / 16 MiB / 88 ms | 8,016 / 9 / 13 MiB / 76 ms | 10,000 / 10 / 16 MiB / 92 ms | 967 / 1 / 1.5 MiB / 10 ms | 10,000 / 10 / 16 MiB / 92 ms |
+| 100,000 | 100,000 / 100 / 161 MiB / 1,233 ms | 80,067 / 81 / 129 MiB / 947 ms | 100,000 / 100 / 158 MiB / 1,150 ms | 10,113 / 11 / 16 MiB / 128 ms | 100,000 / 100 / 158 MiB / 1,187 ms |
 
-Azurite on loopback through the real SDK (same columns; latency includes SDK deserialization and emulator time): at 1,000 threads an unfiltered `search(limit=10)` took about 66 ms and a tenant-filtered `count()` about 61 ms; at 10,000 threads they took about 715 ms and 708 ms (peak 29 MiB). `count(status="busy")` read only the 994 matching rows (about 64 ms), because the status filter is applied server-side.
+Azurite on loopback through the real SDK (same columns; latency includes SDK deserialization and emulator time): at 1,000 threads an unfiltered `search(limit=10)` took about 72 ms and a tenant-filtered `count()` about 63 ms; at 10,000 threads they took about 724 ms and 715 ms (peak 29 MiB). `count(status="busy")` read only the 967 matching rows (about 62 ms), because the status filter is applied server-side.
 
 Findings (all emulator/fake-derived):
 
