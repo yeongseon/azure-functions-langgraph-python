@@ -87,6 +87,17 @@ wires Azure Table explicitly. State separation is not authenticated ownership.
 - [Contributing](CONTRIBUTING.md), [product scope](PRD.md), [design](DESIGN.md)
 - AI tooling: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt), [AGENTS.md](AGENTS.md)
 
+## Contributing
+
+Contributions are welcome. The [Contributing Guide](CONTRIBUTING.md) covers local setup, the checks to run, and the pull request workflow.
+
+Looking for something to work on?
+
+- [Good first issue](https://github.com/yeongseon/azure-functions-langgraph-python/labels/good%20first%20issue): small, self-contained starter tasks.
+- [Help wanted](https://github.com/yeongseon/azure-functions-langgraph-python/labels/help%20wanted): tasks that may need more familiarity with this codebase or Azure Functions.
+
+Please comment on an issue to request assignment before you open a pull request. Either list can be empty at any time, so bug reports and small documentation suggestions are always welcome too.
+
 Part of the Azure Functions Python DX Toolkit. Integrated application recipes
 live in the [cookbook](https://github.com/yeongseon/azure-functions-cookbook-python);
 this package owns serving compiled graphs, not prompts, models or tool frameworks.
