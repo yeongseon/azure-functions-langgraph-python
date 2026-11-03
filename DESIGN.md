@@ -131,6 +131,44 @@ queueing alone does not serialize a thread. See the
 - Client-side metadata filtering for `search()` and `count()` becomes progressively expensive as all entities must be scanned.
 - Consider migrating to a multi-partition design, Azure Cosmos DB, or a dedicated database when approaching these limits.
 
+#### Benchmark findings: search and count at scale (#767)
+
+> **Provenance: every number below comes from a counting in-memory fake or from the Azurite emulator. None is an Azure Storage measurement, none includes real network latency, throttling or transaction billing, and none establishes a supported thread count.** Real-Azure measurement is still outstanding.
+
+Reproduce with `tools/benchmark_table_store.py` (see its docstring): `hatch run table:python tools/benchmark_table_store.py --sizes 1000,10000,100000` (fake), `... --azurite --azurite-port 10112 --sizes 1000,10000` against an Azurite table service you start yourself (the script only creates and deletes its own `bench<N>` tables) and `... --prototype-check`. Synthetic threads: about 80% `idle`, 10% `busy`, 7% `interrupted`, 3% `error`; metadata `tenant` (50 values, about 2% selectivity), `kind`, `user`. "Requests" are modeled as one per started page of 1,000 entities, the Table query page limit. Medians of 3 runs, one machine; compare ratios, not absolute values.
+
+Fake client (entities read, modeled requests, peak Python memory, median latency, which here is client-side CPU only):
+
+| Threads | `search(limit=10)` unfiltered | `search(status="idle", limit=10, offset=0.6N)` | `search(metadata={"tenant": "t7"}, limit=10)` | `count(status="busy")` | `count(metadata={"tenant": "t7"})` |
+|---:|---|---|---|---|---|
+| 1,000 | 1,000 / 1 / 1.6 MiB / 8 ms | 814 / 1 / 1.3 MiB / 6 ms | 1,000 / 1 / 1.6 MiB / 7 ms | 85 / 1 / 0.1 MiB / 1 ms | 1,000 / 1 / 1.6 MiB / 7 ms |
+| 10,000 | 10,000 / 10 / 16 MiB / 88 ms | 8,016 / 9 / 13 MiB / 76 ms | 10,000 / 10 / 16 MiB / 92 ms | 967 / 1 / 1.5 MiB / 10 ms | 10,000 / 10 / 16 MiB / 92 ms |
+| 100,000 | 100,000 / 100 / 161 MiB / 1,233 ms | 80,067 / 81 / 129 MiB / 947 ms | 100,000 / 100 / 158 MiB / 1,150 ms | 10,113 / 11 / 16 MiB / 128 ms | 100,000 / 100 / 158 MiB / 1,187 ms |
+
+Azurite on loopback through the real SDK (same columns; latency includes SDK deserialization and emulator time): at 1,000 threads an unfiltered `search(limit=10)` took about 72 ms and a tenant-filtered `count()` about 63 ms; at 10,000 threads they took about 724 ms and 715 ms (peak 29 MiB). `count(status="busy")` read only the 967 matching rows (about 62 ms), because the status filter is applied server-side.
+
+Findings (all emulator/fake-derived):
+
+- Cost scales linearly with the partition (or status) size, not with `limit` or `offset`. A `limit=10` search and a high-offset search read the same number of entities as an unbounded scan of the same filter; scan amplification (entities read per entity returned) was 100 at 1,000 threads, 1,000 at 10,000 and 10,000 at 100,000 for `limit=10`.
+- Only the `status` filter reduces entities read, and only in proportion to the status's share of threads. Metadata filters never reduce reads (the metadata is a JSON string property).
+- Process memory peak is about 1.6 KiB per scanned thread in the fake because the whole result list is materialized before sorting; about 3 KiB per thread at 10,000 threads under Azurite with the real SDK.
+
+Thresholds used for guidance (emulator-derived, to be re-derived on real Azure): treat more than 1 modeled page (1,000 entities) read per request as scan amplification worth reviewing, and an interactive endpoint whose emulator latency exceeds about 500 ms (reached at about 10,000 threads under Azurite for unfiltered or metadata-filtered search and count) as unacceptable until measured on real Azure. A 100,000-thread single partition read about 100,000 entities (100 modeled pages) and about 1 s of client CPU in the fake for one search, so the `~100K` envelope above should not be read as an interactive-search guarantee. Target workload for the current design: low thread counts (thousands), searches that carry a selective `status`, and `get`/`create`/`update` by `thread_id` (point operations are unaffected).
+
+Operational guidance: keep `limit`/`offset` pagination cheap by narrowing with `status` where possible; avoid unfiltered high-frequency `count()` on large tables; measure on your own storage account before relying on search latency at more than a few thousand threads. Transaction cost is deliberately not estimated: Microsoft's [Table Storage pricing page](https://azure.microsoft.com/en-us/pricing/details/storage/tables/) states that any operation against the storage, including reads, counts as a transaction and bills per 10,000 transactions, but the page content fetched for this work did not render price values, so no dollar figure is given here.
+
+Bounded alternatives evaluated (no production change, public `ThreadStore` semantics unchanged):
+
+| Option | Effect | Cost / risk |
+|---|---|---|
+| Server-side `status` filter | Already used; reduces reads to the status share | None |
+| Promote selected metadata keys to Table properties and filter server-side | Would cut reads for those keys | Schema/write-path change, migration of existing rows, only for pre-declared keys; changes what is queryable |
+| Time-ordered index partition per status (`RowKey` = inverted `created_at` + thread id) | Newest-first search without metadata filter can stop after `offset + limit` rows | Second write per create/status change without cross-partition atomicity (needs batch transactions within one partition only, so index and thread rows cannot share a transaction); migration; does not help `count()` or metadata filters |
+| Per-status counters | `count(status=...)` without scan | Contention on counter rows; drift on partial failures |
+| Multi-partition sharding | Spreads per-partition throughput | Every search must fan out; does not reduce scan work |
+
+The index-partition option was prototyped only inside the benchmark (`--prototype-check`, not production code): on 5,000 synthetic threads including `created_at` ties, 24 combinations of status, `limit` (including 0), `offset` (including beyond the end) returned thread ids identical in order to `search()`, and `count()` equalled the index cardinality. This verifies ordering, tie-break (`RowKey` ascending on equal `created_at`), limit and count semantics for the prototype only; it does not measure write amplification or failure-recovery behavior. No implementation follow-up is split: the measured impact on real Azure is unknown, and the prototype's consistency cost needs a maintainer decision first.
+
 ### 9. Threadless runs (v0.4)
 
 **Context**: The LangGraph SDK supports `runs.wait(None, ...)` and `runs.stream(None, ...)` for fire-and-forget executions that don't need a persistent thread.
