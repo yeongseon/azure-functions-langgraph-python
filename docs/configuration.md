@@ -119,7 +119,32 @@ This creates endpoints for all three:
 
 ## Checkpointer configuration
 
-Checkpointers are configured on the LangGraph side, not in `LangGraphApp`. The library passes `config` through to the graph:
+### Native client configuration admission
+
+Both `LangGraphApp` and `StreamingLangGraphApp` accept only
+`config.configurable`, with `thread_id` as the sole default client-selectable key.
+Unapproved keys return sanitized HTTP 400 before locking or graph/observer start.
+Explicitly expose safe application fields with the keyword-only registration option:
+
+```python
+app.register(compiled_graph, "agent", allowed_configurable_keys={"locale"})
+```
+
+The registration snapshots these names as a `frozenset`. Internal `__*` names
+remain forbidden even if listed, and the option never permits top-level controls
+such as `recursion_limit` or `callbacks`. Bind trusted execution defaults on the
+server, for example with `graph.with_config(...)`.
+
+**Breaking true-stream migration:** formerly accepted arbitrary configuration on
+`StreamingLangGraphApp` is now rejected, matching the classic native policy.
+Move execution controls to trusted server configuration and explicitly allow
+only application keys whose values untrusted clients may safely choose.
+Opting in to configurable `checkpoint_id`/`checkpoint_ns` grants checkpoint
+selection; enforce ownership externally on the streaming transport, which still
+has no resource authorizer. An allow-list is not authentication. Platform,
+Durable and Service Bus policies are unchanged.
+
+Checkpointers are configured on the LangGraph side, not in `LangGraphApp`. The library passes admitted `config` through to the graph:
 
 ```python
 from langgraph.checkpoint.memory import InMemorySaver

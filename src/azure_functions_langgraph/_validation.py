@@ -10,6 +10,7 @@ format (``ErrorResponse`` vs ``_platform_error``).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import re
 from typing import Any
 
@@ -161,6 +162,25 @@ def validate_input_structure(
         return None
     _, err = _count_depth_and_nodes(data, 1, max_depth, 0, max_nodes)
     return err
+
+
+def validate_native_config(
+    config: Mapping[str, Any], allowed_configurable_keys: frozenset[str] = frozenset()
+) -> str | None:
+    """Apply the native client configuration policy without transport-specific errors.
+
+    Shape/thread validation remains owned by the request parser. Internal names
+    are forbidden even when mistakenly included in a registration allow-list.
+    """
+    if config.keys() - {"configurable"}:
+        return "Only config.configurable is client configurable"
+    configurable = config.get("configurable")
+    if isinstance(configurable, dict):
+        if any(key.startswith("__") for key in configurable):
+            return "Internal configurable keys are not permitted"
+        if configurable.keys() - ({"thread_id"} | allowed_configurable_keys):
+            return "Unapproved config.configurable field"
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -178,6 +178,15 @@ Azure app settings.
 
 All request bodies are validated using Pydantic v2 models before being passed to the graph. Invalid requests receive a 422 response with validation error details.
 
+Classic native and true-stream invoke/stream share a default-deny configuration
+policy: only `config.configurable.thread_id` is client-selectable by default.
+Registration may explicitly allow safe configurable names; internal `__*` names
+and top-level execution controls remain forbidden. Rejection returns sanitized
+HTTP 400 before lock acquisition or graph/observer start, without logging input
+values. This does not redact arbitrary graph exception diagnostics or grant
+thread ownership. Streaming still requires external resource authorization.
+See [configuration and the breaking true-stream migration](configuration.md#native-client-configuration-admission).
+
 ## Secret management
 
 This library does not handle secrets (API keys, connection strings, etc.). Use Azure Functions application settings or Azure Key Vault for secret management:
