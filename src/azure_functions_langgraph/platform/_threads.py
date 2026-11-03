@@ -54,34 +54,47 @@ def _release_thread_state_lock(
     *,
     status: ThreadStatus,
     store_owner_token: str | None = None,
-) -> None:
+) -> Exception | None:
     """Release both the distributed thread lock and the store-backed run lock
-    held while a state update is in flight, returning the thread to *status*.
+    held while a state update is in flight, returning any cleanup failure.
 
     Mirrors ``_release_thread_run_lock`` in ``_runs.py`` (no renewal thread is
     started here since ``update_state`` is a single synchronous call expected
     to complete well within the store's lock-lease window).
     """
+    failure: Exception | None = None
     try:
-        deps.thread_store.release_run_lock(
+        released = deps.thread_store.release_run_lock(
             thread_id,
             status=status,
             owner_token=store_owner_token or lock_token,
         )
-    except KeyError:
+        if released.status == "busy" or released.lock_token is not None:
+            failure = RuntimeError("State-update store ownership was not released")
+            logger.warning(
+                "State-update lock release did not clear ownership for thread %s", thread_id
+            )
+    except KeyError as exc:
+        failure = exc
         logger.warning(
             "Thread %s disappeared before state-update lock release to %s",
             thread_id,
             status,
         )
-    except Exception:
+    except Exception as exc:
+        failure = exc
         logger.exception(
             "Unexpected error releasing state-update lock for thread %s (target status: %s)",
             thread_id,
             status,
         )
     finally:
-        deps.thread_lock.release(graph_name, thread_id, lock_token)
+        try:
+            deps.thread_lock.release(graph_name, thread_id, lock_token)
+        except Exception as exc:
+            failure = failure or exc
+            logger.exception("Unexpected error releasing thread lock for thread %s", thread_id)
+    return failure
 
 
 def register_thread_routes(
@@ -431,7 +444,7 @@ def register_thread_routes(
             )
             return _platform_error(500, "Internal error updating thread state")
 
-        _release_thread_state_lock(
+        release_failure = _release_thread_state_lock(
             deps,
             thread_id,
             graph_name,
@@ -439,6 +452,8 @@ def register_thread_routes(
             status=prior_status,
             store_owner_token=store_lock_token,
         )
+        if release_failure is not None:
+            return _platform_error(500, "Internal error releasing thread state lock")
 
         result_configurable = result.get("configurable", {}) if isinstance(result, dict) else {}
         response_checkpoint = Checkpoint(

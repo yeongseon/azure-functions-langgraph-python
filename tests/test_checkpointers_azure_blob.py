@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import importlib
@@ -110,7 +110,7 @@ class _MockDownloadStream:
 
 class _MockBlobProperties:
     def __init__(self, metadata: dict[str, str]) -> None:
-        self.metadata = metadata
+        self.metadata: dict[str, str] | None = metadata
 
 
 class MockBlobClient:
@@ -208,7 +208,7 @@ class _AsyncBlobItemPaged:
     def __init__(self, items: list[_BlobItem]) -> None:
         self._items = items
 
-    async def __aiter__(self) -> Any:
+    async def __aiter__(self) -> AsyncIterator[_BlobItem]:
         for item in self._items:
             yield item
 
@@ -226,14 +226,10 @@ class AsyncMockContainerClient:
     def get_blob_client(self, blob: str) -> AsyncMockBlobClient:
         return AsyncMockBlobClient(self._backing, blob)
 
-    def list_blobs(self, name_starts_with: str = "") -> _AsyncBlobItemPaged:
-        return _AsyncBlobItemPaged(
-            [
-                _BlobItem(name=name, last_modified=record.last_modified)
-                for name, record in sorted(self._backing.blobs.items())
-                if name.startswith(name_starts_with)
-            ]
-        )
+    async def list_blobs(self, name_starts_with: str = "") -> AsyncIterator[_BlobItem]:
+        for name, record in sorted(self._backing.blobs.items()):
+            if name.startswith(name_starts_with):
+                yield _BlobItem(name=name, last_modified=record.last_modified)
 
 
 @pytest.fixture(autouse=True)  # type: ignore[untyped-decorator]
@@ -412,16 +408,9 @@ def test_put_and_get_tuple(
     assert result.pending_writes == []
 
 
-def test_stale_latest_json_returns_hinted_checkpoint(
+def test_legacy_stale_latest_json_recovers_committed_checkpoint(
     saver_and_container: tuple[_CheckpointSaverProtocol, MockContainerClient],
 ) -> None:
-    """When latest.json is stale but points to a valid blob, the hint is trusted.
-
-    This is expected after the hint optimization (#190): we skip the expensive
-    prefix scan when the hinted checkpoint blob exists.  In production
-    latest.json is always updated by put(), so a stale hint only occurs on
-    external tampering or partial write failure.
-    """
     saver, container = saver_and_container
     cfg = _config(thread_id="t-1", checkpoint_ns="ns")
 
@@ -438,9 +427,7 @@ def test_stale_latest_json_returns_hinted_checkpoint(
 
     result = saver.get_tuple(_config(thread_id="t-1", checkpoint_ns="ns"))
     assert result is not None
-    # With hint optimization, valid hint is trusted (blob exists), so cp-001
-    # is returned.  In production latest.json is always maintained by put().
-    assert result.checkpoint["id"] == "cp-001"
+    assert result.checkpoint["id"] == "cp-002"
 
 
 def _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
@@ -524,7 +511,7 @@ def test_latest_hint_failure_preserves_committed_checkpoint(
     original_upload = saver._upload_blob
 
     def fail_latest(path: str, data: bytes, metadata: dict[str, str]) -> None:
-        if path.endswith("latest.json"):
+        if path.endswith("latest.json") and json.loads(data).get("dirty") is not True:
             raise TimeoutError(path)
         original_upload(path, data, metadata)
 
