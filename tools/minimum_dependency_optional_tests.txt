@@ -19,3 +19,4 @@ tests/test_streaming_observer_cleanup.py
 tests/test_streaming_observer_lifecycle.py
 tests/test_sync_invoke_cancellation.py
 tests/test_true_streaming_example.py
+tests/test_streaming_config_policy.py

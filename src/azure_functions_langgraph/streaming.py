@@ -38,7 +38,7 @@ delivery.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Iterable
 import dataclasses
 from dataclasses import dataclass, field
 import json
@@ -62,6 +62,7 @@ from azure_functions_langgraph._validation import (
     validate_body_size,
     validate_graph_name,
     validate_input_structure,
+    validate_native_config,
     validate_thread_id,
 )
 from azure_functions_langgraph.contracts import (
@@ -145,6 +146,7 @@ class _StreamRegistration:
     auth_level: func.AuthLevel | None = None
     request_model: type[Any] | None = None
     response_model: type[Any] | None = None
+    allowed_configurable_keys: frozenset[str] = frozenset()
 
 
 def _validate_optional_model(model: type[Any] | None, label: str) -> None:
@@ -188,6 +190,7 @@ def _validate_request(
     *,
     max_input_depth: int,
     max_input_nodes: int,
+    allowed_configurable_keys: frozenset[str] = frozenset(),
 ) -> Any:
     """Validate a decoded body against *model* and its input/config structure.
 
@@ -210,6 +213,9 @@ def _validate_request(
         )
         if config_err:
             return _JsonError(400, config_err)
+        policy_err = validate_native_config(request.config, allowed_configurable_keys)
+        if policy_err:
+            return _JsonError(400, policy_err)
     return request
 
 
@@ -526,6 +532,7 @@ class StreamingLangGraphApp:
         request_model: type[Any] | None = None,
         response_model: type[Any] | None = None,
         async_mode: bool = False,
+        allowed_configurable_keys: Iterable[str] = frozenset(),
     ) -> None:
         """Register a compiled LangGraph graph (mirrors ``LangGraphApp.register``).
 
@@ -538,6 +545,9 @@ class StreamingLangGraphApp:
             request_model: Optional Pydantic model class for request body (metadata only).
             response_model: Optional Pydantic model class for response body (metadata only).
             async_mode: Route invoke/stream through the async graph methods.
+            allowed_configurable_keys: Explicit client-selectable keys beneath
+                ``config.configurable``, in addition to ``thread_id``. Internal
+                ``__*`` names and top-level execution controls remain forbidden.
 
         Raises:
             TypeError: If *graph* lacks invoke/ainvoke, or ``async_mode=True``
@@ -571,6 +581,7 @@ class StreamingLangGraphApp:
             auth_level=auth_level,
             request_model=request_model,
             response_model=response_model,
+            allowed_configurable_keys=frozenset(allowed_configurable_keys),
         )
         self._function_app = None
 
@@ -748,6 +759,7 @@ class StreamingLangGraphApp:
         parsed = _validate_request(
             body,
             InvokeRequest,
+            allowed_configurable_keys=reg.allowed_configurable_keys,
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
         )
@@ -857,6 +869,7 @@ class StreamingLangGraphApp:
         parsed = _validate_request(
             body,
             StreamRequest,
+            allowed_configurable_keys=reg.allowed_configurable_keys,
             max_input_depth=self.max_input_depth,
             max_input_nodes=self.max_input_nodes,
         )

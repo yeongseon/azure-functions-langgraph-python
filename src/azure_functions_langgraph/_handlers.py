@@ -28,6 +28,7 @@ from azure_functions_langgraph._validation import (
     sanitized_validation_errors,
     validate_body_size,
     validate_input_structure,
+    validate_native_config,
     validate_thread_id,
 )
 from azure_functions_langgraph.authorization import (
@@ -261,14 +262,9 @@ def _parse_native_request(
         )
         if config_err:
             return _error_response(400, config_err)
-        if request.config.keys() - {"configurable"}:
-            return _error_response(400, "Only config.configurable is client configurable")
-        configurable = request.config.get("configurable")
-        if isinstance(configurable, dict):
-            if any(key.startswith("__") for key in configurable):
-                return _error_response(400, "Internal configurable keys are not permitted")
-            if configurable.keys() - ({"thread_id"} | allowed_configurable_keys):
-                return _error_response(400, "Unapproved config.configurable field")
+        policy_err = validate_native_config(request.config, allowed_configurable_keys)
+        if policy_err:
+            return _error_response(400, policy_err)
     return request
 
 

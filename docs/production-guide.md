@@ -661,6 +661,37 @@ race regressions remain unchanged. See
 [Azure lease limits and break semantics](https://learn.microsoft.com/en-us/rest/api/storageservices/lease-blob)
 and the [Python BlobLeaseClient API](https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobleaseclient).
 
+#### Operating envelope for long-running graphs (characterized, #765)
+
+Each statement below is pinned by a named test in
+`tests/test_lease_loss_characterization.py`. The tests run two fake lock hosts
+and the real `AzureBlobCheckpointSaver` over in-memory containers with virtual
+service time, so this is **mock/fake-only evidence, not real-Azure
+certification**, and the tests pin *current* behavior rather than a guarantee.
+
+| Observed behavior (current) | Test |
+| --- | --- |
+| Once A's lease expires and B acquires the lock, a checkpoint `put` still running in A is accepted. A and B then hold two branches under the same parent, and the "latest" lookup can resolve to the stale writer's checkpoint id. | `test_lock_exclusion_ends_at_expiry_but_stale_graph_can_still_write_checkpoints` |
+| The saver makes no conditional write: a stale owner writing the same checkpoint id replaces the new owner's content (last writer wins). | `test_same_checkpoint_id_is_last_writer_wins_without_conditional_write` |
+| A stale owner's `put_writes` attach to the new owner's checkpoint as pending writes. | `test_stale_pending_writes_are_attached_to_the_new_owners_checkpoint` |
+| After a definitive renewal loss the local entry is marked lost, a `WARNING` is logged, and the same lock object refuses to re-acquire that key. Nothing stops the graph still running under the old token. | `test_definitive_renewal_loss_marks_lost_and_keeps_key_locally_occupied` |
+| Releasing or closing a lost entry (with the right token; a wrong token leaves the entry in place) drops only local bookkeeping. It never releases the service lease, so a newer owner keeps it and a third contender stays excluded. | `test_lost_cleanup_never_disturbs_the_newer_owner` (`release` and `close` variants) |
+| Transient renewal failures do not mark ownership lost immediately. Until the failure threshold is reached, the old host still believes it owns the key although another host already holds the service lease; local state lags the service. | `test_transient_renewal_misses_mark_lost_only_after_threshold_and_handoff_follows` |
+
+What this means for operators:
+
+- The Blob lease gives mutual exclusion for **lock acquisition** only. It is
+  not checkpoint-level fencing: there is no enforceable write exclusion for a
+  graph that outlives its lease.
+- The renewal-loss `WARNING` log and the local lost flag are **telemetry**.
+  They neither cancel the graph nor block its checkpoint writes. Alert on
+  them, and treat the affected thread's checkpoints as possibly forked.
+- Drain graph execution and checkpoint writes before calling `close()`;
+  closing the lock does not cancel them (see above).
+- Do not describe the Blob-lease and Blob-checkpointer combination as a
+  universal single-writer guarantee. A storage-side fence would be a separate
+  design and is not part of this adapter today.
+
 ```python
 import azure.functions as func
 from azure.identity import DefaultAzureCredential
@@ -871,6 +902,31 @@ Both helpers only delete checkpoint marker, metadata, and write blobs. They inte
 
 > **Note** — `delete_old_checkpoints` / `delete_checkpoints_before` are safe but **not exhaustive**. Channel value blobs that were referenced *only* by the now-deleted checkpoints become orphaned and are not removed. For long-running threads with frequent checkpointing, those orphans can dominate the storage footprint over time. Run `collect_orphaned_values()` (below) on a schedule as the second step.
 
+#### Latest checkpoint crash recovery
+
+Each `put()` / native `aput()` persists a versioned dirty `latest.json` **before**
+uploading values or metadata, then commits `checkpoint.bin`, and finally
+publishes a clean monotonic pointer. If dirty-intent persistence fails, no new
+checkpoint data is uploaded. Failure before the marker leaves the prior state
+visible; hint failure or process exit after the marker leaves the new committed
+state discoverable by a fresh saver. A failed `put()` therefore does **not**
+imply rollback: reconcile committed state before retrying non-idempotent work.
+Explicit checkpoint-ID reads and history ordering are unchanged.
+
+Healthy version-1 clean hints load directly without listing checkpoint history
+(pending-write listing still occurs). Dirty, missing, invalid, dangling and
+legacy unversioned hints require a marker-prefix scan, whose cost grows with
+history. Readers do not clear dirty intent because a paused writer may still
+commit; the next successful write reconciles and republishes clean. Until then,
+recovery reads continue scanning and orphan GC skips the namespace. Drain old
+writers before upgrading: legacy writers do not publish dirty intent, so mixed
+versions cannot guarantee this recovery contract.
+
+This corrects crash/interrupted-publication visibility under the existing
+single-writer assumption, not arbitrary external rollback of a valid clean hint
+or multi-writer fencing. No reproduced cloud incident is claimed; deterministic
+fault-injection and Azurite checks are distinct from real-Azure certification.
+
 #### Garbage-collecting orphaned channel values
 
 After pruning checkpoints, `collect_orphaned_values()` walks the surviving checkpoints, builds the set of `(channel, version)` pairs they reference, and removes any `values/` blob outside that set. Default is **dry-run** so you can audit first:
@@ -885,7 +941,7 @@ print(f"Deleted {len(result.deleted)} orphaned value blobs")
 
 The helper is concurrency-safe by two complementary mechanisms: a recent-write grace period (default `grace_period_seconds=300`) defers deletion of any value blob whose `last_modified` is within the window — protecting the gap between a value blob upload and the corresponding `latest.json` finalization — and a per-orphan re-scan immediately before each delete preserves any older value blob that a newly finalized checkpoint started referencing after the snapshot.
 
-The helper **fails closed** per namespace: if `latest.json` is missing or any surviving checkpoint blob is unreadable / fails deserialization, the namespace is skipped (recorded in `result.skipped_namespaces`) so a misconfigured or transiently-unavailable store cannot trigger destructive deletion.
+The helper **fails closed** per namespace: if `latest.json` is dirty, legacy, missing or invalid, or any surviving checkpoint blob is unreadable / fails deserialization, the namespace is skipped (recorded in `result.skipped_namespaces`) so uncertain publication or an unavailable store cannot trigger destructive deletion. Publication trust is rechecked before each orphan deletion; coordinate maintenance with writers and retain the grace period, since this is not an atomic multi-writer fence.
 
 If you want absolute cutoffs instead of "keep N", use `delete_checkpoints_before(thread_id, before_checkpoint_id=...)`. Checkpoint ids are lexicographically sortable, so `before_checkpoint_id` can be the id of any boundary checkpoint your application picks (e.g. the last successful production checkpoint of a previous day).
 

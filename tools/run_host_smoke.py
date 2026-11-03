@@ -117,6 +117,28 @@ def run_hosts(temporary: Path) -> None:
             log = temporary / f"{name}.log"
             with child(["func", "start", "--python", "--port", str(port)], log, app) as host:
                 wait_ready(host, url)
+                graph_name = "smoke" if name == "native" else "true_streaming_agent"
+                endpoints = ("invoke",) if name == "native" else ("invoke", "stream")
+                for endpoint in endpoints:
+                    for config in (
+                        {"configurable": {"checkpoint_ns": "config-admission-canary"}},
+                        {"configurable": {"checkpoint_id": "config-admission-canary"}},
+                        {"recursion_limit": 999},
+                        {"callbacks": []},
+                        {"configurable": {"unknown": "config-admission-canary"}},
+                        {"configurable": {"__internal": "config-admission-canary"}},
+                    ):
+                        with requests.post(
+                            url + f"/api/graphs/{graph_name}/{endpoint}",
+                            json={"input": {}, "config": config},
+                            headers={"x-smoke-principal": "owner"},
+                            timeout=30,
+                        ) as response:
+                            if (
+                                response.status_code != 400
+                                or "config-admission-canary" in response.text
+                            ):
+                                raise RuntimeError("native configuration admission failed")
                 if name == "native":
                     with requests.post(
                         url + "/api/graphs/smoke/invoke",
@@ -165,6 +187,8 @@ def run_hosts(temporary: Path) -> None:
                 raise RuntimeError(f"{name} host emitted a startup/indexing failure")
             if "host-credential-canary" in log.read_text():
                 raise RuntimeError("host leaked authorization diagnostics")
+            if "config-admission-canary" in log.read_text():
+                raise RuntimeError("host leaked configuration diagnostics")
 
 
 def interrupted(signum: int, _frame: object) -> None:
