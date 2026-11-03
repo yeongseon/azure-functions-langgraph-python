@@ -201,20 +201,28 @@ def test_definitive_renewal_loss_marks_lost_and_keeps_key_locally_occupied(
     # stops the graph that is still running under token_a.
 
 
-def test_lost_release_and_close_never_disturb_the_newer_owner(hosts: _Hosts) -> None:
+@pytest.mark.parametrize("cleanup", ["release", "close"])
+def test_lost_cleanup_never_disturbs_the_newer_owner(hosts: _Hosts, cleanup: str) -> None:
     # Given: A is marked lost and B holds the live lease.
     token_a, _ = hosts.lose_lease_a_and_acquire_b()
     hosts.lock_a._renew_all_once()
-    assert hosts.lock_a._active_leases[(_GRAPH, _THREAD)].lost is True
+    key = (_GRAPH, _THREAD)
+    stale_state = hosts.lock_a._active_leases[key]
+    assert stale_state.lost is True
     b_lease = hosts.lease_of(hosts.lock_b)
-    # When: A releases with a wrong token, then with its own token, then closes.
-    hosts.lock_a.release(_GRAPH, _THREAD, "not-the-owner-token")
-    assert (_GRAPH, _THREAD) in hosts.lock_a._active_leases
-    hosts.lock_a.release(_GRAPH, _THREAD, token_a)
-    hosts.lock_a.close()
-    # Then: A's bookkeeping is cleared without a service release, and B still
-    # holds the lease, so a third contender is excluded.
-    assert (_GRAPH, _THREAD) not in hosts.lock_a._active_leases
+    stale_release_calls: list[str] = []
+    setattr(stale_state.lease, "release", lambda: stale_release_calls.append("release"))
+    # When: A cleans up through exactly one path, from the same lost state.
+    if cleanup == "release":
+        hosts.lock_a.release(_GRAPH, _THREAD, "not-the-owner-token")
+        assert key in hosts.lock_a._active_leases
+        hosts.lock_a.release(_GRAPH, _THREAD, token_a)
+    else:
+        hosts.lock_a.close()
+    # Then: A's entry is dropped without any service release, B still holds the
+    # lease, and a third contender is excluded.
+    assert key not in hosts.lock_a._active_leases
+    assert stale_release_calls == []
     assert b_lease.released is False
     with ExitStack() as stack:
         contender = AzureBlobLeaseThreadLock(container_client=hosts.lock_container)
