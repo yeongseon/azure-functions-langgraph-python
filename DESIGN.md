@@ -109,12 +109,24 @@ Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpoi
 Sync I/O and optional native async Blob I/O are supported.
 
 **⚠️ Concurrency constraint**: The checkpointer assumes a single writer per
-thread. The write order (values → metadata → checkpoint commit marker → latest
-hint) supports recovery under that assumption, not concurrent-write conflict
+thread. The write order (durable dirty hint → values → metadata → checkpoint
+commit marker → clean hint) supports crash recovery under that assumption, not concurrent-write conflict
 resolution. Use a distributed `ThreadLock` for shared writers, or an explicitly
 single-writer topology. Platform Table CAS covers Platform operations only;
 queueing alone does not serialize a thread. See the
 [deployment decision table](docs/production-guide.md#distributed-deployment).
+
+Only version-1 clean hints are trusted for direct latest reads. Dirty, legacy,
+missing, malformed or dangling hints trigger an authoritative marker scan.
+Readers never clear dirty intent: a paused writer could still commit after the
+scan. The next successful writer reconciles and publishes a clean monotonic
+pointer. Failed dirty-intent persistence prevents checkpoint uploads; marker
+failure leaves the prior committed checkpoint visible. Orphan collection skips
+untrusted publication, including its per-orphan recheck. This adds one dirty
+upload per write and scans during recovery, not on every healthy read (pending
+write listing remains necessary). Legacy writers must be drained before rollout;
+mixed old/new writers do not provide this recovery guarantee. Arbitrary external
+rollback of a valid clean pointer is not detectable by the bounded fast path.
 
 ### 8. Azure Table Storage thread store (v0.4)
 

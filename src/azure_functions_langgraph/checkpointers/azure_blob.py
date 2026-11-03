@@ -250,8 +250,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 return_config=config,
             )
 
-        # Optimization: try latest.json hint first.  If the hinted checkpoint
-        # blob exists we skip the expensive prefix scan entirely.
+        # Only a versioned clean hint certifies completed publication.
         latest_hint = self._read_latest_checkpoint_id(thread_id, checkpoint_ns)
         if latest_hint is not None:
             # Try loading the hinted checkpoint directly — avoids prefix scan.
@@ -345,9 +344,19 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_id = checkpoint["id"]
         parent_checkpoint_id = get_checkpoint_id(config)
 
-        # Write order: values → metadata → checkpoint (commit marker) → latest.
+        # Persist dirty intent first so a crash after the marker cannot hide it.
         # checkpoint.bin acts as the commit marker: if it exists, the checkpoint
         # is valid.  Partial failures before it leave harmless orphans.
+        current_latest = self._read_latest_checkpoint_id(thread_id, checkpoint_ns)
+        if current_latest is None or not self._blob_exists(
+            self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
+        ):
+            current_latest = self._find_latest_checkpoint_id(thread_id, checkpoint_ns)
+        self._upload_blob(
+            self._latest_blob_path(thread_id, checkpoint_ns),
+            b'{"version":1,"dirty":true}',
+            {},
+        )
         checkpoint_data: dict[str, Any] = dict(checkpoint)
         channel_values: dict[str, Any] = checkpoint_data.pop("channel_values", {})
 
@@ -381,18 +390,16 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             checkpoint_blob_metadata,
         )
 
-        # 4. Monotonic latest.json hint (best-effort, after commit marker)
-        current_latest = self._read_latest_checkpoint_id(thread_id, checkpoint_ns)
-        if current_latest is None or checkpoint_id >= current_latest:
-            latest_payload = json.dumps(
-                {"checkpoint_id": checkpoint_id},
-                separators=(",", ":"),
-            ).encode()
-            self._upload_blob(
-                self._latest_blob_path(thread_id, checkpoint_ns),
-                latest_payload,
-                {},
-            )
+        # 4. Publish clean only after the marker, without regressing the pointer.
+        latest_payload = json.dumps(
+            {
+                "version": 1,
+                "dirty": False,
+                "checkpoint_id": max(current_latest or "", checkpoint_id),
+            },
+            separators=(",", ":"),
+        ).encode()
+        self._upload_blob(self._latest_blob_path(thread_id, checkpoint_ns), latest_payload, {})
         return self._checkpoint_config(thread_id, checkpoint_ns, checkpoint_id)
 
     def put_writes(
@@ -573,7 +580,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         * Per-namespace fail-closed: the namespace is skipped (recorded
           in :attr:`OrphanedValueCollectionResult.skipped_namespaces`)
-          if ``latest.json`` cannot be loaded **or** any surviving
+           if ``latest.json`` is dirty, legacy, or cannot be loaded **or** any surviving
           checkpoint blob listed under the namespace is unreadable /
           fails deserialization. Without a complete, trustworthy
           survivor set the helper has no way to compute the retained
@@ -587,7 +594,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
           window — or whose ``last_modified`` is unavailable — is
           deferred to a future GC pass and recorded in
           :attr:`OrphanedValueCollectionResult.skipped_recent`.
-          The checkpoint write order is values → metadata → checkpoint
+          The checkpoint write order is dirty intent → values → metadata → checkpoint
           → ``latest.json``, so a value blob that exists but is not yet
           referenced by any checkpoint may simply be a write in flight.
         * Concurrency re-check: even after the grace filter, the
@@ -634,7 +641,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             if self._read_latest_checkpoint_id(thread_id, ns) is None:
                 logger.warning(
                     "collect_orphaned_values: skipping namespace (thread=%s, ns=%s); "
-                    "latest.json missing or unreadable",
+                    "latest.json missing, dirty, legacy or unreadable",
                     thread_id,
                     ns,
                 )
@@ -662,6 +669,9 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 continue
 
             for blob_path in ns_orphans:
+                if self._read_latest_checkpoint_id(thread_id, ns) is None:
+                    result.skipped_namespaces.append((thread_id, ns))
+                    break
                 fresh_retained = self._collect_retained_versions(thread_id, ns)
                 if fresh_retained is None:
                     logger.warning(
@@ -914,6 +924,10 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         if latest_payload is None:
             return None
 
+        return self._parse_latest_checkpoint_id(latest_payload, latest_path)
+
+    def _parse_latest_checkpoint_id(self, latest_payload: bytes, latest_path: str) -> str | None:
+
         try:
             data = json.loads(latest_payload.decode())
         except (UnicodeDecodeError, json.JSONDecodeError):
@@ -922,9 +936,11 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         if not isinstance(data, dict):
             return None
+        if data.get("version") != 1 or data.get("dirty") is not False:
+            return None
 
         checkpoint_id = data.get("checkpoint_id")
-        if isinstance(checkpoint_id, str):
+        if isinstance(checkpoint_id, str) and checkpoint_id:
             return checkpoint_id
         return None
 
@@ -1142,20 +1158,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         latest_payload = await self._adownload_blob(latest_path)
         if latest_payload is None:
             return None
-
-        try:
-            data = json.loads(latest_payload.decode())
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            logger.warning("Ignoring malformed latest.json at %s", latest_path)
-            return None
-
-        if not isinstance(data, dict):
-            return None
-
-        checkpoint_id = data.get("checkpoint_id")
-        if isinstance(checkpoint_id, str):
-            return checkpoint_id
-        return None
+        return self._parse_latest_checkpoint_id(latest_payload, latest_path)
 
     async def _afind_latest_checkpoint_id(self, thread_id: str, checkpoint_ns: str) -> str | None:
         checkpoint_ids = await self._alist_checkpoint_ids(thread_id, checkpoint_ns)
@@ -1426,6 +1429,17 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_id = checkpoint["id"]
         parent_checkpoint_id = get_checkpoint_id(config)
 
+        current_latest = await self._aread_latest_checkpoint_id(thread_id, checkpoint_ns)
+        if current_latest is None or not await self._ablob_exists(
+            self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
+        ):
+            current_latest = await self._afind_latest_checkpoint_id(thread_id, checkpoint_ns)
+        await self._aupload_blob(
+            self._latest_blob_path(thread_id, checkpoint_ns),
+            b'{"version":1,"dirty":true}',
+            {},
+        )
+
         checkpoint_data: dict[str, Any] = dict(checkpoint)
         channel_values: dict[str, Any] = checkpoint_data.pop("channel_values", {})
 
@@ -1459,18 +1473,18 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             checkpoint_blob_metadata,
         )
 
-        # 4. Monotonic latest.json hint (best-effort, after commit marker)
-        current_latest = await self._aread_latest_checkpoint_id(thread_id, checkpoint_ns)
-        if current_latest is None or checkpoint_id >= current_latest:
-            latest_payload = json.dumps(
-                {"checkpoint_id": checkpoint_id},
-                separators=(",", ":"),
-            ).encode()
-            await self._aupload_blob(
-                self._latest_blob_path(thread_id, checkpoint_ns),
-                latest_payload,
-                {},
-            )
+        # 4. Publish clean only after the marker, without regressing the pointer.
+        latest_payload = json.dumps(
+            {
+                "version": 1,
+                "dirty": False,
+                "checkpoint_id": max(current_latest or "", checkpoint_id),
+            },
+            separators=(",", ":"),
+        ).encode()
+        await self._aupload_blob(
+            self._latest_blob_path(thread_id, checkpoint_ns), latest_payload, {}
+        )
         return self._checkpoint_config(thread_id, checkpoint_ns, checkpoint_id)
 
     async def aput_writes(
