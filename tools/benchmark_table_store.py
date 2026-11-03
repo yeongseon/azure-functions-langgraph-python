@@ -17,24 +17,21 @@ Usage (from the repo root)::
     hatch run table:python tools/benchmark_table_store.py --azurite --sizes 1000,10000
     hatch run table:python tools/benchmark_table_store.py --prototype-check
 
-``--azurite`` starts and stops its own ``azurite-table`` process on a free
-loopback port in a temporary directory; it needs ``azurite`` on PATH.
+``--azurite`` connects to an Azurite table service YOU started, for example
+``azurite-table --silent --location "$(mktemp -d)" --tablePort 10112``, and uses
+``--azurite-port`` (default 10112). The script creates and deletes its own
+``bench<N>`` tables and never starts or stops processes.
 """
 
 from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Iterator
+import contextlib
 from datetime import UTC, datetime, timedelta
 import json
-import os
-import random
 import re
-import shutil
-import socket
 import statistics
-import subprocess
-import tempfile
 import time
 import tracemalloc
 from typing import Any
@@ -91,7 +88,45 @@ class CountingFakeTableClient:
                 yield dict(entity)
 
 
-def make_entity(rng: random.Random, base: datetime, index: int) -> dict[str, Any]:
+class _Rng:
+    """Tiny deterministic xorshift64* generator (benchmark data, not security)."""
+
+    def __init__(self, seed: int) -> None:
+        self._state = (seed * 0x9E3779B97F4A7C15 + 1) & (2**64 - 1)
+
+    def _next(self) -> int:
+        x = self._state
+        x ^= x >> 12
+        x ^= (x << 25) & (2**64 - 1)
+        x ^= x >> 27
+        self._state = x
+        return (x * 0x2545F4914F6CDD1D) & (2**64 - 1)
+
+    def random(self) -> float:
+        return self._next() / 2**64
+
+    def randrange(self, stop: int) -> int:
+        return self._next() % stop
+
+    def getrandbits(self, bits: int) -> int:
+        out = 0
+        for _ in range(-(-bits // 64)):
+            out = (out << 64) | self._next()
+        return out & (2**bits - 1)
+
+    def choice(self, items: tuple[str, ...]) -> str:
+        return items[self.randrange(len(items))]
+
+    def choices(self, items: tuple[str, ...], weights: tuple[float, ...]) -> list[str]:
+        point, acc = self.random(), 0.0
+        for item, weight in zip(items, weights, strict=True):
+            acc += weight
+            if point < acc:
+                return [item]
+        return [items[-1]]
+
+
+def make_entity(rng: _Rng, base: datetime, index: int) -> dict[str, Any]:
     created = base + timedelta(seconds=(index // 2) * 5)  # pairs share created_at (tie-break)
     metadata = {
         "tenant": f"t{rng.randrange(TENANTS)}",
@@ -110,7 +145,7 @@ def make_entity(rng: random.Random, base: datetime, index: int) -> dict[str, Any
 
 
 def populate(client: Any, size: int, seed: int = 7) -> list[dict[str, Any]]:
-    rng = random.Random(seed)
+    rng = _Rng(seed)
     base = datetime(2025, 1, 1, tzinfo=UTC)
     entities = [make_entity(rng, base, i) for i in range(size)]
     if isinstance(client, CountingFakeTableClient):
@@ -235,50 +270,18 @@ def run_fake(sizes: list[int], reps: int) -> list[dict[str, Any]]:
     return rows
 
 
-def free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-def run_azurite(sizes: list[int], reps: int) -> list[dict[str, Any]]:
+def run_azurite(sizes: list[int], reps: int, port: int) -> list[dict[str, Any]]:
     from azure.data.tables import TableServiceClient  # type: ignore[import-not-found]
 
-    binary = shutil.which("azurite-table") or shutil.which("azurite")
-    if binary is None:
-        raise SystemExit("azurite not found on PATH")
-    data_dir = tempfile.mkdtemp(prefix="aflg-bench-azurite-")
-    port = free_port()
-    command = [
-        binary,
-        "--silent",
-        "--location",
-        data_dir,
-        "--tableHost",
-        "127.0.0.1",
-        "--tablePort",
-        str(port),
-        "--skipApiVersionCheck",
-    ]
-    if os.path.basename(binary) == "azurite":
-        command += ["--blobPort", str(free_port()), "--queuePort", str(free_port())]
-    proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    conn = (
+        "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;"
+        f"AccountKey={AZURITE_KEY};TableEndpoint=http://127.0.0.1:{port}/devstoreaccount1"
+    )
+    service = TableServiceClient.from_connection_string(conn)
     rows: list[dict[str, Any]] = []
     try:
-        for _ in range(100):
-            try:
-                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
-                break
-            except OSError:
-                time.sleep(0.1)
-        conn = (
-            "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;"
-            f"AccountKey={AZURITE_KEY};TableEndpoint=http://127.0.0.1:{port}/devstoreaccount1"
-        )
-        service = TableServiceClient.from_connection_string(conn)
         for size in sizes:
-            name = f"bench{size}"
-            raw = service.create_table_if_not_exists(name)
+            raw = service.create_table_if_not_exists(f"bench{size}")
             populate(raw, size)
             proxy = CountingProxy(raw)
             store = AzureTableThreadStore.from_table_client(proxy)  # type: ignore[arg-type]
@@ -291,11 +294,10 @@ def run_azurite(sizes: list[int], reps: int) -> list[dict[str, Any]]:
                         **measure(store, proxy, call, reps),
                     }
                 )
-            service.delete_table(name)
     finally:
-        proc.terminate()
-        proc.wait(timeout=15)
-        shutil.rmtree(data_dir, ignore_errors=True)
+        for size in sizes:
+            with contextlib.suppress(Exception):
+                service.delete_table(f"bench{size}")
     return rows
 
 
@@ -351,7 +353,8 @@ def prototype_check(size: int = 5000) -> dict[str, Any]:
     for status in STATUSES:
         total = sum(1 for e in entities if e["status"] == status)
         # count correctness: baseline count() vs index cardinality
-        assert store.count(status=status) == total == len(index[status])  # type: ignore[arg-type]
+        if not store.count(status=status) == total == len(index[status]):  # type: ignore[arg-type]
+            raise SystemExit(f"count mismatch for status={status}")
         for limit, offset in (
             (10, 0),
             (0, 0),
@@ -364,7 +367,8 @@ def prototype_check(size: int = 5000) -> dict[str, Any]:
                 t.thread_id for t in store.search(status=status, limit=limit, offset=offset)
             ]  # type: ignore[arg-type]
             proto, _ = indexed_search(index, status, limit, offset)
-            assert baseline == proto, (status, limit, offset)
+            if baseline != proto:
+                raise SystemExit(f"search mismatch: {status=} {limit=} {offset=}")
             checked += 1
     return {
         "entities": size,
@@ -377,6 +381,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--sizes", default="1000,10000,100000")
     parser.add_argument("--azurite", action="store_true", help="use Azurite instead of the fake")
+    parser.add_argument("--azurite-port", type=int, default=10112)
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--prototype-check", action="store_true")
     args = parser.parse_args()
@@ -384,7 +389,11 @@ def main() -> None:
         print(json.dumps(prototype_check(), indent=2))
         return
     sizes = [int(s) for s in args.sizes.split(",")]
-    rows = run_azurite(sizes, args.reps) if args.azurite else run_fake(sizes, args.reps)
+    rows = (
+        run_azurite(sizes, args.reps, args.azurite_port)
+        if args.azurite
+        else run_fake(sizes, args.reps)
+    )
     print(f"# backend={'azurite' if args.azurite else 'fake'}: NOT Azure Storage measurements")
     print(
         "| size | workload | entities read | requests (modeled) | peak MiB | median ms | result |"
