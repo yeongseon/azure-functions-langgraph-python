@@ -60,3 +60,48 @@ def test_failed_worker_start_leaves_no_registry_entry() -> None:
         with pytest.raises(RuntimeError, match="cannot start thread"):
             _store_renewal._start_store_renewal(deps, "thread", "owner")
     assert _store_renewal.stop_store_renewal("owner") is None
+
+
+def test_stop_is_bounded_when_renewal_call_never_returns() -> None:
+    # Given a renewal worker blocked inside store I/O that ignores the stop event.
+    store = InMemoryThreadStore()
+    deps = PlatformRouteDeps(
+        registrations={},
+        thread_store=store,
+        thread_lock=InProcessThreadLock(),
+        auth_level=func.AuthLevel.FUNCTION,
+        max_stream_response_bytes=1024,
+    )
+    entered = Event()
+    unblock = Event()
+
+    def renew(thread_id: str, owner_token: str) -> bool:
+        entered.set()
+        unblock.wait(10)
+        return True
+
+    results: list[Exception | None] = []
+    with (
+        patch.object(_store_renewal, "RENEWAL_INTERVAL", 0),
+        patch.object(_store_renewal, "RENEWAL_STOP_TIMEOUT", 0.05),
+        patch.object(store, "renew_run_lock", side_effect=renew),
+    ):
+        _store_renewal._start_store_renewal(deps, "thread", "owner")
+        assert entered.wait(2)
+        renewal = _store_renewal._STORE_RENEWALS["owner"]
+        # When cleanup stops renewal from the request thread.
+        stopper = Thread(target=lambda: results.append(_store_renewal.stop_store_renewal("owner")))
+        stopper.start()
+        stopper.join(2)
+        stalled = stopper.is_alive()
+        unblock.set()
+        stopper.join(2)
+        assert renewal.worker is not None
+        renewal.worker.join(2)
+
+    # Then cleanup returns promptly with a terminal timeout error, drops the registry
+    # entry, and the abandoned worker exits once its call returns.
+    assert not stalled
+    assert isinstance(results[0], _store_renewal.RunLockRenewalStopTimeoutError)
+    assert "owner" not in _store_renewal._STORE_RENEWALS
+    assert not renewal.worker.is_alive()
