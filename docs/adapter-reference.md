@@ -721,7 +721,7 @@ register it explicitly with
 Only allow keys whose values are safe for an untrusted client to choose. Opting
 in to `checkpoint_id` or `checkpoint_ns` deliberately grants checkpoint-selection
 control and requires corresponding ownership checks in the classic RUN authorizer
-or external streaming application/ingress policy.
+or the [transport-specific streaming authorizer](security.md#true-stream-authorization).
 Internal `__*` keys remain forbidden even when allow-listed. `thread_id` remains
 subject to validation and RUN authorization; an allow-list is not authentication.
 This policy covers native sync/async invoke, buffered stream and experimental
