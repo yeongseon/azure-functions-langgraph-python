@@ -9,6 +9,36 @@
         - register
         - function_app
 
+## Streaming authorization (experimental)
+
+`StreamingLangGraphApp` accepts the keyword-only constructor option
+`authorize: StreamingThreadAuthorizer | None = None`. No hook preserves permissive
+resource access; Function keys alone do not establish user/thread ownership.
+The hook applies to native invoke and true-stream routes, for sync and async
+graphs. It receives `RUN` after request/config validation and before graph work,
+checkpoint access, lock acquisition or deferred response construction.
+
+Import the transport-specific types from
+`azure_functions_langgraph.streaming_authorization`:
+
+| Type / field | Contract |
+| --- | --- |
+| `StreamingAuthorizationContext` | Frozen context; its repr excludes request/ownership data |
+| `action: AuthorizationAction` | `AuthorizationAction.RUN` for both routes |
+| `graph_name: str` | Registered graph name |
+| `thread_id: str \| None` | Validated client-selected ID, or `None` for threadless execution; not proof of ownership |
+| `request: starlette.requests.Request` | Original FastAPI/ASGI request, not a verified principal |
+| `StreamingThreadAuthorizer.__call__(context)` | Returns `bool \| Awaitable[bool]`; only `True` admits |
+
+Use the shared `UnauthenticatedError` from `azure_functions_langgraph.authorization`
+for 401; `False` produces 403 and other callback exceptions produce sanitized 500.
+Sync callbacks must be nonblocking; returned awaitables run on the request loop.
+There is one call per admission, not another call during response-body execution.
+Revocation affects subsequent requests, not already-admitted streams. Existing
+positional constructor arguments and the classic `ThreadAuthorizer` contract are
+unchanged; adopting the hook requires an ASGI-aware identity verifier. See
+[security and the composition example](security.md#true-stream-authorization).
+
 ## Request models
 
 ### InvokeRequest
