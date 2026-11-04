@@ -145,12 +145,44 @@ PYEOF
 
 ### Step 4 — Verify locally
 
+The Azure-ready `function_app.py` from Step 3 reads `AZURE_STORAGE_CONNECTION_STRING`
+at import time, and the Blob container and Table are **not** created automatically.
+Without that setting the worker fails on startup with
+`KeyError: 'AZURE_STORAGE_CONNECTION_STRING'`. The `simple_agent` example ships a
+`local.settings.json` with an empty `AzureWebJobsStorage` and no storage setting, so
+overwrite it explicitly (it contains only the local emulator placeholder, no secrets):
+
 ```bash
-cp local.settings.json.example local.settings.json 2>/dev/null || true
-func start
+cat > local.settings.json << 'EOF'
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AZURE_STORAGE_CONNECTION_STRING": "UseDevelopmentStorage=true"
+  }
+}
+EOF
 ```
 
-In another terminal:
+Start the [Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite)
+storage emulator in a separate terminal and create the same container and table that
+Step 7 creates in Azure:
+
+```bash
+azurite --silent --location ./.azurite
+```
+
+```bash
+az storage container create --name langgraph-checkpoints --connection-string "UseDevelopmentStorage=true"
+az storage table create --name langgraphthreads --connection-string "UseDevelopmentStorage=true"
+```
+
+Then start the host and, in another terminal, check it:
+
+```bash
+func start
+```
 
 ```bash
 curl -s http://localhost:7071/api/health | jq .
@@ -166,7 +198,16 @@ The anonymous endpoint is a minimal liveness probe. Query the protected
 `GET /api/health/details` endpoint with a function key when deployment
 validation also needs the graph inventory.
 
-> ⚠️ Platform routes (`/api/threads`, `/api/runs/...`) won't work locally without Azure Storage. That's expected — they will work after deployment.
+> **Local runs do not enforce function keys.** Core Tools serve protected routes
+> without `?code=` / `x-functions-key`, so a passing local `curl` does not prove the
+> deployed call works. Deployed apps use `AuthLevel.FUNCTION` and reject keyless
+> requests to everything except `/api/health` (Step 11 shows the key).
+>
+> With Azurite running, the platform routes (`/api/threads`, `/api/runs/...`) also work locally.
+>
+> The local check was run with Python 3.11 and Azure Functions Core Tools 4.8.0 against
+> Azurite. The Azure deployment steps below were **not executed** for this guide and
+> are unverified.
 
 Stop the local server with `Ctrl+C`.
 
@@ -365,6 +406,19 @@ export BASE_URL="https://$FUNCTIONAPP_NAME.azurewebsites.net"
 
 ### Step 11 — Verify native routes
 
+Every route except `/api/health` requires a function key on a deployed app. Fetch
+it without printing it, and send it in the `x-functions-key` header:
+
+```bash
+FUNCTION_KEY=$(az functionapp keys list \
+  --name "$FUNCTIONAPP_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query "functionKeys.default" \
+  --output tsv)
+```
+
+Keep `FUNCTION_KEY` out of logs and screenshots, and never commit it.
+
 #### Health check
 
 ```bash
@@ -384,6 +438,7 @@ also needs the protected graph inventory.
 
 ```bash
 curl -s -X POST "$BASE_URL/api/graphs/simple_agent/invoke" \
+  -H "x-functions-key: $FUNCTION_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "input": {
@@ -412,6 +467,7 @@ Expected output:
 
 ```bash
 curl -s -X POST "$BASE_URL/api/graphs/simple_agent/stream" \
+  -H "x-functions-key: $FUNCTION_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "input": {
@@ -421,6 +477,8 @@ curl -s -X POST "$BASE_URL/api/graphs/simple_agent/stream" \
     "config": {"configurable": {"thread_id": "native-002"}}
   }'
 ```
+
+> The default `LangGraphApp` returns **buffered SSE**: the full event sequence is collected and sent when the run finishes, not incrementally. True incremental streaming is opt-in and **experimental** via `StreamingLangGraphApp` (see [Adapter Reference](adapter-reference.md)).
 
 Expected output (Server-Sent Events). The graph has two nodes (`greet` → `farewell`), so three state snapshots are emitted — initial input, after greet, after farewell:
 
@@ -446,6 +504,7 @@ These routes follow the [LangGraph Platform API](https://docs.langchain.com/lang
 
 ```bash
 THREAD_ID=$(curl -s -X POST "$BASE_URL/api/threads" \
+  -H "x-functions-key: $FUNCTION_KEY" \
   -H "Content-Type: application/json" \
   -d '{}' | jq -r '.thread_id')
 echo "Thread ID: $THREAD_ID"
@@ -468,6 +527,7 @@ Expected output:
 
 ```bash
 curl -s -X POST "$BASE_URL/api/threads/$THREAD_ID/runs/wait" \
+  -H "x-functions-key: $FUNCTION_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "assistant_id": "simple_agent",
@@ -494,6 +554,7 @@ Expected output:
 
 ```bash
 curl -s -X POST "$BASE_URL/api/threads/$THREAD_ID/runs/stream" \
+  -H "x-functions-key: $FUNCTION_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "assistant_id": "simple_agent",
@@ -526,7 +587,8 @@ data: null
 #### Get thread state
 
 ```bash
-curl -s "$BASE_URL/api/threads/$THREAD_ID/state" | jq .
+curl -s "$BASE_URL/api/threads/$THREAD_ID/state" \
+  -H "x-functions-key: $FUNCTION_KEY" | jq .
 ```
 
 Expected output (truncated):
@@ -553,6 +615,7 @@ Expected output (truncated):
 
 ```bash
 curl -s -X POST "$BASE_URL/api/threads/search" \
+  -H "x-functions-key: $FUNCTION_KEY" \
   -H "Content-Type: application/json" \
   -d '{}' | jq .
 ```
@@ -561,6 +624,7 @@ curl -s -X POST "$BASE_URL/api/threads/search" \
 
 ```bash
 curl -s -X POST "$BASE_URL/api/runs/wait" \
+  -H "x-functions-key: $FUNCTION_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "assistant_id": "simple_agent",
@@ -575,6 +639,7 @@ curl -s -X POST "$BASE_URL/api/runs/wait" \
 
 ```bash
 curl -s -X POST "$BASE_URL/api/assistants/search" \
+  -H "x-functions-key: $FUNCTION_KEY" \
   -H "Content-Type: application/json" \
   -d '{}' | jq .
 ```
