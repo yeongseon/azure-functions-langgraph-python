@@ -65,6 +65,7 @@ from azure_functions_langgraph._validation import (
     validate_native_config,
     validate_thread_id,
 )
+from azure_functions_langgraph.authorization import AuthorizationAction
 from azure_functions_langgraph.contracts import (
     HealthResponse,
     HealthStatus,
@@ -95,6 +96,11 @@ from azure_functions_langgraph.protocols import (
     AsyncStreamableGraph,
     InvocableGraph,
     StreamableGraph,
+)
+from azure_functions_langgraph.streaming_authorization import (
+    StreamingAuthorizationContext,
+    StreamingThreadAuthorizer,
+    _authorization_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -477,6 +483,11 @@ class StreamingLangGraphApp:
     the module docstring for the full prerequisite list). Accessing
     :attr:`function_app` without the extra installed raises a friendly
     :class:`ImportError`.
+
+    ``authorize`` is a keyword-only, optional ``StreamingThreadAuthorizer``.
+    It receives the original ASGI request in ``StreamingAuthorizationContext``
+    and checks RUN once after validation, before graph/checkpoint work, locks,
+    or deferred response execution. No callback preserves permissive access.
     """
 
     auth_level: func.AuthLevel = func.AuthLevel.FUNCTION
@@ -491,6 +502,7 @@ class StreamingLangGraphApp:
     thread_lock: ThreadLock | None = None
     observer: RunObserver | None = None
     route_prefix: str = "/api"
+    authorize: StreamingThreadAuthorizer | None = field(default=None, kw_only=True, repr=False)
     _registrations: dict[str, _StreamRegistration] = field(default_factory=dict)
     _function_app: func.FunctionApp | None = field(default=None, init=False, repr=False)
 
@@ -779,6 +791,18 @@ class StreamingLangGraphApp:
             return self._reject(
                 JSONResponse, observer, ctx, "invalid_config", _JsonError(400, thread_err)
             )
+        status = await _authorization_status(
+            self.authorize,
+            StreamingAuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req),
+        )
+        if status is not None:
+            return self._reject(
+                JSONResponse,
+                observer,
+                ctx,
+                "authorization_denied",
+                _JsonError(status, "Access denied"),
+            )
         ctx = dataclasses.replace(ctx, thread_id=thread_id)
         method = reg.graph.ainvoke if is_async else reg.graph.invoke
         version_kwargs = _resolve_version_kwarg(method, request.version, reg.name)
@@ -888,6 +912,18 @@ class StreamingLangGraphApp:
         ):
             return self._reject(
                 JSONResponse, observer, ctx, "invalid_config", _JsonError(400, thread_err)
+            )
+        status = await _authorization_status(
+            self.authorize,
+            StreamingAuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req),
+        )
+        if status is not None:
+            return self._reject(
+                JSONResponse,
+                observer,
+                ctx,
+                "authorization_denied",
+                _JsonError(status, "Access denied"),
             )
         ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
         method = reg.graph.astream if is_async else reg.graph.stream
