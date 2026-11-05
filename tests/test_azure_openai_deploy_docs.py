@@ -111,3 +111,22 @@ def test_relative_links_and_anchors_resolve() -> None:
             assert anchor in {_slug(h) for h in headings}, (target, anchor)
     for anchor in re.findall(r"\]\(#([^)]+)\)", README):
         assert anchor in {_slug(h) for h in re.findall(r"^#{1,6} (.+)$", README, re.M)}
+
+
+def test_variables_are_defined_before_either_authentication_choice() -> None:
+    text = README
+    first_choice = text.index("**Managed Identity (recommended for production")
+    for name in ("RESOURCE_GROUP", "APP", "AOAI_NAME", "AOAI_RG"):
+        assert f'{name}="' in text[:first_choice], name
+
+
+def test_managed_identity_path_removes_a_stored_api_key() -> None:
+    # appsettings set merges and the app prefers a stored key over Entra ID (graph.py).
+    text = README
+    mi = text[
+        text.index("**Managed Identity (recommended for production") : text.index(
+            "**API key (quick tests only"
+        )
+    ]
+    assert "appsettings delete" in mi
+    assert "--setting-names AZURE_OPENAI_API_KEY" in mi

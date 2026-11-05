@@ -151,14 +151,18 @@ the deltas below, then
    (which is local only). The names are exactly those the code reads
    (`model_config.py`).
 
-**Managed Identity (recommended for production, no secret in App Settings):**
+Set these variables once; both authentication choices below use them:
 
 ```bash
 RESOURCE_GROUP="rg-langgraph-demo"   # same values as the tutorial
 APP="<FUNCTION_APP_NAME>"
 AOAI_NAME="<AZURE_OPENAI_RESOURCE_NAME>"
 AOAI_RG="<AZURE_OPENAI_RESOURCE_GROUP>"
+```
 
+**Managed Identity (recommended for production, no secret in App Settings):**
+
+```bash
 # 1. System-assigned identity on the Function App (no role is assigned here)
 PRINCIPAL_ID=$(az functionapp identity assign --name "$APP" \
   --resource-group "$RESOURCE_GROUP" --identities "[system]" \
@@ -178,6 +182,13 @@ az functionapp config appsettings set --name "$APP" \
   AZURE_OPENAI_ENDPOINT="<AZURE_OPENAI_ENDPOINT>" \
   AZURE_OPENAI_DEPLOYMENT="<DEPLOYMENT_NAME>" \
   AZURE_OPENAI_USE_ENTRA_ID=true
+
+# 4. `appsettings set` merges. The app uses Entra ID only when no API key is set
+#    (`graph.py`), so remove a key left over from the API-key quick test. This is
+#    a no-op when no key was ever set.
+az functionapp config appsettings delete --name "$APP" \
+  --resource-group "$RESOURCE_GROUP" --output none \
+  --setting-names AZURE_OPENAI_API_KEY
 ```
 
 **API key (quick tests only; the key becomes an App Setting):**
