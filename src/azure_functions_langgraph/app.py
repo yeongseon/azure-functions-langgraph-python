@@ -817,9 +817,12 @@ class LangGraphApp:
                 **sb_reg.binding_kwargs,
             )
 
+        # The Python worker refuses to load a function whose trigger parameter annotation does not
+        # match the binding type (`Any` fails with FunctionLoadError and takes the whole app down),
+        # so the single-message handlers are annotated with the real message type (#796).
         if sb_reg.async_mode:
 
-            async def sb_async_handler(msg: Any) -> None:
+            async def sb_async_handler(msg: func.ServiceBusMessage) -> None:
                 await process_service_bus_message_async(
                     captured,
                     msg,
@@ -830,7 +833,7 @@ class LangGraphApp:
             app.function_name(name=fn_name)(trigger(sb_async_handler))
         else:
 
-            def sb_handler(msg: Any) -> None:
+            def sb_handler(msg: func.ServiceBusMessage) -> None:
                 process_service_bus_message(
                     captured,
                     msg,
