@@ -8,7 +8,13 @@ Every number printed by this script comes from one of two backends:
 * ``azurite``: the Azurite emulator on loopback through the real
   ``azure-data-tables`` SDK. It measures SDK + emulator latency only.
 
-Neither backend is Azure Storage. Do not quote these numbers as Azure
+A third backend, ``--connection-string-env VAR``, runs against a REAL Azure Table
+endpoint (the connection string is read from the environment variable named VAR,
+never from argv, and is never printed). It counts HTTP requests actually sent by
+the SDK pipeline (retries included), so request counts are measured, and its
+latency includes client-to-Azure round trips from wherever you run it.
+
+Neither fake nor Azurite is Azure Storage. Do not quote these numbers as Azure
 measurements, and do not derive a supported thread count from them.
 
 Usage (from the repo root)::
@@ -30,6 +36,7 @@ from collections.abc import Callable, Iterator
 import contextlib
 from datetime import UTC, datetime, timedelta
 import json
+import os
 import re
 import statistics
 import time
@@ -216,22 +223,54 @@ def measure(
         "latency_ms_max": round(max(times), 1),
         "entities_read": counter.entities_read,
         "requests_modeled": counter.requests,
+        "requests_measured": getattr(counter, "requests_measured", None),
         "peak_mem_mib": round(peak / 1024 / 1024, 1),
         "result": returned,
     }
 
 
-class CountingProxy:
-    """Counts entities/queries for a real SDK ``TableClient`` (Azurite)."""
+class RequestCounter:
+    """Counts every HTTP request the SDK actually sends (retries included).
 
-    def __init__(self, inner: Any) -> None:
+    azure-data-tables ignores user pipeline policies, so the count is taken at the
+    transport: pass ``counting_transport(counter)`` as ``transport=``. Each attempt
+    is a billable transaction.
+    """
+
+    def __init__(self) -> None:
+        self.sent = 0
+
+
+def counting_transport(counter: RequestCounter) -> Any:
+    """Return a ``requests`` based SDK transport that increments ``counter.sent`` per send."""
+    from azure.core.pipeline.transport import RequestsTransport  # type: ignore[import-not-found]
+
+    class _CountingTransport(RequestsTransport):  # type: ignore[misc]
+        def send(self, request: Any, **kwargs: Any) -> Any:
+            counter.sent += 1
+            return super().send(request, **kwargs)
+
+    return _CountingTransport()
+
+
+class CountingProxy:
+    """Counts entities/queries for a real SDK ``TableClient`` (Azurite or Azure)."""
+
+    def __init__(self, inner: Any, request_counter: RequestCounter | None = None) -> None:
         self._inner = inner
+        self._request_counter = request_counter
         self.entities_read = 0
         self.queries = 0
 
     def reset_counters(self) -> None:
         self.entities_read = 0
         self.queries = 0
+        if self._request_counter is not None:
+            self._request_counter.sent = 0
+
+    @property
+    def requests_measured(self) -> int | None:
+        return None if self._request_counter is None else self._request_counter.sent
 
     @property
     def requests(self) -> int:
@@ -289,6 +328,38 @@ def run_azurite(sizes: list[int], reps: int, port: int) -> list[dict[str, Any]]:
                 rows.append(
                     {
                         "backend": "azurite",
+                        "size": size,
+                        "workload": label,
+                        **measure(store, proxy, call, reps),
+                    }
+                )
+    finally:
+        for size in sizes:
+            with contextlib.suppress(Exception):
+                service.delete_table(f"bench{size}")
+    return rows
+
+
+def run_azure(sizes: list[int], reps: int, env_var: str) -> list[dict[str, Any]]:
+    """Run against a real Table endpoint; the connection string comes from ``env_var``."""
+    from azure.data.tables import TableServiceClient  # type: ignore[import-not-found]
+
+    conn = os.environ.get(env_var)
+    if not conn:
+        raise SystemExit(f"environment variable {env_var} is not set or empty")
+    counter = RequestCounter()
+    service = TableServiceClient.from_connection_string(conn, transport=counting_transport(counter))
+    rows: list[dict[str, Any]] = []
+    try:
+        for size in sizes:
+            raw = service.create_table_if_not_exists(f"bench{size}")
+            populate(raw, size)
+            proxy = CountingProxy(raw, counter)
+            store = AzureTableThreadStore.from_table_client(proxy)  # type: ignore[arg-type]
+            for label, _, _, call in workloads(size):
+                rows.append(
+                    {
+                        "backend": "azure",
                         "size": size,
                         "workload": label,
                         **measure(store, proxy, call, reps),
@@ -382,6 +453,11 @@ def main() -> None:
     parser.add_argument("--sizes", default="1000,10000,100000")
     parser.add_argument("--azurite", action="store_true", help="use Azurite instead of the fake")
     parser.add_argument("--azurite-port", type=int, default=10112)
+    parser.add_argument(
+        "--connection-string-env",
+        metavar="VAR",
+        help="run against a real Table endpoint; connection string read from env var VAR",
+    )
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--prototype-check", action="store_true")
     args = parser.parse_args()
@@ -389,21 +465,38 @@ def main() -> None:
         print(json.dumps(prototype_check(), indent=2))
         return
     sizes = [int(s) for s in args.sizes.split(",")]
-    rows = (
-        run_azurite(sizes, args.reps, args.azurite_port)
-        if args.azurite
-        else run_fake(sizes, args.reps)
+    if args.connection_string_env:
+        backend = "azure"
+        rows = run_azure(sizes, args.reps, args.connection_string_env)
+    elif args.azurite:
+        backend = "azurite"
+        rows = run_azurite(sizes, args.reps, args.azurite_port)
+    else:
+        backend = "fake"
+        rows = run_fake(sizes, args.reps)
+    print(format_report(backend, rows))
+
+
+def format_report(backend: str, rows: list[dict[str, Any]]) -> str:
+    note = (
+        "REAL Azure Storage measurements (latency includes client-to-Azure round trips)"
+        if backend == "azure"
+        else "NOT Azure Storage measurements"
     )
-    print(f"# backend={'azurite' if args.azurite else 'fake'}: NOT Azure Storage measurements")
-    print(
-        "| size | workload | entities read | requests (modeled) | peak MiB | median ms | result |"
-    )
-    print("|---:|---|---:|---:|---:|---:|---:|")
+    lines = [
+        f"# backend={backend}: {note}",
+        "| size | workload | entities read | requests (modeled) | requests (measured) | "
+        "peak MiB | median ms | max ms | result |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
     for r in rows:
-        print(
+        measured = "n/a" if r["requests_measured"] is None else r["requests_measured"]
+        lines.append(
             f"| {r['size']} | {r['workload']} | {r['entities_read']} | {r['requests_modeled']} | "
-            f"{r['peak_mem_mib']} | {r['latency_ms_median']} | {r['result']} |"
+            f"{measured} | {r['peak_mem_mib']} | {r['latency_ms_median']} | "
+            f"{r['latency_ms_max']} | {r['result']} |"
         )
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":
