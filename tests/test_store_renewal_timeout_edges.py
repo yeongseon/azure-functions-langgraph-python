@@ -192,13 +192,42 @@ def test_late_renew_cannot_mutate_newer_owner_in_table_store() -> None:
     assert newer is not None and newer.lock_token is not None
     before = copy.deepcopy(table.entities[("thread", thread.thread_id)])
 
-    # When the abandoned worker's late renew arrives.
+    # When the abandoned worker's late renew arrives it is rejected by the owner-token check
+    # and the newer owner's record is unchanged.
     renewed = store.renew_run_lock(thread.thread_id, first.lock_token)
-
-    # Then it is rejected and the newer owner's record is unchanged.
     assert renewed is False
     assert table.entities[("thread", thread.thread_id)] == before
     assert before["lock_token"] == newer.lock_token
+
+
+def test_in_flight_renewal_cannot_write_after_ownership_changes_in_table_store() -> None:
+    # Given a renewal that has already read the record (and its ETag) as the current owner.
+    store, table = _new_store()
+    thread = store.create()
+    first = store.try_acquire_run_lock(thread.thread_id)
+    assert first is not None and first.lock_token is not None
+    real_update = table.update_entity
+    handover: dict[str, Any] = {"armed": True}
+
+    def update_after_handover(*args: Any, **kwargs: Any) -> Any:
+        if handover["armed"]:
+            handover["armed"] = False
+            # Ownership changes between the renewal's read and its conditional write.
+            store.release_run_lock(thread.thread_id, status="idle", owner_token=first.lock_token)
+            newer = store.try_acquire_run_lock(thread.thread_id)
+            assert newer is not None and newer.lock_token is not None
+            handover["newer_token"] = newer.lock_token
+            handover["snapshot"] = copy.deepcopy(table.entities[("thread", thread.thread_id)])
+        return real_update(*args, **kwargs)
+
+    # When the renewal writes with the stale ETag.
+    with patch.object(table, "update_entity", side_effect=update_after_handover):
+        renewed = store.renew_run_lock(thread.thread_id, first.lock_token)
+
+    # Then the ETag fence rejects it and the newer owner's record is untouched.
+    assert renewed is False
+    assert handover["snapshot"]["lock_token"] == handover["newer_token"]
+    assert table.entities[("thread", thread.thread_id)] == handover["snapshot"]
 
 
 def test_late_renew_cannot_mutate_newer_owner_in_memory_store() -> None:
@@ -243,19 +272,29 @@ def test_never_returning_renewal_yields_sanitized_500(endpoint: str) -> None:
         patch.object(graph, "stream", side_effect=lambda *a, **kw: iter([execute()])),
         patch.object(_common.logger, "error") as log_error,
     ):
-        # When the handler finishes.
+        # When the handler finishes (cleanup gave up on the still-blocked worker).
         response = handler(request)
+        workers = _store_renewal_threads()
+        assert workers, "the abandoned renewal worker must still be blocked here"
         unblock.set()
+        # The worker's late failure is logged inside this patch scope; join it so the log is
+        # captured and the daemon cannot leak into later tests.
+        for worker in workers:
+            worker.join(2)
+        assert not any(worker.is_alive() for worker in workers)
 
-    # Then the body and logs carry no exception text or owner/thread identifiers.
+    # Then the body carries no exception text or thread identifier ...
     assert response.status_code == 500
     text = response.get_body().decode()
     assert "private-" not in text and thread.thread_id not in text
     assert json.loads(text)
     stored = store.get(thread.thread_id)
     assert stored is not None
-    owner_tokens = [c.args for c in log_error.call_args_list]
-    assert all("private-" not in str(a) for a in owner_tokens)
+    # ... and the worker's late failure was logged by exception type only, never its text.
+    logged = [c.args for c in log_error.call_args_list]
+    late = [args for args in logged if "Run-lock renewal failed" in str(args[0])]
+    assert late and late[0][-1] == "OSError"
+    assert all("private-" not in str(args) for args in logged)
     observer.on_run_failed.assert_called_once()
 
 
