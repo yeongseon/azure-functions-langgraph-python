@@ -235,7 +235,10 @@ secret; never commit it.
 - **Streaming:** `/stream` is **buffered SSE** (frames flush after the run). True
   streaming is the experimental `StreamingLangGraphApp`; see [Usage](usage.md).
 
-When any of these matter, see [when to move to Premium](deployment.md#when-to-move-to-premium).
+A plan change helps with **cold starts** only (see [when to move to Premium](deployment.md#when-to-move-to-premium)).
+It does **not** lift the HTTP response limit or make `LangGraphApp` stream incrementally: for those, see
+*Timeouts & Cancellation* in the [Production Guide](production-guide.md) (async patterns) and the
+true-streaming option in [Usage](usage.md#stream-endpoint).
 
 ### Clean up
 

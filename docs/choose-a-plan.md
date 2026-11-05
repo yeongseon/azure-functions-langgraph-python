@@ -96,7 +96,7 @@ Start here:
 
 **For the minimal `azure-functions-langgraph` demo**: use **Flex Consumption** ([5-minute tutorial](tutorial-5-min.md)).
 
-**For production LLM/AI workloads** (optional next step): consider **Premium EP1**. LLM calls can take 30+ seconds, and cold starts frustrate users. Premium gives you always-warm instances and no hard timeout ceiling.
+**For production LLM/AI workloads** (optional next step): consider **Premium EP1** when cold starts hurt or you need VNet/private endpoints. LLM calls can take 30+ seconds. Premium gives you always-warm instances and a function execution timeout you can raise without a hard cap. It does **not** lift the 230-second HTTP response ceiling: a request that must run longer needs an asynchronous pattern (see *Timeouts & Cancellation* in the [Production Guide](production-guide.md)).
 
 ## Cost at a glance
 

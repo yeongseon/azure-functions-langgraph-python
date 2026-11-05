@@ -51,13 +51,16 @@ Two different things share the word "storage". Only the first is needed for a ba
 ## When to move to Premium
 
 The minimal default ([5-minute tutorial](tutorial-5-min.md)) uses Flex Consumption.
-This guide's walkthrough uses **Premium (EP1)** because it adds persistence and
-platform routes; choose Premium when you need what it provides:
+This guide's walkthrough uses **Premium (EP1)** as a production-style example.
+Persistence (Blob checkpointer, Table thread store) and `platform_compat=True` are
+**not** Premium features: the Flex Consumption variant in
+[If you need a different plan](#if-you-need-a-different-plan) keeps the same backends.
+Choose Premium for **hosting** reasons:
 
 | | |
 |---|---|
 | **Walkthrough plan** | **Premium (EP1)** (optional; not required for a stateless graph) |
-| **Why** | LangGraph agents often call LLM APIs that take several seconds to respond. Premium provides always-warm instances that eliminate cold starts, faster dependency builds during deployment, VNet support for private endpoints, and reliable Server-Sent Events (SSE) streaming — instances stay alive for the full response. |
+| **Why** | LangGraph agents often call LLM APIs that take several seconds to respond. Premium provides always-warm instances that eliminate cold starts, faster dependency builds during deployment, VNet support for private endpoints, and a function execution timeout you can raise without a hard cap. It does not change HTTP behavior: the 230-second HTTP response ceiling still applies, and `/stream` stays buffered SSE on every plan (true incremental streaming is the experimental `StreamingLangGraphApp`). |
 | **Stay on Flex Consumption (the default) if** | Your graph is lightweight or you are learning/testing, and you can tolerate cold starts. The tutorial demonstrates `simple_agent` on Flex Consumption. |
 | **Switch to Dedicated (B1) if** | You need fixed monthly cost with no per-execution billing. |
 
