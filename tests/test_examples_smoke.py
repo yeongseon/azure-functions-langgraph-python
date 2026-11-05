@@ -78,6 +78,7 @@ REQUIRED_FILES = (
 
 EXAMPLE_DIRS = (
     "simple_agent",
+    "official_langgraph_basic",
     "azure_openai_agent",
     "conversation_memory",
     "platform_compat_sdk",

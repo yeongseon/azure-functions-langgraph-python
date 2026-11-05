@@ -5,6 +5,7 @@
 | Role | Path | Description |
 | --- | --- | --- |
 | Minimal | [`simple_agent`](simple_agent/) | Two-node greeting agent with sequential edges (deterministic, no LLM). |
+| Official-example adaptation | [`official_langgraph_basic`](official_langgraph_basic/) | A graph copied verbatim from the official LangGraph "Define and update state" guide, hosted with minimal wiring changes (a registration shim); upstream baseline, wiring diff and attribution included (deterministic, no LLM). |
 | **Real agent — start here** | [`azure_openai_agent`](azure_openai_agent/) ⭐ | **Recommended after Quick Start.** LangGraph agent backed by a real Azure OpenAI deployment; API-key and Managed Identity paths, deterministic fake-model fallback for CI. |
 | Stateful conversation | [`conversation_memory`](conversation_memory/) ⭐ | **The stateful delta after `azure_openai_agent`.** Same graph plus a checkpointer — same `thread_id` continues a conversation, a different `thread_id` is isolated. In-memory backend, fake-model fallback for CI. |
 | Tool-calling agent | [`tool_calling_agent`](tool_calling_agent/) ⭐ | **The tool-calling delta after `conversation_memory`.** Same agent plus a `ToolNode` loop; tools are your own code in `tools.py`. OpenAPI/Swagger bridge wired in. Deterministic scripted fake-model fallback for CI. |

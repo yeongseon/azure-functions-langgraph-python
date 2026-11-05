@@ -1,0 +1,10 @@
+# Do not include azure-functions-worker in this file
+# The Python Worker is managed by the Azure Functions platform
+#
+# `langchain` (not just langchain-core) is required because the upstream snippet
+# imports `from langchain.messages import ...`.
+
+azure-functions
+azure-functions-langgraph>=0.12.0,<0.13
+langgraph>=1.0,<2.0
+langchain>=1.0,<2.0

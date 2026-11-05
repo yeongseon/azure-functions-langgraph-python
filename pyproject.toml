@@ -83,6 +83,9 @@ dev = [
     "coverage",
     "hatch",
     "langgraph-checkpoint-sqlite>=3.0,<4",
+    # Example-only: examples/official_langgraph_basic runs the official LangGraph
+    # snippet verbatim, which imports `langchain.messages` (not the adapter).
+    "langchain>=1.0,<2",
     "mypy==2.4.0",
     "pre-commit",
     "pytest",

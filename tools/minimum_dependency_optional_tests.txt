@@ -1,3 +1,5 @@
+# Requires the example-only langchain package (upstream snippet imports langchain.messages).
+tests/test_official_langgraph_basic_example.py
 # Requires live Azurite/Cosmos services and their Blob, Table, and Cosmos extras.
 tests/integration
 # Requires the azure-functions-durable optional extra for DFApp registration.
