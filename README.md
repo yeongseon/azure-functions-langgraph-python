@@ -45,6 +45,16 @@ Run `func start`, then POST `{"input":{"message":"hello"}}` to
 default. Follow the [5-minute tutorial](docs/tutorial-5-min.md) for complete
 project files, local setup and deployment.
 
+## Deploy to Azure (default path)
+
+One path, start to finish: the [**5-minute tutorial**](docs/tutorial-5-min.md):
+local invoke, minimal Azure resources, publish, authenticated cloud invoke, cleanup.
+Stateless graphs need only the Storage Account Azure Functions itself requires.
+Premium, Blob/Table persistence, Platform compatibility, Managed Identity and
+distributed locks are **optional** next steps in the
+[advanced deployment guide](docs/deployment.md). Cloud steps are not claimed
+as certified beyond the stability table below.
+
 ## Stability — rolling 0.x, per surface
 
 The package-level classifier is **Beta**, not a promise that every surface is
@@ -66,7 +76,8 @@ and [security boundaries](docs/security.md).
 
 ## Recommended learning path
 
-These are independent, capability-focused apps, not cumulative production templates:
+Optional, after the [default path](docs/tutorial-5-min.md). These are independent,
+capability-focused apps, not cumulative production templates or prerequisites:
 
 1. [Azure OpenAI agent](examples/azure_openai_agent/)
 2. [Conversation memory](examples/conversation_memory/)

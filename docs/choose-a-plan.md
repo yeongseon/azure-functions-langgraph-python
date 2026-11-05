@@ -94,7 +94,9 @@ Start here:
 
 **For most users**: Start with **Flex Consumption**. It costs nothing when idle, handles most workloads well, and you can switch plans later without changing your code.
 
-**For LLM/AI workloads** (like `azure-functions-langgraph`): Start with **Premium EP1**. LLM calls can take 30+ seconds, and cold starts frustrate users. Premium gives you always-warm instances and no hard timeout ceiling.
+**For the minimal `azure-functions-langgraph` demo**: use **Flex Consumption** ([5-minute tutorial](tutorial-5-min.md)).
+
+**For production LLM/AI workloads** (optional next step): consider **Premium EP1**. LLM calls can take 30+ seconds, and cold starts frustrate users. Premium gives you always-warm instances and no hard timeout ceiling.
 
 ## Cost at a glance
 
@@ -245,7 +247,7 @@ Most `azure-functions-*` repos default to **Flex Consumption** because:
 - Simple provisioning (no plan creation step)
 - Sufficient timeout (30 min) for most HTTP workloads
 
-**Exception**: `azure-functions-langgraph` defaults to **Premium** because:
+**Exception for production**: for sustained LLM/agent workloads, `azure-functions-langgraph` suggests moving to **Premium** (the minimal demo stays on Flex) because:
 - LLM/agent invocations can take 30+ seconds
 - Cold starts degrade the AI agent user experience
 - Dependency footprint is larger (LangGraph + LLM SDKs)
