@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from urllib.parse import urlparse
 
 import pytest
 import requests
@@ -28,6 +29,9 @@ SKIP_REASON = "E2E_BASE_URL not set — skipping real-Azure e2e tests"
 GRAPH = "e2e_agent"
 # Function-key protected twin registered by examples/e2e_app (per-graph auth override).
 KEYED_GRAPH = "e2e_keyed_agent"
+# A local Core Tools host (``make e2e-local``) serves protected routes without a function key, so
+# the keyless-refusal check below is only meaningful against a deployed host.
+IS_LOCAL_HOST = (urlparse(BASE_URL).hostname or "") in {"localhost", "127.0.0.1", "::1"}
 
 pytestmark = pytest.mark.e2e
 
@@ -122,6 +126,7 @@ def test_schema_invalid_request_is_rejected_with_a_structured_422() -> None:
 
 
 @pytest.mark.skipif(not BASE_URL, reason=SKIP_REASON)
+@pytest.mark.skipif(IS_LOCAL_HOST, reason="Core Tools do not enforce function keys")
 def test_function_level_graph_rejects_keyless_requests() -> None:
     # The app is ANONYMOUS; the keyed twin overrides to FUNCTION. Azure enforces function keys on a
     # deployed host, so a keyless call must be refused there while the anonymous graph is served.
