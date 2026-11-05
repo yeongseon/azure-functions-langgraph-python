@@ -26,7 +26,8 @@ Usage (from the repo root)::
 ``--azurite`` connects to an Azurite table service YOU started, for example
 ``azurite-table --silent --location "$(mktemp -d)" --tablePort 10112``, and uses
 ``--azurite-port`` (default 10112). The script creates and deletes its own
-``bench<N>`` tables and never starts or stops processes.
+tables named ``bench<size>r<8 hex>`` (unique per run, created never reused) and deletes
+only the tables it created; it never starts or stops processes.
 """
 
 from __future__ import annotations
@@ -309,6 +310,41 @@ def run_fake(sizes: list[int], reps: int) -> list[dict[str, Any]]:
     return rows
 
 
+def run_tables(
+    service: Any,
+    backend: str,
+    sizes: list[int],
+    reps: int,
+    counter: RequestCounter | None = None,
+) -> list[dict[str, Any]]:
+    """Seed and measure one fresh table per size; delete only the tables created here."""
+    run_id = uuid.uuid4().hex[:8]
+    created: list[str] = []
+    rows: list[dict[str, Any]] = []
+    try:
+        for size in sizes:
+            name = f"bench{size}r{run_id}"
+            raw = service.create_table(name)  # fails loudly if it already exists
+            created.append(name)
+            populate(raw, size)
+            proxy = CountingProxy(raw, counter)
+            store = AzureTableThreadStore.from_table_client(proxy)  # type: ignore[arg-type]
+            for label, _, _, call in workloads(size):
+                rows.append(
+                    {
+                        "backend": backend,
+                        "size": size,
+                        "workload": label,
+                        **measure(store, proxy, call, reps),
+                    }
+                )
+    finally:
+        for name in created:
+            with contextlib.suppress(Exception):
+                service.delete_table(name)
+    return rows
+
+
 def run_azurite(sizes: list[int], reps: int, port: int) -> list[dict[str, Any]]:
     from azure.data.tables import TableServiceClient  # type: ignore[import-not-found]
 
@@ -316,28 +352,7 @@ def run_azurite(sizes: list[int], reps: int, port: int) -> list[dict[str, Any]]:
         "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;"
         f"AccountKey={AZURITE_KEY};TableEndpoint=http://127.0.0.1:{port}/devstoreaccount1"
     )
-    service = TableServiceClient.from_connection_string(conn)
-    rows: list[dict[str, Any]] = []
-    try:
-        for size in sizes:
-            raw = service.create_table_if_not_exists(f"bench{size}")
-            populate(raw, size)
-            proxy = CountingProxy(raw)
-            store = AzureTableThreadStore.from_table_client(proxy)  # type: ignore[arg-type]
-            for label, _, _, call in workloads(size):
-                rows.append(
-                    {
-                        "backend": "azurite",
-                        "size": size,
-                        "workload": label,
-                        **measure(store, proxy, call, reps),
-                    }
-                )
-    finally:
-        for size in sizes:
-            with contextlib.suppress(Exception):
-                service.delete_table(f"bench{size}")
-    return rows
+    return run_tables(TableServiceClient.from_connection_string(conn), "azurite", sizes, reps)
 
 
 def run_azure(sizes: list[int], reps: int, env_var: str) -> list[dict[str, Any]]:
@@ -349,27 +364,7 @@ def run_azure(sizes: list[int], reps: int, env_var: str) -> list[dict[str, Any]]
 
     counter = RequestCounter()
     service = TableServiceClient.from_connection_string(conn, transport=counting_transport(counter))
-    rows: list[dict[str, Any]] = []
-    try:
-        for size in sizes:
-            raw = service.create_table_if_not_exists(f"bench{size}")
-            populate(raw, size)
-            proxy = CountingProxy(raw, counter)
-            store = AzureTableThreadStore.from_table_client(proxy)  # type: ignore[arg-type]
-            for label, _, _, call in workloads(size):
-                rows.append(
-                    {
-                        "backend": "azure",
-                        "size": size,
-                        "workload": label,
-                        **measure(store, proxy, call, reps),
-                    }
-                )
-    finally:
-        for size in sizes:
-            with contextlib.suppress(Exception):
-                service.delete_table(f"bench{size}")
-    return rows
+    return run_tables(service, "azure", sizes, reps, counter)
 
 
 # --- Prototype of a bounded alternative (benchmark-only; NOT production code) ---

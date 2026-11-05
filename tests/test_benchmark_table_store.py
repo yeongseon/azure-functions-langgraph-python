@@ -74,3 +74,48 @@ def test_report_labels_real_azure_and_marks_missing_measured_counts(bench: Modul
     assert "| 10 | w | 10 | 1 | 2 | 0.1 | 5.0 | 6.0 | 3 |" in azure
     assert "NOT Azure Storage" in fake
     assert "| 1 | n/a |" in fake
+
+
+class _FakeService:
+    """TableServiceClient double: records creates/deletes, can fail seeding."""
+
+    def __init__(self, existing: set[str], fail_on_create: bool = False) -> None:
+        self.tables = set(existing)
+        self.created: list[str] = []
+        self.deleted: list[str] = []
+        self.fail_on_create = fail_on_create
+
+    def create_table(self, name: str) -> object:
+        if name in self.tables:
+            raise RuntimeError("exists")
+        self.tables.add(name)
+        self.created.append(name)
+        if self.fail_on_create:
+            raise RuntimeError("seeding failed")
+        return self
+
+    def delete_table(self, name: str) -> None:
+        self.tables.discard(name)
+        self.deleted.append(name)
+
+
+def test_run_tables_deletes_only_tables_it_created_after_a_seeding_failure(
+    bench: ModuleType,
+) -> None:
+    # Given a pre-existing user table named like another requested size
+    service = _FakeService({"bench10000"})
+    # When seeding the first size fails (submit_transaction is missing on the double)
+    with pytest.raises(AttributeError):
+        bench.run_tables(service, "azure", [1000, 10000], 1)
+    # Then only the table created in this run is deleted and the user's table survives
+    assert len(service.created) == 1 and service.created[0].startswith("bench1000r")
+    assert service.deleted == service.created
+    assert "bench10000" in service.tables
+
+
+def test_run_tables_uses_unique_names_per_run_and_never_reuses_tables(bench: ModuleType) -> None:
+    first, second = _FakeService(set()), _FakeService(set())
+    for service in (first, second):
+        with pytest.raises(AttributeError):
+            bench.run_tables(service, "azure", [1000], 1)
+    assert first.created != second.created
