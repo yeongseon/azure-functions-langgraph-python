@@ -273,6 +273,50 @@ See the [production lease lifecycle and recovery guidance](docs/production-guide
 and the authoritative [Azure lease semantics](https://learn.microsoft.com/en-us/rest/api/storageservices/lease-blob)
 and [Functions HTTP limits](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger#limits).
 
+### 15. Checkpoint fencing proposal (#765)
+
+**Status: proposal only. Not implemented; maintainer decision pending.** No `src/` runtime behavior, `ThreadLock` protocol, lock or saver changes accompany this section. The recorded maintainer decision for #765 is "design proposal only".
+
+**Problem.** `AzureBlobLeaseThreadLock` gives mutual exclusion for *acquiring* a per-thread marker lease. `AzureBlobCheckpointSaver.put()` never consults it: every blob it writes (`latest.json` dirty marker, channel values, metadata, `checkpoint.bin`, `latest.json` publish) is an unconditional `upload_blob(overwrite=True)`. A writer that lost its lease while its graph was still running can therefore still commit. Fake-based characterization already pinned this (`tests/test_lease_loss_characterization.py`); real-Azure evidence below confirms it against the actual Blob service.
+
+**Real-Azure evidence (2026-11-05, `koreacentral`, temporary Standard_LRS StorageV2 account, `azure-storage-blob` 12.31.1, `azure-core` 1.41.0, Python 3.11.15, client on a developer machine, three identical runs).** A throwaway probe (not committed) did, per run: owner A acquires `AzureBlobLeaseThreadLock(lease_duration=15, auto_renew=False)` for a thread and writes `cp-001` through the real saver; owner B (separate lock instance, same lock container) is refused while A's lease is live; lease loss is induced **by letting A's 15 s lease expire without renewal** (B polls `acquire()`), then B acquires and writes `cp-002` (parent `cp-001`); stale A then writes `cp-002a` (parent `cp-001`).
+
+| Observation (identical in all 3 runs) | Result |
+| --- | --- |
+| B acquires while A's lease is live | refused (lease held) |
+| Time until B acquired | 15.3 s, 15.3 s, 15.4 s |
+| Stale A `lease.renew()` | rejected, HTTP 409 `LeaseIdMismatchWithLeaseOperation` (about 7 ms) |
+| Stale A `upload_blob` to the *marker blob* with its old lease id | rejected, HTTP 412 `LeaseIdMismatchWithBlobOperation` (about 8 ms) |
+| Stale A `AzureBlobCheckpointSaver.put()` of `cp-002a` | **accepted** (62 to 67 ms for the whole multi-blob `put`); no lease or ETag condition rejected anything |
+| Blobs present afterwards | `cp-001`, `cp-002`, `cp-002a` (a fork under one parent) |
+| Final `latest.json` | `{"version":1,"dirty":false,"checkpoint_id":"cp-002a"}`; `get_tuple()` returns the stale writer's state (`latest` is `max(id)`, not "last committed by the current owner") |
+
+Conclusions: (1) the Blob service enforces lease ownership on the leased marker blob and rejects the stale owner there (lock-level mutual exclusion works as documented); (2) nothing at checkpoint level is conditional, so a stale writer's commit is accepted and, because a later-generated id sorts higher, becomes the visible head. This is evidence of one controlled interleaving per run, not a measured production incidence rate.
+
+**Minimal design: lease-conditional commit on the leased head blob.** A Blob lease only conditions writes to the *leased blob itself*, so the commit point must be that blob (the lock marker, or a head blob in the same container the lock leases).
+
+1. The lock exposes an optional capability, discovered by `isinstance` check: `FencingThreadLock.fence(graph_name, thread_id, token) -> CheckpointFence | None` returning a handle bound to the held lease id. `ThreadLock.acquire`/`release` and the opaque owner token are unchanged. Locks without the capability (in-process, third-party) return no fence and behave exactly as today.
+2. The platform layer, which already owns acquire/release around a run, passes the handle to the saver through a private configurable key (the `__`-prefix convention so it is not persisted into checkpoint metadata; to be verified against the pinned `langgraph` version).
+3. When a fence is present, `put()` writes data blobs as today (unreferenced until committed), then **commits by writing the head record `{checkpoint_id}` to the leased head blob with `lease=<lease id>`**. The service rejects a stale or expired lease id with 412 (`LeaseIdMismatchWithBlobOperation`, or `LeaseNotPresentWithBlobOperation` when expired and not yet re-acquired), mapped to a typed `StaleCheckpointWriterError`. Rejection is atomic with the write; a pre-write ownership check would not be (a lease can expire between check and write). `latest.json` stays as a compatibility hint written after a successful commit.
+4. Readers (`get_tuple` without an id, `list`) prefer the head record when fencing is enabled for the namespace and fall back to `latest.json` otherwise.
+5. On `StaleCheckpointWriterError` the saver best-effort deletes the blobs of the rejected checkpoint (the existing orphan collector remains the backstop).
+
+Alternative primitive for locks without leases: a monotonically increasing **epoch** stored by the lock on acquire, carried in the head record and checked with `If-Match` on the head ETag. It is lock-agnostic but costs two extra requests per acquire (read and write epoch) and a conditional-write round trip per `put()`.
+
+**Cost and latency.** One extra small PUT (the head commit) per `put()`; no extra request on acquire for the lease design. Measured from the probe client: a lease-conditional rejection costs about 7 to 8 ms, and a whole unfenced `put()` of a tiny checkpoint 62 to 67 ms, so the extra commit is expected to add roughly 5 to 15 ms from a client at that distance (not measured for the proposal itself) and about one Blob write transaction per checkpoint.
+
+**Rollout and mixed-version fleets.** Fencing is opt-in per saver/lock pair and only protects writers that use it. An old-version instance neither sends a lease id nor writes the head record, so it is not fenced, and once readers prefer the head its commits would be invisible; fenced mode must therefore be enabled only after every instance runs the fencing-capable version: (a) ship reader support with fencing disabled, (b) enable once the fleet is homogeneous, (c) keep `latest.json` written for rollback. Enabling fencing on a thread with existing unfenced checkpoints needs the head record to be bootstrapped from `latest.json` on first fenced commit.
+
+**Failure modes to design for.** Ambiguous head-commit timeouts (retry is idempotent by checkpoint id); `lost` local bookkeeping with a still-valid service lease (handled as today, commit still succeeds); a crash between data blobs and head commit leaves orphans only; the head blob is the lock marker, so a manual `break_lease` makes the next commit fail rather than silently succeed (desired); throttling on a hot head blob (one write per checkpoint per thread).
+
+**Test plan.** Unit: fence handle plumbing and exhaustive typed-error mapping with the existing fakes. Integration (opt-in, real Azure or Azurite): the probe's three-owner shape, asserting the stale `put()` raises `StaleCheckpointWriterError`, `get_tuple()` returns B's checkpoint, `latest` unchanged and only B's blobs remain. Azurite implements the Blob lease operation, so the lease-id precondition should be emulated, but that was **not verified for this proposal** and must be confirmed before relying on emulator-only CI; lease expiry timing and `LeaseNotPresentWithBlobOperation` semantics need a real-Azure run.
+
+**Alternatives considered.** Removing renewal was rejected by #697 (it widens, not closes, the window). Cosmos DB or PostgreSQL transactional backends give atomic compare-and-set commits but add a service, dependency and migration, and are out of scope without measured need. A pre-write lease check is rejected as non-atomic. Cancelling the stale graph is not possible for a running synchronous worker.
+
+**Not covered.** Fencing does not stop the stale graph from executing side effects outside the checkpoint store (tool calls, external APIs); it only prevents its checkpoint from becoming visible.
+
+Reproduction: the probe is a small script that runs `AzureBlobLeaseThreadLock` and the real saver against a temporary container; it is intentionally not part of the repository (its core and sanitized output are in the pull request description).
+
 ## Module Structure
 
 ```
