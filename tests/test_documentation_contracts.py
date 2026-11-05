@@ -57,10 +57,16 @@ def test_streaming_guides_name_the_current_transports() -> None:
         assert "tracked separately under umbrella issue #339" not in text
 
 
-def test_roadmap_distinguishes_closed_issue_from_unverified_flex_lane() -> None:
+def test_roadmap_records_the_flex_lane_scope_without_overclaiming() -> None:
     roadmap = (ROOT / "docs" / "roadmap.md").read_text()
+    compatibility = (ROOT / "COMPATIBILITY.md").read_text()
 
     assert "[#350]" in roadmap
     assert "is closed" in roadmap
-    assert "unverified scaffold" in roadmap
+    # The lane ran green, but only for the native routes, and it is optional.
+    assert "native routes only" in roadmap
+    assert "not a release gate" in roadmap
+    assert "unverified scaffold" not in roadmap
     assert "real-Azure certification shipped" not in roadmap
+    # What is NOT certified stays visible next to the claim.
+    assert "Platform routes, true streaming and the two-app lock" in compatibility

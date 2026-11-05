@@ -244,8 +244,9 @@ jobs:
   # `certify_2x` stays false there) — the pyproject `<2.0.0` cap must NOT be
   # raised until this lane has been dispatched green at least once.
   #
-  # STATUS: unverified scaffold (infra/flex.bicep has never been deployed). The
-  # first successful dispatch validates both this job and the Flex Bicep.
+  # STATUS: verified. Dispatch run 41959779590 (2026-11-05) deployed infra/flex.bicep and
+  # passed the native-route suite on Flex Consumption + Python 3.13; see COMPATIBILITY.md
+  # for the exact certified scope. The job stays opt-in and is not a release gate.
   deploy_and_test_2x:
     name: Deploy & Test (azure-functions 2.x / Flex / Py 3.13)
     runs-on: ubuntu-latest

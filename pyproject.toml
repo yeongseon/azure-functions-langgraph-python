@@ -29,9 +29,10 @@ dependencies = [
     # Python >= 3.13 is allowed onto the 2.x line but capped below <3.0.0 so an
     # uncertified azure-functions 3.x is never pulled in silently. The 2.x path
     # is proven by the wheel-based "azure-functions 2.x compat" matrix in
-    # ci-test.yml (real Python 3.13/3.14 interpreters). Real-Azure
-    # certification via e2e-azure.yml is still outstanding and is tracked in
-    # #350; do not describe the 2.x path as certified until it lands.
+    # ci-test.yml (real Python 3.13/3.14 interpreters). The optional real-Azure
+    # certify_2x lane of e2e-azure.yml ran green for the native routes on Flex
+    # Consumption + Python 3.13 (see COMPATIBILITY.md, #350/#768); it does not
+    # cover Platform routes or true streaming, so do not describe more as certified.
     "azure-functions>=1.21.0,<2.0.0; python_version < '3.13'",
     "azure-functions>=1.21.0,<3.0.0; python_version >= '3.13'",
     "langgraph>=1.0,<2.0",
