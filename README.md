@@ -84,6 +84,8 @@ capability-focused apps, not cumulative production templates or prerequisites:
 3. [Tool calling](examples/tool_calling_agent/)
 4. [Persistent production wiring](examples/production_persistent_agent/)
 
+Also optional: [an official LangGraph guide graph hosted with minimal changes](examples/official_langgraph_basic/), an official-example adaptation (not one of the custom examples above).
+
 Examples support deterministic fake models without cloud credentials. For
 Platform thread storage, the tested [Managed Identity storage recipe](examples/managed_identity_storage/)
 wires Azure Table explicitly. State separation is not authenticated ownership.
