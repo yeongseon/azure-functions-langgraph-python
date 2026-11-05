@@ -200,6 +200,18 @@ def test_report_prints_the_whole_run_total_only_when_the_transport_counted_it(
     assert not any(line.startswith("Whole run") for line in without_total)
 
 
+def test_report_labels_memory_as_traced_allocations_not_process_memory(bench: ModuleType) -> None:
+    # Given any row
+    row = _row([_counts(2000, 2, 2)] * 3, _counts(2000, 2, 2))
+    # When the report is formatted
+    report = bench.format_report("azure", [row])
+    # Then the column says traced and a note says what it excludes
+    assert "| peak traced MiB |" in report
+    assert "peak traced MiB: tracemalloc peak of the additional Python allocations" in report
+    assert "not process RSS" in report
+    assert "| peak MiB |" not in report
+
+
 def test_report_marks_unmeasured_backends_and_models_the_total(bench: ModuleType) -> None:
     # Given a fake-backend row: no transport, so nothing was measured
     row = _row([_counts(1500, 2, None)] * 2, _counts(1500, 2, None))

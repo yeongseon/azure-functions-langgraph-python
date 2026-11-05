@@ -3,8 +3,8 @@
 Every number printed by this script comes from one of two backends:
 
 * ``fake``: a counting in-memory stand-in for ``TableClient``. It measures scan
-  amplification (entities read, modeled request pages), peak Python memory and
-  client-side CPU latency. It models NO network or service latency.
+  amplification (entities read, modeled request pages), peak traced Python
+  allocation and client-side CPU latency. It models NO network or service latency.
 * ``azurite``: the Azurite emulator on loopback through the real
   ``azure-data-tables`` SDK. It measures SDK + emulator latency only.
 
@@ -19,6 +19,11 @@ table creation, seeding and deletion.
 
 Neither fake nor Azurite is Azure Storage. Do not quote these numbers as Azure
 measurements, and do not derive a supported thread count from them.
+
+The memory column is ``tracemalloc``'s peak, started only for one separate (untimed)
+execution: it counts the ADDITIONAL Python allocations of that search or count and
+excludes the interpreter and imported-library baseline and untraced native allocations.
+It is not process RSS and not an instance-sizing bound.
 
 Usage (from the repo root)::
 
@@ -571,7 +576,7 @@ def format_report(
         f"# backend={backend}: {note}",
         "| size | workload | entities read | requests (modeled) | "
         "requests (measured), timed reps | requests (measured), memory pass | "
-        "peak MiB | median ms | max ms | result |",
+        "peak traced MiB | median ms | max ms | result |",
         "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for r in rows:
@@ -585,6 +590,12 @@ def format_report(
             f"{r['peak_mem_mib']} | {r['latency_ms_median']} | "
             f"{r['latency_ms_max']} | {r['result']} |"
         )
+    lines.append("")
+    lines.append(
+        "peak traced MiB: tracemalloc peak of the additional Python allocations of one "
+        "execution (the memory pass). It excludes the interpreter and library baseline and "
+        "untraced native allocations and is not process RSS."
+    )
     lines.extend(_request_summary(rows, whole_run_requests))
     return "\n".join(lines)
 
