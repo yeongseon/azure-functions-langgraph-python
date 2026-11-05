@@ -99,3 +99,15 @@ def test_buffered_sse_caveat_is_present() -> None:
     assert "buffered SSE" in TEXT
     assert "StreamingLangGraphApp" in TEXT
     assert "experimental" in TEXT
+
+
+def test_step_expected_outputs_match_observed_live_shapes() -> None:
+    # Given: defects a live Azure run found (#778)
+    # Then: the publish step no longer promises a function list func 4.8 does not print
+    assert "Remote build succeeded!" in TEXT
+    assert "aflg_health - [httpTrigger]" not in TEXT
+    # And: the create-thread command's documented output is what it actually prints
+    assert "Thread ID: " in TEXT
+    assert '"thread_id": "550e8400-e29b' not in TEXT
+    # And: cleanup is verified with a command that prints a single boolean
+    assert 'az group exists --name "$RESOURCE_GROUP"' in TEXT

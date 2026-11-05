@@ -231,8 +231,10 @@ validation also needs the graph inventory.
 > With Azurite running, the platform routes (`/api/threads`, `/api/runs/...`) also work locally.
 >
 > The local check was run with Python 3.11 and Azure Functions Core Tools 4.8.0 against
-> Azurite. The Azure deployment steps below were **not executed** for this guide and
-> are unverified.
+> Azurite. Steps 6 to 12 and the cleanup were executed end to end on a Premium EP1
+> Linux plan in `koreacentral` with Azure CLI 2.83.0 and Core Tools 4.8.0 (a
+> temporary resource group, since deleted). Keyless calls to protected routes
+> returned `401`; calls with the function key returned `200`.
 
 Stop the local server with `Ctrl+C`.
 
@@ -388,7 +390,7 @@ local/CI runs.
 func azure functionapp publish "$FUNCTIONAPP_NAME"
 ```
 
-Output:
+Output (abridged; the remote build log between the markers is long):
 
 ```text
 Getting site publishing info...
@@ -396,30 +398,12 @@ Starting the function app deployment...
 Creating archive for current directory...
 Performing remote build for functions project.
 ...
-Deployment completed successfully.
-Functions in func-langgraph-agent:
-    aflg_health - [httpTrigger]
-    aflg_simple_agent_invoke - [httpTrigger]
-    aflg_simple_agent_stream - [httpTrigger]
-    aflg_simple_agent_state - [httpTrigger]
-    aflg_platform_threads_create - [httpTrigger]
-    aflg_platform_threads_get - [httpTrigger]
-    aflg_platform_threads_update - [httpTrigger]
-    aflg_platform_threads_delete - [httpTrigger]
-    aflg_platform_threads_search - [httpTrigger]
-    aflg_platform_threads_count - [httpTrigger]
-    aflg_platform_threads_state_get - [httpTrigger]
-    aflg_platform_threads_state_update - [httpTrigger]
-    aflg_platform_threads_history - [httpTrigger]
-    aflg_platform_runs_wait - [httpTrigger]
-    aflg_platform_runs_stream - [httpTrigger]
-    aflg_platform_runs_wait_threadless - [httpTrigger]
-    aflg_platform_runs_stream_threadless - [httpTrigger]
-    aflg_platform_assistants_search - [httpTrigger]
-    aflg_platform_assistants_count - [httpTrigger]
-    aflg_platform_assistants_get - [httpTrigger]
-Deployment successful.
+Deployment successful. deployer = Push-Deployer deploymentPath = Functions App ZipDeploy. Extract zip. Remote build.
+Remote build succeeded!
 ```
+
+`func` 4.8 does not print the list of deployed functions here; confirm the app is
+serving with the health check in [Step 11](#step-11-verify-native-routes).
 
 > ⚠️ **First deploy takes 2–5 minutes** because of the large dependency tree (LangGraph, langchain-core, etc.). Premium plans use express build which is faster than Consumption.
 
@@ -535,17 +519,11 @@ THREAD_ID=$(curl -s -X POST "$BASE_URL/api/threads" \
 echo "Thread ID: $THREAD_ID"
 ```
 
-Expected output:
+Expected output (a UUID; the raw response also carries `created_at`, `status: "idle"`
+and other fields):
 
-```json
-{
-  "thread_id": "550e8400-e29b-41d4-a716-446655440000",
-  "created_at": "2026-04-06T10:30:00Z",
-  "updated_at": "2026-04-06T10:30:00Z",
-  "metadata": null,
-  "status": "idle",
-  "values": null
-}
+```text
+Thread ID: 0c12c19e-6f31-4540-9852-0d0cf1697b1a
 ```
 
 #### Run the agent on the thread
@@ -594,7 +572,7 @@ Expected output:
 
 ```text
 event: metadata
-data: {"run_id": "1f8a6f2d-3304-4556-89ce-37d4cabc1234"}
+data: {"run_id": "200b4a31a03e419d87f327a30571db29"}
 
 event: values
 data: {"messages":[{"role":"human","content":"World"}],"greeting":""}
@@ -688,14 +666,11 @@ Expected output:
 func azure functionapp logstream "$FUNCTIONAPP_NAME"
 ```
 
-You will see entries like:
-
-```text
-Executing 'Functions.aflg_health' (Reason='...', Id=ab2a5eb3-...)
-Executed 'Functions.aflg_health' (Succeeded, Duration=12ms)
-Executing 'Functions.aflg_platform_runs_wait' (Reason='...', Id=4d5267c7-...)
-Executed 'Functions.aflg_platform_runs_wait' (Succeeded, Duration=41ms)
-```
+The stream connects and first shows recent container and startup logs, for example
+`Site startup probe succeeded` and `Site is running with deployment version: ...`.
+Per-invocation lines (`Executing 'Functions.aflg_health'` ...) were not observed in
+this stream on Premium; read them from Application Insights instead
+(see [Logs and monitoring](#logs-and-monitoring)).
 
 Press `Ctrl+C` to stop the log stream.
 
@@ -776,7 +751,7 @@ az functionapp create \
 
 | Symptom | Usually means | How to fix |
 |---|---|---|
-| `/api/health` returns 404 | Functions not registered | Check `func azure functionapp publish` output — should list `aflg_health` |
+| `/api/health` returns 404 | Functions not registered | Check that `func azure functionapp publish` ended with `Remote build succeeded!` and re-publish |
 | `/api/health` returns 500 | Missing `AZURE_STORAGE_CONNECTION_STRING` | Set it: `az functionapp config appsettings set --settings AZURE_STORAGE_CONNECTION_STRING="..."` |
 | `/api/threads` returns 500 | Blob container or table doesn't exist | Run [Step 7](#step-7-create-storage-backends-for-langgraph) commands |
 | Invoke returns `KeyError: OPENAI_API_KEY` | Your graph expects an LLM key | Set it via `az functionapp config appsettings set --settings OPENAI_API_KEY="sk-..."` |
@@ -843,8 +818,10 @@ The `--no-wait` flag returns immediately. Deletion happens in the background and
 To verify deletion:
 
 ```bash
-az group list --query "[?starts_with(name, 'rg-langgraph')]" -o table
+az group exists --name "$RESOURCE_GROUP"
 ```
+
+It prints `false` once the resource group is gone.
 
 ---
 
