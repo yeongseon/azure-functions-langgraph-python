@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from urllib.parse import urlparse
 
 import pytest
 import requests
@@ -26,6 +27,11 @@ import requests
 BASE_URL = os.environ.get("E2E_BASE_URL", "").rstrip("/")
 SKIP_REASON = "E2E_BASE_URL not set — skipping real-Azure e2e tests"
 GRAPH = "e2e_agent"
+# Function-key protected twin registered by examples/e2e_app (per-graph auth override).
+KEYED_GRAPH = "e2e_keyed_agent"
+# A local Core Tools host (``make e2e-local``) serves protected routes without a function key, so
+# the keyless-refusal check below is only meaningful against a deployed host.
+IS_LOCAL_HOST = (urlparse(BASE_URL).hostname or "") in {"localhost", "127.0.0.1", "::1"}
 
 pytestmark = pytest.mark.e2e
 
@@ -86,6 +92,65 @@ def test_invoke_runs_the_graph() -> None:
     assert output.get("greeting") == "Hello, World!", body
     contents = [m.get("content") for m in output.get("messages", [])]
     assert any("Goodbye!" in (c or "") for c in contents), body
+
+
+@pytest.mark.skipif(not BASE_URL, reason=SKIP_REASON)
+def test_malformed_json_is_rejected_with_a_structured_400() -> None:
+    r = requests.post(
+        _url(f"/api/graphs/{GRAPH}/invoke"),
+        data="{not valid json",
+        headers={"Content-Type": "application/json"},
+        timeout=60,
+    )
+    assert r.status_code == 400, r.text
+    body = r.json()
+    assert body.get("error") == "error", body
+    assert body.get("detail") == "Invalid JSON body", body
+    assert r.headers.get("X-Request-ID"), r.headers
+
+
+@pytest.mark.skipif(not BASE_URL, reason=SKIP_REASON)
+def test_schema_invalid_request_is_rejected_with_a_structured_422() -> None:
+    # ``input`` must be an object: a well-formed body that fails request validation.
+    r = requests.post(
+        _url(f"/api/graphs/{GRAPH}/invoke"),
+        json={"input": "not-an-object"},
+        timeout=60,
+    )
+    assert r.status_code == 422, r.text
+    body = r.json()
+    assert body.get("error") == "error", body
+    detail = body.get("detail")
+    assert isinstance(detail, list) and detail, body
+    assert r.headers.get("X-Request-ID"), r.headers
+
+
+@pytest.mark.skipif(not BASE_URL, reason=SKIP_REASON)
+@pytest.mark.skipif(IS_LOCAL_HOST, reason="Core Tools do not enforce function keys")
+def test_function_level_graph_rejects_keyless_requests() -> None:
+    # The app is ANONYMOUS; the keyed twin overrides to FUNCTION. Azure enforces function keys on a
+    # deployed host, so a keyless call must be refused there while the anonymous graph is served.
+    payload = {
+        "input": {"messages": [{"role": "human", "content": "World"}], "greeting": ""},
+        "config": {"configurable": {"thread_id": "e2e-keyless-001"}},
+    }
+    keyed = requests.post(_url(f"/api/graphs/{KEYED_GRAPH}/invoke"), json=payload, timeout=60)
+    assert keyed.status_code == 401, (keyed.status_code, keyed.text)
+    anonymous = requests.post(_url(f"/api/graphs/{GRAPH}/invoke"), json=payload, timeout=60)
+    assert anonymous.status_code == 200, anonymous.text
+
+
+@pytest.mark.skipif(not BASE_URL, reason=SKIP_REASON)
+def test_deployed_runtime_matches_the_interpreter_split_contract() -> None:
+    # The deployed host reports what it really runs. Python < 3.13 stays on the certified
+    # azure-functions 1.x line; the 2.x lane (Python 3.13+) must really run the 2.x line.
+    r = requests.get(_url("/api/e2e/runtime"), timeout=30)
+    assert r.status_code == 200, r.text
+    runtime = r.json()
+    python = tuple(int(part) for part in runtime["python"].split(".")[:2])
+    sdk_major = int(runtime["azure_functions"].split(".")[0])
+    expected = 2 if python >= (3, 13) else 1
+    assert sdk_major == expected, runtime
 
 
 def _parse_sse_events(text: str) -> list[tuple[str, str]]:

@@ -27,6 +27,12 @@ wins (the loser gets HTTP 409). That two-app test needs both `E2E_BASE_URL` and
 `E2E_BASE_URL_B`: a `-m e2e` run without them fails instead of skipping, so the
 single-app 2.x certification selects only `tests/e2e/test_langgraph_e2e.py`.
 
+A third graph, **`e2e_keyed_agent`** (#768), is the same greeting graph with a per-graph
+`FUNCTION` auth override; the suite proves on the real host that a keyless request to it is refused
+while the anonymous `e2e_agent` is served. The app also exposes `GET /api/e2e/runtime`, which reports
+the interpreter and `azure-functions` version the deployed host really runs, so the 1.x and 2.x lanes
+each assert the line they certify instead of inferring it from `requirements.txt`.
+
 Relevant app settings (identical on both hosts): `E2E_LOCK_CONTAINER`,
 `E2E_CHECKPOINT_CONTAINER`, and optional `E2E_LOCK_HOLD_SECONDS` (default 20).
 
