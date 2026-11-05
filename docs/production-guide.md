@@ -582,12 +582,19 @@ keys `maxConcurrentSessions` (8), `maxAutoLockRenewalDuration` (PT5M, or PT20S
 for lock loss) and `sessionIdleTimeout` (PT10S); see the
 [binding settings](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-service-bus).
 Unless noted, each result held on both the queue and the subscription.
+The probe's handler had to be patched to run on this runtime: the adapter
+registered the trigger parameter as `msg: Any`, which the Python worker refused to
+load (`FunctionLoadError`, [#796](https://github.com/yeongseon/azure-functions-langgraph-python/issues/796)),
+so the probe annotated it with `azure.functions.ServiceBusMessage`. The results below
+are broker and host observations; they do **not** validate loading the unmodified
+0.12.2 handler, which is fixed separately in
+[#798](https://github.com/yeongseon/azure-functions-langgraph-python/pull/798).
 
 | Scenario | Observed |
 |---|---|
 | Serial within a session, parallel across sessions (4 sessions x 6 messages, then 8 x 4; 2 s of work each) | Per-session executions never overlapped and completed in send order on both entities, in two runs. Different sessions overlapped heavily (36-132 overlapping interval pairs per run). A session stayed on one host for the whole run; sessions were spread across both hosts in the 8-session run but not always in the 4-session run, so do not assume balanced distribution. |
 | Competing-host handoff, host killed mid-session | The other host resumed each affected session about 1 s after the kill (queue and subscription), in order, with no loss. The in-flight message ran **twice** (killed attempt never finished) and its delivery count stayed 1, so delivery count is not a reliable duplicate signal. |
-| Competing-host handoff, host frozen (`SIGSTOP`) | The other host took over after about 59 s (the PT1M lock duration) with delivery count 2. When the frozen host resumed (110 s) its old execution finished while the new owner had already run the same message, and its settlement failed with "The session lock has expired". |
+| Competing-host handoff, host frozen (`SIGSTOP`), queue only | The other host took over after about 59 s (the PT1M lock duration) with delivery count 2. When the frozen host resumed (110 s) its old execution finished while the new owner had already run the same message, and its settlement failed with "The session lock has expired". |
 | Failure and redelivery (`maxDeliveryCount` 3) | A message that raised once was redelivered immediately (delivery count 2) and succeeded; later messages in the session waited for it. A message that always raised was retried three times, then dead-lettered with `MaxDeliveryCountExceeded`; the rest of the session continued. |
 | Auto-renewal within limits (150 s of work, PT1M lock, PT5M renewal) | The run outlived the lock duration 2.5x with no redelivery, no second owner and delivery count 1; the next messages in the session started 0.05-0.1 s after it ended. |
 | Session-lock **loss** (120 s of work, PT30S lock, PT20S renewal) | The lock expired about 50 s in and the broker redelivered the same session while the first execution was still running. **Different host:** the second host started the same message at +50 s while the first was still executing (about 70 s of overlap; both completed). **Same host:** the default in-process `ThreadLock` rejected the second delivery (`ThreadContentionError`, retried every ~5 s). In both runs the first execution's settlement failed (session lock expired) after its graph had succeeded, and the queue finished with the message dead-lettered after three deliveries although its graph had completed. In one run the other messages queued behind it were also dead-lettered without ever executing. |
