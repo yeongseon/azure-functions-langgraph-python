@@ -140,8 +140,9 @@ server, for example with `graph.with_config(...)`.
 Move execution controls to trusted server configuration and explicitly allow
 only application keys whose values untrusted clients may safely choose.
 Opting in to configurable `checkpoint_id`/`checkpoint_ns` grants checkpoint
-selection; enforce ownership externally on the streaming transport, which still
-has no resource authorizer. An allow-list is not authentication. Platform,
+selection; enforce ownership with an application policy, using the optional
+[streaming authorizer](security.md#true-stream-authorization) on the ASGI transport.
+An allow-list is not authentication. Platform,
 Durable and Service Bus policies are unchanged.
 
 Checkpointers are configured on the LangGraph side, not in `LangGraphApp`. The library passes admitted `config` through to the graph:

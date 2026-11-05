@@ -83,6 +83,20 @@ change the event shape; the framing (`event: data` / `event: end`, plus
 > streaming app. If you need those, keep serving them from a classic
 > `LangGraphApp` deployment.
 
+## Resource authorization
+
+This demonstration does not install an ownership policy. `FUNCTION` keys grant
+application access, **not** verified user identity or thread ownership. Before
+serving private state, pass `authorize=policy` to `StreamingLangGraphApp` and verify
+the principal, graph entitlement and thread ownership using trusted application
+storage. See the [ASGI policy example](../../docs/security.md#true-stream-authorization)
+and [typed API](../../docs/api.md#streaming-authorization-experimental).
+Do not trust caller-supplied identity headers or owner fields. The optional hook
+receives `StreamingAuthorizationContext.request` (an ASGI request), runs once
+before graph/checkpoint work and locking, and returns JSON 401/403/500 on denial
+or failure. Omitting it preserves this example's permissive resource behavior.
+Revocation affects later requests, not an already-admitted stream.
+
 ## Safety cap
 
 A true stream is never buffered, so the buffered-response byte guard

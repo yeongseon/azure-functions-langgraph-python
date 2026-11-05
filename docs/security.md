@@ -8,7 +8,7 @@ then independently authenticate the principal and authorize each resource/action
 Random, unguessable thread IDs reduce enumeration; they are **not authorization**.
 Neither checkpoint separation nor distributed locks establish ownership.
 
-The hook receives an immutable `AuthorizationContext` containing the action,
+The classic hook receives an immutable `AuthorizationContext` containing the action,
 graph name, thread ID (when applicable), and raw `HttpRequest`. Return `True` to
 allow, `False` for a uniform 403, or raise `UnauthenticatedError` for 401. Denial
 happens before thread lookup on the configured surfaces below, so denied missing
@@ -25,7 +25,7 @@ application's responsibility; there is no automatic tenant policy.
 | Platform state read/update/history | `STATE_READ`, `STATE_UPDATE`, `HISTORY_READ` | Resolve ownership from trusted storage; updates/history are sensitive too |
 | Platform threaded/threadless `runs/wait`, `runs/stream` | `RUN`; threadless ID is `None` | Authorize execution separately from reading; authorize requested assistant |
 | Native sync/async invoke and buffered stream | `RUN`, registered graph name and validated thread ID (or `None`); enforced since [#722](https://github.com/yeongseon/azure-functions-langgraph-python/pull/722) closed #687 | Authorize execution independently of state reads, including threadless execution |
-| `StreamingLangGraphApp` true streaming | No `ThreadAuthorizer` API | Separate app/transport authorization required; not covered by #687 |
+| `StreamingLangGraphApp` native invoke and true stream | Opt-in `StreamingThreadAuthorizer`, `RUN`, registered graph and validated thread ID (or `None`) | Verify the ASGI principal, graph entitlement and thread ownership; see [true-stream authorization](#true-stream-authorization) |
 | Durable create/poll/cancel | Host auth only, no resource callback | Protect run ownership and management operations in application/ingress policy |
 | Platform assistants search/get/count | Host auth only, no resource callback | Restrict graph inventory and entitlement externally |
 
@@ -64,7 +64,8 @@ The context carries the registered graph name, validated
 original request. Policies must explicitly decide whether threadless runs are
 permitted; a missing thread ID is not proof of identity. Omitting `authorize`
 preserves permissive resource access and provides no per-user isolation.
-The separate experimental `StreamingLangGraphApp` does not expose this hook.
+The separate experimental `StreamingLangGraphApp` uses the transport-specific
+context described below, not the classic `ThreadAuthorizer` request type.
 
 ```python
 from azure_functions_langgraph import LangGraphApp
@@ -97,6 +98,68 @@ routes, including all four native RUN handlers fixed by #687. This is not
 evidence that all graph exceptions or operator logs are redacted. Existing
 exception diagnostics are intentionally retained: restrict log access, retention
 and export, and ensure application nodes/tools never log credentials or state.
+
+### True-stream authorization
+
+Opt in with `StreamingLangGraphApp(authorize=policy)`. The keyword-only argument
+defaults to `None`: existing deployments remain permissive at the resource
+boundary, without an isolation warning. Function-key access still does **not**
+establish ownership. Health and graph-inventory routes are outside this RUN hook.
+
+`StreamingAuthorizationContext` and `StreamingThreadAuthorizer` are imported from
+`azure_functions_langgraph.streaming_authorization`. The frozen context carries
+`action=AuthorizationAction.RUN`, the registered `graph_name`, validated
+`thread_id` (or `None`), and the original `starlette.requests.Request` used by the
+FastAPI extension. It is not a verified principal. A forged identity header,
+body owner/tenant field or client-selected thread ID must never authenticate a
+caller. Apply the [principal verification requirements](#principal-verification-and-policy-composition)
+before consulting trusted graph-entitlement and thread-ownership storage.
+
+```python
+from azure_functions_langgraph.authorization import UnauthenticatedError
+from azure_functions_langgraph.streaming import StreamingLangGraphApp
+from azure_functions_langgraph.streaming_authorization import StreamingAuthorizationContext
+from my_application.security import verified_asgi_principal, can_run
+
+
+async def authorize_streaming(context: StreamingAuthorizationContext) -> bool:
+    principal = await verified_asgi_principal(context.request)
+    if principal is None:
+        raise UnauthenticatedError
+    return await can_run(principal, context.graph_name, context.thread_id)
+
+
+app = StreamingLangGraphApp(authorize=authorize_streaming)
+```
+
+The application-owned functions above are a composition sketch, not a bundled
+identity provider. Explicitly decide whether to permit threadless execution.
+Return `True` to admit, `False` for JSON 403, or raise `UnauthenticatedError` for
+JSON 401. Unexpected callback exceptions produce sanitized JSON 500 and a generic
+error log without exception text or traceback. All these denials use
+`detail="Access denied"` and emit one `authorization_denied` observer event with
+no thread ID, credentials or ownership token; no graph-start event occurs.
+Callbacks must not log credentials themselves. Sync callbacks execute inline and
+must be fast/nonblocking. Async callbacks (including returned awaitables) are
+awaited on the request loop; use them for bounded identity/policy storage I/O.
+
+Request/config validation (including the client configuration allow-list) runs
+first. Policy then runs **once per admission**, before graph/checkpoint I/O, lock
+acquisition and construction of the deferred SSE response. Denial is an HTTP
+error, never an SSE error inside HTTP 200. An allowed stream still acquires its
+lock only when ASGI executes the response or its body is consumed. Abandoning an
+unexecuted response acquires nothing. Policy is not replayed during body execution:
+revocation applies to subsequent requests/reconnects, not to an already-admitted
+response, even if execution has not started. This is admission-only authorization,
+not continuous revocation or an atomic ownership transaction with checkpoints.
+
+**Compatibility:** no migration is required when omitting the new keyword.
+To adopt it, adapt the identity-verification integration to an ASGI `Request`;
+do not pass a callback assuming `func.HttpRequest.get_json()` or `.get_body()`.
+ASGI body methods are awaitable. Classic `LangGraphApp` authorization is unchanged.
+Durable management and Platform assistant entitlement remain the separate gaps
+in the route table. The tests drive real compiled graphs, in-memory checkpoints
+and ASGI responses; they are not Functions-host or Azure identity certification.
 
 ### Shared persistence is a trust boundary
 
@@ -184,7 +247,8 @@ Registration may explicitly allow safe configurable names; internal `__*` names
 and top-level execution controls remain forbidden. Rejection returns sanitized
 HTTP 400 before lock acquisition or graph/observer start, without logging input
 values. This does not redact arbitrary graph exception diagnostics or grant
-thread ownership. Streaming still requires external resource authorization.
+thread ownership. Configure a resource authorizer on either HTTP transport;
+identity verification and the ownership policy remain application responsibilities.
 See [configuration and the breaking true-stream migration](configuration.md#native-client-configuration-admission).
 
 ## Secret management

@@ -384,6 +384,22 @@ over the corresponding `/stream` routes to avoid UX and latency expectation mism
 
 ### True-stream cancellation and lock ownership
 
+Configure `StreamingLangGraphApp(authorize=policy)` to check a verified ASGI
+principal, graph entitlement and thread ownership on every native invoke/stream
+request. Function keys grant app access, not resource ownership; the default
+`authorize=None` remains permissive. The callback uses the typed
+`StreamingAuthorizationContext`, not the classic `HttpRequest` context. See
+[the security contract and adoption example](security.md#true-stream-authorization).
+Sync callbacks must be nonblocking; use bounded async I/O for external policy
+storage. Validation runs first, then authorization once before any graph or
+checkpoint I/O, lock acquisition, or deferred response construction. Denials are
+sanitized JSON 401/403/500, not SSE frames, and omit thread IDs from observer
+rejection metadata. No API migration is required unless adopting the opt-in.
+
+Authorization is admission-only: recheck current credentials on subsequent
+requests/reconnects. An already-admitted response is not reauthorized when its
+body executes, and an already-running stream is not revoked mid-flight.
+
 `StreamingLangGraphApp` treats HTTP response lifetime and graph execution
 lifetime as separate concerns. A disconnect cancels response production, but a
 synchronous `graph.stream()` may already be running `next()` in a worker thread;
