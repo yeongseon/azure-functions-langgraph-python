@@ -95,7 +95,7 @@ resource hostingPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
 // (deployment + runtime + scaleAndConcurrency) rather than
 // `siteConfig.linuxFxVersion` used by the Y1 Linux Consumption template. The
 // worker runtime is declared here, so FUNCTIONS_WORKER_RUNTIME is intentionally
-// NOT set as an app setting.
+// NOT set as an app setting (nor is FUNCTIONS_EXTENSION_VERSION; see appSettings).
 resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
   name: functionAppName
   location: location
@@ -106,9 +106,14 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
       deployment: {
         storage: {
           type: 'blobContainer'
-          value: '${storageAccount.properties.primaryEndpoints.blob}${deploymentContainerName}'
+          // Referencing the container resource (not just its name parameter) makes
+          // ARM create the container before the site validates the package location.
+          value: '${storageAccount.properties.primaryEndpoints.blob}${deploymentContainer.name}'
           authentication: {
-            type: 'StorageAccountConnectionStringSecret'
+            // Valid values are SystemAssignedIdentity, UserAssignedIdentity and
+            // StorageAccountConnectionString; the latter names the app setting that
+            // holds the connection string (see appSettings below).
+            type: 'StorageAccountConnectionString'
             storageAccountConnectionStringName: 'DEPLOYMENT_STORAGE_CONNECTION_STRING'
           }
         }
@@ -126,7 +131,8 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
       appSettings: [
         { name: 'AzureWebJobsStorage', value: storageConnectionString }
         { name: 'DEPLOYMENT_STORAGE_CONNECTION_STRING', value: storageConnectionString }
-        { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
+        // FUNCTIONS_EXTENSION_VERSION is intentionally NOT set: on Flex Consumption it is
+        // managed by the platform and must not be set manually.
       ]
     }
     httpsOnly: true
