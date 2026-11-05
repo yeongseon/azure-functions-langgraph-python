@@ -5,11 +5,11 @@
 // requires for Python 3.13/3.14 — Linux Consumption (Y1, see infra/main.bicep)
 // caps at Python 3.12 and therefore cannot host the azure-functions 2.x worker.
 //
-// STATUS: unverified scaffold. This template has NOT yet been deployed to real
-// Azure; it exists so the 2.x certification job in e2e-azure.yml has a concrete
-// target the first time it is dispatched. Treat the first real dispatch as the
-// validation of this file, and do NOT raise the pyproject `azure-functions`
-// `<2.0.0` cap until that dispatch is green (#350 acceptance).
+// STATUS: deployed and verified. e2e-azure.yml run 41959779590 (2026-11-05,
+// koreacentral, Python 3.13) deployed this template and passed the native-route
+// e2e suite; see COMPATIBILITY.md for the exact certified scope (#350, #768). The
+// pyproject interpreter-split caps are unchanged: `<2.0.0` on Python < 3.13 (the
+// 2.x worker cannot be installed there) and `<3.0.0` on Python 3.13+.
 //
 // The certified example (examples/e2e_app) exercises the native LangGraph
 // routes (/api/health, /api/graphs/<name>/invoke, /api/graphs/<name>/stream),

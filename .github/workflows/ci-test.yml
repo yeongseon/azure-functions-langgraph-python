@@ -553,8 +553,8 @@ jobs:
         # non-blocking cell (continue-on-error below) only because transitive
         # dependency wheels for 3.14 may still be landing - the azure-functions
         # 2.x SDK itself is GA upstream, not exploratory. That is a statement
-        # about the SDK, not about this package: real-Azure certification of
-        # our 2.x path is still outstanding (#350).
+        # about the SDK, not about this package: the real-Azure certification of
+        # our 2.x path covers the native routes only (COMPATIBILITY.md, #350).
         python-version: ["3.13", "3.14"]
     # 3.14 is informational until the full transitive-dependency wheel set is
     # published for 3.14; a red 3.14 cell must not block a PR. 3.13 stays
@@ -587,8 +587,9 @@ jobs:
         # the 2.x line is already permitted. Pinning >=2,<3 fixes the line
         # under test to PROVE the adapter surface (FunctionApp route discovery,
         # HttpRequest.get_json, HttpResponse status/headers/body, buffered-SSE
-        # stream) holds under 2.x. Real-Azure certification (#350) is still
-        # outstanding, which is why this lane is not a required check.
+        # stream) holds under 2.x. The real-Azure lane (e2e-azure.yml certify_2x,
+        # native routes only, #350) is separate; this lane is a compatibility
+        # proof and not a required check.
         run: pip install "azure-functions>=2,<3"
 
       - name: Show resolved versions
