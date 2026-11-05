@@ -117,7 +117,7 @@ model result. A live response has model-generated text and non-empty
 Deploy **this same directory** — `graph.py` and `function_app.py` do not change.
 The Azure resources and commands are identical to the default path, so they are
 not repeated here. Follow
-[Step 5 of the 5-minute tutorial](../../docs/tutorial-5-min.md#step-5-deploy-to-azure-2-min)
+[Step 5 of the 5-minute tutorial](../../docs/tutorial-5-min.md#step-5--deploy-to-azure-2-min)
 (resource group, storage account, Flex Consumption Function App, publish), with
 the deltas below, then
 [call the deployed app](../../docs/tutorial-5-min.md#call-the-deployed-app) and

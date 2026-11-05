@@ -19,8 +19,12 @@ DEPLOY = README.split("## Deploy to Azure", 1)[1].split("\n## ", 1)[0]
 
 
 def _slug(heading: str) -> str:
+    """GitHub heading anchor: lowercase, drop punctuation, each space becomes one hyphen.
+
+    Adjacent separators are NOT collapsed, so "Step 5 — Deploy" is ``step-5--deploy``.
+    """
     text = re.sub(r"[^\w\s-]", "", heading.lower())
-    return re.sub(r"[-\s]+", "-", text.strip())
+    return text.strip().replace(" ", "-")
 
 
 def _fences(language: str) -> list[str]:
