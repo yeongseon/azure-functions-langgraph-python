@@ -1067,12 +1067,25 @@ When using `AzureTableThreadStore` with Platform-compatible runs, each graph exe
 negative renewal result or exception is retained for cleanup: wait and buffered
 stream handlers return a sanitized HTTP 500 instead of reporting completion,
 notify the failure observer, and do not persist final graph values. An earlier
-graph error remains the primary failure. Cleanup stops and joins the renewal
-worker before owner-fenced store release and always attempts outer-lock release;
-host cancellation propagates after cleanup. Configure bounded Azure SDK network
-timeouts: cleanup must wait for any in-flight renewal I/O. This does not interrupt
-an executing synchronous graph or roll back side effects, so graph operations
-must remain idempotent. A newer owner's store lock is never cleared.
+graph error remains the primary failure. Cleanup sets the renewal stop event and joins the worker for at most
+`RENEWAL_STOP_TIMEOUT` (5 seconds, a fixed module constant, not a setting). If
+the worker is still blocked inside a store call and no earlier failure was
+recorded, cleanup receives a terminal `RunLockRenewalStopTimeoutError` (a
+`RunLockRenewalError`): the run ends with `error` status and final graph values
+are not persisted, even if that slow renewal call would later have succeeded.
+The blocked worker is an untracked daemon thread that exits on its own when its
+call returns (at most one per run whose renewal never returns; there is no
+pool). The timeout does not release store ownership: the later
+`release_run_lock` remains owner-token and ETag compare-and-swap fenced, so a
+late `renew_run_lock` from an abandoned worker returns `False` instead of
+mutating a newer owner's record. This is verified by tests for the Table-store
+fake and `InMemoryThreadStore`; custom stores must implement the same
+owner-token check. Cleanup then always attempts owner-fenced store release and
+outer-lock release; host cancellation propagates after cleanup. Still configure
+bounded Azure SDK network timeouts: Python cannot interrupt a hung synchronous
+SDK or graph call, so a stuck call keeps its thread. An orphaned `busy` thread is
+recovered with `reset_stale_locks()`. This does not roll back side effects, so
+graph operations must remain idempotent. A newer owner's store lock is never cleared.
 
 **What can still go wrong:** Owner fencing and CAS protect against *concurrent* writers, not against a writer that never arrives. If a Function host instance is terminated during graph execution (scale-in, deployment, crash), **no** release call is ever made — there is no owner-token or CAS check to lose, because `release_run_lock` is simply never invoked — so the thread remains in `busy` status indefinitely.
 
