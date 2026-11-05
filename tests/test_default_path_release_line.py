@@ -12,11 +12,15 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = re.compile(r"^azure-functions-langgraph(?:\[[^\]]+\])?\s*([<>=!~][^\s#]*)\s*$", re.M)
+REQUIREMENT = re.compile(r"^azure-functions-langgraph(?:\[[^\]]+\])?\s*([<>=!~][^\s#]*)\s*$", re.M)
+# The guide's pyproject.toml snippet: an indented, quoted dependency string.
+TOML_DEPENDENCY = re.compile(
+    r'^\s*"azure-functions-langgraph(?:\[[^\]]+\])?\s*([<>=!~][^"\s]*)"\s*,?\s*$', re.M
+)
 
 
-def _specifiers(text: str) -> set[str]:
-    return set(SPEC.findall(text))
+def _specifiers(text: str, pattern: re.Pattern[str] = REQUIREMENT) -> set[str]:
+    return set(pattern.findall(text))
 
 
 def _primary_examples() -> list[str]:
@@ -43,6 +47,8 @@ def test_default_path_matches_the_primary_examples() -> None:
 def test_install_guide_matches_the_default_path_example() -> None:
     default = _specifiers((ROOT / "examples" / "simple_agent" / "requirements.txt").read_text())
     guide = (ROOT / "docs" / "installation.md").read_text()
+    # Both installation snippets (requirements.txt and pyproject.toml) must recommend the same line.
     assert _specifiers(guide) == default
+    assert _specifiers(guide, TOML_DEPENDENCY) == default
     # The guide must not keep claiming the examples use an older line.
     assert "0.10.0,<0.11" not in guide
