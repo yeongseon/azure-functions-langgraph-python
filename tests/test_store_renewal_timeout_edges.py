@@ -31,14 +31,15 @@ def _deps(store: object) -> PlatformRouteDeps:
 
 
 def _store_renewal_threads() -> list[Thread]:
-    # Renewal workers are the only threads whose target is the renewal closure.
-    return [
-        t
-        for t in threading.enumerate()
-        if t.is_alive()
-        and getattr(t, "_target", None) is not None
-        and getattr(t._target, "__qualname__", "").startswith("_start_store_renewal")  # type: ignore[attr-defined]
-    ]
+    # Renewal workers are the only threads whose target is the renewal closure. Thread.run()
+    # deletes ``_target`` when a thread finishes, so read it once and tolerate its absence.
+    workers: list[Thread] = []
+    for thread in threading.enumerate():
+        target = getattr(thread, "_target", None)
+        qualname = getattr(target, "__qualname__", "")
+        if thread.is_alive() and qualname.startswith("_start_store_renewal"):
+            workers.append(thread)
+    return workers
 
 
 def _route_setup(endpoint: str) -> tuple[Any, ...]:
