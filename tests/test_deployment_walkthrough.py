@@ -106,8 +106,14 @@ def test_step_expected_outputs_match_observed_live_shapes() -> None:
     # Then: the publish step no longer promises a function list func 4.8 does not print
     assert "Remote build succeeded!" in TEXT
     assert "aflg_health - [httpTrigger]" not in TEXT
-    # And: the create-thread command's documented output is what it actually prints
-    assert "Thread ID: " in TEXT
-    assert '"thread_id": "550e8400-e29b' not in TEXT
+    # And: the create-thread command's documented output is what it actually prints: the
+    # section's expected-output fence holds exactly the `Thread ID: <uuid>` line, not raw JSON
+    section = TEXT.split("#### Create a thread", 1)[1].split("#### ", 1)[0]
+    expected = re.findall(r"```text\n(.*?)```", section, re.S)
+    assert len(expected) == 1, expected
+    assert re.fullmatch(
+        r"Thread ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\n", expected[0]
+    ), expected[0]
+    assert '"thread_id"' not in section
     # And: cleanup is verified with a command that prints a single boolean
     assert 'az group exists --name "$RESOURCE_GROUP"' in TEXT
