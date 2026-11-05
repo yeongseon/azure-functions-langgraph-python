@@ -8,7 +8,14 @@ copy-pasteable and the request/response contracts are smoke-tested in CI (see
 It uses the shipped [`examples/simple_agent`](../examples/simple_agent/) app — a
 minimal two-node graph (`greet` → `farewell`) — so there is nothing to hand-copy.
 
-> **Experimental / Alpha.** APIs may change between minor versions before v1.0.
+> **This is the default path.** It is the one recommended way to take a compiled
+> graph to Azure: **local invoke → minimal Azure resources → publish → authenticated
+> cloud invoke → cleanup**. Everything in [Deployment](deployment.md) (Premium,
+> Blob checkpointer, Table thread store, `platform_compat`, Managed Identity,
+> distributed locks) is an **optional next step**; none of it is needed to expose
+> a graph over HTTP.
+>
+> **Beta.** The package is Beta; see the [stability table](https://github.com/yeongseon/azure-functions-langgraph-python#stability--rolling-0x-per-surface).
 > This tutorial tracks the current `main`.
 
 ## What you'll build
@@ -25,7 +32,8 @@ A LangGraph graph exposed as Azure Functions HTTP endpoints:
 - **[Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4** (`func`)
 - For the deploy step only: an **Azure subscription** and the **[Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)** (`az`)
 
-Verify the tooling is present:
+Pinned for the **demo**: Python 3.11 on Flex Consumption (see
+[Step 5](#step-5-deploy-to-azure-2-min)). Verify the tooling is present:
 
 ```bash
 python --version   # 3.11 or newer
@@ -66,8 +74,18 @@ app = langgraph_app.function_app
 ## Step 2 — Install dependencies (1–2 min)
 
 ```bash
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+This installs the **published** `azure-functions-langgraph` from PyPI (pinned in
+`requirements.txt`), not your checkout. To test unreleased changes, install a
+candidate wheel explicitly (`pip install ../../dist/*.whl`) and treat the result as
+candidate behavior, not published-package behavior.
+
+> The example's `local.settings.json` sets `AzureWebJobsStorage` to an empty
+> value, which is enough for local HTTP-only runs. No storage emulator is needed
+> for this path.
 
 ## Step 3 — Run locally (30s)
 
@@ -127,7 +145,17 @@ under 5 minutes.
 
 ## Step 5 — Deploy to Azure (2 min)
 
-Create the Function App infrastructure and publish. Pick globally-unique names:
+Create the minimum Azure Functions resources and publish. Pick globally-unique names.
+
+> **Two different "storage" ideas; keep them apart.**
+>
+> - The **Storage Account** created below is **required by Azure Functions itself**
+>   (`AzureWebJobsStorage`: host state, keys, deployment package). Every Function App
+>   has one, even for a stateless graph.
+> - **Application checkpoint/thread storage** (Blob checkpointer, Table thread store)
+>   is **optional** and is *not* created or needed here. `simple_agent` is stateless.
+>   See [optional application storage](deployment.md#optional-application-storage)
+>   only if you need persistence.
 
 ```bash
 # 1. Sign in
@@ -140,7 +168,7 @@ STORAGE="stlanggraph$RANDOM"
 APP="func-langgraph-$RANDOM"
 
 # 3. Create the resource group, storage account, and a Python 3.11 Function App
-#    on Flex Consumption (the recommended plan for new apps).
+#    on Flex Consumption (the default plan for this minimal demo).
 az group create --name "$RESOURCE_GROUP" --location "$LOCATION"
 
 az storage account create --name "$STORAGE" --resource-group "$RESOURCE_GROUP" \
@@ -155,6 +183,13 @@ func azure functionapp publish "$APP"
 ```
 
 When publishing finishes, `func` prints the deployed function URLs.
+
+> **Not cloud-certified here.** The real-Azure release certification in this repo
+> covers a different lane (see the [stability table](https://github.com/yeongseon/azure-functions-langgraph-python#stability--rolling-0x-per-surface)
+> and [COMPATIBILITY.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md)).
+> The Flex Consumption + Python 3.11 commands above are the documented demo
+> default; they are not claimed as certified. Region availability and quota vary
+> by subscription.
 
 > **Why Flex Consumption?** The classic Linux Consumption plan retires on
 > **30 September 2028** and receives no new Python versions (3.12 is the last
@@ -180,7 +215,7 @@ curl -s "https://$APP.azurewebsites.net/api/health"
 ```bash
 # Fetch a function key, then invoke
 FUNCTION_KEY=$(az functionapp keys list --name "$APP" \
-  --resource-group "$RESOURCE_GROUP" --query "functionKeys.default" -o tsv)
+  --resource-group "$RESOURCE_GROUP" --query "functionKeys.default" --output tsv)
 
 curl -s -X POST \
   "https://$APP.azurewebsites.net/api/graphs/simple_agent/invoke?code=$FUNCTION_KEY" \
@@ -188,7 +223,22 @@ curl -s -X POST \
   -d '{"input": {"messages": [{"role": "human", "content": "World"}], "greeting": ""}}'
 ```
 
-The response matches the local one — same request, same shape.
+The response is the same JSON as the local one (`output.messages` ends with
+`"Hello, World! Goodbye!"` and `greeting` is `"Hello, World!"`). Treat the key as a
+secret; never commit it.
+
+### Limits to know (not blockers)
+
+- **Cold starts:** a scale-to-zero plan can add seconds to the first request.
+- **HTTP timeout:** HTTP-triggered responses are bounded by the platform's HTTP
+  request limit regardless of `functionTimeout`; long LLM runs need a different design.
+- **Streaming:** `/stream` is **buffered SSE** (frames flush after the run). True
+  streaming is the experimental `StreamingLangGraphApp`; see [Usage](usage.md).
+
+A plan change helps with **cold starts** only (see [when to move to Premium](deployment.md#when-to-move-to-premium)).
+It does **not** lift the HTTP response limit or make `LangGraphApp` stream incrementally: for those, see
+*Timeouts & Cancellation* in the [Production Guide](production-guide.md) (async patterns) and the
+true-streaming option in [Usage](usage.md#stream-endpoint).
 
 ### Clean up
 
@@ -212,5 +262,6 @@ For a full local host boot (Core Tools + curl), run
 
 - [Configuration](configuration.md) — auth levels, per-graph overrides, route prefix
 - [Usage Guide](usage.md) — full endpoint reference and request/response formats
-- [Deployment](deployment.md) — deeper Azure deployment guidance
-- [Production Guide](production-guide.md) — persistence, locking, and scale-out
+- **Optional, only when you need them:**
+    - [Deployment (advanced guide)](deployment.md): Premium, Blob/Table storage, `platform_compat`
+    - [Production Guide](production-guide.md): persistence, distributed locks, Managed Identity, hardening

@@ -1,4 +1,13 @@
-# Deploy to Azure
+# Deploy to Azure (advanced / production guide)
+
+> **New here? Start with the [5-minute tutorial](tutorial-5-min.md).** It is the
+> default path: Flex Consumption, no checkpoint/thread storage, `LangGraphApp` with
+> `platform_compat=False`. **You do not need anything in this guide to expose a graph
+> over HTTP.** This guide is the **optional** next step for Premium hosting, Blob
+> checkpointer, Table thread store, `platform_compat=True`, Managed Identity and
+> distributed locks. It is not certified beyond what the
+> [stability table](https://github.com/yeongseon/azure-functions-langgraph-python#stability--rolling-0x-per-surface)
+> and [COMPATIBILITY.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md) state.
 
 This guide walks you through deploying the `simple_agent` example to Azure Functions, **step by step**.
 No Azure experience required — every command is explained and copy-paste ready.
@@ -28,15 +37,31 @@ If your own graph uses OpenAI or another provider, you will set those API keys i
 | **Function App** | Your deployed application. Like a Flask/FastAPI app running in the cloud. |
 | **Hosting plan** | Controls how your app scales, how fast it responds, and how much it costs. |
 | **Resource Group** | A folder for Azure resources. Delete it to clean up everything at once. |
-| **Storage Account** | Required by Azure Functions for internal state. Also used by this package for checkpoints and thread metadata. |
+| **Storage Account** | Required by Azure Functions itself (`AzureWebJobsStorage`) for every app. *Separately and optionally*, this guide also uses one for application checkpoints and thread metadata (see [Optional application storage](#optional-application-storage)). |
 
-## Recommended plan for this repo
+## Optional application storage
+
+Two different things share the word "storage". Only the first is needed for a basic deployment:
+
+| | Required? | Purpose |
+|---|---|---|
+| Functions Storage Account (`AzureWebJobsStorage`) | **Always** | Host state, keys, deployment package |
+| Blob checkpointer / Table thread store (Step 7) | **Optional** | Persist graph state and thread metadata across instances |
+
+## When to move to Premium
+
+The minimal default ([5-minute tutorial](tutorial-5-min.md)) uses Flex Consumption.
+This guide's walkthrough uses **Premium (EP1)** as a production-style example.
+Persistence (Blob checkpointer, Table thread store) and `platform_compat=True` are
+**not** Premium features: the Flex Consumption variant in
+[If you need a different plan](#if-you-need-a-different-plan) keeps the same backends.
+Choose Premium for **hosting** reasons:
 
 | | |
 |---|---|
-| **Default plan** | **Premium (EP1)** |
-| **Why** | LangGraph agents often call LLM APIs that take several seconds to respond. Premium provides always-warm instances that eliminate cold starts, faster dependency builds during deployment, VNet support for private endpoints, and reliable Server-Sent Events (SSE) streaming — instances stay alive for the full response. |
-| **Switch to Flex Consumption if** | Your graph is lightweight (no LLM calls), response times are predictable, and you want to minimize idle cost. The `simple_agent` example works fine on Flex Consumption. |
+| **Walkthrough plan** | **Premium (EP1)** (optional; not required for a stateless graph) |
+| **Why** | LangGraph agents often call LLM APIs that take several seconds to respond. Premium provides always-warm instances that eliminate cold starts, faster dependency builds during deployment, VNet support for private endpoints, and a function execution timeout you can raise without a hard cap. It does not change HTTP behavior: the 230-second HTTP response ceiling still applies, and `/stream` stays buffered SSE on every plan (true incremental streaming is the experimental `StreamingLangGraphApp`). |
+| **Stay on Flex Consumption (the default) if** | Your graph is lightweight or you are learning/testing, and you can tolerate cold starts. The tutorial demonstrates `simple_agent` on Flex Consumption. |
 | **Switch to Dedicated (B1) if** | You need fixed monthly cost with no per-execution billing. |
 
 > ⚠️ **Premium plans have an always-on cost** even when idle. See [Choose an Azure Functions Hosting Plan](choose-a-plan.md) for pricing details. For testing, Flex Consumption is cheaper.
@@ -67,7 +92,7 @@ If your own graph uses OpenAI or another provider, you will set those API keys i
 
 ---
 
-## Deploy `simple_agent` with platform-compatible routes
+## Deploy `simple_agent` with platform-compatible routes (optional, advanced)
 
 This example deploys with `platform_compat=True`, which enables the full threads/runs API alongside native routes. This requires Azure Blob Storage (checkpoints) and Azure Table Storage (thread metadata).
 
@@ -678,11 +703,11 @@ Press `Ctrl+C` to stop the log stream.
 
 ## If you need a different plan
 
-The example above uses **Premium (EP1)**. If you want a different plan, only the plan + Function App creation commands change. Everything else stays the same.
+The walkthrough above uses **Premium (EP1)**; the [5-minute tutorial](tutorial-5-min.md) default is Flex Consumption. If you want a different plan, only the plan + Function App creation commands change. Everything else stays the same.
 
 See [Choose an Azure Functions Hosting Plan](choose-a-plan.md) for complete per-plan commands.
 
-### Flex Consumption — for lowest cost
+### Flex Consumption — the minimal default, lowest cost
 
 Replace [Step 6](#step-6-create-azure-resources) plan and Function App creation with:
 
