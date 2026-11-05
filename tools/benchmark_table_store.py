@@ -342,11 +342,11 @@ def run_azurite(sizes: list[int], reps: int, port: int) -> list[dict[str, Any]]:
 
 def run_azure(sizes: list[int], reps: int, env_var: str) -> list[dict[str, Any]]:
     """Run against a real Table endpoint; the connection string comes from ``env_var``."""
-    from azure.data.tables import TableServiceClient  # type: ignore[import-not-found]
-
     conn = os.environ.get(env_var)
     if not conn:
         raise SystemExit(f"environment variable {env_var} is not set or empty")
+    from azure.data.tables import TableServiceClient  # type: ignore[import-not-found]
+
     counter = RequestCounter()
     service = TableServiceClient.from_connection_string(conn, transport=counting_transport(counter))
     rows: list[dict[str, Any]] = []

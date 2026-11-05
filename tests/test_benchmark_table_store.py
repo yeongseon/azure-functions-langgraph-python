@@ -26,7 +26,8 @@ def test_counting_transport_counts_each_send_and_proxy_resets_it(
     bench: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given a proxy wired to a counter whose transport never touches the network
-    from azure.core.pipeline.transport import RequestsTransport
+    transport_mod = pytest.importorskip("azure.core.pipeline.transport")
+    RequestsTransport = transport_mod.RequestsTransport
 
     monkeypatch.setattr(RequestsTransport, "send", lambda self, request, **kw: "response")
     counter = bench.RequestCounter()
