@@ -31,11 +31,15 @@ In your Azure Functions project, add to `requirements.txt`:
 ```text
 azure-functions
 langgraph>=1.0,<2.0
-azure-functions-langgraph>=0.10.0,<0.11
+azure-functions-langgraph>=0.12.0,<0.13
 ```
 
-Pin to the minor range you tested against. The examples in this repository use
-the same `>=0.10.0,<0.11` form.
+Pin to the minor range you tested against. The default-path example
+(`examples/simple_agent`, used by the [5-minute tutorial](tutorial-5-min.md)) and the four
+primary learning-path examples use the same `>=0.12.0,<0.13` form. CI certifies only the
+primary examples against the published release (see
+[Dependency target and clean-install certification](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/examples/README.md#dependency-target-and-clean-install-certification));
+other examples may still target an older minor line.
 
 Or if using `pyproject.toml`:
 
@@ -43,7 +47,7 @@ Or if using `pyproject.toml`:
 dependencies = [
     "azure-functions",
     "langgraph>=1.0,<2.0",
-    "azure-functions-langgraph>=0.10.0,<0.11",
+    "azure-functions-langgraph>=0.12.0,<0.13",
 ]
 ```
 
