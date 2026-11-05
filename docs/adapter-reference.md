@@ -558,7 +558,7 @@ session lock/renewal limits as well; sessions remain **off by default**.
 Sessions require a session-enabled queue/subscription, a sender-supplied
 `SessionId`, and explicit `session=True`. The application lock stays enabled
 unless `session_exclusive=True` asserts an isolated single-entity writer topology;
-see the safety requirements and outstanding live proof below.
+see the safety requirements and live proof below.
 They order related messages within that entity; they do not exclude HTTP,
 Durable, other queues or other subscriptions writing the same checkpoint.
 See [session ordering and mixed surfaces](production-guide.md#service-bus-sessions-and-mixed-surfaces).
