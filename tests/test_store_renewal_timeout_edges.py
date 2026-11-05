@@ -263,7 +263,10 @@ def test_adapter_reference_documents_bounded_renewal_stop() -> None:
     # Given the Platform run-lock documentation.
     from pathlib import Path
 
-    text = " ".join(Path("docs/adapter-reference.md").read_text().split())
+    doc = Path(__file__).resolve().parents[1] / "docs" / "adapter-reference.md"
+    if not doc.is_file():
+        pytest.skip("docs are not available when tests run against an installed wheel")
+    text = " ".join(doc.read_text().split())
 
     # When read for the renewal shutdown contract.
     # Then it names the fixed bound and terminal error, not an unbounded wait.
