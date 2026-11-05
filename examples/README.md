@@ -43,7 +43,8 @@ Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` wh
 
 ### Dependency target and clean-install certification
 
-The four primary learning-path examples intentionally target the published
+The four primary learning-path examples and the default-path `simple_agent` (the example the
+5-minute tutorial installs) intentionally target the published
 `azure-functions-langgraph>=0.12.0,<0.13` line in their checked-in requirements.
 They are onboarding artifacts that a newcomer can install from PyPI; they do not
 claim to install unreleased behavior from development `main`. Release Please
