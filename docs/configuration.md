@@ -145,6 +145,11 @@ selection; enforce ownership with an application policy, using the optional
 An allow-list is not authentication. Platform,
 Durable and Service Bus policies are unchanged.
 
+**Classic migration (0.13.0):** `LangGraphApp` applied the same policy to its
+classic native routes in 0.13.0 (#740). Upgrading from 0.12.2 therefore also
+changes behavior for clients that sent other `config` content; see
+[Upgrading to 0.13.0](adapter-reference.md#upgrading).
+
 Checkpointers are configured on the LangGraph side, not in `LangGraphApp`. The library passes admitted `config` through to the graph:
 
 ```python
