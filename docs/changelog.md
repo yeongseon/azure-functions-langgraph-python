@@ -8,6 +8,12 @@ For the full changelog, see [CHANGELOG.md](https://github.com/yeongseon/azure-fu
 
 ## Unreleased
 
+### 0.13.0 upgrade notes
+
+0.13.0 contains three breaking changes (#740, #742, #770). Each fails loudly with an
+HTTP 400 or a startup `RuntimeError`. Who is affected and how to migrate:
+[Adapter Reference and Migration, section "0.12.x → 0.13.0"](adapter-reference.md#upgrading).
+
 ## 0.8.2 (2026-08-14)
 
 ### Breaking Changes
