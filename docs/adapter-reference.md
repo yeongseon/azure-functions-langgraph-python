@@ -558,7 +558,7 @@ session lock/renewal limits as well; sessions remain **off by default**.
 Sessions require a session-enabled queue/subscription, a sender-supplied
 `SessionId`, and explicit `session=True`. The application lock stays enabled
 unless `session_exclusive=True` asserts an isolated single-entity writer topology;
-see the safety requirements and outstanding live proof below.
+see the safety requirements and live proof below.
 They order related messages within that entity; they do not exclude HTTP,
 Durable, other queues or other subscriptions writing the same checkpoint.
 See [session ordering and mixed surfaces](production-guide.md#service-bus-sessions-and-mixed-surfaces).
@@ -729,7 +729,9 @@ true-streaming routes, not Platform, Durable or Service Bus transports.
 The true-stream restriction is breaking for consumers that previously sent
 arbitrary config; move execution controls to server-owned defaults and opt in to
 safe application fields as described in [configuration](configuration.md#native-client-configuration-admission).
-Classic native admission semantics and the `thread_id` contract are unchanged.
+Relative to that true-stream change, classic native admission semantics and the
+`thread_id` contract are unchanged. Relative to 0.12.2, classic admission itself
+became stricter in 0.13.0 (#740); see [Upgrading](#upgrading).
 
 Native invoke responses keep the `{"output": ...}` envelope and use the shared
 JSON codec: nested LangChain messages retain structured `message_to_dict` data,
@@ -1154,6 +1156,9 @@ app = LangGraphApp(
 
 ### Upgrading
 
+Sections are in ascending order. **Upgrading to 0.13.0? Read the "0.12.x → 0.13.0"
+section at the end first; it contains breaking changes.**
+
 #### v0.3.0 → v0.4.0
 
 Fully backward-compatible. No breaking changes.
@@ -1169,6 +1174,69 @@ Fully backward-compatible. No breaking changes.
 - **Metadata API**: `app.get_app_metadata()` returns an immutable snapshot of all registered routes and graph info
 - **OpenAPI bridge**: `azure_functions_langgraph.openapi.register_with_openapi` integrates with `azure-functions-openapi-python`
 - **CloneableGraph protocol**: thread-isolated graph cloning for safe concurrent execution
+
+#### 0.12.x → 0.13.0
+
+0.13.0 contains **three breaking changes**. Each fails loudly (an HTTP 400 or a
+startup `RuntimeError`) instead of changing behavior silently. The remaining
+items are behavior changes worth checking and opt-in additions.
+
+**Breaking changes**
+
+- **Classic native client configuration is restricted (#740).** `LangGraphApp`
+  native invoke and stream routes accept only `config.configurable`, and only
+  `thread_id` by default. A request that sends anything else (execution controls
+  such as `recursion_limit` or callbacks, unknown top-level keys, or custom
+  configurable fields) now gets a sanitized HTTP 400 before authorization, locking
+  or graph execution. Bind trusted defaults on the server with
+  `graph.with_config(...)`, and allow the application fields that clients may
+  choose with
+  `app.register(graph, "agent", allowed_configurable_keys=frozenset({"locale"}))`.
+  Allowing `checkpoint_id` or `checkpoint_ns` grants checkpoint selection and
+  needs ownership checks in your authorizer. Details: [Request format](#request-format)
+  and [configuration](configuration.md#native-client-configuration-admission).
+- **True-stream native configuration is restricted the same way (#770).**
+  `StreamingLangGraphApp` invoke and stream apply the same admission policy and
+  the same migration. Platform, Durable and Service Bus transports are not affected.
+- **Platform routes need a shared thread store when a scale-out guard is set (#742).**
+  With `platform_compat=True`, setting `AZFUNC_LANGGRAPH_LOCK_BACKEND` to any value
+  other than `inprocess` (for example `distributed`) now makes `app.function_app`
+  raise `RuntimeError` while the thread store is still the default
+  `InMemoryThreadStore`; before, only `AZFUNC_LANGGRAPH_THREAD_STORE` did. A
+  distributed lock alone does not share thread records. Assign a shared store such
+  as `AzureTableThreadStore` to `app.thread_store` before accessing
+  `app.function_app`, or unset both variables for single-process local
+  development. See [Persistent storage](#persistent-storage-v04).
+
+**Behavior changes to check**
+
+- **Native `RUN` authorization (#722).** The `authorize=...` hook is now also
+  evaluated with `AuthorizationAction.RUN` for native sync and async invoke and
+  buffered stream routes, before the graph runs. A policy that does not allow
+  `RUN` now denies those runs. See [security](security.md).
+- **Buffered stream frames (#731).** Non-dictionary events are encoded as plain
+  JSON instead of the old `{"data": "<Python repr>"}` envelope; JSON-decode each
+  frame's `data:` value rather than assume an object. See
+  [Streaming behavior](#streaming-behavior).
+- **Azure Table chunked JSON (#728).** Large thread documents can be written as
+  chunked properties. Upgrade every reader before any writer: older package
+  versions cannot read chunked JSON. See [Persistent storage](#persistent-storage-v04).
+- **Cosmos DB emulator (#721).** With `create_cosmos_checkpointer`,
+  `COSMOS_DISABLE_SSL` is honored only for loopback endpoints (`localhost`,
+  `127.0.0.1`, `::1`). For any other host, such as a Docker network name, it is
+  ignored and TLS verification stays on; use a trusted certificate
+  (`REQUESTS_CA_BUNDLE`) or a loopback endpoint. An ambiguous endpoint raises
+  `ValueError`.
+
+**Opt-in additions (no action needed)**
+
+- `StreamingLangGraphApp(authorize=...)` for true-stream routes (#782).
+- Service Bus `session=True` and `session_exclusive=True` (#754, #757). The default
+  path and Basic-tier support are unchanged.
+
+**A limit that is unchanged.** Blob marker leases do not fence checkpoint writes
+after lease loss. See "Operating envelope for long-running graphs" in the
+[production guide](production-guide.md#operating-envelope-for-long-running-graphs-characterized-765).
 
 ## When to use
 

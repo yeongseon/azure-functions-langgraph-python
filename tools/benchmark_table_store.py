@@ -3,13 +3,27 @@
 Every number printed by this script comes from one of two backends:
 
 * ``fake``: a counting in-memory stand-in for ``TableClient``. It measures scan
-  amplification (entities read, modeled request pages), peak Python memory and
-  client-side CPU latency. It models NO network or service latency.
+  amplification (entities read, modeled request pages), peak traced Python
+  allocation and client-side CPU latency. It models NO network or service latency.
 * ``azurite``: the Azurite emulator on loopback through the real
   ``azure-data-tables`` SDK. It measures SDK + emulator latency only.
 
-Neither backend is Azure Storage. Do not quote these numbers as Azure
+A third backend, ``--connection-string-env VAR``, runs against a REAL Azure Table
+endpoint (the connection string is read from the environment variable named VAR,
+never from argv, and is never printed). It counts HTTP requests actually sent by
+the SDK transport (retries included), so request counts are measured, and its
+latency includes client-to-Azure round trips from wherever you run it. The counts of
+EVERY execution of a workload are kept and printed (each timed repetition and the
+separate memory pass), together with a cumulative whole-run total that also covers
+table creation, seeding and deletion.
+
+Neither fake nor Azurite is Azure Storage. Do not quote these numbers as Azure
 measurements, and do not derive a supported thread count from them.
+
+The memory column is ``tracemalloc``'s peak, started only for one separate (untimed)
+execution: it counts the ADDITIONAL Python allocations of that search or count and
+excludes the interpreter and imported-library baseline and untraced native allocations.
+It is not process RSS and not an instance-sizing bound.
 
 Usage (from the repo root)::
 
@@ -20,7 +34,8 @@ Usage (from the repo root)::
 ``--azurite`` connects to an Azurite table service YOU started, for example
 ``azurite-table --silent --location "$(mktemp -d)" --tablePort 10112``, and uses
 ``--azurite-port`` (default 10112). The script creates and deletes its own
-``bench<N>`` tables and never starts or stops processes.
+tables named ``bench<size>r<8 hex>`` (unique per run, created never reused) and deletes
+only the tables it created; it never starts or stops processes.
 """
 
 from __future__ import annotations
@@ -30,6 +45,7 @@ from collections.abc import Callable, Iterator
 import contextlib
 from datetime import UTC, datetime, timedelta
 import json
+import os
 import re
 import statistics
 import time
@@ -193,18 +209,37 @@ def workloads(
     ]
 
 
+def _counts(counter: Any) -> dict[str, int | None]:
+    """Snapshot the counters after one execution of a workload."""
+    return {
+        "entities_read": counter.entities_read,
+        "requests_modeled": counter.requests,
+        "requests_measured": getattr(counter, "requests_measured", None),
+    }
+
+
 def measure(
     store: AzureTableThreadStore,
     counter: Any,
     call: Callable[[AzureTableThreadStore], Any],
     reps: int,
 ) -> dict[str, Any]:
+    """Run ``call`` ``reps`` times for latency, then once more under ``tracemalloc``.
+
+    The counters of EVERY execution are kept: ``timed`` has one entry per timed
+    repetition (the runs behind the latency figures) and ``memory_pass`` is the
+    separate, untimed ``tracemalloc`` run. A retry or an extra page in any execution
+    makes that execution's ``requests_measured`` differ from ``requests_modeled``, so it
+    cannot hide behind a clean memory pass.
+    """
     times: list[float] = []
+    timed: list[dict[str, int | None]] = []
     for _ in range(reps):
         counter.reset_counters()
         start = time.perf_counter()
         call(store)
         times.append((time.perf_counter() - start) * 1000)
+        timed.append(_counts(counter))
     counter.reset_counters()
     tracemalloc.start()
     result = call(store)
@@ -214,24 +249,59 @@ def measure(
     return {
         "latency_ms_median": round(statistics.median(times), 1),
         "latency_ms_max": round(max(times), 1),
-        "entities_read": counter.entities_read,
-        "requests_modeled": counter.requests,
+        "timed": timed,
+        "memory_pass": _counts(counter),
         "peak_mem_mib": round(peak / 1024 / 1024, 1),
         "result": returned,
     }
 
 
-class CountingProxy:
-    """Counts entities/queries for a real SDK ``TableClient`` (Azurite)."""
+class RequestCounter:
+    """Counts every HTTP request the SDK actually sends (retries included).
 
-    def __init__(self, inner: Any) -> None:
+    azure-data-tables ignores user pipeline policies, so the count is taken at the
+    transport: pass ``counting_transport(counter)`` as ``transport=``. Each attempt
+    is a billable transaction. ``sent`` is zeroed before every measured execution;
+    ``total`` is never reset and covers the whole run (table creation, seeding, every
+    execution of every workload, table deletion).
+    """
+
+    def __init__(self) -> None:
+        self.sent = 0
+        self.total = 0
+
+
+def counting_transport(counter: RequestCounter) -> Any:
+    """Return a ``requests`` based SDK transport that counts every send on ``counter``."""
+    from azure.core.pipeline.transport import RequestsTransport  # type: ignore[import-not-found]
+
+    class _CountingTransport(RequestsTransport):  # type: ignore[misc]
+        def send(self, request: Any, **kwargs: Any) -> Any:
+            counter.sent += 1
+            counter.total += 1
+            return super().send(request, **kwargs)
+
+    return _CountingTransport()
+
+
+class CountingProxy:
+    """Counts entities/queries for a real SDK ``TableClient`` (Azurite or Azure)."""
+
+    def __init__(self, inner: Any, request_counter: RequestCounter | None = None) -> None:
         self._inner = inner
+        self._request_counter = request_counter
         self.entities_read = 0
         self.queries = 0
 
     def reset_counters(self) -> None:
         self.entities_read = 0
         self.queries = 0
+        if self._request_counter is not None:
+            self._request_counter.sent = 0
+
+    @property
+    def requests_measured(self) -> int | None:
+        return None if self._request_counter is None else self._request_counter.sent
 
     @property
     def requests(self) -> int:
@@ -270,6 +340,41 @@ def run_fake(sizes: list[int], reps: int) -> list[dict[str, Any]]:
     return rows
 
 
+def run_tables(
+    service: Any,
+    backend: str,
+    sizes: list[int],
+    reps: int,
+    counter: RequestCounter | None = None,
+) -> list[dict[str, Any]]:
+    """Seed and measure one fresh table per size; delete only the tables created here."""
+    run_id = uuid.uuid4().hex[:8]
+    created: list[str] = []
+    rows: list[dict[str, Any]] = []
+    try:
+        for size in sizes:
+            name = f"bench{size}r{run_id}"
+            raw = service.create_table(name)  # fails loudly if it already exists
+            created.append(name)
+            populate(raw, size)
+            proxy = CountingProxy(raw, counter)
+            store = AzureTableThreadStore.from_table_client(proxy)  # type: ignore[arg-type]
+            for label, _, _, call in workloads(size):
+                rows.append(
+                    {
+                        "backend": backend,
+                        "size": size,
+                        "workload": label,
+                        **measure(store, proxy, call, reps),
+                    }
+                )
+    finally:
+        for name in created:
+            with contextlib.suppress(Exception):
+                service.delete_table(name)
+    return rows
+
+
 def run_azurite(sizes: list[int], reps: int, port: int) -> list[dict[str, Any]]:
     from azure.data.tables import TableServiceClient  # type: ignore[import-not-found]
 
@@ -277,28 +382,23 @@ def run_azurite(sizes: list[int], reps: int, port: int) -> list[dict[str, Any]]:
         "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;"
         f"AccountKey={AZURITE_KEY};TableEndpoint=http://127.0.0.1:{port}/devstoreaccount1"
     )
-    service = TableServiceClient.from_connection_string(conn)
-    rows: list[dict[str, Any]] = []
-    try:
-        for size in sizes:
-            raw = service.create_table_if_not_exists(f"bench{size}")
-            populate(raw, size)
-            proxy = CountingProxy(raw)
-            store = AzureTableThreadStore.from_table_client(proxy)  # type: ignore[arg-type]
-            for label, _, _, call in workloads(size):
-                rows.append(
-                    {
-                        "backend": "azurite",
-                        "size": size,
-                        "workload": label,
-                        **measure(store, proxy, call, reps),
-                    }
-                )
-    finally:
-        for size in sizes:
-            with contextlib.suppress(Exception):
-                service.delete_table(f"bench{size}")
-    return rows
+    return run_tables(TableServiceClient.from_connection_string(conn), "azurite", sizes, reps)
+
+
+def run_azure(sizes: list[int], reps: int, env_var: str) -> tuple[list[dict[str, Any]], int]:
+    """Run against a real Table endpoint; the connection string comes from ``env_var``.
+
+    Returns the rows and every request the transport sent during the whole run.
+    """
+    conn = os.environ.get(env_var)
+    if not conn:
+        raise SystemExit(f"environment variable {env_var} is not set or empty")
+    from azure.data.tables import TableServiceClient  # type: ignore[import-not-found]
+
+    counter = RequestCounter()
+    service = TableServiceClient.from_connection_string(conn, transport=counting_transport(counter))
+    rows = run_tables(service, "azure", sizes, reps, counter)
+    return rows, counter.total  # read after run_tables: its cleanup requests are included
 
 
 # --- Prototype of a bounded alternative (benchmark-only; NOT production code) ---
@@ -382,6 +482,11 @@ def main() -> None:
     parser.add_argument("--sizes", default="1000,10000,100000")
     parser.add_argument("--azurite", action="store_true", help="use Azurite instead of the fake")
     parser.add_argument("--azurite-port", type=int, default=10112)
+    parser.add_argument(
+        "--connection-string-env",
+        metavar="VAR",
+        help="run against a real Table endpoint; connection string read from env var VAR",
+    )
     parser.add_argument("--reps", type=int, default=3)
     parser.add_argument("--prototype-check", action="store_true")
     args = parser.parse_args()
@@ -389,21 +494,110 @@ def main() -> None:
         print(json.dumps(prototype_check(), indent=2))
         return
     sizes = [int(s) for s in args.sizes.split(",")]
-    rows = (
-        run_azurite(sizes, args.reps, args.azurite_port)
-        if args.azurite
-        else run_fake(sizes, args.reps)
-    )
-    print(f"# backend={'azurite' if args.azurite else 'fake'}: NOT Azure Storage measurements")
-    print(
-        "| size | workload | entities read | requests (modeled) | peak MiB | median ms | result |"
-    )
-    print("|---:|---|---:|---:|---:|---:|---:|")
-    for r in rows:
-        print(
-            f"| {r['size']} | {r['workload']} | {r['entities_read']} | {r['requests_modeled']} | "
-            f"{r['peak_mem_mib']} | {r['latency_ms_median']} | {r['result']} |"
+    whole_run_requests: int | None = None
+    if args.connection_string_env:
+        backend = "azure"
+        rows, whole_run_requests = run_azure(sizes, args.reps, args.connection_string_env)
+    elif args.azurite:
+        backend = "azurite"
+        rows = run_azurite(sizes, args.reps, args.azurite_port)
+    else:
+        backend = "fake"
+        rows = run_fake(sizes, args.reps)
+    print(format_report(backend, rows, whole_run_requests))
+
+
+def _series(values: list[int | None], *, collapse: bool = False) -> str:
+    """Join per-execution values with ``/``; with ``collapse``, one value when all agree."""
+    if all(v is None for v in values):
+        return "n/a"
+    shown = ["n/a" if v is None else str(v) for v in values]
+    return shown[0] if collapse and len(set(shown)) == 1 else "/".join(shown)
+
+
+def _executions(row: dict[str, Any]) -> list[tuple[str, dict[str, int | None]]]:
+    """Every execution of a row's workload: each timed repetition, then the memory pass."""
+    timed = [(f"timed rep {i}", c) for i, c in enumerate(row["timed"], start=1)]
+    return [*timed, ("memory pass", row["memory_pass"])]
+
+
+def _request_summary(rows: list[dict[str, Any]], whole_run_requests: int | None) -> list[str]:
+    """Totals over every execution and an explicit verdict on measured vs modeled requests."""
+    runs = [(r, label, c) for r in rows for label, c in _executions(r)]
+    modeled = sum(c["requests_modeled"] or 0 for _, _, c in runs)
+    if any(c["requests_measured"] is None for _, _, c in runs):
+        return [
+            "",
+            f"Requests were not measured on this backend. Modeled total over {len(runs)} "
+            f"executions (each row's timed repetitions plus one memory pass): {modeled}, "
+            f"one request per started {PAGE_SIZE}-entity page.",
+        ]
+    measured = sum(c["requests_measured"] or 0 for _, _, c in runs)
+    differing = [
+        f"size {r['size']}, {r['workload']}, {label}: "
+        f"measured {c['requests_measured']}, modeled {c['requests_modeled']}"
+        for r, label, c in runs
+        if c["requests_measured"] != c["requests_modeled"]
+    ]
+    lines = [
+        "",
+        f"Query requests over all {len(runs)} executions (each row's timed repetitions plus "
+        f"one memory pass; seeding and table create/delete excluded): measured {measured}, "
+        f"modeled {modeled}.",
+    ]
+    if whole_run_requests is not None:
+        lines.append(
+            f"Whole run, every request the transport sent (table create/delete, seeding batches "
+            f"and all query executions above, retries included): {whole_run_requests}."
         )
+    if differing:
+        lines.append(
+            f"WARNING: measured differs from modeled in {len(differing)} of {len(runs)} "
+            "executions (retries, extra pages or a counting error):"
+        )
+        lines.extend(f"- {d}" for d in differing)
+    else:
+        lines.append(
+            f"Measured equals modeled in every one of the {len(runs)} executions, so no "
+            "retry or extra page request was sent in any timed repetition or memory pass."
+        )
+    return lines
+
+
+def format_report(
+    backend: str, rows: list[dict[str, Any]], whole_run_requests: int | None = None
+) -> str:
+    note = (
+        "REAL Azure Storage measurements (latency includes client-to-Azure round trips)"
+        if backend == "azure"
+        else "NOT Azure Storage measurements"
+    )
+    lines = [
+        f"# backend={backend}: {note}",
+        "| size | workload | entities read | requests (modeled) | "
+        "requests (measured), timed reps | requests (measured), memory pass | "
+        "peak traced MiB | median ms | max ms | result |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for r in rows:
+        runs = [c for _, c in _executions(r)]
+        lines.append(
+            f"| {r['size']} | {r['workload']} | "
+            f"{_series([c['entities_read'] for c in runs], collapse=True)} | "
+            f"{_series([c['requests_modeled'] for c in runs], collapse=True)} | "
+            f"{_series([c['requests_measured'] for c in r['timed']])} | "
+            f"{_series([r['memory_pass']['requests_measured']])} | "
+            f"{r['peak_mem_mib']} | {r['latency_ms_median']} | "
+            f"{r['latency_ms_max']} | {r['result']} |"
+        )
+    lines.append("")
+    lines.append(
+        "peak traced MiB: tracemalloc peak of the additional Python allocations of one "
+        "execution (the memory pass). It excludes the interpreter and library baseline and "
+        "untraced native allocations and is not process RSS."
+    )
+    lines.extend(_request_summary(rows, whole_run_requests))
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":
