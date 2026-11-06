@@ -305,6 +305,47 @@ See the [production lease lifecycle and recovery guidance](docs/production-guide
 and the authoritative [Azure lease semantics](https://learn.microsoft.com/en-us/rest/api/storageservices/lease-blob)
 and [Functions HTTP limits](https://learn.microsoft.com/en-us/azure/azure-functions/functions-bindings-http-webhook-trigger#limits).
 
+### 15. Blob stale-writer decision record (#765)
+
+**Status: decided. Storage-level fencing is deferred, not rejected.** This section records the evidence, the property worth protecting, what was decided and what would change the decision. An earlier and much larger candidate (a per-thread manifest with attempt-isolated payloads) was reviewed for eight rounds and never reached a complete, implementable design. Its full text is kept only in this pull request's history, at [commit `ca57aaf`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/ca57aaf0dd59fbeadc59b0c956867c6c10c9069e/DESIGN.md); it is **not** an accepted design.
+
+**Evidence (real Azure, 3 of 3 runs, 2026-11-05).** A throwaway probe, kept outside the repository, ran `AzureBlobLeaseThreadLock(lease_duration=15, auto_renew=False)` for two owners on separate instances over one lock container. A took the lock and wrote a checkpoint, A's lease lapsed, B polled `acquire()` until it succeeded (15.3 s, 15.3 s and 15.4 s) and wrote under the same parent, and then the stale owner A acted:
+
+| Stale owner A's action | Result (identical in all 3 runs) |
+|---|---|
+| lease renew | 409 `LeaseIdMismatchWithLeaseOperation` |
+| upload to the marker blob with its old lease id | 412 `LeaseIdMismatchWithBlobOperation` |
+| `AzureBlobCheckpointSaver.put()` | **accepted** (62 to 67 ms) |
+
+Afterwards both branches existed under the same parent and `latest.json` pointed at the stale writer's checkpoint. The service rejected every lease-conditional write the stale owner made, but the saver's uploads are unconditional (`overwrite=True`), so the lease never reaches them. The probe drove the lock and the saver directly with synthetic, deliberately ordered checkpoint ids. It is one controlled interleaving per run: not a measured production incidence rate, and not Azurite evidence. Fake-backed tests that pin the same behavior are in `tests/test_lease_loss_characterization.py`; the operating envelope is in `docs/production-guide.md`.
+
+**What is and is not established.** Established: a stale owner's checkpoint write is accepted and can become the default head, because the lease does not condition checkpoint uploads. Not established: how often this happens in production. While renewal succeeds (nominally every `lease_duration / 3`, 60 s by default), a long graph does not expire the lease by itself. Exposure needs renewal to be interrupted (host suspension, repeated failure, an explicit break or close), another owner to take over, and the old execution to keep running. The renewal interval is nominal, not a detection deadline, and nothing stops the running graph, because a Python thread cannot be killed. A fork is not corruption by itself, since LangGraph supports branching from history; the defect is a stale branch becoming the default resume lineage.
+
+**The property worth enforcing.** After B acquires ownership, operations carrying A's previous ownership identity cannot change the default resume checkpoint, its referenced state or its pending writes; authorized historical branching stays allowed. This does not require preventing every stale byte, or an atomic transaction over all checkpoint and write blobs.
+
+**Decision.**
+
+1. Keep lease renewal (#697). Make no single-writer claim for the Blob backends beyond exclusion while ownership holds; the documented residual risk stands.
+2. Defer a storage-level fence. No design reviewed so far enforces the property at bounded cost without a new indexed storage protocol (migration, reclamation, retry and deletion semantics), and each review of the manifest candidate found interactions it did not specify.
+3. Re-scope #790 to a bounded mitigation: an opt-in guard, bound to the original lock token, that rejects Blob writes after the lock has detected loss (`ThreadLeaseLostError`, deliberately not `StaleCheckpointWriterError`). It reduces writes after detected loss and is **not** fencing: detection lags, and a check can pass just before an upload. It adds no storage format, migration, reclamation or backend, and never retries graph or tool execution.
+4. For shared production state that must not be written by an overlapping owner, prefer an existing transactional backend (the PostgreSQL integration; Cosmos DB is also available, but its helper path is deprecated for credential handling) over a larger Blob protocol. A transactional saver prevents partial writes; it does not by itself reject a logically stale graph. Applications that need the property above must verify backend-specific fencing or prevent takeover until old workers have stopped.
+
+**Scope of the guard (#790).** An optional lock capability returns a guard bound to the original lock token. It reaches the saver through a private configurable key at every boundary that acquires the lock and then runs the graph or mutates thread state (native handlers, Platform runs and thread updates, true streaming, the Durable activity, the Service Bus trigger), through one shared helper. The saver checks the guard before every upload, including pending writes, and a run checks it before reporting success; a missing, released or mismatched token is rejected as well as a lost one. The saver must never look up "the current owner of this thread", which could hand a stale owner the new owner's identity. Tests keep an unguarded characterization of the stale write and reproduce the residual check-then-upload window. Deletion (`delete_thread`, retention) stays unsafe against active writers and needs quiesced maintenance.
+
+**Detection today.** The lock already logs a warning when it marks a lease lost (`locks/azure_blob.py`). Alert on it and correlate it with run-lifecycle telemetry. Treat a match as suspected overlap, not proven corruption.
+
+**Candidates considered and not adopted.**
+
+- *A per-thread manifest in the leased marker blob with attempt-isolated payloads* (the earlier version of this section). It could enforce the property, but it is an unbounded indexed storage protocol: it needs a legacy bootstrap, cross-attempt references, two-phase reclamation, a retention floor and a fence handoff at every lock-owning boundary. Two interactions stayed unspecified. First, a `put_writes()` batch can reach the saver before its own checkpoint commits, because LangGraph schedules the two independently except in durability `"exit"` (read in `langgraph/pregel/_loop.py` of 1.0.0, 1.1.4 and 1.2.20). Second, a legacy-layout `delete_thread()`, which deletes everything under `threads/{thread}/`, can race the manifest bootstrap. Not adopted.
+- *The whole thread record inside the leased blob.* The leanest design that would be a genuine storage fence: every mutation is one lease-and-ETag-conditioned replacement, so there is no separate payload publication, no cross-blob reference and no online legacy bootstrap. The cost is whole-record rewrites and a bounded history and state size, with no measurement of whether that is usable. Worth investigating only for explicitly bounded workloads, on fresh storage (legacy data would stay in the existing saver and be imported offline).
+- *An epoch-conditional commit, or a fence in the `ThreadLock` protocol itself.* Not designed beyond a sketch; not pursued.
+
+**When to revisit.** Revisit storage fencing when there is a concrete requirement for the property above and a reason the existing backends cannot meet it. Evidence that would favor the bounded whole-record design: measured serialized thread sizes and history, acceptable whole-record latency and cost, and passing lease-conditioned save, pending-write and delete tests on real Azure, including ambiguous responses and LangGraph's real background scheduling. Evidence that would favor a manifest design: a complete protocol with deterministic fault tests for every interaction above, real-Azure proof of conditional publication, measured growth and reclamation, cutover and rollback proof, and a named maintainer for it. A production incident raises urgency, not confidence in an incomplete design.
+
+**Not covered.** Neither a fence nor a guard stops a stale graph from running or from causing side effects outside the checkpoint store (tool calls, external APIs); at most it limits what reaches the checkpoint store.
+
+Reproduction: the probe is a small script that runs `AzureBlobLeaseThreadLock` and the real saver against a temporary container. It is intentionally not part of the repository; its core and sanitized output are in the description of pull request #791.
+
 ## Module Structure
 
 ```
