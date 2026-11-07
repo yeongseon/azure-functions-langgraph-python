@@ -42,7 +42,25 @@ Renewal resilience:
     alone cannot prevent another Function App instance from acquiring
     the same ``(graph_name, thread_id)`` and writing concurrently —
     preventing that would require cancelling the in-flight execution or
-    fencing the checkpoint writes, neither of which this alpha lock does.
+    fencing the checkpoint writes, neither of which this lock does.
+
+Opt-in write guard (``guard_checkpoint_writes=True``):
+
+* The lock can hand each acquisition an
+  :class:`~azure_functions_langgraph.locks.guard.OwnershipGuard` bound to that
+  acquisition's **original** owner token. A guard-aware checkpoint saver
+  (:class:`~azure_functions_langgraph.checkpointers.azure_blob.AzureBlobCheckpointSaver`)
+  checks it before every upload and rejects the write with
+  :class:`~azure_functions_langgraph.locks.guard.ThreadLeaseLostError` once the
+  lock has *detected* loss.
+* "Detected" is exactly what this class already tracks locally: a definitive
+  renewal failure or exhausted renewals (``lost``), a released token, a closed
+  lock, or the same key re-acquired under a newer token. It deliberately does
+  **not** infer expiry from the clock, so a frozen host, a starved renewal
+  thread, ``auto_renew=False`` or an infinite lease can leave loss undetected.
+* This is not fencing. A check can pass an instant before an upload that is
+  then accepted, and nothing stops the stale graph or its side effects outside
+  the checkpoint store.
 """
 
 from __future__ import annotations
@@ -57,6 +75,12 @@ import time
 from typing import Any, Protocol, cast
 from urllib.parse import quote
 import warnings
+
+from azure_functions_langgraph.locks.guard import (
+    LeaseLossReason,
+    OwnershipGuard,
+    ThreadLeaseLostError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +176,66 @@ class _LeaseState:
     last_error: BaseException | None = None
 
 
+class _LeaseOwnershipGuard:
+    """Ownership guard bound to one acquisition's original owner token.
+
+    Created by :meth:`AzureBlobLeaseThreadLock.ownership_guard`. It never
+    performs I/O and never takes the lock's internal mutex (see
+    :meth:`AzureBlobLeaseThreadLock._ownership_problem`), so it is safe to call
+    from checkpoint writes on any thread, including an event-loop thread.
+
+    ``repr`` / ``str`` are a constant: the guard travels inside run configs
+    that may be serialized by user code or stream payloads, and must never
+    expose the owner token. Copies share the guard itself: it holds a lock
+    reference and is not meaningfully copyable.
+    """
+
+    __slots__ = ("_graph_name", "_lock", "_reported", "_thread_id", "_token")
+
+    def __init__(
+        self,
+        lock: AzureBlobLeaseThreadLock,
+        graph_name: str,
+        thread_id: str,
+        token: str,
+    ) -> None:
+        self._lock = lock
+        self._graph_name = graph_name
+        self._thread_id = thread_id
+        self._token = token
+        self._reported = False
+
+    def check(self) -> None:
+        reason = self._lock._ownership_problem((self._graph_name, self._thread_id), self._token)
+        if reason is None:
+            return
+        # One WARNING per guard (per acquisition), later rejections at DEBUG,
+        # so a run that attempts many writes after loss does not flood the log.
+        # Only graph and thread ids are logged, never the owner token.
+        log = logger.debug if self._reported else logger.warning
+        self._reported = True
+        log(
+            "Ownership guard rejected an operation for %s/%s: thread lock ownership is no "
+            "longer held (%s). This is locally detected loss, not proof that a stale write "
+            "occurred.",
+            self._graph_name,
+            self._thread_id,
+            reason,
+        )
+        raise ThreadLeaseLostError(
+            reason=reason, graph_name=self._graph_name, thread_id=self._thread_id
+        )
+
+    def __repr__(self) -> str:
+        return "<OwnershipGuard>"
+
+    def __copy__(self) -> _LeaseOwnershipGuard:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> _LeaseOwnershipGuard:
+        return self
+
+
 class AzureBlobLeaseThreadLock:
     """Distributed per-thread lock backed by Azure Blob leases.
 
@@ -212,6 +296,16 @@ class AzureBlobLeaseThreadLock:
             ``lease_duration`` is finite, since finite leases will
             silently expire mid-execution. Ignored for
             ``lease_duration=-1`` (infinite leases are not renewable).
+        guard_checkpoint_writes: If ``True``, :meth:`ownership_guard` returns
+            a guard bound to each acquisition's original owner token, so a
+            guard-aware checkpoint saver rejects writes after this lock has
+            **detected** loss of ownership (see the module docstring for the
+            exact contract). Defaults to ``False``, which leaves behavior
+            unchanged. This is not fencing. Loss is only detected through
+            automatic renewal, so enabling it with ``auto_renew=False`` or an
+            infinite lease emits a :class:`UserWarning`: such a lock still
+            rejects writes after release, close or re-acquisition, but it
+            cannot notice a lease that lapses on the service.
 
     Thread-safety:
         Safe for concurrent ``acquire`` / ``release`` calls from multiple
@@ -228,6 +322,7 @@ class AzureBlobLeaseThreadLock:
         lease_duration: int = _LEASE_DURATION_MAX,
         blob_prefix: str = "thread-locks/",
         auto_renew: bool = True,
+        guard_checkpoint_writes: bool = False,
     ) -> None:
         if lease_duration != _LEASE_DURATION_INFINITE and not (
             _LEASE_DURATION_MIN <= lease_duration <= _LEASE_DURATION_MAX
@@ -284,6 +379,7 @@ class AzureBlobLeaseThreadLock:
         )
         self._active_leases: dict[tuple[str, str], _LeaseState] = {}
         self._active_leases_guard = threading.Lock()
+        self._guard_checkpoint_writes = guard_checkpoint_writes
 
         self._auto_renew: bool = auto_renew and lease_duration != _LEASE_DURATION_INFINITE
         self._closed: bool = False
@@ -306,6 +402,19 @@ class AzureBlobLeaseThreadLock:
                 "checkpointers. Enable auto_renew=True (the default) or "
                 "pass lease_duration=-1 (infinite) whenever graph "
                 "execution can exceed 60 seconds.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        if guard_checkpoint_writes and not self._auto_renew:
+            warnings.warn(
+                "AzureBlobLeaseThreadLock(guard_checkpoint_writes=True) without "
+                "automatic renewal (auto_renew=False or lease_duration=-1) cannot "
+                "detect a lease that lapses on the service: the guard still rejects "
+                "checkpoint writes after the token is released, the lock is closed "
+                "or the key is re-acquired in this process, but it will not notice "
+                "loss of the lease itself. Keep auto_renew=True with a finite "
+                "lease_duration for loss detection.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -488,6 +597,51 @@ class AzureBlobLeaseThreadLock:
                 thread_id,
                 exc_info=True,
             )
+
+    def ownership_guard(self, graph_name: str, thread_id: str, token: str) -> OwnershipGuard | None:
+        """Return a guard bound to ``token``, or ``None`` when guarding is off.
+
+        Implements :class:`~azure_functions_langgraph.locks.guard.OwnershipGuardProvider`.
+        With ``guard_checkpoint_writes=False`` (the default) this returns
+        ``None`` and nothing about the lock's behavior changes. Otherwise the
+        returned guard rejects a checkpoint write with
+        :class:`~azure_functions_langgraph.locks.guard.ThreadLeaseLostError`
+        once this lock has *detected* that ``token`` no longer owns
+        ``(graph_name, thread_id)``: the lease is marked lost, the token was
+        released, the lock was closed, or the key now belongs to a newer token.
+
+        The guard is bound to the **original** ``token``. It never means "the
+        current owner of this thread", so a stale execution cannot inherit a
+        newer owner's identity. This is not fencing: see the module docstring.
+        """
+        if not self._guard_checkpoint_writes:
+            return None
+        return _LeaseOwnershipGuard(self, graph_name, thread_id, token)
+
+    def _ownership_problem(self, key: tuple[str, str], token: str) -> LeaseLossReason | None:
+        """Return why ``token`` no longer owns ``key``, or ``None`` if it still does.
+
+        Deliberately **lock-free**: it must not take ``_active_leases_guard``.
+        ``acquire`` holds that mutex while it releases a race-loser or
+        post-close lease (a service call), so a checkpoint write checking
+        ownership on an event-loop thread could otherwise block behind
+        somebody else's network round trip. A plain ``dict.get`` and attribute
+        reads are atomic under the GIL, and a guard check is advisory (it can
+        always be stale by one instant), so no consistent snapshot is needed.
+
+        ``_closed`` is read first because :meth:`close` sets it before it joins
+        the renewal thread and clears the entries.
+        """
+        if self._closed:
+            return "released"
+        state = self._active_leases.get(key)
+        if state is None:
+            return "released"
+        if state.token != token:
+            return "superseded"
+        if state.lost:
+            return "lost"
+        return None
 
     def _renew_all_once(self) -> None:
         """Renew every currently tracked lease exactly once.

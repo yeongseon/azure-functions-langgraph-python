@@ -14,6 +14,12 @@ under the in-process default. Multi-instance deployments must supply a
 distributed backend such as :class:`AzureBlobLeaseThreadLock` (Blob lease
 CAS).
 
+A lock may additionally implement :class:`OwnershipGuardProvider` so a
+guard-aware checkpoint saver can reject writes after the lock has *detected*
+loss of ownership (opt-in; see :class:`AzureBlobLeaseThreadLock`). That is not
+fencing: see :class:`ThreadLeaseLostError` and the production guide for the
+exact contract.
+
 See :doc:`/production-guide` for the full scale-out matrix.
 """
 
@@ -22,6 +28,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from azure_functions_langgraph.locks.base import ThreadLock
+from azure_functions_langgraph.locks.guard import (
+    OwnershipGuard,
+    OwnershipGuardProvider,
+    ThreadLeaseLostError,
+)
 from azure_functions_langgraph.locks.inprocess import InProcessThreadLock
 
 if TYPE_CHECKING:
@@ -39,5 +50,8 @@ def __getattr__(name: str) -> object:
 __all__ = [
     "AzureBlobLeaseThreadLock",
     "InProcessThreadLock",
+    "OwnershipGuard",
+    "OwnershipGuardProvider",
+    "ThreadLeaseLostError",
     "ThreadLock",
 ]
