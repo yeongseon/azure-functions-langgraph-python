@@ -1083,7 +1083,13 @@ late `renew_run_lock` from an abandoned worker returns `False` instead of
 mutating a newer owner's record. This is verified by tests for the Table-store
 fake and `InMemoryThreadStore`; custom stores must implement the same
 owner-token check. Cleanup then always attempts owner-fenced store release and
-outer-lock release; host cancellation propagates after cleanup. Still configure
+outer-lock release; host cancellation propagates after cleanup. A run whose own release the store
+refuses as stale is a failure too (`RunLockReleaseRejectedError`): the store returns the unchanged
+current thread (busy under a newer owner, or reclaimed to another terminal status), and the handler
+returns the same sanitized HTTP 500 with one failed observer event instead of reporting completion.
+The returned thread cannot prove staleness when it already sits at the status the run asked for
+(a reset to `idle` followed by a successful `idle` release), so schedule `reset_stale_locks` with
+its default `error` status. Still configure
 bounded Azure SDK network timeouts: Python cannot interrupt a hung synchronous
 SDK or graph call, so a stuck call keeps its thread. An orphaned `busy` thread is
 recovered with `reset_stale_locks()`. This does not roll back side effects, so

@@ -1018,6 +1018,11 @@ after lease loss. Preserve the cancellation/drain warnings above.
 Table run locks and Blob marker leases are distinct resources. Platform run
 handlers renew store ownership every 20 seconds; renewal failure is retained
 for cleanup and returns a sanitized HTTP 500 instead of successful completion.
+A release the store refuses as stale (the run no longer owned the thread, for
+example after a reclaim or a newer owner) is reported the same way: HTTP 500 and
+one failed observer event, not a completion. The store's stale-token no-op itself
+is unchanged. Reclaim with the default `error` status: a reset to `idle` followed
+by a successful `idle` release looks identical to a normal release.
 Owner-token checks and ETag CAS prevent an old release from clearing a newer
 store owner; release retries conflicts up to three times. A release or renewal
 also requires the thread to still be `busy`. Failed persistence or
