@@ -336,6 +336,9 @@ async def test_durable_host_cancellation_propagates_without_guard_check() -> Non
 
 @pytest.mark.parametrize("trip", [False, True], ids=["success", "loss"])
 async def test_registered_durable_activity_wires_guard_and_normalizes_output(trip: bool) -> None:
+    # The registered activity needs the optional durable extra, which the
+    # minimum-dependency lane deliberately does not install.
+    pytest.importorskip("azure.durable_functions")
     # Given the actual DFApp activity registration and a capable backend.
     graph, lock, observer = (
         ProbeGraph(),
