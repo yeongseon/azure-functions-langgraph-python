@@ -123,6 +123,14 @@ class ThreadStore(Protocol):
         maintenance sweep reclaimed), is a **stale release**: it must not
         change the thread, and the unchanged current thread is returned.
 
+        Return the thread **as it stands after the call**. After an applied
+        release that is the requested ``status`` with ``lock_token`` cleared.
+        Platform handlers compare the returned thread with what they asked
+        for: a thread that is still ``busy``, still carries a ``lock_token`` or
+        has a different status counts as a refused release and fails the run, so
+        a store that returns a snapshot taken before the write, or keeps the
+        token on the released row, makes every run fail.
+
         Raises ``KeyError(thread_id)`` if the thread does not exist.
         Implementations may treat this as a best-effort release when used
         by callers.

@@ -1089,7 +1089,13 @@ current thread (busy under a newer owner, or reclaimed to another terminal statu
 returns the same sanitized HTTP 500 with one failed observer event instead of reporting completion.
 The returned thread cannot prove staleness when it already sits at the status the run asked for
 (a reset to `idle` followed by a successful `idle` release), so schedule `reset_stale_locks` with
-its default `error` status. Still configure
+its default `error` status. The handler decides from the thread that `release_run_lock` returns,
+so a custom store must return the thread as it stands after the release (the requested status,
+no `lock_token`); a store that returns a snapshot taken before the write, or leaves the token on
+the released row, makes every run fail with that 500. A graph error that already failed the run
+stays the reported failure; on `runs/stream` a refused release also replaces the buffered error
+frame with the sanitized JSON 500, like any other release failure. Host cancellation still
+propagates without a terminal observer event. Still configure
 bounded Azure SDK network timeouts: Python cannot interrupt a hung synchronous
 SDK or graph call, so a stuck call keeps its thread. An orphaned `busy` thread is
 recovered with `reset_stale_locks()`. This does not roll back side effects, so

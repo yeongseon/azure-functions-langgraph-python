@@ -196,20 +196,23 @@ def test_an_ordinary_run_still_completes_and_publishes_its_result(
 
 @pytest.mark.parametrize("endpoint", ["wait", "stream"])
 @pytest.mark.parametrize("store_kind", ["memory", "table"])
+@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
 def test_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
-    endpoint: str, store_kind: str
+    endpoint: str, store_kind: str, new_owner: bool
 ) -> None:
     # Given a run whose graph fails after it already lost the thread.
     h = Harness(store_kind)
-    h.graph.hook = lambda: h.steal(new_owner=False)
+    h.graph.hook = lambda: h.steal(new_owner=new_owner)
     h.graph.error = RuntimeError(SECRET)
 
-    # When the handler cleans up.
+    # When the handler cleans up. A reclaim to the status the failed run asks for ("error") is
+    # indistinguishable from a normal release; a thread busy under a new owner is refused.
     response = h.run(endpoint)
 
-    # Then the graph error is what is reported (once), sanitized, and the stale release
-    # neither adds a second terminal event nor overrides the reclaimed disposition.
-    if endpoint == "wait":
+    # Then the graph error is the one failure reported (once) and it is sanitized. A refused
+    # release replaces a buffered stream error frame with the sanitized JSON 500, as any other
+    # release failure does.
+    if endpoint == "wait" or new_owner:
         assert response.status_code == 500
         assert json.loads(response.get_body())["detail"] == "Graph execution failed"
     else:
@@ -218,8 +221,14 @@ def test_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
     assert SECRET.encode() not in response.get_body()
     assert h.observer.events == ["started", "failed"]
     assert str(h.observer.failures[0]) == SECRET
+    assert not isinstance(h.observer.failures[0], RunLockReleaseRejectedError)
+    # And the other party's state is untouched and the outer lock is released once.
     after = h.store.get(h.thread_id)
-    assert after is not None and (after.status, after.lock_token) == ("error", None)
+    assert after is not None
+    if new_owner:
+        assert (after.status, after.lock_token) == ("busy", h.new_owner_token)
+    else:
+        assert (after.status, after.lock_token) == ("error", None)
     assert len(h.lock.acquired) == 1 and h.lock.released == h.lock.acquired
 
 
