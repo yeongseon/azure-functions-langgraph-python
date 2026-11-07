@@ -81,6 +81,11 @@ from azure_functions_langgraph.locks._async import (
     release_thread_lock,
     run_sync_retaining_ownership,
 )
+from azure_functions_langgraph.locks.guard import (
+    OwnershipGuard,
+    check_ownership_guard,
+    guard_run_config,
+)
 from azure_functions_langgraph.observability import (
     NoOpRunObserver,
     RunContext,
@@ -349,6 +354,7 @@ async def _sse_event_stream(
     max_stream_events: int,
     async_mode: bool = False,
     prime: bool = False,
+    guard: OwnershipGuard | None = None,
 ) -> AsyncIterator[str]:
     """Produce a true-streaming SSE body, one frame at a time.
 
@@ -369,6 +375,11 @@ async def _sse_event_stream(
     synchronous graph, cancellation waits for the one in-flight ``next()``
     worker to finish, closes the iterator without racing that worker, then
     releases the token exactly once before propagating cancellation.
+
+    When ``guard`` is given and the stream is exhausted normally (not cut short
+    by the event cap, a client disconnect or cancellation), the guard is
+    checked once more before the terminal ``end`` frame; detected loss is then
+    reported through the ordinary ``error`` frame path.
     """
     stream_error: BaseException | None = None
     count = 0
@@ -396,6 +407,8 @@ async def _sse_event_stream(
                 break
             yield _format_data_event(event)
             count += 1
+        else:
+            check_ownership_guard(guard)
     except asyncio.CancelledError as exc:
         logger.info("Graph %s stream cancelled (client disconnect)", graph_name)
         stream_error = exc
@@ -828,14 +841,20 @@ class StreamingLangGraphApp:
                 safe_observer_call(observer, "on_run_started", ctx)
                 started = True
                 try:
+                    run_config, guard = guard_run_config(
+                        thread_lock, reg.name, lock_thread_id, lock_token, config
+                    )
                     if is_async:
                         result = await reg.graph.ainvoke(
-                            request.input, config=config, **version_kwargs
+                            request.input, config=run_config, **version_kwargs
                         )
                     else:
                         result = await run_sync_retaining_ownership(
-                            lambda: reg.graph.invoke(request.input, config=config, **version_kwargs)
+                            lambda: reg.graph.invoke(
+                                request.input, config=run_config, **version_kwargs
+                            )
                         )
+                    check_ownership_guard(guard)
                 except BaseException as exc:
                     execution_error = exc
                     raise
@@ -981,11 +1000,14 @@ class StreamingLangGraphApp:
 
         safe_observer_call(observer, "on_run_started", ctx)
         try:
+            run_config, guard = guard_run_config(
+                thread_lock, reg.name, lock_thread_id, lock_token, config
+            )
             generator = _sse_event_stream(
                 graph=reg.graph,
                 graph_name=reg.name,
                 input_=request.input,
-                config=config,
+                config=run_config,
                 stream_mode=request.stream_mode,
                 version_kwargs=version_kwargs,
                 thread_id=thread_id,
@@ -996,6 +1018,7 @@ class StreamingLangGraphApp:
                 max_stream_events=self.max_stream_events,
                 async_mode=is_async,
                 prime=True,
+                guard=guard,
             )
             response = StreamingResponse(
                 generator,

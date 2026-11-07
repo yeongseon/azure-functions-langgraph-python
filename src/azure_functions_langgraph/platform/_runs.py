@@ -14,6 +14,7 @@ from azure_functions_langgraph.authorization import (
     AuthorizationContext,
     authorization_status,
 )
+from azure_functions_langgraph.locks.guard import check_ownership_guard, guard_run_config
 from azure_functions_langgraph.observability import (
     finish_context,
     new_run_context,
@@ -191,13 +192,20 @@ def register_run_routes(
         output = None
         try:
             _start_store_renewal(deps, thread_id, store_lock_token)
-            config = _build_threaded_config(run_req, thread_id)
+            config, guard = guard_run_config(
+                deps.thread_lock,
+                reg.name,
+                thread_id,
+                lock_token,
+                _build_threaded_config(run_req, thread_id),
+            )
             if run_req.metadata:
                 merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
                 deps.thread_store.update(thread_id, metadata=merged_metadata)
             graph_input = run_req.input or {}
             safe_observer_call(deps.observer, "on_run_started", ctx)
             result = reg.graph.invoke(graph_input, config=config, **context_kwargs)
+            check_ownership_guard(guard)
             output = result if isinstance(result, dict) else {"result": result}
             response = func.HttpResponse(
                 body=dumps(output),
@@ -334,7 +342,13 @@ def register_run_routes(
         primary_error: Exception | None = None
         try:
             _start_store_renewal(deps, thread_id, store_lock_token)
-            config = _build_threaded_config(run_req, thread_id)
+            config, guard = guard_run_config(
+                deps.thread_lock,
+                reg.name,
+                thread_id,
+                lock_token,
+                _build_threaded_config(run_req, thread_id),
+            )
             if run_req.metadata:
                 merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
                 deps.thread_store.update(thread_id, metadata=merged_metadata)
@@ -378,6 +392,7 @@ def register_run_routes(
                     )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
+            check_ownership_guard(guard)
             chunks.append(format_end_event())
             response = _build_sse_response(
                 chunks,

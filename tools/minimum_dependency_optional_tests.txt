@@ -24,3 +24,5 @@ tests/test_true_streaming_example.py
 tests/test_streaming_config_policy.py
 tests/test_streaming_authorization.py
 tests/test_streaming_authorization_lifetime.py
+# Requires the azurefunctions-extensions-http-fastapi streaming extra (starlette).
+tests/test_ownership_guard_streaming.py

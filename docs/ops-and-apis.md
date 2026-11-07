@@ -68,8 +68,8 @@ The native `invoke` / `stream` endpoints guard concurrent access to the same
 
 | Method | Signature | Contract |
 | --- | --- | --- |
-| `acquire` | `acquire(graph_name: str, thread_id: str, timeout: float = 0.0) -> bool` | Attempt an exclusive lock. `timeout=0.0` (default) is non-blocking; positive values block up to `timeout` seconds. Returns `True` on success, `False` if the lock is held elsewhere (same process **or**, for distributed backends, another instance). |
-| `release` | `release(graph_name: str, thread_id: str) -> None` | Release a previously held lock. Must be safe to call even when the lock is not held — implementations log at DEBUG rather than raising, so a handler's `finally` never masks the underlying request failure. |
+| `acquire` | `acquire(graph_name: str, thread_id: str, timeout: float = 0.0) -> str \| None` | Attempt an exclusive lock. `timeout=0.0` (default) is non-blocking; positive values block up to `timeout` seconds. Returns an opaque, non-empty **owner token** on success and `None` if the lock is held elsewhere (same process **or**, for distributed backends, another instance). |
+| `release` | `release(graph_name: str, thread_id: str, token: str) -> None` | Release a lock previously acquired with `acquire`, passing back its owner token. A token that does not match the current owner is a no-op, so a stale caller cannot free a lock a newer execution holds. Must be safe to call even when the lock is not held — implementations log at DEBUG rather than raising, so a handler's `finally` never masks the underlying request failure. |
 
 Two implementations ship in the box:
 
@@ -110,6 +110,7 @@ All parameters are keyword-only.
 | `lease_duration` | `int` | `60` | Seconds. Must be `15`–`60` (finite) or `-1` (infinite). Any other value raises `ValueError`. |
 | `blob_prefix` | `str` | `"thread-locks/"` | Prefix grouping lock blobs inside the container. |
 | `auto_renew` | `bool` | `True` | Start a per-instance daemon thread that renews every active lease at `lease_duration / 3` intervals. See below. |
+| `guard_checkpoint_writes` | `bool` | `False` | Opt in to hand each run an ownership guard so a guard-aware checkpoint saver rejects writes after this lock has **detected** loss. Not fencing. See [Opt-in write guard](#opt-in-write-guard-guard_checkpoint_writes). |
 
 #### Lease renewal & the `auto_renew` trade-off
 
@@ -129,6 +130,22 @@ renewable).
 | Finite (`15`–`60`), `auto_renew=True` | Lease auto-expires on the service if the host crashes → another instance recovers. | Safe — renewal extends the lease. |
 | Finite, `auto_renew=False` | Same crash recovery. | **Unsafe** — lease expires mid-run (emits `UserWarning`). |
 | Infinite (`-1`) | No auto-recovery — an operator must **break** the lease manually after a host crash. | Safe — never expires. |
+
+#### Opt-in write guard (`guard_checkpoint_writes`)
+
+A Blob lease conditions the lock **marker**, not the checkpoint blobs, so a stale
+owner's checkpoint write can still be accepted (see the
+[production guide](production-guide.md#opt-in-guard-for-blob-checkpoint-writes-790)).
+With `guard_checkpoint_writes=True` the lock returns, per acquisition, a guard bound
+to the original owner token. `AzureBlobCheckpointSaver` checks it before every blob
+upload and raises `ThreadLeaseLostError` once the lock has *detected* loss (one
+definitive renewal failure or three consecutive transient ones, a released or closed
+lock, or the key re-acquired under a newer token).
+It does not infer expiry from the clock, so it needs automatic renewal on a finite
+lease to notice a lapsed lease; with `auto_renew=False` or `lease_duration=-1`
+construction emits a `UserWarning`. **This reduces writes after detected loss. It is
+not fencing.** Pair it with `AzureBlobCheckpointSaver(require_ownership_guard=True)`
+to fail closed on writes that carry no guard.
 
 #### Example: managed identity
 

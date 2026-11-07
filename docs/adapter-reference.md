@@ -1152,6 +1152,8 @@ app = LangGraphApp(
 | `AzureBlobLeaseThreadLock` | Yes — Azure Blob lease CAS | One Blob container | Multi-instance production (Flex Consumption / Elastic Premium) |
 | Custom `ThreadLock` implementation | Yours to define | Yours to provide | Redis, Cosmos DB, Postgres advisory locks, etc. |
 
+**Opt-in write guard.** `AzureBlobLeaseThreadLock(guard_checkpoint_writes=True)` hands each run a guard bound to its own lock token, and `AzureBlobCheckpointSaver` rejects checkpoint writes with `ThreadLeaseLostError` once the lock has *detected* loss (`AzureBlobCheckpointSaver(require_ownership_guard=True)` additionally fails closed on writes that carry no guard). It is off by default and is **not fencing**: detection lags and a check can pass just before an upload. Contract, limits and operating guidance: [production guide](production-guide.md#opt-in-guard-for-blob-checkpoint-writes-790).
+
 **Safety guard — `AZFUNC_LANGGRAPH_LOCK_BACKEND`.** Set this environment variable to `distributed` in multi-instance environments to fail-fast at startup if a distributed backend was not wired. When the value is `distributed` (or any non-empty value other than `inprocess`) and `thread_lock` resolves to the default `InProcessThreadLock`, `LangGraphApp.__post_init__` raises `RuntimeError` — this prevents accidentally deploying an in-process lock to a horizontally-scaled Function App. See [production guide](production-guide.md#distributed-thread-locking) for the full scale-out matrix.
 
 ### Upgrading
