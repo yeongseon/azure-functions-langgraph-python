@@ -1,6 +1,13 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.14.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.13.0...v0.14.0) (2026-11-07)
+
+
+### Features
+
+* **locks:** add an opt-in guard that rejects Blob checkpoint writes after detected lease loss ([#803](https://github.com/yeongseon/azure-functions-langgraph-python/issues/803)) ([51b2721](https://github.com/yeongseon/azure-functions-langgraph-python/commit/51b272110e428eb453944a3b16b1f96c8ba8f8be)), closes [#790](https://github.com/yeongseon/azure-functions-langgraph-python/issues/790)
+
 ## [0.13.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.12.2...v0.13.0) (2026-11-06)
 
 
