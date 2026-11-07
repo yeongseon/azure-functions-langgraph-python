@@ -681,7 +681,9 @@ in-flight graph. A lost entry remains locally occupied until release, protecting
 that lock object only, not another host or even a separately constructed lock.
 An infinite lease can also lose exclusion through an operator break or early
 close. Do not treat a pre-write ownership check as a fence: a lease can expire
-between that check and the write; rejection must be atomic with the write.
+between that check and the write; rejection must be atomic with the write. The
+[opt-in guard](#opt-in-guard-for-blob-checkpoint-writes-790) is such a check: it
+reduces writes after *detected* loss and is not a fence.
 
 Renewal uses a bounded 16-worker pool and a tick wait timeout, so one stalled
 call need not stall unrelated leases when capacity remains. The timeout does
@@ -763,9 +765,12 @@ What this means for operators:
 - The Blob lease gives mutual exclusion for **lock acquisition** only. It is
   not checkpoint-level fencing: there is no enforceable write exclusion for a
   graph that outlives its lease.
-- The renewal-loss `WARNING` log and the local lost flag are **telemetry**.
-  They neither cancel the graph nor block its checkpoint writes. Alert on
-  them, and treat the affected thread's checkpoints as possibly forked.
+- By default the renewal-loss `WARNING` log and the local lost flag are
+  **telemetry**: they neither cancel the graph nor block its checkpoint writes.
+  Alert on them, and treat the affected thread's checkpoints as possibly forked.
+  The [opt-in guard](#opt-in-guard-for-blob-checkpoint-writes-790) turns the lost
+  flag into a rejection of later checkpoint writes, which narrows that exposure
+  but does not close it.
 - Drain graph execution and checkpoint writes before calling `close()`;
   closing the lock does not cancel them (see above).
 - Do not describe the Blob-lease and Blob-checkpointer combination as a
@@ -774,11 +779,12 @@ What this means for operators:
   ([DESIGN.md, section 15](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/DESIGN.md#15-blob-stale-writer-decision-record-765),
   #791).** Lease renewal stays. A storage-level fence is deferred, not rejected:
   no design reviewed so far enforces it at bounded cost without a new storage
-  protocol. The mitigation planned in #790 is an opt-in guard that rejects Blob
-  checkpoint writes after the lock has *detected* loss; it is not implemented
-  yet. It would reduce writes after detected loss but would not be fencing:
-  detection lags, a check can pass just before an upload, and nothing stops the
-  stale graph or its side effects outside the checkpoint store.
+  protocol. The mitigation (#790) is the opt-in guard described in
+  [Opt-in guard for Blob checkpoint writes](#opt-in-guard-for-blob-checkpoint-writes-790):
+  it rejects Blob checkpoint writes after the lock has *detected* loss. It is
+  off by default and it is not fencing: detection lags, a check can pass just
+  before an upload, and nothing stops the stale graph or its side effects
+  outside the checkpoint store.
 - **Alerting.** The lock logs lease-state changes at `WARNING` on the logger
   `azure_functions_langgraph.locks.azure_blob`. "Transient failure renewing
   Azure Blob lease ..." is an early sign: the lease is not yet considered lost.
@@ -786,7 +792,9 @@ What this means for operators:
   consecutive times; treating as lost ..." mean the lock now treats ownership as
   lost and another instance may acquire it. Alert on those two, correlate them
   by graph and thread ID with the run telemetry of the same thread, and treat a
-  match as a suspected overlap, not proven corruption.
+  match as a suspected overlap, not proven corruption. With the opt-in guard
+  enabled, the first operation it rejects in each acquisition is also logged at
+  `WARNING` (see below); alert on that as well.
 - **Deleting a thread.** `delete_thread()` and `adelete_thread()` remove every
   blob under the thread's prefix with no lease condition, so run them only while
   no writer for that thread can be active.
@@ -860,6 +868,119 @@ supported after an earlier access as well: it invalidates the cached
 store and rebuilds all routes against it. Keep the exported module-level
 Functions app assignment last so Azure never receives the superseded route
 object.
+
+#### Opt-in guard for Blob checkpoint writes (#790)
+
+Off by default. When enabled, the Blob lock hands every run a small **guard bound
+to that run's own lock token**, and `AzureBlobCheckpointSaver` checks it
+immediately before **every** blob upload (`put`, `put_writes`, `aput`,
+`aput_writes`, including the async fallback that runs the sync code in a
+thread). Once the lock has *detected* that the token no longer owns the thread,
+the write is refused with `ThreadLeaseLostError` instead of being sent. The
+adapter also checks the guard once more when a run finishes, so a run that ended
+after detected loss is not reported as a success.
+
+**This reduces writes after detected loss. It is not fencing.** Detection lags,
+a check can pass an instant before the upload it protects, and nothing stops the
+stale graph or its side effects outside the checkpoint store.
+
+```python
+lock = AzureBlobLeaseThreadLock(
+    container_client=lock_container,
+    guard_checkpoint_writes=True,  # default False
+)
+checkpointer = AzureBlobCheckpointSaver(
+    container_client=checkpoint_container,
+    require_ownership_guard=True,  # optional, default False: fail closed
+)
+app = LangGraphApp(thread_lock=lock)
+```
+
+**What counts as detected loss** (`ThreadLeaseLostError.reason`):
+
+| `reason` | Meaning |
+| --- | --- |
+| `lost` | Renewal failed definitively (lease id mismatch, lease gone, HTTP 412) or three consecutive renewals failed. |
+| `released` | The token was already released, or the lock was closed. |
+| `superseded` | The same key is now held under a newer token in this process. |
+| `missing` | Only with `require_ownership_guard=True`: a write arrived with no guard. |
+
+**What is not detected.** The lock reports only what it already tracks. It does
+not infer expiry from elapsed time, because the renewal timestamp is recorded by
+the local renewal thread, not by the service. A frozen or suspended host, a
+starved renewal thread, a renewal call that is slow but has not failed yet,
+`auto_renew=False` and infinite leases (`lease_duration=-1`) can therefore leave a
+lost lease undetected until the next failed renewal tick, or for good. Creating
+the lock with `guard_checkpoint_writes=True` together with either of the last two
+emits a `UserWarning` for that reason.
+
+**Where it applies.** Every boundary that takes the lock token and then runs the
+graph or changes thread state: native invoke and stream (sync and async),
+Platform runs and `POST /threads/{id}/state`, `StreamingLangGraphApp`, the Durable
+activity, and Service Bus triggers (not `session_exclusive=True`, which takes no
+lock). Reads, `delete_thread()`, `adelete_thread()` and the retention helpers are
+not guarded.
+
+**What the caller sees when the guard rejects** (the error can surface while the
+run executes or when it finishes):
+
+| Surface | Outcome |
+| --- | --- |
+| Native invoke, true-streaming invoke | `500` `Graph execution failed`; `on_run_failed` receives the `ThreadLeaseLostError`. |
+| Native stream, true streaming, Platform `runs/stream` | An `event: error` frame, then `event: end` (the HTTP status is already 200); Platform thread status ends `error`. |
+| Platform `runs/wait` | `500`; thread status `error`. |
+| Platform `POST /threads/{id}/state` | `500` `Internal error updating thread state`; thread status `error`. |
+| Durable activity | `activity_status: "error"` with `error.type` `ThreadLeaseLostError` and a fixed message. |
+| Service Bus | The exception propagates, so the Functions runtime applies its normal retry and dead-letter policy; the result handler does not run. |
+
+The error message is a fixed sentence without thread ID, graph name or token, so
+it is safe to return to a client; use the exception attributes for diagnostics.
+
+**Read the error correctly.**
+
+- It reports a locally detected condition. It is **not proof** that a stale write
+  happened, and it does **not** undo checkpoints the run already committed: the
+  run may have persisted all of its state before the loss was noticed.
+- Do not blindly retry non-idempotent work after it. A redelivered Service Bus
+  message or a client retry starts a new execution that can repeat tool calls and
+  side effects the first one already performed.
+- The guard rejects checkpoint writes; it does not stop the node that is running.
+  With LangGraph's default `durability="async"` saves happen in the background,
+  so a rejected save can surface after the next superstep has started; with
+  `durability="exit"` the single final save is the one rejected. Effects outside
+  the checkpoint store are unaffected either way.
+- A check can pass an instant before the upload it protects and the upload can
+  still be accepted. The fake-backed `test_a_check_can_pass_just_before_an_upload_that_is_then_accepted`
+  reproduces that window.
+
+**`require_ownership_guard=True`.** The saver then fails closed: a write that
+arrives without a guard is rejected with `reason="missing"` before anything is
+uploaded. Enable it only when every writer of that checkpoint container holds a
+guard-capable lock. These writes carry no guard and are rejected: runs under a
+lock without the capability (`InProcessThreadLock`, a custom lock) or with
+`guard_checkpoint_writes=False`, Service Bus `session_exclusive=True` runs, and
+direct writes outside the adapter (maintenance scripts, your own
+`graph.invoke(...)`). Platform state updates are covered by the adapter; a direct
+`graph.update_state(..., as_node="__copy__")` outside it loses the guard inside
+LangGraph itself and is rejected too, which is the gap this mode makes visible.
+
+**Operating it.**
+
+- Alert on the lease-lost warnings above and on `Ownership guard rejected an
+  operation for <graph>/<thread> ...` (logger
+  `azure_functions_langgraph.locks.azure_blob`, `WARNING`, once per acquisition;
+  later rejections log at `DEBUG`). Correlate by graph and thread ID with the run
+  telemetry; the failed run's observer event carries `ThreadLeaseLostError`.
+- Drain graph work before `close()`: after `close()` every guard reports
+  `released`, so a straggling checkpoint write is rejected.
+- Turning it off (`guard_checkpoint_writes=False`, the default) restores the
+  previous behavior. There is no storage format change, so there is no migration
+  and no rollback restriction.
+- A custom `ThreadLock` can take part by implementing
+  `ownership_guard(graph_name, thread_id, token)` (`OwnershipGuardProvider`) and
+  returning an object whose `check()` is cheap and never blocks.
+- Locks and checkpoint backends keep their Beta label; this opt-in feature
+  carries the same tier.
 
 ### Interaction with Platform-compatible runs
 

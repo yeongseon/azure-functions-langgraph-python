@@ -123,6 +123,24 @@ for the operational guide (RBAC, lease renewal, production checklist).
     options:
       show_root_heading: true
 
+### OwnershipGuard
+
+::: azure_functions_langgraph.locks.OwnershipGuard
+    options:
+      show_root_heading: true
+
+### OwnershipGuardProvider
+
+::: azure_functions_langgraph.locks.OwnershipGuardProvider
+    options:
+      show_root_heading: true
+
+### ThreadLeaseLostError
+
+::: azure_functions_langgraph.locks.ThreadLeaseLostError
+    options:
+      show_root_heading: true
+
 ## OpenAPI integration
 
 Bridges a `LangGraphApp` into

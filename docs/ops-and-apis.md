@@ -110,6 +110,7 @@ All parameters are keyword-only.
 | `lease_duration` | `int` | `60` | Seconds. Must be `15`–`60` (finite) or `-1` (infinite). Any other value raises `ValueError`. |
 | `blob_prefix` | `str` | `"thread-locks/"` | Prefix grouping lock blobs inside the container. |
 | `auto_renew` | `bool` | `True` | Start a per-instance daemon thread that renews every active lease at `lease_duration / 3` intervals. See below. |
+| `guard_checkpoint_writes` | `bool` | `False` | Opt in to hand each run an ownership guard so a guard-aware checkpoint saver rejects writes after this lock has **detected** loss. Not fencing. See [Opt-in write guard](#opt-in-write-guard-guard_checkpoint_writes). |
 
 #### Lease renewal & the `auto_renew` trade-off
 
@@ -129,6 +130,21 @@ renewable).
 | Finite (`15`–`60`), `auto_renew=True` | Lease auto-expires on the service if the host crashes → another instance recovers. | Safe — renewal extends the lease. |
 | Finite, `auto_renew=False` | Same crash recovery. | **Unsafe** — lease expires mid-run (emits `UserWarning`). |
 | Infinite (`-1`) | No auto-recovery — an operator must **break** the lease manually after a host crash. | Safe — never expires. |
+
+#### Opt-in write guard (`guard_checkpoint_writes`)
+
+A Blob lease conditions the lock **marker**, not the checkpoint blobs, so a stale
+owner's checkpoint write can still be accepted (see the
+[production guide](production-guide.md#opt-in-guard-for-blob-checkpoint-writes-790)).
+With `guard_checkpoint_writes=True` the lock returns, per acquisition, a guard bound
+to the original owner token. `AzureBlobCheckpointSaver` checks it before every blob
+upload and raises `ThreadLeaseLostError` once the lock has *detected* loss (a failed
+renewal, a released or closed lock, or the key re-acquired under a newer token).
+It does not infer expiry from the clock, so it needs automatic renewal on a finite
+lease to notice a lapsed lease; with `auto_renew=False` or `lease_duration=-1`
+construction emits a `UserWarning`. **This reduces writes after detected loss. It is
+not fencing.** Pair it with `AzureBlobCheckpointSaver(require_ownership_guard=True)`
+to fail closed on writes that carry no guard.
 
 #### Example: managed identity
 

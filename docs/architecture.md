@@ -84,7 +84,9 @@ across instances. Persistence alone does not provide writer exclusion.
 Choose these separately after the core path works:
 
 - **Shared writers:** a distributed `ThreadLock`, such as the shipped low-cost
-  `AzureBlobLeaseThreadLock`, with lease-loss and shutdown planning.
+  `AzureBlobLeaseThreadLock`, with lease-loss and shutdown planning. An opt-in
+  write guard (`guard_checkpoint_writes`) can reject Blob checkpoint writes after
+  the lock *detects* loss; it reduces, and is not, fencing.
 - **Platform compatibility:** `platform_compat=True` and a `ThreadStore` for
   thread metadata/status. Azure Table CAS coordinates Platform operations, not
   every writer to the checkpointer.

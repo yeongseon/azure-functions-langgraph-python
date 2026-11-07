@@ -72,7 +72,9 @@ Classic stream routes return **buffered SSE**, not incremental tokens.
 are not user/thread ownership; applications must enforce authorization.
 Default locks and Platform thread records are process-local. Shared writers
 need explicit distributed storage/locking; see the [production guide](docs/production-guide.md#distributed-deployment)
-and [security boundaries](docs/security.md).
+and [security boundaries](docs/security.md). A Blob lease does not fence checkpoint
+writes once it is lost; the opt-in `guard_checkpoint_writes` guard only reduces writes
+after the lock *detects* loss and is not fencing ([contract and limits](docs/production-guide.md#opt-in-guard-for-blob-checkpoint-writes-790)).
 
 ## Recommended learning path
 
