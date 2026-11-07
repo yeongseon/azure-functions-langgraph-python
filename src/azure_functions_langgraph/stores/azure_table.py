@@ -523,11 +523,13 @@ class AzureTableThreadStore(ThreadStore):
         Before writing, this checks *two* things:
 
         1. **Owner token** — if ``owner_token`` is supplied and does not match
-           the entity's current ``lock_token``, the release is ignored (a
-           warning is logged) and the current entity is returned unchanged.
-           This rejects a stale release from an execution whose lock has
-           since been reclaimed by :meth:`reset_stale_locks` or re-acquired
-           by a newer run.
+           the entity's current ``lock_token``, **or the thread is no longer
+           ``busy``**, the release is ignored (a warning is logged) and the
+           current entity is returned unchanged. This rejects a stale release
+           from an execution whose lock has since been reclaimed by
+           :meth:`reset_stale_locks` or re-acquired by a newer run. The
+           ``busy`` check also covers a row that an earlier release of this
+           library reclaimed without clearing its token.
         2. **ETag compare-and-swap** — the replacement is sent with
            ``match_condition=IfNotModified`` against the ETag read just
            before the write. If a concurrent write (e.g. another owner-token
@@ -557,7 +559,9 @@ class AzureTableThreadStore(ThreadStore):
                 )
             except not_found_error as exc:
                 raise KeyError(thread_id) from exc
-            if owner_token is not None and entity.get("lock_token") != owner_token:
+            if owner_token is not None and (
+                entity.get("lock_token") != owner_token or entity.get("status") != "busy"
+            ):
                 logger.warning("Stale run-lock release ignored for thread %s", thread_id)
                 return self._entity_to_thread(entity)
             metadata = getattr(entity, "metadata", None)
@@ -593,7 +597,7 @@ class AzureTableThreadStore(ThreadStore):
         entity = self._table_client.get_entity(
             partition_key=self._partition_key(), row_key=thread_id
         )
-        if entity.get("lock_token") != owner_token:
+        if entity.get("lock_token") != owner_token or entity.get("status") != "busy":
             return False
         metadata = getattr(entity, "metadata", None)
         etag = metadata.get("etag") if isinstance(metadata, Mapping) else entity.get("etag")
@@ -622,9 +626,24 @@ class AzureTableThreadStore(ThreadStore):
         """Reset busy threads whose lock is older than *older_than_seconds*.
 
         Scans threads in ``busy`` status and conditionally resets those
-        whose ``updated_at`` (set by :meth:`try_acquire_run_lock`) is older
-        than the threshold.  Each reset uses **ETag CAS** so a thread that
-        has been legitimately re-acquired since the query is never stomped.
+        whose ``updated_at`` (set by :meth:`try_acquire_run_lock` and by
+        every :meth:`renew_run_lock`) is older than the threshold.
+
+        Reclaiming **revokes the previous owner**: the row is replaced
+        without its ``lock_token`` and ``lock_expires_at``, atomically with the
+        new status. A worker that comes back after the reset therefore fails
+        the owner-token check in :meth:`release_run_lock` and
+        :meth:`renew_run_lock`, and cannot undo the recovery disposition or
+        publish stale ``values``.
+
+        The scan's projected rows only prove that a thread *was* stale, so each
+        candidate is re-read in full and re-verified (still ``busy``, still older
+        than the threshold) before the write. The replacement uses **ETag CAS**
+        against that fresh read, so a thread that was renewed, released or
+        re-acquired since is never stomped.
+
+        This does not stop the old graph and does not fence Blob checkpoint
+        writes; see the production guide.
 
         Args:
             older_than_seconds: Minimum age in seconds for a busy thread
@@ -639,7 +658,7 @@ class AzureTableThreadStore(ThreadStore):
             ValueError: If *older_than_seconds* is negative or *status*
                 is not ``"idle"`` or ``"error"``.
         Note:
-            Each scanned row must expose an ETag via either
+            Each re-read row must expose an ETag via either
             ``entity.metadata["etag"]`` or ``entity["etag"]``.
             Rows where neither shape populates an ETag are skipped
             (logged at DEBUG) so a stale lock is never reset without
@@ -664,48 +683,55 @@ class AzureTableThreadStore(ThreadStore):
         )
 
         reset_count = 0
-        for entity in entities:
-            updated_at = entity.get("updated_at")
-            if updated_at is None:
+        for candidate in entities:
+            if not self._is_older_than(candidate.get("updated_at"), cutoff):
                 continue
-            if isinstance(updated_at, datetime):
-                normalized = self._normalize_datetime(updated_at)
-            else:
-                continue
-            if normalized >= cutoff:
-                continue
+            row_key = str(candidate["RowKey"])
 
-            # Extract ETag for CAS
-            entity_metadata = getattr(entity, "metadata", None)
-            etag = entity_metadata.get("etag") if isinstance(entity_metadata, Mapping) else None
-            if etag is None:
-                etag = entity.get("etag") if isinstance(entity, dict) else None
-            if etag is None:
-                # Without ETag, CAS update cannot guarantee safety — skip.
+            # The projection can be stale by now: re-read the full row and decide again.
+            try:
+                entity = self._table_client.get_entity(
+                    partition_key=self._partition_key(), row_key=row_key
+                )
+            except not_found_error:
+                logger.debug("Skipped stale lock reset for thread %s (deleted)", row_key)
+                continue
+            if entity.get("status") != "busy" or not self._is_older_than(
+                entity.get("updated_at"), cutoff
+            ):
                 logger.debug(
-                    "Skipping stale thread %s: no ETag available",
-                    entity.get("RowKey"),
+                    "Skipped stale lock reset for thread %s (released or renewed since the scan)",
+                    row_key,
                 )
                 continue
 
-            row_key = str(entity["RowKey"])
-            patch: dict[str, Any] = {
-                "PartitionKey": self._partition_key(),
-                "RowKey": row_key,
-                "status": status,
-                "updated_at": self._now(),
+            entity_metadata = getattr(entity, "metadata", None)
+            etag = entity_metadata.get("etag") if isinstance(entity_metadata, Mapping) else None
+            if etag is None:
+                etag = entity.get("etag")
+            if etag is None:
+                # Without ETag, CAS update cannot guarantee safety — skip.
+                logger.debug("Skipping stale thread %s: no ETag available", row_key)
+                continue
+
+            replacement = {
+                key: value
+                for key, value in entity.items()
+                if key not in {"lock_token", "lock_expires_at", "etag", "Timestamp"}
             }
+            replacement.update(status=status, updated_at=self._now())
+            validate_entity(replacement)
 
             try:
                 self._table_client.update_entity(
-                    patch,
-                    mode="merge",
+                    replacement,
+                    mode="replace",
                     etag=etag,
                     match_condition=match_conditions.IfNotModified,
                 )
                 reset_count += 1
             except modified_error:
-                # Thread was re-acquired or modified since our query —
+                # Thread was renewed, released or re-acquired since our read —
                 # skip it rather than stomping a legitimate lock.
                 logger.debug(
                     "Skipped stale lock reset for thread %s (ETag mismatch)",
@@ -713,7 +739,7 @@ class AzureTableThreadStore(ThreadStore):
                 )
                 continue
             except not_found_error:
-                # Thread was deleted between query and update — skip.
+                # Thread was deleted between read and update — skip.
                 logger.debug(
                     "Skipped stale lock reset for thread %s (deleted)",
                     row_key,
@@ -721,6 +747,12 @@ class AzureTableThreadStore(ThreadStore):
                 continue
 
         return reset_count
+
+    def _is_older_than(self, updated_at: object, cutoff: datetime) -> bool:
+        """Whether *updated_at* is a timestamp strictly before *cutoff* (else not stale)."""
+        if not isinstance(updated_at, datetime):
+            return False
+        return self._normalize_datetime(updated_at) < cutoff
 
     def search(
         self,
