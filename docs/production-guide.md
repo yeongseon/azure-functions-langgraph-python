@@ -1019,14 +1019,19 @@ Table run locks and Blob marker leases are distinct resources. Platform run
 handlers renew store ownership every 20 seconds; renewal failure is retained
 for cleanup and returns a sanitized HTTP 500 instead of successful completion.
 Owner-token checks and ETag CAS prevent an old release from clearing a newer
-store owner; release retries conflicts up to three times. Failed persistence or
+store owner; release retries conflicts up to three times. A release or renewal
+also requires the thread to still be `busy`. Failed persistence or
 release can leave a row `busy`. A host crash may skip cleanup entirely.
 
 Schedule `thread_store.reset_stale_locks(older_than_seconds=600)` from a Timer
 function only with a threshold comfortably above the longest expected run, and
 establish that a reclaimed writer cannot still mutate checkpoints. It is not an
-automatic task and CAS is not a checkpoint write fence. Missing projection
-ETags cause rows to be skipped rather than reset unsafely. This operation does
+automatic task and CAS is not a checkpoint write fence. A candidate whose
+fresh re-read exposes no usable ETag is skipped rather than reset unsafely. A reset **revokes the
+previous owner's token** atomically with the new status, so a worker that comes
+back after the sweep cannot overwrite the recovery status or publish stale
+`values` through a late release, and its renewal fails. It does not stop that
+worker's graph. This operation does
 **not** break Blob marker leases; use the separate Blob recovery procedure
 above. See [maintenance_timer](../examples/maintenance_timer/) and the
 [README run-lock contract](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/README.md#run-lock-semantics).

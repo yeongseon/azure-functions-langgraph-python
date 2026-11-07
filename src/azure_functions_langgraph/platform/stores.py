@@ -117,6 +117,12 @@ class ThreadStore(Protocol):
         ``"error"``. If status == ``"busy"`` this method raises
         ``ValueError``.
 
+        When ``owner_token`` is supplied, the release is applied only while
+        that token still owns a ``busy`` thread. A token that no longer
+        matches, or a thread that is no longer ``busy`` (for example one a
+        maintenance sweep reclaimed), is a **stale release**: it must not
+        change the thread, and the unchanged current thread is returned.
+
         Raises ``KeyError(thread_id)`` if the thread does not exist.
         Implementations may treat this as a best-effort release when used
         by callers.
@@ -124,7 +130,11 @@ class ThreadStore(Protocol):
         ...
 
     def renew_run_lock(self, thread_id: str, owner_token: str) -> bool:
-        """Extend a held run lock, returning false after ownership changes."""
+        """Extend a held run lock, returning false after ownership changes.
+
+        Ownership has changed when the token no longer matches or the thread
+        is no longer ``busy``.
+        """
         ...
 
     def search(
@@ -313,7 +323,9 @@ class InMemoryThreadStore:
             if thread_id not in self._threads:
                 raise KeyError(thread_id)
             existing = self._threads[thread_id]
-            if owner_token is not None and existing.lock_token != owner_token:
+            if owner_token is not None and (
+                existing.lock_token != owner_token or existing.status != "busy"
+            ):
                 return self._deep_copy(existing)
             update: dict[str, Any] = {
                 "status": status,
@@ -330,7 +342,7 @@ class InMemoryThreadStore:
     def renew_run_lock(self, thread_id: str, owner_token: str) -> bool:
         with self._lock:
             existing = self._threads.get(thread_id)
-            if existing is None or existing.lock_token != owner_token:
+            if existing is None or existing.lock_token != owner_token or existing.status != "busy":
                 return False
             now = self._now()
             updated = existing.model_copy(
