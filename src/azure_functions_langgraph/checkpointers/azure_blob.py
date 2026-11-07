@@ -27,6 +27,13 @@ from langgraph.checkpoint.base import (
 )
 from langgraph.checkpoint.serde.base import SerializerProtocol
 
+from azure_functions_langgraph.locks.guard import (
+    OwnershipGuard,
+    ThreadLeaseLostError,
+    check_ownership_guard,
+    resolve_ownership_guard,
+)
+
 
 @dataclass
 class OrphanedValueCollectionResult:
@@ -133,6 +140,23 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         Concurrent writes to the same thread from multiple processes or
         Azure Functions instances may corrupt checkpoint data. See
         DESIGN.md decision #7 for details.
+
+    Note:
+        Writes are unconditional: nothing at the storage layer fences a stale
+        writer. When a write is accompanied by an
+        :class:`~azure_functions_langgraph.locks.guard.OwnershipGuard` (handed
+        out by a lock created with ``guard_checkpoint_writes=True``, for
+        example
+        :class:`~azure_functions_langgraph.locks.azure_blob.AzureBlobLeaseThreadLock`),
+        this saver checks it immediately before **every** blob upload in
+        :meth:`put`, :meth:`aput`, :meth:`put_writes` and :meth:`aput_writes`
+        and raises
+        :class:`~azure_functions_langgraph.locks.guard.ThreadLeaseLostError`
+        once ownership is detected as lost. That reduces writes after
+        *locally detected* loss. It is not fencing: a check can pass an
+        instant before an upload that is then accepted, and
+        :meth:`delete_thread`, :meth:`adelete_thread`, the retention helpers
+        and reads are never guarded.
     """
 
     def __init__(
@@ -141,6 +165,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         container_client: _ContainerClientProtocol,
         aio_container_client: _AsyncContainerClientProtocol | None = None,
         serde: SerializerProtocol | None = None,
+        require_ownership_guard: bool = False,
     ) -> None:
         """Create a saver bound to an Azure Blob container client.
 
@@ -158,6 +183,21 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             and emit a one-time warning.
         serde:
             Optional serializer protocol; defaults to LangGraph's serializer.
+        require_ownership_guard:
+            When ``True`` the saver fails closed: any ``put`` / ``put_writes``
+            (or async counterpart) that is not accompanied by an
+            :class:`~azure_functions_langgraph.locks.guard.OwnershipGuard` is
+            rejected with
+            :class:`~azure_functions_langgraph.locks.guard.ThreadLeaseLostError`
+            (``reason="missing"``) before any blob is written. Use it only
+            when every writer is expected to hold a guard-capable lock:
+            writes that legitimately carry no guard are rejected too, namely
+            Service Bus ``session_exclusive=True`` runs (they take no lock),
+            runs under a lock without the capability (for example
+            ``InProcessThreadLock``), a lock created with
+            ``guard_checkpoint_writes=False``, and direct maintenance writes.
+            Defaults to ``False``: a write without a guard proceeds exactly as
+            before.
         """
         try:
             azure_blob_module = importlib.import_module("azure.storage.blob")
@@ -220,6 +260,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             else None
         )
         self._sync_fallback_warned = False
+        self._require_ownership_guard = require_ownership_guard
 
     def get_next_version(self, current: str | None, channel: None) -> str:
         """Return the next monotonic channel version string."""
@@ -339,6 +380,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
         """Store checkpoint state, metadata, channel values, and latest hint."""
+        guard = self._write_guard(config)
         thread_id = self._config_thread_id(config)
         checkpoint_ns = self._config_checkpoint_ns(config)
         checkpoint_id = checkpoint["id"]
@@ -352,6 +394,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
         ):
             current_latest = self._find_latest_checkpoint_id(thread_id, checkpoint_ns)
+        check_ownership_guard(guard)
         self._upload_blob(
             self._latest_blob_path(thread_id, checkpoint_ns),
             b'{"version":1,"dirty":true}',
@@ -367,12 +410,14 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 serde_type, payload = self.serde.dumps_typed(channel_values[channel])
             else:
                 serde_type, payload = "empty", b""
+            check_ownership_guard(guard)
             self._upload_blob(value_blob_path, payload, {"serde_type": serde_type})
 
         # 2. Metadata blob (before commit marker)
         metadata_payload_type, metadata_payload = self.serde.dumps_typed(
             get_checkpoint_metadata(config, metadata)
         )
+        check_ownership_guard(guard)
         self._upload_blob(
             self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id),
             metadata_payload,
@@ -384,6 +429,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_blob_metadata: dict[str, str] = {"serde_type": checkpoint_serde_type}
         if parent_checkpoint_id is not None:
             checkpoint_blob_metadata["parent_id"] = quote(parent_checkpoint_id, safe="")
+        check_ownership_guard(guard)
         self._upload_blob(
             self._checkpoint_blob_path(thread_id, checkpoint_ns, checkpoint_id),
             checkpoint_payload,
@@ -399,6 +445,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             },
             separators=(",", ":"),
         ).encode()
+        check_ownership_guard(guard)
         self._upload_blob(self._latest_blob_path(thread_id, checkpoint_ns), latest_payload, {})
         return self._checkpoint_config(thread_id, checkpoint_ns, checkpoint_id)
 
@@ -410,6 +457,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         task_path: str = "",
     ) -> None:
         """Store task writes for a checkpoint, preserving MemorySaver semantics."""
+        guard = self._write_guard(config)
         thread_id = self._config_thread_id(config)
         checkpoint_ns = self._config_checkpoint_ns(config)
         checkpoint_id = get_checkpoint_id(config)
@@ -430,6 +478,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 continue
 
             serde_type, payload = self.serde.dumps_typed(value)
+            check_ownership_guard(guard)
             self._upload_blob(
                 write_blob_path,
                 payload,
@@ -944,6 +993,18 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             return checkpoint_id
         return None
 
+    def _write_guard(self, config: RunnableConfig) -> OwnershipGuard | None:
+        """Resolve the ownership guard for one write, failing closed when required.
+
+        Runs before any blob I/O. A guard bound by the adapter for the current
+        context wins over one carried in ``config``; a value under the private
+        config key that is not a real guard is ignored.
+        """
+        guard = resolve_ownership_guard(config)
+        if guard is None and self._require_ownership_guard:
+            raise ThreadLeaseLostError(reason="missing")
+        return guard
+
     def _checkpoint_config(
         self, thread_id: str, checkpoint_ns: str, checkpoint_id: str
     ) -> RunnableConfig:
@@ -1424,6 +1485,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             self._warn_sync_fallback("aput")
             return await asyncio.to_thread(self.put, config, checkpoint, metadata, new_versions)
 
+        guard = self._write_guard(config)
         thread_id = self._config_thread_id(config)
         checkpoint_ns = self._config_checkpoint_ns(config)
         checkpoint_id = checkpoint["id"]
@@ -1434,6 +1496,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
         ):
             current_latest = await self._afind_latest_checkpoint_id(thread_id, checkpoint_ns)
+        check_ownership_guard(guard)
         await self._aupload_blob(
             self._latest_blob_path(thread_id, checkpoint_ns),
             b'{"version":1,"dirty":true}',
@@ -1450,12 +1513,14 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 serde_type, payload = self.serde.dumps_typed(channel_values[channel])
             else:
                 serde_type, payload = "empty", b""
+            check_ownership_guard(guard)
             await self._aupload_blob(value_blob_path, payload, {"serde_type": serde_type})
 
         # 2. Metadata blob (before commit marker)
         metadata_payload_type, metadata_payload = self.serde.dumps_typed(
             get_checkpoint_metadata(config, metadata)
         )
+        check_ownership_guard(guard)
         await self._aupload_blob(
             self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id),
             metadata_payload,
@@ -1467,6 +1532,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_blob_metadata: dict[str, str] = {"serde_type": checkpoint_serde_type}
         if parent_checkpoint_id is not None:
             checkpoint_blob_metadata["parent_id"] = quote(parent_checkpoint_id, safe="")
+        check_ownership_guard(guard)
         await self._aupload_blob(
             self._checkpoint_blob_path(thread_id, checkpoint_ns, checkpoint_id),
             checkpoint_payload,
@@ -1482,6 +1548,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             },
             separators=(",", ":"),
         ).encode()
+        check_ownership_guard(guard)
         await self._aupload_blob(
             self._latest_blob_path(thread_id, checkpoint_ns), latest_payload, {}
         )
@@ -1500,6 +1567,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             await asyncio.to_thread(self.put_writes, config, writes, task_id, task_path)
             return
 
+        guard = self._write_guard(config)
         thread_id = self._config_thread_id(config)
         checkpoint_ns = self._config_checkpoint_ns(config)
         checkpoint_id = get_checkpoint_id(config)
@@ -1520,6 +1588,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 continue
 
             serde_type, payload = self.serde.dumps_typed(value)
+            check_ownership_guard(guard)
             await self._aupload_blob(
                 write_blob_path,
                 payload,
