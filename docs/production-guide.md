@@ -996,6 +996,13 @@ Durable activities and Service Bus runs with a thread ID, plus threaded
 Platform runs and Platform state updates. Platform runs/state updates acquire
 the store run lock **after** the shared lock. `AzureTableThreadStore` uses ETag
 CAS for status/assistant binding, but native and trigger runs do not acquire it.
+If the store run lock cannot be taken because of an unexpected storage error, a
+state update releases the shared lock and returns a sanitized HTTP 500, so the
+thread is not left blocked; the original error is logged. A state update is one
+synchronous `update_state` call and does **not** start the store-lock renewal
+worker that runs use, so its row is not refreshed while it executes: keep
+`reset_stale_locks(older_than_seconds=...)` above the longest state update you
+expect, not only above the longest run.
 
 - **Native-only:** choose a checkpointer and distributed `ThreadLock` for shared
   writers. A Platform `ThreadStore` is not required.

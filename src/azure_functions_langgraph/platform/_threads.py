@@ -98,6 +98,20 @@ def _release_thread_state_lock(
     return failure
 
 
+def _release_outer_state_lock(
+    deps: PlatformRouteDeps, graph_name: str, thread_id: str, lock_token: str
+) -> None:
+    """Release the shared thread lock after the store run lock could not be taken.
+
+    Never raises: a failing release is logged and must not replace the response that
+    explains why the state update did not start.
+    """
+    try:
+        deps.thread_lock.release(graph_name, thread_id, lock_token)
+    except Exception:
+        logger.exception("Unexpected error releasing thread lock for thread %s", thread_id)
+
+
 def register_thread_routes(
     app: func.FunctionApp,
     deps: PlatformRouteDeps,
@@ -407,13 +421,17 @@ def register_thread_routes(
         try:
             locked = deps.thread_store.try_acquire_run_lock(thread_id, assistant_id=graph_name)
         except KeyError:
-            deps.thread_lock.release(graph_name, thread_id, lock_token)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
             return _platform_error(404, f"Thread {thread_id!r} not found")
         except ValueError as exc:
-            deps.thread_lock.release(graph_name, thread_id, lock_token)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
             return _platform_error(409, str(exc))
+        except Exception:
+            logger.exception("State-update store acquisition failed for thread %s", thread_id)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
+            return _platform_error(500, "Internal error updating thread state")
         if locked is None:
-            deps.thread_lock.release(graph_name, thread_id, lock_token)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
             return _platform_error(
                 409,
                 f"Thread {thread_id!r} is already busy. "
