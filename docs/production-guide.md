@@ -1026,8 +1026,8 @@ release can leave a row `busy`. A host crash may skip cleanup entirely.
 Schedule `thread_store.reset_stale_locks(older_than_seconds=600)` from a Timer
 function only with a threshold comfortably above the longest expected run, and
 establish that a reclaimed writer cannot still mutate checkpoints. It is not an
-automatic task and CAS is not a checkpoint write fence. Missing projection
-ETags cause rows to be skipped rather than reset unsafely. A reset **revokes the
+automatic task and CAS is not a checkpoint write fence. A candidate whose
+fresh re-read exposes no usable ETag is skipped rather than reset unsafely. A reset **revokes the
 previous owner's token** atomically with the new status, so a worker that comes
 back after the sweep cannot overwrite the recovery status or publish stale
 `values` through a late release, and its renewal fails. It does not stop that
