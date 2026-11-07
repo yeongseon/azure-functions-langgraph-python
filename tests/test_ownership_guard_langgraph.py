@@ -574,6 +574,75 @@ def test_binding_is_gone_after_the_update(
     assert uploads.paths
 
 
+@pytest.fixture(params=["native", "fallback"])
+async def seeded_async(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> tuple[AzureBlobCheckpointSaver, Graph, Uploads]:
+    """A fail-closed saver (native aio, or the executor fallback) with committed state."""
+    flavor: Flavor = request.param
+    saver, _ = make_saver(flavor=flavor, require=True)
+    graph = build_graph(saver)
+    await graph.ainvoke({"log": ["in"]}, run_config("t-1", ScriptedGuard()))
+    return saver, graph, Uploads(saver, monkeypatch)
+
+
+async def test_async_node_update_carries_the_guard_through_the_incoming_config(
+    seeded_async: tuple[AzureBlobCheckpointSaver, Graph, Uploads],
+) -> None:
+    # Given an aupdate_state whose guard travels only in the config.
+    saver, graph, uploads = seeded_async
+    guard = ScriptedGuard()
+
+    # When the state is updated as a node through the async saver methods.
+    await graph.aupdate_state(run_config("t-1", guard), {"log": ["u"]}, as_node="a")
+
+    # Then every upload of the update was checked, on the native and the fallback path alike.
+    assert uploads.paths
+    assert guard.checks == len(uploads.paths)
+    assert "u" in committed_logs(saver, "t-1")[0]
+
+
+async def test_async_copy_update_needs_the_scoped_binding_on_both_saver_paths(
+    seeded_async: tuple[AzureBlobCheckpointSaver, Graph, Uploads],
+) -> None:
+    # Given an as_node="__copy__" aupdate_state: LangGraph drops the config guard.
+    _, graph, uploads = seeded_async
+    guard = ScriptedGuard()
+
+    # When it runs without the binding, a fail-closed saver reports the gap loudly.
+    with pytest.raises(ThreadLeaseLostError) as raised:
+        await graph.aupdate_state(run_config("t-1", guard), None, as_node="__copy__")
+    assert raised.value.reason == "missing"
+    assert uploads.paths == []
+
+    # And with the binding (copied into the fallback's worker thread) it is guarded.
+    with bind_ownership_guard(guard):
+        await graph.aupdate_state(run_config("t-1", guard), None, as_node="__copy__")
+    assert uploads.paths
+    assert guard.checks == len(uploads.paths)
+
+
+async def test_async_input_update_on_a_fresh_thread_is_guarded_by_the_binding(
+    seeded_async: tuple[AzureBlobCheckpointSaver, Graph, Uploads],
+) -> None:
+    # Given a thread with no state yet, seeded as INPUT through the async path.
+    _, graph, uploads = seeded_async
+    guard = ScriptedGuard()
+
+    # When the adapter's scoped binding surrounds the update.
+    with bind_ownership_guard(guard):
+        await graph.aupdate_state(run_config("t-fresh", guard), {"log": ["seed"]}, as_node=START)
+
+    # Then every upload of that path was checked, and a tripped guard is rejected the same way.
+    assert uploads.for_thread("t-fresh")
+    assert guard.checks == len(uploads.paths)
+    tripped = ScriptedGuard(trip_on=1)
+    with bind_ownership_guard(tripped), pytest.raises(ThreadLeaseLostError) as raised:
+        await graph.aupdate_state(run_config("t-fresh-2", tripped), {"log": ["x"]}, as_node=START)
+    assert raised.value.reason == "lost"
+    assert uploads.for_thread("t-fresh-2") == []
+
+
 # ---------------------------------------------------------------------------
 # 6. Concurrency: no cross-talk through shared saver state
 # ---------------------------------------------------------------------------

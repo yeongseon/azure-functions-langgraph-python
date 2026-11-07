@@ -7,6 +7,7 @@ from collections.abc import Callable
 import copy
 import pickle
 from queue import Queue
+import sys
 import threading
 from typing import Final, cast
 
@@ -486,8 +487,10 @@ async def test_binding_thread_propagation_matches_asyncio_contracts() -> None:
             asyncio.get_running_loop().run_in_executor(None, resolve_ownership_guard, None),
             timeout=5,
         )
-        # Then only to_thread copies context; neither plain Thread nor executor does.
-        assert plain is None
+        # Then to_thread always copies context and the executor never does; a plain Thread
+        # follows the interpreter (Python 3.14 free-threaded builds inherit it by default).
+        inherits = bool(getattr(sys.flags, "thread_inherit_context", False))
+        assert plain is (guard if inherits else None)
         assert copied is guard
         assert executor is None
         assert resolve_ownership_guard(None) is guard
