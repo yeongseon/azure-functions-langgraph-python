@@ -45,6 +45,7 @@ from azure_functions_langgraph.contracts import (
 )
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.locks._async import async_thread_lock
+from azure_functions_langgraph.locks.guard import check_ownership_guard, guard_run_config
 from azure_functions_langgraph.observability import (
     NOOP_OBSERVER,
     RunContext,
@@ -367,7 +368,9 @@ def handle_invoke(
             )
     safe_observer_call(observer, "on_run_started", ctx)
     try:
-        result = reg.graph.invoke(request.input, config=config, **version_kwargs)
+        run_config, guard = guard_run_config(thread_lock, reg.name, thread_id, lock_token, config)
+        result = reg.graph.invoke(request.input, config=run_config, **version_kwargs)
+        check_ownership_guard(guard)
         body = dumps({"output": _serialize_graph_output(result)}, allow_nan=False)
     except Exception as exc:
         logger.exception("Graph %s invoke failed", reg.name)
@@ -499,9 +502,10 @@ def handle_stream(
     stream_error: BaseException | None = None
     safe_observer_call(observer, "on_run_started", ctx)
     try:
+        run_config, guard = guard_run_config(thread_lock, reg.name, thread_id, lock_token, config)
         for event in reg.graph.stream(
             request.input,
-            config=config,
+            config=run_config,
             stream_mode=request.stream_mode,
             **version_kwargs,
         ):
@@ -509,6 +513,8 @@ def handle_stream(
             if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
                 stream_error = RuntimeError("stream response exceeded max buffered size")
                 break
+        if stream_error is None:
+            check_ownership_guard(guard)
     except Exception as exc:
         logger.exception("Graph %s stream failed", reg.name)
         stream_error = exc
@@ -606,7 +612,11 @@ async def handle_invoke_async(
             )
         safe_observer_call(observer, "on_run_started", ctx)
         try:
-            result = await reg.graph.ainvoke(request.input, config=config, **version_kwargs)
+            run_config, guard = guard_run_config(
+                thread_lock, reg.name, lock_thread_id, lock_token, config
+            )
+            result = await reg.graph.ainvoke(request.input, config=run_config, **version_kwargs)
+            check_ownership_guard(guard)
             body = dumps({"output": _serialize_graph_output(result)}, allow_nan=False)
         except Exception as exc:
             logger.exception("Graph %s ainvoke failed", reg.name)
@@ -734,9 +744,12 @@ async def handle_stream_async(
         agen = None
         try:
             try:
+                run_config, guard = guard_run_config(
+                    thread_lock, reg.name, lock_thread_id, lock_token, config
+                )
                 agen = reg.graph.astream(
                     request.input,
-                    config=config,
+                    config=run_config,
                     stream_mode=request.stream_mode,
                     **version_kwargs,
                 )
@@ -745,6 +758,8 @@ async def handle_stream_async(
                     if not _append_chunk(f"event: data\ndata: {serialized}\n\n"):
                         stream_error = RuntimeError("stream response exceeded max buffered size")
                         break
+                if stream_error is None:
+                    check_ownership_guard(guard)
             except Exception as exc:
                 logger.exception("Graph %s astream failed", reg.name)
                 stream_error = exc

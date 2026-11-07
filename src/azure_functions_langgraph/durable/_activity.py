@@ -26,6 +26,7 @@ from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph.durable._state import DurableRunPayload, DurableRunResult
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.locks._async import async_thread_lock, run_sync_retaining_ownership
+from azure_functions_langgraph.locks.guard import check_ownership_guard, guard_run_config
 from azure_functions_langgraph.observability import (
     NOOP_OBSERVER,
     RunObserver,
@@ -134,7 +135,11 @@ async def execute_langgraph_run_impl(
             }
         safe_observer_call(observer, "on_run_started", ctx)
         try:
-            result = await _invoke_graph(reg, payload.input, config)
+            run_config, guard = guard_run_config(
+                thread_lock, reg.name, lock_thread_id, lock_token, config
+            )
+            result = await _invoke_graph(reg, payload.input, run_config)
+            check_ownership_guard(guard)
             try:
                 result = json.loads(dumps(result, allow_nan=False))
             except Exception:  # noqa: BLE001 - user-defined encoding can raise arbitrary errors

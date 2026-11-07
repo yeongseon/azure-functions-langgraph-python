@@ -16,6 +16,7 @@ from azure_functions_langgraph.authorization import (
     AuthorizationContext,
     authorization_status,
 )
+from azure_functions_langgraph.locks.guard import bind_ownership_guard, guard_run_config
 from azure_functions_langgraph.platform._common import (
     _UNSUPPORTED_THREAD_FILTER_FIELDS,
     PlatformRouteDeps,
@@ -421,7 +422,13 @@ def register_thread_routes(
         store_lock_token = locked.lock_token or lock_token
 
         try:
-            result = graph.update_state(config, update_req.values, as_node=update_req.as_node)
+            state_config, guard = guard_run_config(
+                deps.thread_lock, graph_name, thread_id, lock_token, config
+            )
+            with bind_ownership_guard(guard):
+                result = graph.update_state(
+                    state_config, update_req.values, as_node=update_req.as_node
+                )
         except (KeyError, ValueError) as exc:
             _release_thread_state_lock(
                 deps,

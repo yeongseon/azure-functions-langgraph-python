@@ -36,6 +36,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.locks._async import async_thread_lock
+from azure_functions_langgraph.locks.guard import check_ownership_guard, guard_run_config
 from azure_functions_langgraph.observability import (
     NOOP_OBSERVER,
     RunObserver,
@@ -213,10 +214,12 @@ def process_service_bus_message(
     config = {"configurable": {"thread_id": thread_id}} if thread_id else None
     safe_observer_call(observer, "on_run_started", ctx)
     try:
-        if config is not None:
-            result = reg.graph.invoke(graph_input, config=config)
+        run_config, guard = guard_run_config(thread_lock, reg.name, thread_id, lock_token, config)
+        if run_config is not None:
+            result = reg.graph.invoke(graph_input, config=run_config)
         else:
             result = reg.graph.invoke(graph_input)
+        check_ownership_guard(guard)
     except BaseException as exc:
         safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
         raise
@@ -270,10 +273,14 @@ async def process_service_bus_message_async(
         config = {"configurable": {"thread_id": thread_id}} if thread_id else None
         safe_observer_call(observer, "on_run_started", ctx)
         try:
-            if config is not None:
-                result = await reg.graph.ainvoke(graph_input, config=config)
+            run_config, guard = guard_run_config(
+                thread_lock, reg.name, lock_thread_id, lock_token, config
+            )
+            if run_config is not None:
+                result = await reg.graph.ainvoke(graph_input, config=run_config)
             else:
                 result = await reg.graph.ainvoke(graph_input)
+            check_ownership_guard(guard)
         except BaseException as exc:
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
             raise
