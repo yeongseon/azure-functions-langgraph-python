@@ -240,3 +240,7 @@ security-runtime-audit:
 	@$(SECURITY_PYTHON) -m tools.audit_candidate --wheel "$(WHEEL)" --profile "$(PROFILE)" --output "$(SECURITY_OUTPUT)/runtime-audit"
 security-runtime-report:
 	@$(SECURITY_PYTHON) -m tools.runtime_audit "$(REPORT)" --exit-status "$(AUDIT_EXIT)" --output "$(SECURITY_OUTPUT)/runtime-audit"
+
+.PHONY: docs-examples-check
+docs-examples-check:
+	$(PYTHON) tools/check_example_navigation.py

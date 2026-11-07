@@ -29,6 +29,7 @@ nav:
       - Deploy to Azure: deployment.md
       - Production Guide: production-guide.md
   - Examples:
+      - Example Guide: examples/index.md
       - Simple Agent: examples/simple_agent.md
   - API Reference: api.md
   - Roadmap: roadmap.md
