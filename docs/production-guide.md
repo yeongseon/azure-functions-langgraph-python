@@ -792,11 +792,13 @@ What this means for operators:
   no writer for that thread can be active.
 - **Other checkpoint backends.** The PostgreSQL and Cosmos DB helpers wrap the
   upstream savers and pass them no lease or ownership identity, so choosing them
-  does not by itself reject a stale owner's write: a transactional commit
-  prevents partial writes, not a logically stale graph. The #791 decision prefers
-  them over a larger Blob protocol where overlapping owners must not write the
-  same state, but verify backend-specific fencing, or prevent takeover until the
-  old workers have stopped, if you need that property.
+  does not by itself reject a stale owner's write: whatever atomicity the
+  upstream backend provides concerns partial writes, not a logically stale
+  graph. The #791 decision prefers the PostgreSQL integration (the Cosmos DB
+  helper is deprecated for credential handling) over a larger Blob protocol
+  where overlapping owners must not write the same state, but verify
+  backend-specific fencing, or prevent takeover until the old workers have
+  stopped, if you need that property.
 
 ```python
 import azure.functions as func
