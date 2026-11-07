@@ -54,6 +54,7 @@ def test_production_guide_documents_the_contract_and_its_limits() -> None:
     for needle in (
         "guard_checkpoint_writes=True",
         "require_ownership_guard=True",
+        "require_ownership_guard=False",
         "ThreadLeaseLostError",
         "`lost`",
         "`released`",

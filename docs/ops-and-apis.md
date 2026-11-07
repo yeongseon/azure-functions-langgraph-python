@@ -68,8 +68,8 @@ The native `invoke` / `stream` endpoints guard concurrent access to the same
 
 | Method | Signature | Contract |
 | --- | --- | --- |
-| `acquire` | `acquire(graph_name: str, thread_id: str, timeout: float = 0.0) -> bool` | Attempt an exclusive lock. `timeout=0.0` (default) is non-blocking; positive values block up to `timeout` seconds. Returns `True` on success, `False` if the lock is held elsewhere (same process **or**, for distributed backends, another instance). |
-| `release` | `release(graph_name: str, thread_id: str) -> None` | Release a previously held lock. Must be safe to call even when the lock is not held — implementations log at DEBUG rather than raising, so a handler's `finally` never masks the underlying request failure. |
+| `acquire` | `acquire(graph_name: str, thread_id: str, timeout: float = 0.0) -> str \| None` | Attempt an exclusive lock. `timeout=0.0` (default) is non-blocking; positive values block up to `timeout` seconds. Returns an opaque, non-empty **owner token** on success and `None` if the lock is held elsewhere (same process **or**, for distributed backends, another instance). |
+| `release` | `release(graph_name: str, thread_id: str, token: str) -> None` | Release a lock previously acquired with `acquire`, passing back its owner token. A token that does not match the current owner is a no-op, so a stale caller cannot free a lock a newer execution holds. Must be safe to call even when the lock is not held — implementations log at DEBUG rather than raising, so a handler's `finally` never masks the underlying request failure. |
 
 Two implementations ship in the box:
 
@@ -138,8 +138,9 @@ owner's checkpoint write can still be accepted (see the
 [production guide](production-guide.md#opt-in-guard-for-blob-checkpoint-writes-790)).
 With `guard_checkpoint_writes=True` the lock returns, per acquisition, a guard bound
 to the original owner token. `AzureBlobCheckpointSaver` checks it before every blob
-upload and raises `ThreadLeaseLostError` once the lock has *detected* loss (a failed
-renewal, a released or closed lock, or the key re-acquired under a newer token).
+upload and raises `ThreadLeaseLostError` once the lock has *detected* loss (one
+definitive renewal failure or three consecutive transient ones, a released or closed
+lock, or the key re-acquired under a newer token).
 It does not infer expiry from the clock, so it needs automatic renewal on a finite
 lease to notice a lapsed lease; with `auto_renew=False` or `lease_duration=-1`
 construction emits a `UserWarning`. **This reduces writes after detected loss. It is

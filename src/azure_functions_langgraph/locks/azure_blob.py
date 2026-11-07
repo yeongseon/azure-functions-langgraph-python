@@ -209,9 +209,9 @@ class _LeaseOwnershipGuard:
         reason = self._lock._ownership_problem((self._graph_name, self._thread_id), self._token)
         if reason is None:
             return
-        # One WARNING per guard (per acquisition), later rejections at DEBUG,
-        # so a run that attempts many writes after loss does not flood the log.
-        # Only graph and thread ids are logged, never the owner token.
+        # Normally one WARNING per guard (one per run), later rejections at DEBUG,
+        # so a run that attempts many writes after loss does not flood the log
+        # (concurrent first rejections may both warn). Never log the owner token.
         log = logger.debug if self._reported else logger.warning
         self._reported = True
         log(

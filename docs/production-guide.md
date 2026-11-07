@@ -947,8 +947,9 @@ it is safe to return to a client; use the exception attributes for diagnostics.
 - The guard rejects checkpoint writes; it does not stop the node that is running.
   With LangGraph's default `durability="async"` saves happen in the background,
   so a rejected save can surface after the next superstep has started; with
-  `durability="exit"` the single final save is the one rejected. Effects outside
-  the checkpoint store are unaffected either way.
+  `durability="exit"` saves happen once per graph execution, when it exits (a
+  checkpointed subgraph exits separately), and that save is the one rejected.
+  Effects outside the checkpoint store are unaffected either way.
 - A check can pass an instant before the upload it protects and the upload can
   still be accepted. The fake-backed `test_a_check_can_pass_just_before_an_upload_that_is_then_accepted`
   reproduces that window.
@@ -959,23 +960,29 @@ uploaded. Enable it only when every writer of that checkpoint container holds a
 guard-capable lock. These writes carry no guard and are rejected: runs under a
 lock without the capability (`InProcessThreadLock`, a custom lock) or with
 `guard_checkpoint_writes=False`, Service Bus `session_exclusive=True` runs, and
-direct writes outside the adapter (maintenance scripts, your own
-`graph.invoke(...)`). Platform state updates are covered by the adapter; a direct
-`graph.update_state(..., as_node="__copy__")` outside it loses the guard inside
-LangGraph itself and is rejected too, which is the gap this mode makes visible.
+direct writes outside the adapter that bring no guard of their own (a
+maintenance script, or your own `graph.invoke(...)` whose config has none).
+Platform state updates are covered by the adapter. A direct
+`graph.update_state(...)` outside it can lose a guard you did pass:
+`as_node="__copy__"` rebuilds its config from the stored checkpoint, so it is
+rejected with `reason="missing"`, which is the gap this mode makes visible.
 
 **Operating it.**
 
 - Alert on the lease-lost warnings above and on `Ownership guard rejected an
   operation for <graph>/<thread> ...` (logger
-  `azure_functions_langgraph.locks.azure_blob`, `WARNING`, once per acquisition;
+  `azure_functions_langgraph.locks.azure_blob`, `WARNING`, normally once per
+  guard, that is once per run; concurrent first rejections can log it twice, and
   later rejections log at `DEBUG`). Correlate by graph and thread ID with the run
   telemetry; the failed run's observer event carries `ThreadLeaseLostError`.
 - Drain graph work before `close()`: after `close()` every guard reports
   `released`, so a straggling checkpoint write is rejected.
-- Turning it off (`guard_checkpoint_writes=False`, the default) restores the
-  previous behavior. There is no storage format change, so there is no migration
-  and no rollback restriction.
+- Turning it off restores the previous behavior: set
+  `guard_checkpoint_writes=False` (the default) **and**, if you enabled it,
+  `require_ownership_guard=False` (also the default). Both are constructor
+  settings, not live switches, so redeploy. A saver that still requires a guard
+  rejects every unguarded write with `reason="missing"`. There is no storage
+  format change, so there is no migration and no rollback restriction.
 - A custom `ThreadLock` can take part by implementing
   `ownership_guard(graph_name, thread_id, token)` (`OwnershipGuardProvider`) and
   returning an object whose `check()` is cheap and never blocks.
