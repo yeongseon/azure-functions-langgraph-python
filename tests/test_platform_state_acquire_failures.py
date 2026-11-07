@@ -32,6 +32,7 @@ class RecordingLock(InProcessThreadLock):
         self.acquired: list[str] = []
         self.released: list[str] = []
         self.fail_release = False
+        self.fail_release_before_unlock = False
 
     def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> str | None:
         token = super().acquire(graph_name, thread_id, timeout)
@@ -41,9 +42,23 @@ class RecordingLock(InProcessThreadLock):
 
     def release(self, graph_name: str, thread_id: str, token: str) -> None:
         self.released.append(token)
+        if self.fail_release_before_unlock:
+            raise OSError("private-outer-canary")
         super().release(graph_name, thread_id, token)
         if self.fail_release:
             raise OSError("private-outer-canary")
+
+
+class RecordingGraph(FakeStatefulGraph):
+    """A stateful graph fake that records every ``update_state`` call."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.update_calls: list[Any] = []
+
+    def update_state(self, *args: Any, **kwargs: Any) -> Any:
+        self.update_calls.append(args)
+        return super().update_state(*args, **kwargs)
 
 
 class Scenario:
@@ -52,7 +67,7 @@ class Scenario:
     def __init__(self) -> None:
         self.store, self.table = _new_store()
         self.lock = RecordingLock()
-        self.graph = FakeStatefulGraph()
+        self.graph = RecordingGraph()
         self.app = LangGraphApp(platform_compat=True, thread_lock=self.lock)
         self.app._thread_store = self.store
         self.app.register(graph=self.graph, name="agent")
@@ -60,14 +75,10 @@ class Scenario:
         self.store.update(thread.thread_id, assistant_id="agent")
         self.thread_id = thread.thread_id
         self.handler = _get_fn(self.app.function_app, "aflg_platform_threads_state_update")
-        self.update_calls: list[Any] = []
-        original = self.graph.update_state
 
-        def recording_update(*args: Any, **kwargs: Any) -> Any:
-            self.update_calls.append(args)
-            return original(*args, **kwargs)
-
-        self.graph.update_state = recording_update  # type: ignore[method-assign]
+    @property
+    def update_calls(self) -> list[Any]:
+        return self.graph.update_calls
 
     def post(self) -> func.HttpResponse:
         request = _post_request(
@@ -136,6 +147,29 @@ def test_a_failing_outer_release_does_not_escape_or_mask_the_storage_error(
     messages = " ".join(r.getMessage() for r in caplog.records)
     assert "Unexpected error releasing thread lock" in messages
     assert any(r.exc_info and SECRET in str(r.exc_info[1]) for r in caplog.records)
+
+
+def test_a_release_that_fails_before_unlocking_keeps_the_response_and_leaves_the_lock_held(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Given a store error AND an outer lock whose release raises before it unlocks anything.
+    s = Scenario()
+    s.lock.fail_release_before_unlock = True
+    with patch.object(s.store, "try_acquire_run_lock", side_effect=TimeoutError(SECRET)):
+        # When the handler tries to clean up.
+        response = s.post()
+
+    # Then the client still gets the sanitized 500, the failed attempt is logged, and the lock
+    # is honestly still held: cleanup is attempted, not guaranteed, and the backend's own
+    # recovery has to free it.
+    assert response.status_code == 500
+    assert json.loads(response.get_body()) == {"detail": "Internal error updating thread state"}
+    assert b"private-" not in response.get_body()
+    assert s.lock.released == s.lock.acquired and len(s.lock.acquired) == 1
+    assert "Unexpected error releasing thread lock" in " ".join(
+        r.getMessage() for r in caplog.records
+    )
+    assert s.lock.acquire("agent", s.thread_id) is None
 
 
 @pytest.mark.parametrize(
