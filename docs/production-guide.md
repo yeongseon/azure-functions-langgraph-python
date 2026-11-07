@@ -746,6 +746,18 @@ certification**, and the tests pin *current* behavior rather than a guarantee.
 | Releasing or closing a lost entry (with the right token; a wrong token leaves the entry in place) drops only local bookkeeping. It never releases the service lease, so a newer owner keeps it and a third contender stays excluded. | `test_lost_cleanup_never_disturbs_the_newer_owner` (`release` and `close` variants) |
 | Transient renewal failures do not mark ownership lost immediately. Until the failure threshold is reached, the old host still believes it owns the key although another host already holds the service lease; local state lags the service. | `test_transient_renewal_misses_mark_lost_only_after_threshold_and_handoff_follows` |
 
+A controlled **real-Azure** probe (three runs on 2026-11-05; a throwaway script
+kept outside the repository) showed the same effect against a real storage
+account. After the first owner's 15-second lease lapsed, a second owner acquired
+the lock and wrote. The first owner's lease renewal was then rejected (HTTP 409,
+`LeaseIdMismatchWithLeaseOperation`) and so was its upload to the lock marker
+with the old lease id (HTTP 412, `LeaseIdMismatchWithBlobOperation`), but its
+checkpoint `put()` was accepted and `latest.json` pointed at the stale writer's
+checkpoint. The service enforces the lease on the marker blob only; the saver's
+uploads are unconditional. This is one controlled interleaving per run, not a
+production incidence rate, and not Azurite evidence. See
+[DESIGN.md, section 15](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/DESIGN.md#15-blob-stale-writer-decision-record-765).
+
 What this means for operators:
 
 - The Blob lease gives mutual exclusion for **lock acquisition** only. It is
@@ -757,8 +769,34 @@ What this means for operators:
 - Drain graph execution and checkpoint writes before calling `close()`;
   closing the lock does not cancel them (see above).
 - Do not describe the Blob-lease and Blob-checkpointer combination as a
-  universal single-writer guarantee. A storage-side fence would be a separate
-  design and is not part of this adapter today.
+  universal single-writer guarantee.
+- **Decision
+  ([DESIGN.md, section 15](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/DESIGN.md#15-blob-stale-writer-decision-record-765),
+  #791).** Lease renewal stays. A storage-level fence is deferred, not rejected:
+  no design reviewed so far enforces it at bounded cost without a new storage
+  protocol. The mitigation planned in #790 is an opt-in guard that rejects Blob
+  checkpoint writes after the lock has *detected* loss; it is not implemented
+  yet. It would reduce writes after detected loss but would not be fencing:
+  detection lags, a check can pass just before an upload, and nothing stops the
+  stale graph or its side effects outside the checkpoint store.
+- **Alerting.** The lock logs lease-state changes at `WARNING` on the logger
+  `azure_functions_langgraph.locks.azure_blob`. "Transient failure renewing
+  Azure Blob lease ..." is an early sign: the lease is not yet considered lost.
+  "... is lost (definitive lease-loss on renew) ..." and "... failed renewal N
+  consecutive times; treating as lost ..." mean the lock now treats ownership as
+  lost and another instance may acquire it. Alert on those two, correlate them
+  by graph and thread ID with the run telemetry of the same thread, and treat a
+  match as a suspected overlap, not proven corruption.
+- **Deleting a thread.** `delete_thread()` and `adelete_thread()` remove every
+  blob under the thread's prefix with no lease condition, so run them only while
+  no writer for that thread can be active.
+- **Other checkpoint backends.** The PostgreSQL and Cosmos DB helpers wrap the
+  upstream savers and pass them no lease or ownership identity, so choosing them
+  does not by itself reject a stale owner's write: a transactional commit
+  prevents partial writes, not a logically stale graph. The #791 decision prefers
+  them over a larger Blob protocol where overlapping owners must not write the
+  same state, but verify backend-specific fencing, or prevent takeover until the
+  old workers have stopped, if you need that property.
 
 ```python
 import azure.functions as func
@@ -804,7 +842,7 @@ with the lock; drain graph work before closing the lock and then its clients.
 **Safety guard — `AZFUNC_LANGGRAPH_THREAD_STORE` (platform-compat).** The thread *store* has the same scale-out footgun as the lock: when `platform_compat=True` and no store is supplied, `LangGraphApp` defaults to the per-instance `InMemoryThreadStore`, so on Azure scale-out (Consumption / Elastic Premium) each worker keeps its own threads and state diverges across instances. Two layered guards mirror the lock-backend precedent:
 
 - **Warn by default on Azure.** When the process looks Azure-hosted (the host sets `WEBSITE_INSTANCE_ID` / `WEBSITE_SITE_NAME`) and the final configured store is still the in-memory default, building `app.function_app` emits a `RuntimeWarning` pointing at `AzureTableThreadStore`. Local development (`func start`, where those markers are absent) stays warning-free.
-- **Fail-fast when declared.** Set `AZFUNC_LANGGRAPH_THREAD_STORE=distributed` (or any non-empty value other than `inmemory`) in Function App settings. Validation runs when `app.function_app` is built, after the public `app.thread_store` setter can supply the production store, and raises before routes can be served if the final configured store is still `InMemoryThreadStore`.
+- **Fail-fast when declared.** Set `AZFUNC_LANGGRAPH_THREAD_STORE=distributed` (or any non-empty value other than `inmemory`) in Function App settings. Validation runs when `app.function_app` is built, after the public `app.thread_store` setter can supply the production store, and raises before routes can be served if the final configured store is still `InMemoryThreadStore`. Since 0.13.0 (#742) the check is also triggered by `AZFUNC_LANGGRAPH_LOCK_BACKEND` set to any non-empty value other than `inprocess` (for example `distributed`), even when a distributed `thread_lock` is already wired, because a distributed lock does not share Platform thread records; before 0.13.0 only `AZFUNC_LANGGRAPH_THREAD_STORE` triggered it. It applies only with `platform_compat=True`.
 
 ```python
 # Multi-instance production: fail-fast if the in-memory default slips through.
@@ -865,7 +903,14 @@ above. See [maintenance_timer](../examples/maintenance_timer/) and the
 
 ### Upgrade and deployment caveats
 
-This documentation reorganization changes no APIs, defaults or stability tiers.
+**Upgrading to 0.13.0.** The release has three breaking changes. Each fails loudly
+(an HTTP 400 or a startup `RuntimeError`) instead of changing behavior silently:
+client `config` is restricted on classic native routes (#740) and on true-stream
+routes (#770), and `platform_compat=True` with a scale-out guard now requires a
+shared thread store (#742, see the guards above). Read
+[Adapter Reference, Upgrading](adapter-reference.md#upgrading) before deploying it;
+it also lists the behavior changes to check.
+
 The 0.13 evaluation retained automatic bounded Blob lease renewal; do not
 migrate to fixed leases on the assumption that HTTP timeouts stop a graph.
 When adding workers or a second surface, configure shared storage/locks before
