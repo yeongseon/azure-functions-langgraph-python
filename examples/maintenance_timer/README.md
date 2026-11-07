@@ -52,11 +52,15 @@ Identity the `Storage Table Data Contributor` role on the storage account.
 
 1. Timer fires on schedule.
 2. `reset_stale_locks(older_than_seconds=600)` queries all `busy` threads.
-3. Threads whose `updated_at` is older than the threshold are reset via
-   ETag CAS — threads legitimately re-acquired since the scan are skipped.
+3. Threads whose `updated_at` is older than the threshold are re-read,
+   re-verified and reset via ETag CAS — threads legitimately renewed,
+   released or re-acquired since the scan are skipped. The reset also revokes
+   the previous owner's token, so a worker that comes back later cannot undo
+   the recovery status.
 4. Count of reset threads is logged as a warning for monitoring/alerting.
 
 **Important:** Set `STALE_LOCK_THRESHOLD_SECONDS` comfortably above your
-longest expected graph execution time. ETag CAS protects against re-acquire
-races, but a still-running long job will not update its `updated_at` and
-could be reclaimed if the threshold is too short.
+longest expected graph execution time. A live Platform run refreshes its
+`updated_at` every 20 seconds, but a holder that does not renew, or whose
+renewal is blocked or failing, can be reclaimed while it is still working if
+the threshold is too short.

@@ -222,6 +222,35 @@ def test_reset_leaves_a_deleted_or_already_released_thread_alone(
     assert store.get(deleted_id) is None
 
 
+def test_reset_takes_its_etag_from_the_full_reread_not_from_the_projection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given a scan whose projected row is stale: it carries an ETag the row no longer has.
+    store, table = _new_store()
+    thread_id, _ = _acquire_stale(store, table)
+    current_etag = _raw(table, thread_id)["etag"]
+    original_query = table.query_entities
+
+    def query_with_stale_etag(
+        query_filter: str | None = None, **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        rows = original_query(query_filter, **kwargs)
+        for row in rows:
+            cast(Any, row).metadata = {"etag": 'W/"stale-projection"'}
+        return rows
+
+    monkeypatch.setattr(table, "query_entities", query_with_stale_etag)
+
+    # When the sweep reclaims it.
+    count = store.reset_stale_locks(older_than_seconds=300)
+
+    # Then the conditional write used the ETag of the fresh read, so the reset applied.
+    assert count == 1
+    assert table.last_update_kwargs["etag"] == current_etag
+    after = store.get(thread_id)
+    assert after is not None and after.status == "error"
+
+
 # ---------------------------------------------------------------------------
 # The in-memory store has no reset sweep, but it shares the release/renew contract.
 # ---------------------------------------------------------------------------
