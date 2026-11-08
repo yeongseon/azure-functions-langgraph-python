@@ -393,3 +393,85 @@ def test_reset_stale_locks_revokes_the_old_owner_against_the_real_table(
         {"kind": "kept"},
         "agent",
     )
+
+
+def test_renewal_survives_a_concurrent_metadata_write_against_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given a live owner whose renewal read is invalidated by a metadata-only write (#805): the
+    # real service answers the conditional write with 412 although the owner never changed.
+    from unittest.mock import DEFAULT, patch
+
+    store = _new_store(azurite_table_client)
+    thread = store.create()
+    locked = store.try_acquire_run_lock(thread.thread_id, assistant_id="agent")
+    assert locked is not None and locked.lock_token is not None
+    token = locked.lock_token
+    update = azurite_table_client.update_entity
+    raced = False
+
+    def write_metadata_before_the_renewal(
+        entity: dict[str, Any], *args: object, **kwargs: object
+    ) -> object:
+        nonlocal raced
+        is_renewal = set(entity) == {"PartitionKey", "RowKey", "updated_at", "lock_expires_at"}
+        if is_renewal and not raced:
+            raced = True
+            with patch.object(azurite_table_client, "update_entity", update):
+                store.update(thread.thread_id, metadata={"concurrent": True})
+        return DEFAULT
+
+    with patch.object(
+        azurite_table_client,
+        "update_entity",
+        side_effect=write_metadata_before_the_renewal,
+        wraps=update,
+    ):
+        # When the renewal's conditional write loses the race and is retried.
+        renewed = store.renew_run_lock(thread.thread_id, token)
+
+    # Then the real row still belongs to the same owner, with the concurrent write intact.
+    assert raced is True
+    assert renewed is True
+    after = store.get(thread.thread_id)
+    assert after is not None
+    assert (after.status, after.lock_token) == ("busy", token)
+    assert after.metadata == {"concurrent": True}
+    assert after.assistant_id == "agent"
+
+
+def test_a_renewal_that_loses_the_row_to_a_new_owner_returns_false_against_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given an old owner whose renewal conflicts with a newer owner's acquisition.
+    from unittest.mock import DEFAULT, patch
+
+    store = _new_store(azurite_table_client)
+    thread = store.create()
+    locked = store.try_acquire_run_lock(thread.thread_id)
+    assert locked is not None and locked.lock_token is not None
+    old_token = locked.lock_token
+    update = azurite_table_client.update_entity
+    new_token: list[str] = []
+
+    def new_owner_takes_over(entity: dict[str, Any], *args: object, **kwargs: object) -> object:
+        is_renewal = set(entity) == {"PartitionKey", "RowKey", "updated_at", "lock_expires_at"}
+        if is_renewal and not new_token:
+            with patch.object(azurite_table_client, "update_entity", update):
+                store.update(thread.thread_id, status="idle")
+                owner = store.try_acquire_run_lock(thread.thread_id)
+            assert owner is not None and owner.lock_token is not None
+            new_token.append(owner.lock_token)
+        return DEFAULT
+
+    with patch.object(
+        azurite_table_client, "update_entity", side_effect=new_owner_takes_over, wraps=update
+    ):
+        # When the old owner's renewal re-reads the row after the 412.
+        renewed = store.renew_run_lock(thread.thread_id, old_token)
+
+    # Then it reports lost ownership and the newer owner's lock is untouched.
+    assert renewed is False
+    after = store.get(thread.thread_id)
+    assert after is not None
+    assert (after.status, after.lock_token) == ("busy", new_token[0])
