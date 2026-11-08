@@ -358,3 +358,38 @@ def test_release_removes_lease_fields_after_renewal_conflict(
     assert "lock_token" not in rows[0]
     assert "lock_expires_at" not in rows[0]
     assert not store.renew_run_lock(thread.thread_id, token)
+
+
+def test_reset_stale_locks_revokes_the_old_owner_against_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given a stale busy thread that the maintenance sweep reclaims (#808).
+    store = _new_store(azurite_table_client)
+    thread = store.create(metadata={"kind": "kept"})
+    locked = store.try_acquire_run_lock(thread.thread_id, assistant_id="agent")
+    assert locked is not None and locked.lock_token is not None
+    old_token = locked.lock_token
+    _set_updated_at(
+        azurite_table_client, thread.thread_id, datetime.now(UTC) - timedelta(seconds=900)
+    )
+    assert store.reset_stale_locks(older_than_seconds=300) == 1
+
+    # When the old worker comes back and releases and renews with its old token.
+    outcome = store.release_run_lock(
+        thread.thread_id, status="idle", values={"stale": True}, owner_token=old_token
+    )
+    renewed = store.renew_run_lock(thread.thread_id, old_token)
+
+    # Then the real Table row has no lock properties, the recovery disposition stands,
+    # and nothing else about the thread changed.
+    rows = list(cast(Any, azurite_table_client.query_entities)("PartitionKey eq 'thread'"))
+    assert "lock_token" not in rows[0] and "lock_expires_at" not in rows[0]
+    assert (outcome.status, outcome.values, outcome.lock_token) == ("error", None, None)
+    assert renewed is False
+    after = store.get(thread.thread_id)
+    assert after is not None
+    assert (after.status, after.metadata, after.assistant_id) == (
+        "error",
+        {"kind": "kept"},
+        "agent",
+    )
