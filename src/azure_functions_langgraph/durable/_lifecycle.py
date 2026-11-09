@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import logging
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Final, Protocol, runtime_checkable
 from uuid import uuid4
 
 from azure_functions_langgraph.durable._orchestrator import ACTIVITY_NAME  # noqa: F401
@@ -29,6 +29,7 @@ from azure_functions_langgraph.durable._state import (
 )
 
 __all__ = [
+    "CANCEL_REQUESTED",
     "DurableClientLike",
     "OrchestrationStatusLike",
     "create_run_impl",
@@ -38,6 +39,29 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+#: Acknowledgement returned by ``POST runs/{run_id}/cancel`` (HTTP 202). It says only that the
+#: termination call returned without reporting a failure; it is **not** a lifecycle status, so
+#: ``GET runs/{run_id}`` never returns it, and it does not mean the orchestration is terminated
+#: or that the Activity running the graph (or its tools) has stopped.
+CANCEL_REQUESTED: Final = "cancel_requested"
+
+# Durable runtime statuses an orchestration never leaves again. Terminality is read from the
+# runtime status, not from the normalized one: a Completed run may still normalize to "error".
+_TERMINAL_RUNTIME_STATUSES: Final = frozenset(
+    {"Completed", "Failed", "Terminated", "Canceled", "Cancelled"}
+)
+
+
+def _cancel_failed(run_id: str) -> dict[str, Any]:
+    """The generic body for a cancellation the backend failed to confirm (never backend text)."""
+    return {
+        "run_id": run_id,
+        "error": {
+            "code": "cancel_failed",
+            "message": "Unable to confirm the cancellation request.",
+        },
+    }
 
 
 @runtime_checkable
@@ -165,17 +189,43 @@ async def get_run_impl(client: DurableClientLike, run_id: str) -> tuple[int, dic
 async def cancel_run_impl(
     client: DurableClientLike, run_id: str, *, reason: str = "cancelled by client"
 ) -> tuple[int, dict[str, Any]]:
-    """Cancel a durable run by terminating its orchestration.
+    """Request termination of a durable run's orchestration and say only what is known.
 
-    Returns ``(404, {...})`` when the instance is unknown, otherwise ``(202,
-    {run_id, status: "cancelled"})``. Terminate is best-effort and asynchronous
-    on the Durable side; the normalized status becomes ``cancelled`` once the
-    termination is applied.
+    Durable termination is asynchronous, and it terminates the *orchestration*: it does not
+    interrupt an Activity that is already running, so the graph and its tools may keep
+    executing, and writing checkpoints, after this returns and even after ``GET`` reports
+    ``cancelled``. The response therefore claims no more than was observed:
+
+    * unknown run, or a status object without a runtime status: ``404``, nothing is requested;
+    * the run is already finished (Completed, Failed, Terminated or Canceled): ``200`` with
+      the normalized status ``GET`` would return (``success``, ``error`` or ``cancelled``),
+      and no termination is requested, so a run that succeeded is never reported as cancelled;
+    * otherwise ``terminate`` is called and ``202 {run_id, status: "cancel_requested"}`` is
+      returned once it returns without raising. That is "the request was made", nothing more:
+      the run can still complete normally (the SDK also returns normally when the instance
+      finished in the meantime), so poll ``GET`` for the outcome;
+    * the status lookup or the termination call raises: ``502`` with a generic body, never the
+      backend's text (it is logged); after a failed ``terminate`` the outcome is unknown.
     """
 
-    status = await client.get_status(run_id)
-    if runtime_status_str(status) is None:
+    try:
+        status = await client.get_status(run_id)
+    except Exception:  # noqa: BLE001 - backend failure at the HTTP boundary: logged, answered generically
+        logger.exception("Durable status lookup failed while cancelling run %r", run_id)
+        return 502, _cancel_failed(run_id)
+
+    runtime = runtime_status_str(status)
+    if runtime is None:
         return 404, {"run_id": run_id, "error": "run not found"}
 
-    await client.terminate(run_id, reason)
-    return 202, {"run_id": run_id, "status": "cancelled"}
+    if runtime.strip() in _TERMINAL_RUNTIME_STATUSES:
+        output = getattr(status, "output", None)
+        output_mapping = output if isinstance(output, Mapping) else None
+        return 200, {"run_id": run_id, "status": normalize_status(runtime, output_mapping)}
+
+    try:
+        await client.terminate(run_id, reason)
+    except Exception:  # noqa: BLE001 - backend failure at the HTTP boundary: logged, answered generically
+        logger.exception("Durable terminate failed for run %r", run_id)
+        return 502, _cancel_failed(run_id)
+    return 202, {"run_id": run_id, "status": CANCEL_REQUESTED}

@@ -31,6 +31,7 @@ from azure_functions_langgraph.durable._activity import (
     execute_langgraph_run_impl,
 )
 from azure_functions_langgraph.durable._lifecycle import (
+    CANCEL_REQUESTED,
     DurableClientLike,
     OrchestrationStatusLike,
     cancel_run_impl,
@@ -66,6 +67,7 @@ __all__ = [
     "OrchestrationContextLike",
     "run_orchestration",
     # Lifecycle
+    "CANCEL_REQUESTED",
     "DurableClientLike",
     "OrchestrationStatusLike",
     "create_run_impl",

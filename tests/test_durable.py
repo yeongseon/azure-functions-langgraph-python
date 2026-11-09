@@ -444,10 +444,12 @@ class TestCancelRun:
         assert code == 404
 
     async def test_terminates(self) -> None:
+        # The acknowledgement is "cancel_requested", never "cancelled": see test_durable_cancel.py
+        # for the full contract (terminal runs, races, backend failures).
         client = FakeDurableClient(status=FakeStatus(_Enum("Running")))
         code, body = await cancel_run_impl(client, "r1")
         assert code == 202
-        assert body["status"] == "cancelled"
+        assert body == {"run_id": "r1", "status": "cancel_requested"}
         assert client.terminated == [("r1", "cancelled by client")]
 
 
@@ -565,6 +567,7 @@ class TestGetCancelHttp:
         client = FakeDurableClient(status=FakeStatus(_Enum("Running")))
         resp = await cancel_run_http(client, _req(route_params={"run_id": "r1"}))
         assert resp.status_code == 202
+        assert json.loads(resp.get_body())["status"] == "cancel_requested"
 
 
 # --------------------------------------------------------------------------
