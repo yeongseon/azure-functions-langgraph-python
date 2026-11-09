@@ -600,3 +600,5 @@ def register_thread_routes(
             mimetype="application/json",
             status_code=200,
         )
+
+# Probe for #832: a change to this file has to start the Table Integration lane. Never merged.
