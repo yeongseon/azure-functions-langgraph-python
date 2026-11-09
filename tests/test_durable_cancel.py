@@ -210,8 +210,9 @@ class TestRepeatedAndQueuedCancellation:
     async def test_a_run_that_finishes_inside_the_race_window_is_acknowledged_and_ends_as_it_ended(
         self,
     ) -> None:
-        # Given a run that completes between the status check and the termination call: the
-        # real SDK returns normally for an instance that already finished (HTTP 410).
+        # Given a run that completes between the status check and the termination call. The SDK
+        # client returns normally for HTTP 202 and 410 alike, so the caller cannot tell a request
+        # that arrived after the run ended from one that was accepted.
         client = ScriptedClient(
             "Running",
             on_terminate=lambda c: c.set_status("Completed", _outcome("success", {"y": 1})),
@@ -299,7 +300,8 @@ class BlockingGraph:
     def invoke(self, input: Any, config: Any = None) -> Any:
         self.calls += 1
         self.entered.set()
-        assert self.release.wait(10), "the test never released the graph"
+        # A watchdog only: every test releases the graph in its cleanup, long before this expires.
+        assert self.release.wait(60), "the test never released the graph"
         return {"done": True}
 
 
@@ -353,12 +355,15 @@ class TestTerminatedOrchestrationVersusRunningActivity:
             finished_b = FakeDurableClient(FakeStatus("Completed", rejected.to_dict()))
             assert (await get_run_impl(finished_b, "run-b"))[1]["status"] == "error"
         finally:
+            # Whatever happened above, release the graph and wait for the task to finish so that
+            # nothing outlives the test.
             graph.release.set()
+            (outcome_a,) = await asyncio.gather(run_a, return_exceptions=True)
 
-        # When the blocked worker finally returns, its result is produced (Durable discards it
-        # for a terminated orchestration, but the graph ran to the end)...
-        result_a = await run_a
-        assert result_a.activity_status == "success" and graph.calls == 1
+        # When the blocked worker finally returns, the Activity produces its result (what Durable
+        # does with it for a terminated orchestration is outside this test)...
+        assert not isinstance(outcome_a, BaseException)
+        assert outcome_a.activity_status == "success" and graph.calls == 1
 
         # ...and only then can the thread be used again.
         graph_c = BlockingGraph()
@@ -386,22 +391,25 @@ class TestTerminatedOrchestrationVersusRunningActivity:
         try:
             assert await asyncio.to_thread(graph.entered.wait, 5)
 
-            # When the task is cancelled while the synchronous graph is still running.
+            # When the task is cancelled while the synchronous graph is still running, give it
+            # time to finish early. Without the retention it would, within milliseconds: this
+            # waits for the event that must NOT happen, so a slow runner can only miss the bug,
+            # never fail a correct implementation.
             run_a.cancel()
-            await asyncio.sleep(0.05)
+            finished_early, _ = await asyncio.wait({run_a}, timeout=0.5)
 
             # Then it has not finished and still holds the thread, so a new Activity is rejected.
-            assert not run_a.done()
+            assert not finished_early
             rejected = await execute_langgraph_run_impl(
                 _payload(run_id="run-b", thread_id="t1"), registry=registry, thread_lock=lock
             )
             assert rejected.activity_status == "rejected"
         finally:
             graph.release.set()
+            (outcome_a,) = await asyncio.gather(run_a, return_exceptions=True)
 
         # When the graph stops, the cancellation is delivered and the thread is free again.
-        with pytest.raises(asyncio.CancelledError):
-            await run_a
+        assert isinstance(outcome_a, asyncio.CancelledError)
         token = lock.acquire("echo", "t1")
         assert token is not None
         lock.release("echo", "t1", token)
