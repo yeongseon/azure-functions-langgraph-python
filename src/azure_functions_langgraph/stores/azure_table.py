@@ -15,7 +15,7 @@ import uuid
 
 from ..platform.contracts import Interrupt, Thread, ThreadStatus
 from ..platform.stores import ThreadStore
-from ._errors import RunLockReleaseError
+from ._errors import RunLockReleaseError, RunLockRenewalConflictError
 from ._table_json import read_json, validate_entity, write_json
 
 logger = logging.getLogger(__name__)
@@ -594,29 +594,51 @@ class AzureTableThreadStore(ThreadStore):
         raise RunLockReleaseError(thread_id) from last_conflict
 
     def renew_run_lock(self, thread_id: str, owner_token: str) -> bool:
-        entity = self._table_client.get_entity(
-            partition_key=self._partition_key(), row_key=thread_id
-        )
-        if entity.get("lock_token") != owner_token or entity.get("status") != "busy":
-            return False
-        metadata = getattr(entity, "metadata", None)
-        etag = metadata.get("etag") if isinstance(metadata, Mapping) else entity.get("etag")
-        now = self._now()
-        try:
-            self._table_client.update_entity(
-                {
-                    "PartitionKey": self._partition_key(),
-                    "RowKey": thread_id,
-                    "updated_at": now,
-                    "lock_expires_at": now + timedelta(seconds=60),
-                },
-                mode="merge",
-                etag=etag,
-                match_condition=self._match_conditions.IfNotModified,
+        """Extend a held run lock, retrying ETag conflicts while the caller still owns it.
+
+        A metadata-only write (for example ``PATCH /threads/{id}``) changes the row's ETag
+        without touching its owner, so a conflict on the conditional write is not proof that
+        ownership changed. Each attempt re-reads the row and re-checks that ``owner_token``
+        still owns a ``busy`` thread before writing again, for at most three attempts:
+
+        * the token was replaced, or the thread is no longer ``busy`` (released, reclaimed
+          by :meth:`reset_stale_locks`, re-acquired): returns ``False`` and writes nothing,
+          so a newer owner's record is never overwritten;
+        * the conditional write succeeded: returns ``True``;
+        * every attempt still lost the race while the caller kept ownership: raises
+          :class:`RunLockRenewalConflictError`. The lock was neither shown to be lost nor
+          extended, and the Platform renewal worker reports it as a failed renewal.
+
+        Storage errors (a missing thread, a transport fault) propagate unchanged and are not
+        mistaken for lost ownership.
+        """
+        last_conflict: BaseException | None = None
+        for _attempt in range(3):
+            entity = self._table_client.get_entity(
+                partition_key=self._partition_key(), row_key=thread_id
             )
-        except self._modified_error:
-            return False
-        return True
+            if entity.get("lock_token") != owner_token or entity.get("status") != "busy":
+                return False
+            metadata = getattr(entity, "metadata", None)
+            etag = metadata.get("etag") if isinstance(metadata, Mapping) else entity.get("etag")
+            now = self._now()
+            try:
+                self._table_client.update_entity(
+                    {
+                        "PartitionKey": self._partition_key(),
+                        "RowKey": thread_id,
+                        "updated_at": now,
+                        "lock_expires_at": now + timedelta(seconds=60),
+                    },
+                    mode="merge",
+                    etag=etag,
+                    match_condition=self._match_conditions.IfNotModified,
+                )
+            except self._modified_error as exc:
+                last_conflict = exc
+                continue
+            return True
+        raise RunLockRenewalConflictError(thread_id) from last_conflict
 
     def reset_stale_locks(
         self,

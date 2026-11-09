@@ -1030,7 +1030,12 @@ Table run locks and Blob marker leases are distinct resources. Platform run
 handlers renew store ownership every 20 seconds; renewal failure is retained
 for cleanup and returns a sanitized HTTP 500 instead of successful completion.
 Owner-token checks and ETag CAS prevent an old release from clearing a newer
-store owner; release retries conflicts up to three times. A release or renewal
+store owner; release retries conflicts up to three times, and a renewal that
+loses its conditional write to an unrelated write (for example a metadata
+update) re-reads the row and tries again, for at most three attempts, while it
+still owns the thread. An isolated write therefore does not fail a live run;
+three conflicting writes in a row still fail the renewal and the run ends with
+the sanitized HTTP 500. A release or renewal
 also requires the thread to still be `busy`. Failed persistence or
 release can leave a row `busy`. A host crash may skip cleanup entirely.
 
