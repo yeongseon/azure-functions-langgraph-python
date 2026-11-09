@@ -15,6 +15,7 @@ single-process deployments.  For production scale-out, implement
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import copy
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import threading
@@ -72,6 +73,35 @@ class ReleaseOutcomeProvider(Protocol):
         thread), in which case ``thread`` is the unchanged current thread. A release
         without an owner token is always applied. Raises ``KeyError(thread_id)`` if the
         thread does not exist and ``ValueError`` for status ``"busy"``.
+        """
+        ...
+
+
+@runtime_checkable
+class MetadataMergeProvider(Protocol):
+    """Optional :class:`ThreadStore` capability: merge thread metadata atomically.
+
+    ``update(thread_id, metadata=...)`` replaces the thread's whole metadata map. A caller
+    that read the thread, merged a patch into its copy and wrote the result back therefore
+    silently drops every key another writer added in between (a lost update): the window is the
+    caller's own latency, and a store that retries a conflicting write re-applies the same stale
+    map. A store that also implements this protocol merges the patch into the **current**
+    metadata inside its own atomic read-modify-write, so the keys of every patch that succeeds
+    survive concurrent patches of other keys.
+
+    Platform handlers use it for ``PATCH /threads/{id}`` and for the metadata a run carries, and
+    fall back to read, merge and ``update`` for stores without it, which keep working but are not
+    protected against that race.
+    """
+
+    def merge_metadata(self, thread_id: str, metadata: Mapping[str, Any]) -> Thread:
+        """Shallow-merge ``metadata`` into the thread's current metadata and return the thread.
+
+        Keys of ``metadata`` override the same keys of the current map (for one key the last
+        writer wins); every other key and every other field (status, assistant binding, values,
+        lock token and expiry) is left as it is, except that ``updated_at`` advances as for
+        ``update``. The merge happens against the metadata as it stands when the write is
+        applied, not against any earlier read. Raises ``KeyError(thread_id)`` for a missing thread.
         """
         ...
 
@@ -159,6 +189,9 @@ class ThreadStore(Protocol):
         Raises ``KeyError`` if the thread does not exist.
         """
         ...
+
+    # ``update(..., metadata=...)`` replaces the whole metadata map. A store that can merge
+    # atomically also implements :class:`MetadataMergeProvider` (``merge_metadata``).
 
     def try_acquire_run_lock(
         self,
@@ -363,6 +396,19 @@ class InMemoryThreadStore:
             updated = existing.model_copy(update=update)
             self._threads[thread_id] = updated
             return self._deep_copy(updated)
+
+    def merge_metadata(self, thread_id: str, metadata: Mapping[str, Any]) -> Thread:
+        """Merge ``metadata`` into the thread's current metadata and return the thread.
+
+        The read and the write happen under one lock acquisition, and the write goes through
+        :meth:`update`, so a subclass that overrides ``update`` still sees every metadata write.
+        """
+        with self._lock:
+            existing = self._threads.get(thread_id)
+            if existing is None:
+                raise KeyError(thread_id)
+            merged = {**(existing.metadata or {}), **copy.deepcopy(dict(metadata))}
+            return self.update(thread_id, metadata=merged)
 
     def delete(self, thread_id: str) -> None:
         """Delete a thread.  Raises ``KeyError`` if not found."""
