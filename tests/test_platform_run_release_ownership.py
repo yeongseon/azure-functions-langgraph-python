@@ -26,7 +26,11 @@ import pytest
 from azure_functions_langgraph.app import LangGraphApp
 from azure_functions_langgraph.locks import InProcessThreadLock
 from azure_functions_langgraph.platform._store_renewal import RunLockReleaseRejectedError
-from azure_functions_langgraph.platform.stores import InMemoryThreadStore
+from azure_functions_langgraph.platform.stores import (
+    InMemoryThreadStore,
+    ReleaseOutcomeProvider,
+    RunLockReleaseOutcome,
+)
 from tests.conftest import FakeCompiledGraph
 from tests.ownership_guard_support import RecordingObserver
 from tests.test_platform_routes import _get_fn, _post_request
@@ -105,8 +109,18 @@ class Harness:
         self.thread_id = self.store.create().thread_id
         self.new_owner_token: str | None = None
 
-    def steal(self, *, new_owner: bool, reset_to: str = "error") -> None:
-        """Ownership is lost after the last renewal tick: reclaimed, optionally re-acquired."""
+    def steal(
+        self,
+        *,
+        new_owner: bool,
+        reset_to: str = "error",
+        new_owner_finishes: dict[str, Any] | None = None,
+    ) -> None:
+        """Ownership is lost after the last renewal tick: reclaimed, optionally re-acquired.
+
+        With ``new_owner_finishes`` the new owner also runs to completion (releases to ``idle``
+        with those values) before the stale run gets to release.
+        """
         if self.table is None:
             self.store.release_run_lock(self.thread_id, status=reset_to)
         else:
@@ -124,6 +138,14 @@ class Harness:
             owner = self.store.try_acquire_run_lock(self.thread_id)
             assert owner is not None and owner.lock_token is not None
             self.new_owner_token = owner.lock_token
+            if new_owner_finishes is not None:
+                finished = self.store.release_run_lock(
+                    self.thread_id,
+                    status="idle",
+                    values=new_owner_finishes,
+                    owner_token=owner.lock_token,
+                )
+                assert (finished.status, finished.lock_token) == ("idle", None)
 
     def run(self, endpoint: str) -> func.HttpResponse:
         handler = _get_fn(self.app.function_app, f"aflg_platform_runs_{endpoint}")
@@ -160,6 +182,29 @@ def check_a_stale_release_is_reported_as_failure_not_completion(
     else:
         assert (after.status, after.lock_token) == ("error", None)
     # And the outer thread lock is released exactly once.
+    assert len(h.lock.acquired) == 1 and h.lock.released == h.lock.acquired
+
+
+def check_another_owner_finishing_first_does_not_hide_a_stale_release(
+    h: Harness, endpoint: str
+) -> None:
+    # Given a run that loses the thread after its last renewal tick, and a newer owner that
+    # acquires the thread and runs to completion before the stale run releases.
+    h.graph.hook = lambda: h.steal(new_owner=True, new_owner_finishes={"newer": "values"})
+
+    # When the stale run finally releases with its old owner token. The thread the store hands
+    # back now looks exactly like a normally finished one: idle, no lock token.
+    response = h.run(endpoint)
+
+    # Then the release was still not applied, so the run is a failure, not a completion.
+    assert response.status_code == 500
+    assert json.loads(response.get_body())["detail"] == "Run-lock release failed"
+    assert h.observer.events == ["started", "failed"]
+    assert isinstance(h.observer.failures[0], RunLockReleaseRejectedError)
+    # And the newer owner's result stands; the stale run's output was not persisted over it.
+    after = h.store.get(h.thread_id)
+    assert after is not None
+    assert (after.status, after.lock_token, after.values) == ("idle", None, {"newer": "values"})
     assert len(h.lock.acquired) == 1 and h.lock.released == h.lock.acquired
 
 
@@ -205,19 +250,15 @@ def check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale
     h.graph.hook = lambda: h.steal(new_owner=new_owner)
     h.graph.error = RuntimeError(SECRET)
 
-    # When the handler cleans up. A reclaim to the status the failed run asks for ("error") is
-    # indistinguishable from a normal release; a thread busy under a new owner is refused.
+    # When the handler cleans up. The store reports exactly that the release was not applied,
+    # also when a reclaim left the thread at the very status the failed run asks for ("error").
     response = h.run(endpoint)
 
     # Then the graph error is the one failure reported (once) and it is sanitized. A refused
     # release replaces a buffered stream error frame with the sanitized JSON 500, as any other
     # release failure does.
-    if endpoint == "wait" or new_owner:
-        assert response.status_code == 500
-        assert json.loads(response.get_body())["detail"] == "Graph execution failed"
-    else:
-        assert response.status_code == 200
-        assert b"event: error" in response.get_body()
+    assert response.status_code == 500
+    assert json.loads(response.get_body())["detail"] == "Graph execution failed"
     assert SECRET.encode() not in response.get_body()
     assert h.observer.events == ["started", "failed"]
     assert str(h.observer.failures[0]) == SECRET
@@ -270,6 +311,147 @@ def test_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
     check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
         Harness(store_kind), endpoint, new_owner
     )
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("store_kind", ["memory", "table"])
+def test_another_owner_finishing_first_does_not_hide_a_stale_release(
+    endpoint: str, store_kind: str
+) -> None:
+    check_another_owner_finishing_first_does_not_hide_a_stale_release(Harness(store_kind), endpoint)
+
+
+class PlainStore:
+    """A custom store that implements only the ``ThreadStore`` protocol: no release outcome.
+
+    It forwards to a bundled store but exposes nothing else, so the run handlers have only the
+    returned thread to judge a release by.
+    """
+
+    FORWARDED = (
+        "create",
+        "get",
+        "update",
+        "delete",
+        "search",
+        "count",
+        "try_acquire_run_lock",
+        "release_run_lock",
+        "renew_run_lock",
+        "reset_stale_locks",
+    )
+
+    def __init__(self, inner: Any) -> None:
+        for name in self.FORWARDED:
+            if hasattr(inner, name):
+                setattr(self, name, getattr(inner, name))
+
+
+def _plain_harness(kind: str) -> Harness:
+    inner: Any
+    table: Any = None
+    if kind == "memory":
+        inner = InMemoryThreadStore()
+    else:
+        inner, table = _new_store()
+    plain = PlainStore(inner)
+    assert not isinstance(plain, ReleaseOutcomeProvider)
+    return Harness(kind, plain, table)
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("store_kind", ["memory", "table"])
+@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
+def test_a_store_without_the_outcome_still_rejects_what_the_returned_thread_exposes(
+    endpoint: str, store_kind: str, new_owner: bool
+) -> None:
+    # A reclaim to "error" (the run asked for "idle") and a thread busy under a new owner both
+    # differ from the requested status, so the fallback comparison still catches them.
+    check_a_stale_release_is_reported_as_failure_not_completion(
+        _plain_harness(store_kind), endpoint, new_owner
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("store_kind", ["memory", "table"])
+def test_a_store_without_the_outcome_still_completes_ordinary_runs(
+    endpoint: str, store_kind: str
+) -> None:
+    check_an_ordinary_run_still_completes_and_publishes_its_result(
+        _plain_harness(store_kind), endpoint
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+def test_a_store_without_the_outcome_cannot_see_a_finished_new_owner_documented_limit(
+    endpoint: str,
+) -> None:
+    # Given the ordering above on a store that cannot say whether its release was applied.
+    h = _plain_harness("memory")
+    h.graph.hook = lambda: h.steal(new_owner=True, new_owner_finishes={"newer": "values"})
+
+    # When the stale run releases: the returned thread is idle with no token, exactly what an
+    # applied release returns, and nothing else is known.
+    response = h.run(endpoint)
+
+    # Then the run is reported as completed. This is the documented limit of the fallback; a
+    # store that implements the outcome closes it (see the tests above).
+    assert response.status_code == 200
+    assert h.observer.events == ["started", "completed"]
+    after = h.store.get(h.thread_id)
+    assert after is not None and after.values == {"newer": "values"}
+
+
+class _ScriptedOutcomeStore:
+    """A store whose release outcome is scripted: it reports ``applied`` and returns ``thread``."""
+
+    def __init__(self, inner: InMemoryThreadStore, *, applied: bool, thread_override: Any) -> None:
+        self._inner = inner
+        self._applied = applied
+        self._override = thread_override
+        for name in PlainStore.FORWARDED:
+            if hasattr(inner, name):
+                setattr(self, name, getattr(inner, name))
+
+    def release_run_lock_outcome(self, thread_id: str, **kwargs: Any) -> RunLockReleaseOutcome:
+        released = self._inner.release_run_lock(thread_id, **kwargs)
+        thread = released if self._override is None else released.model_copy(update=self._override)
+        return RunLockReleaseOutcome(thread, applied=self._applied)
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize(
+    ("applied", "override"),
+    [
+        (False, None),
+        (True, {"status": "busy"}),
+        (True, {"lock_token": "left-behind"}),
+        (True, {"status": "error"}),
+    ],
+    ids=[
+        "reported-not-applied",
+        "applied-but-busy",
+        "applied-but-token-left",
+        "applied-but-status",
+    ],
+)
+def test_the_reported_outcome_and_the_returned_thread_must_both_say_success(
+    endpoint: str, applied: bool, override: dict[str, Any] | None
+) -> None:
+    # Given a store that reports its own outcome: a refusal beside a clean-looking thread, or
+    # an "applied" beside a thread that contradicts it.
+    inner = InMemoryThreadStore()
+    scripted = _ScriptedOutcomeStore(inner, applied=applied, thread_override=override)
+    assert isinstance(scripted, ReleaseOutcomeProvider)
+    h = Harness("memory", scripted)
+
+    # When the run completes and releases.
+    response = h.run(endpoint)
+
+    # Then either signal alone is enough to fail the run.
+    assert response.status_code == 500
+    assert h.observer.events == ["started", "failed"]
+    assert isinstance(h.observer.failures[0], RunLockReleaseRejectedError)
 
 
 @pytest.mark.parametrize("endpoint", ["wait", "stream"])

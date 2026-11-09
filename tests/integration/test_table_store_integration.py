@@ -19,6 +19,7 @@ from tests.test_platform_run_release_ownership import (
     check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale,
     check_a_stale_release_is_reported_as_failure_not_completion,
     check_an_ordinary_run_still_completes_and_publishes_its_result,
+    check_another_owner_finishing_first_does_not_hide_a_stale_release,
     check_the_new_owner_can_still_finish_after_the_stale_release_was_refused,
 )
 from tests.test_table_renew_retry import _App, _race_the_renewal, _wait_for_one_renewal
@@ -612,3 +613,48 @@ def test_a_graph_failure_stays_primary_over_the_real_table(
     check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
         _real_run_harness(azurite_table_client), endpoint, new_owner
     )
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+def test_another_owner_finishing_first_does_not_hide_a_stale_release_over_the_real_table(
+    endpoint: str, azurite_table_client: _TableClientProtocol
+) -> None:
+    # The stale run's release hits a real row that another owner already finished at "idle",
+    # which is exactly the thread an applied release would return. Only the store's own answer
+    # (the replace was never sent) tells the run it must not report success.
+    check_another_owner_finishing_first_does_not_hide_a_stale_release(
+        _real_run_harness(azurite_table_client), endpoint
+    )
+
+
+def test_release_outcome_is_exact_against_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given a real row that ran A (reclaimed), then B (finished), and then A's stale release.
+    store = _new_store(azurite_table_client)
+    thread = store.create()
+    held_a = store.try_acquire_run_lock(thread.thread_id)
+    assert held_a is not None and held_a.lock_token is not None
+    token_a = held_a.lock_token
+    _set_updated_at(
+        azurite_table_client, thread.thread_id, datetime.now(UTC) - timedelta(seconds=900)
+    )
+    assert store.reset_stale_locks(older_than_seconds=300) == 1
+    held_b = store.try_acquire_run_lock(thread.thread_id)
+    assert held_b is not None and held_b.lock_token is not None
+    applied_b = store.release_run_lock_outcome(
+        thread.thread_id, status="idle", values={"b": 1}, owner_token=held_b.lock_token
+    )
+
+    # When A's stale release arrives.
+    stale_a = store.release_run_lock_outcome(
+        thread.thread_id, status="idle", values={"a": 1}, owner_token=token_a
+    )
+
+    # Then B's release was applied and A's was not, although the thread A gets back is the same
+    # idle, token-free row an applied release would have returned; nothing was written for A.
+    assert applied_b.applied is True
+    assert stale_a.applied is False
+    assert (stale_a.thread.status, stale_a.thread.lock_token) == ("idle", None)
+    assert stale_a.thread.values == {"b": 1}
+    assert store.get(thread.thread_id) == stale_a.thread

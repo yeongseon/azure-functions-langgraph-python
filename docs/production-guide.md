@@ -1032,8 +1032,10 @@ for cleanup and returns a sanitized HTTP 500 instead of successful completion.
 A release the store refuses as stale (the run no longer owned the thread, for
 example after a reclaim or a newer owner) is reported the same way: HTTP 500 and
 one failed observer event, not a completion. The store's stale-token no-op itself
-is unchanged. Reclaim with the default `error` status: a reset to `idle` followed
-by a successful `idle` release looks identical to a normal release.
+is unchanged. The bundled stores report exactly whether the release was applied, so
+this holds even when a reclaim left the thread at the status the run asked for, or
+another run acquired it and finished first; a custom store that cannot say so is
+judged by the returned thread alone (see the adapter reference).
 Owner-token checks and ETag CAS prevent an old release from clearing a newer
 store owner; release retries conflicts up to three times, and a renewal that
 loses its conditional write to an unrelated write (for example a metadata
