@@ -45,12 +45,14 @@ from azure_functions_langgraph.platform._store_renewal import (
     _STORE_RENEWALS as _STORE_RENEWALS,
 )
 from azure_functions_langgraph.platform._store_renewal import (
-    _start_store_renewal as _start_store_renewal,
-)
-from azure_functions_langgraph.platform._store_renewal import (
+    RunLockReleaseRejectedError,
     stop_store_renewal,
 )
+from azure_functions_langgraph.platform._store_renewal import (
+    _start_store_renewal as _start_store_renewal,
+)
 from azure_functions_langgraph.platform.contracts import ThreadStatus
+from azure_functions_langgraph.platform.stores import ReleaseOutcomeProvider
 from azure_functions_langgraph.protocols import StreamableGraph
 
 
@@ -69,12 +71,31 @@ def _release_thread_run_lock(
         status = "error"
         values = None
     try:
-        deps.thread_store.release_run_lock(
-            thread_id,
-            status=status,
-            values=values,
-            owner_token=store_owner_token or lock_token,
-        )
+        owner_token = store_owner_token or lock_token
+        applied = True
+        if isinstance(deps.thread_store, ReleaseOutcomeProvider):
+            outcome = deps.thread_store.release_run_lock_outcome(
+                thread_id, status=status, values=values, owner_token=owner_token
+            )
+            released, applied = outcome.thread, outcome.applied
+        else:
+            released = deps.thread_store.release_run_lock(
+                thread_id, status=status, values=values, owner_token=owner_token
+            )
+        # A stale owner's release is a deliberate no-op that returns the unchanged current
+        # thread (it does not raise). Anything but our own terminal release means this run no
+        # longer owned the thread, so its completion must not be reported as a success. A store
+        # with the outcome capability says so exactly. Without it the returned thread is all
+        # there is to judge by, and it cannot expose a stale release that left a thread another
+        # owner had already finished at the requested status. The requested status is never
+        # "busy", so a thread still busy under a newer owner differs too. Both are checked even
+        # when the store reports "applied", so an inconsistent store still fails the run.
+        if not applied or released.status != status or released.lock_token is not None:
+            failure = failure or RunLockReleaseRejectedError()
+            logger.warning(
+                "Run-lock release for thread %s was ignored: the run no longer owned the thread",
+                thread_id,
+            )
     except KeyError as exc:
         failure = failure or exc
         logger.warning(

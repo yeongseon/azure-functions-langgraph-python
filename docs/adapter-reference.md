@@ -605,8 +605,8 @@ pip install "azure-functions-langgraph[durable]"
 | Route | Purpose |
 |---|---|
 | `POST /api/graphs/{name}/runs` | Start a run — returns `202` with a `run_id` and `pending` status |
-| `GET /api/runs/{run_id}` | Poll normalized run status (`pending` / `running` / `completed` / `failed` / `canceled`) |
-| `POST /api/runs/{run_id}/cancel` | Terminate an in-flight run |
+| `GET /api/runs/{run_id}` | Poll normalized run status (`pending` / `running` / `success` / `error` / `cancelled`) |
+| `POST /api/runs/{run_id}/cancel` | Request termination of a run: `202` with `cancel_requested` while it is in flight, `200` with the real status once it finished, `404` unknown, sanitized `502` on a backend failure |
 
 The graph executes inside a Durable **activity**, never the orchestrator, so
 Durable replay determinism is preserved — no LLM, tool, network, clock, random,
@@ -631,7 +631,13 @@ Durable is a long-running execution/polling choice, not a global single-writer
 service. Activities use the configured `thread_lock` for checkpointed runs with
 a thread ID; separate apps must share a distributed lock configuration when
 they write the same thread. Terminating an orchestration does not forcibly
-stop an already-running activity or synchronous tool. See the
+stop an already-running activity or synchronous tool. `cancel_requested` is an
+acknowledgement, not a status: it means only that the termination call returned without
+reporting a failure, `GET` never returns it, and a `cancelled` status means the
+orchestration is terminated, not that the Activity or its tools stopped. Poll `GET` until the
+status is terminal; the full contract, the thread-ownership behavior, the handling of
+non-idempotent tools and the migration from the earlier `202 cancelled` body are in the
+[production guide](production-guide.md#cancellation-of-durable-runs). See the
 [production guide](production-guide.md#async-runs-via-durable-functions-experimental).
 
 
@@ -1063,7 +1069,9 @@ When using `AzureTableThreadStore` with Platform-compatible runs, each graph exe
 | Lock acquisition (`try_acquire_run_lock`) | Atomic — exactly one caller wins | ETag CAS |
 | Lock release (`release_run_lock`) | Atomic — owner-fenced, ETag CAS | Owner-token check + replacement with ETag CAS |
 
-**Owner fencing and CAS retries:** If an optional `owner_token` is supplied and no longer matches the thread's current `lock_token` (e.g. `reset_stale_locks()` already reclaimed it, or a newer run re-acquired it), the release is a no-op — the current entity is returned unchanged and a warning is logged. On an ETag conflict, release reads the latest entity and checks ownership again, for at most three conditional-write attempts. A same-owner renewal or metadata update therefore does not strand the thread after a single conflict; a newer owner is never overwritten. Successful release atomically persists the terminal status and optional values, preserves other current properties, and removes `lock_token` and `lock_expires_at` using replacement semantics (merging `None` does not delete Azure Table properties). Exhaustion raises `RunLockReleaseError` (a `RuntimeError` subclass); Platform run handlers report a sanitized HTTP 500 rather than success, while still releasing local exclusion. Missing or concurrently deleted threads raise `KeyError`.
+**Owner fencing and CAS retries:** If an optional `owner_token` is supplied and no longer matches the thread's current `lock_token`, or the thread is no longer `busy` (e.g. `reset_stale_locks()` already reclaimed it, or a newer run re-acquired it), the release is a no-op — the current entity is returned unchanged and a warning is logged. On an ETag conflict, release reads the latest entity and checks ownership again, for at most three conditional-write attempts. A same-owner renewal or metadata update therefore does not strand the thread after a single conflict; a newer owner is never overwritten. Successful release atomically persists the terminal status and optional values, preserves other current properties, and removes `lock_token` and `lock_expires_at` using replacement semantics (merging `None` does not delete Azure Table properties). Exhaustion raises `RunLockReleaseError` (a `RuntimeError` subclass); Platform run handlers report a sanitized HTTP 500 rather than success, while still releasing local exclusion. Missing or concurrently deleted threads raise `KeyError`.
+
+**Renewal and ETag conflicts:** A metadata-only write (for example `PATCH /threads/{id}`) changes the row's ETag without changing its owner, so a conflict on the renewal's conditional write is not proof that ownership was lost. `renew_run_lock` therefore re-reads the row after a conflict and re-checks that its token still owns a `busy` thread before writing again, for at most three attempts, so up to two conflicting writes in a row are absorbed. A replaced token, a released thread, or one reclaimed by `reset_stale_locks()` returns `False` and writes nothing, so a newer owner's record is never overwritten. If all three attempts lose the race (the token still matched at each read), it raises `RunLockRenewalConflictError` (a `RuntimeError` subclass): whether ownership survived the last conflict is not known, the lock was neither shown to be lost nor extended, and the Platform renewal worker reports it as a failed renewal (the run ends with the sanitized HTTP 500 below, not as a success), so sustained write churn on one thread can still fail a run. The bound is on attempts, not on elapsed time: each read and write is subject only to the SDK's own timeouts, and the stop timeout below applies to a slow renewal as before. Storage errors, including a deleted row, propagate unchanged and are not retried or mistaken for lost ownership. Custom stores should likewise return `True` only after extending the lock, `False` only for lost ownership, and raise for operational errors.
 
 **Renewal failure:** Platform runs renew store ownership every 20 seconds. A
 negative renewal result or exception is retained for cleanup: wait and buffered
@@ -1083,7 +1091,26 @@ late `renew_run_lock` from an abandoned worker returns `False` instead of
 mutating a newer owner's record. This is verified by tests for the Table-store
 fake and `InMemoryThreadStore`; custom stores must implement the same
 owner-token check. Cleanup then always attempts owner-fenced store release and
-outer-lock release; host cancellation propagates after cleanup. Still configure
+outer-lock release; host cancellation propagates after cleanup. A run whose own release the store
+refuses as stale is a failure too (`RunLockReleaseRejectedError`): the store returns the unchanged
+current thread (busy under a newer owner, reclaimed, or finished by another run), and the handler
+returns the same sanitized HTTP 500 with one failed observer event instead of reporting completion.
+The bundled stores report exactly whether the release was applied through the optional
+`ReleaseOutcomeProvider` capability (`release_run_lock_outcome`, which returns a
+`RunLockReleaseOutcome(thread, applied)`; `release_run_lock` itself is unchanged and stays the
+call the handler makes), so the handler does not have to infer it from the returned thread. That
+stays exact when a reclaim left the thread at the status the run asked for, and when another run
+acquired the thread and finished before the stale release arrived: the returned thread then looks
+like a normally finished one, but the release was not applied and the run fails. A custom store
+without the capability is judged by the returned thread alone, so it must return the thread as it
+stands after the release (the requested status, no `lock_token`); a store that returns a snapshot
+taken before the write, or leaves the token on the released row, makes every run fail with that
+500. Such a store cannot expose a stale release that left the thread at the requested status (a
+reclaim to that status, or another owner that already finished); implementing
+`release_run_lock_outcome` closes that gap. A graph error that already failed the run
+stays the reported failure; on `runs/stream` a refused release also replaces the buffered error
+frame with the sanitized JSON 500, like any other release failure. Host cancellation still
+propagates without a terminal observer event. Still configure
 bounded Azure SDK network timeouts: Python cannot interrupt a hung synchronous
 SDK or graph call, so a stuck call keeps its thread. An orphaned `busy` thread is
 recovered with `reset_stale_locks()`. This does not roll back side effects, so
@@ -1098,9 +1125,9 @@ graph operations must remain idempotent. A newer owner's store lock is never cle
 count = thread_store.reset_stale_locks(older_than_seconds=600)
 ```
 
-Each reset uses ETag CAS so a thread that has been legitimately re-acquired since the scan is never stomped. Choose `older_than_seconds` comfortably above your longest expected graph execution time — ETag CAS protects against re-acquire races, but a still-running long job will not update its `updated_at` and could be reclaimed if the threshold is too short. See [`examples/maintenance_timer/`](../examples/maintenance_timer/) for a complete Timer Trigger wiring.
+Each candidate is re-read and re-verified (still `busy`, still older than the threshold), and the reset replaces the row without its `lock_token` and `lock_expires_at` using ETag CAS. That **revokes the previous owner**: a worker that comes back later fails the owner-token check, so its release cannot undo the recovery status or publish stale `values`, and its renewal returns false. A thread that was renewed, released or re-acquired since the scan is never stomped. Choose `older_than_seconds` comfortably above your longest expected graph execution time. A live Platform run refreshes its `updated_at` every 20 seconds through its renewal worker, so the threshold mainly bounds how long a dead owner's lock survives; a holder that does not renew, or whose renewal is blocked or failing, can still be reclaimed while it is working if the threshold is too short. ETag CAS protects against re-acquire races, not against that. See [`examples/maintenance_timer/`](../examples/maintenance_timer/) for a complete Timer Trigger wiring.
 
-> **Stale-lock cleanup caveat:** `reset_stale_locks` issues a projection query (`select=["RowKey", "updated_at"]`) and relies on the Azure Tables SDK to expose each row's ETag via either `entity.metadata["etag"]` or `entity["etag"]`. Rows where **neither shape** populates an ETag are skipped (logged at DEBUG) so a stale lock is never reset without a writable ETag for CAS; such rows are retried on the next scan once the SDK returns a usable ETag.
+> **Stale-lock cleanup caveat:** `reset_stale_locks` issues a projection query (`select=["RowKey", "updated_at"]`) to find candidates, then re-reads each one and relies on the Azure Tables SDK to expose that row's ETag via either `entity.metadata["etag"]` or `entity["etag"]`. Rows where **neither shape** populates an ETag are skipped (logged at DEBUG) so a stale lock is never reset without a writable ETag for CAS; such rows are retried on the next scan once the SDK returns a usable ETag. Revoking the token does not stop the old graph and does not fence Blob checkpoint writes. A row that an earlier release of this library reclaimed (status `error` or `idle` but still carrying the old `lock_token`) is protected as well: release and renewal also require the thread to be `busy`.
 
 #### Native endpoint thread locking
 

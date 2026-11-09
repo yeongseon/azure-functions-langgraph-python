@@ -114,11 +114,11 @@ class MockTableClient:
         query_filter: str | None = None,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
-        del kwargs
         self.last_query_filter = query_filter
+        select = kwargs.get("select")
         entities = [deepcopy(entity) for entity in self.entities.values()]
         if query_filter is None:
-            return entities
+            return self._projected(entities, select)
 
         # Parse PartitionKey + optional status filter
         parts = [p.strip() for p in query_filter.split(" and ")]
@@ -132,7 +132,24 @@ class MockTableClient:
                 filtered = [e for e in filtered if e.get("status") == status]
             else:
                 raise ValueError(f"Unsupported query filter part: {part}")
-        return filtered
+        return self._projected(filtered, select)
+
+    @staticmethod
+    def _projected(rows: list[dict[str, Any]], select: list[str] | None) -> list[dict[str, Any]]:
+        """Return only the selected properties, as the service does for ``$select``.
+
+        The service always returns the keys. The ETag is not a property: like the SDK, the
+        fake exposes it through the row's metadata, so a projected row has no ``etag`` key.
+        """
+        if select is None:
+            return rows
+        keep = {"PartitionKey", "RowKey", *select}
+        projected: list[dict[str, Any]] = []
+        for row in rows:
+            entity = MockEntity({key: value for key, value in row.items() if key in keep})
+            entity.metadata = {} if "etag" not in row else {"etag": row["etag"]}
+            projected.append(entity)
+        return projected
 
 
 def _new_store() -> tuple[Any, MockTableClient]:
@@ -1063,35 +1080,26 @@ def test_reset_stale_locks_deleted_thread_skipped(monkeypatch: Any) -> None:
     assert count == 0
 
 
-def test_reset_stale_locks_metadata_only_etag(monkeypatch: Any) -> None:
-    """Stale lock is reset when ETag is exposed only via entity.metadata.
+def _reset_with_reread_etag_shape(monkeypatch: Any, shape: str) -> tuple[Any, Any, int]:
+    """Reset one stale thread while the full re-read exposes its ETag in the given *shape*.
 
-    The Azure Tables SDK may surface the row ETag either as a dict key
-    (``entity["etag"]``) or as a Mapping attribute
-    (``entity.metadata["etag"]``).  ``reset_stale_locks`` must accept the
-    metadata-only shape so CAS-based reset still works on SDK versions
-    that do not project ``etag`` into the dict body of a projected row.
+    ``reset_stale_locks`` takes its ETag from the full re-read of each candidate, never from
+    the scan's projection, so the shape has to be injected into ``get_entity``. *shape* is
+    ``"metadata"`` (``entity.metadata["etag"]`` only), ``"body"`` (``entity["etag"]`` only) or
+    ``"none"`` (no usable ETag at all).
     """
     store, table_client = _new_store()
+    original_get = table_client.get_entity
 
-    # Force projected query rows to surface ETag ONLY via .metadata,
-    # never as a top-level dict key.
-    original_query = table_client.query_entities
-
-    def query_metadata_only_etag(
-        query_filter: str | None = None, **kwargs: Any
-    ) -> list[dict[str, Any]]:
-        rows = original_query(query_filter, **kwargs)
-        wrapped: list[dict[str, Any]] = []
-        for row in rows:
-            etag = row.pop("etag", None)
-            entity = MockEntity(row)
-            if etag is not None:
-                entity.metadata = {"etag": etag}
-            wrapped.append(cast(dict[str, Any], entity))
-        return wrapped
-
-    monkeypatch.setattr(table_client, "query_entities", query_metadata_only_etag)
+    def get_with_shape(partition_key: str, row_key: str) -> dict[str, Any]:
+        row = original_get(partition_key, row_key)
+        etag = row.pop("etag", None)
+        entity = MockEntity(dict(row))
+        if shape == "metadata" and etag is not None:
+            entity.metadata = {"etag": etag}
+        elif shape == "body" and etag is not None:
+            entity["etag"] = etag
+        return cast(dict[str, Any], entity)
 
     base = datetime(2026, 1, 1, tzinfo=UTC)
     timestamps = iter(
@@ -1106,10 +1114,38 @@ def test_reset_stale_locks_metadata_only_etag(monkeypatch: Any) -> None:
 
     thread = store.create()
     store.try_acquire_run_lock(thread.thread_id)
+    monkeypatch.setattr(table_client, "get_entity", get_with_shape)
+    return store, thread, store.reset_stale_locks(older_than_seconds=300)
 
-    count = store.reset_stale_locks(older_than_seconds=300)
 
-    assert count == 1, "reset_stale_locks must accept metadata-only ETag shape"
+def test_reset_stale_locks_metadata_only_etag(monkeypatch: Any) -> None:
+    """Stale lock is reset when the re-read exposes its ETag only via entity.metadata.
+
+    The Azure Tables SDK may surface the row ETag either as a dict key
+    (``entity["etag"]``) or as a Mapping attribute (``entity.metadata["etag"]``).
+    """
+    store, thread, count = _reset_with_reread_etag_shape(monkeypatch, "metadata")
+
+    assert count == 1, "reset_stale_locks must accept the metadata-only ETag shape"
     assert store.get(thread.thread_id).status == "error"
     # Confirm CAS path was actually taken (etag forwarded to update_entity).
-    assert table_client.last_update_kwargs.get("etag") is not None
+    assert store._table_client.last_update_kwargs.get("etag") is not None
+
+
+def test_reset_stale_locks_body_only_etag(monkeypatch: Any) -> None:
+    """Stale lock is reset when the re-read exposes its ETag only as ``entity["etag"]``."""
+    store, thread, count = _reset_with_reread_etag_shape(monkeypatch, "body")
+
+    assert count == 1, "reset_stale_locks must accept the body-only ETag shape"
+    assert store.get(thread.thread_id).status == "error"
+    assert store._table_client.last_update_kwargs.get("etag") is not None
+
+
+def test_reset_stale_locks_skips_a_row_whose_reread_has_no_etag(monkeypatch: Any) -> None:
+    """Without a writable ETag the reset cannot be a compare-and-swap, so it leaves the lock."""
+    store, thread, count = _reset_with_reread_etag_shape(monkeypatch, "none")
+
+    assert count == 0
+    after = store.get(thread.thread_id)
+    assert after.status == "busy" and after.lock_token is not None
+    assert store._table_client.update_attempts == 1  # only the acquire's own write; no reset write

@@ -26,6 +26,10 @@ class RunLockRenewalError(RuntimeError):
     """The store no longer guarantees ownership of the active run."""
 
 
+class RunLockReleaseRejectedError(RunLockRenewalError):
+    """The store ignored this run's release because the run no longer owned the thread."""
+
+
 class RunLockRenewalStopTimeoutError(RunLockRenewalError):
     """The renewal worker was still inside a store call when cleanup stopped waiting."""
 

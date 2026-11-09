@@ -277,7 +277,8 @@ connection open for the duration of the run:
 
 - `POST /api/graphs/{name}/runs` — start a run, returns `202` with a `run_id`
 - `GET /api/runs/{run_id}` — poll normalized status
-- `POST /api/runs/{run_id}/cancel` — terminate an in-flight run
+- `POST /api/runs/{run_id}/cancel` — request termination of a run (see
+  [Cancellation](#cancellation-of-durable-runs) for what that does and does not mean)
 
 The graph executes inside a Durable **activity**, never the orchestrator, so
 replay determinism is preserved. Durable history is not a replacement for
@@ -292,6 +293,57 @@ delivery still requires idempotent side effects. Cancellation terminates the
 orchestration; it does not forcibly stop an already-running activity or Python
 worker thread. Bound tools and storage calls and apply the
 [mixed-surface requirements](#interaction-with-platform-compatible-runs).
+
+#### Cancellation of Durable runs
+
+Durable termination is **asynchronous** and ends the *orchestration*. It does not
+interrupt an Activity that is already running, so the graph and its tools can keep
+executing, and writing checkpoints, after the cancel call returns and even after
+`GET /api/runs/{run_id}` reports `cancelled`. The cancel endpoint therefore claims
+only what it observed:
+
+| Situation | Response | `terminate` called |
+| --- | --- | --- |
+| Unknown run | `404 {"run_id", "error": "run not found"}` | no |
+| Run still in flight (pending, running, suspended) | `202 {"run_id", "status": "cancel_requested"}` | yes |
+| Run already finished (success, error or cancelled) | `200 {"run_id", "status": <that status>}` | no |
+| Status lookup or termination call failed | `502 {"run_id", "error": {"code": "cancel_failed", ...}}` | attempted if it got that far |
+
+- `cancel_requested` means *the termination call returned without reporting a
+  failure; termination and worker stoppage are not confirmed*. It is not a
+  lifecycle status and `GET` never returns it. The run can still complete normally
+  (the Durable client returns normally for HTTP 202 and 410 alike, so a request that
+  reached the host just after the run ended is acknowledged like an accepted one), so
+  **poll `GET` until the status is terminal** and read the outcome
+  there: `cancelled` if the termination took effect, `success` or `error` if the
+  run finished first. Repeating the request is safe: while the run is in flight it
+  asks again, and once it is terminal it answers `200` without calling `terminate`.
+- A `cancelled` status from `GET` means the **orchestration** is terminated. It is
+  not proof that the Activity or its tools stopped, and Durable status cannot prove
+  that no worker side effect remains.
+- A `502` carries a generic message only; the backend error is logged. After a
+  failed termination call the outcome is unknown: poll `GET`.
+- Right after a create, a `404` from `GET` or cancel does not prove that the run was
+  not created: the orchestration may not be visible yet. Retry a few times before
+  treating it as unknown.
+- **Thread ownership.** For a checkpointed graph with a thread ID the Activity holds
+  the app's `ThreadLock` while its graph call runs, also after the orchestration was
+  terminated and, for a synchronous graph, also if the host cancels the Activity's
+  task (a synchronous call cannot be interrupted, so ownership is kept until it
+  returns). A new run for the
+  same thread is rejected until then (its Activity reports contention and `GET`
+  shows `error`). This holds only within the supported ownership lifetime: a lock
+  that is lost, for example a Blob lease that could not be renewed, is not a fence
+  (see the [Blob guard](#opt-in-guard-for-blob-checkpoint-writes-790)).
+- **Non-idempotent tools.** Cancellation cannot roll back external effects or stop a
+  tool call that is in flight, and Activity delivery is at-least-once. Give
+  side-effecting tools an idempotency key or deduplicate them in the application;
+  do not use cancellation as a safeguard against a duplicate or unwanted effect.
+- **Migration.** Earlier releases answered `202 {"status": "cancelled"}` at once.
+  A client that treated that body as final must now poll `GET` until the status is
+  terminal, and one that accepted only `202` must also accept `200` (the run had
+  already finished). The Durable lifecycle is experimental and may change between minor
+  releases; this change is marked breaking so release notes flag it.
 
 ### Configure timeout explicitly
 
@@ -996,6 +1048,17 @@ Durable activities and Service Bus runs with a thread ID, plus threaded
 Platform runs and Platform state updates. Platform runs/state updates acquire
 the store run lock **after** the shared lock. `AzureTableThreadStore` uses ETag
 CAS for status/assistant binding, but native and trigger runs do not acquire it.
+If the store run lock cannot be taken because of an unexpected storage error, a
+state update attempts to release the shared lock and returns a sanitized HTTP
+500; the original error is logged. A release that itself fails is logged and
+does not replace that response, and the shared lock is then left to its backend's
+own recovery (for a Blob lease, see the recovery procedure above). If the store
+committed the acquisition before the error surfaced, the thread stays `busy`
+until `reset_stale_locks` reclaims it. A state update is one synchronous
+`update_state` call, and the handler does **not** start the store-lock renewal
+worker that runs use, so it does not refresh the row while the update executes:
+keep `reset_stale_locks(older_than_seconds=...)` above the longest state update
+you expect, not only above the longest run.
 
 - **Native-only:** choose a checkpointer and distributed `ThreadLock` for shared
   writers. A Platform `ThreadStore` is not required.
@@ -1018,15 +1081,32 @@ after lease loss. Preserve the cancellation/drain warnings above.
 Table run locks and Blob marker leases are distinct resources. Platform run
 handlers renew store ownership every 20 seconds; renewal failure is retained
 for cleanup and returns a sanitized HTTP 500 instead of successful completion.
+A release the store refuses as stale (the run no longer owned the thread, for
+example after a reclaim or a newer owner) is reported the same way: HTTP 500 and
+one failed observer event, not a completion. The store's stale-token no-op itself
+is unchanged. The bundled stores report exactly whether the release was applied, so
+this holds even when a reclaim left the thread at the status the run asked for, or
+another run acquired it and finished first; a custom store that cannot say so is
+judged by the returned thread alone (see the adapter reference).
 Owner-token checks and ETag CAS prevent an old release from clearing a newer
-store owner; release retries conflicts up to three times. Failed persistence or
+store owner; release retries conflicts up to three times, and a renewal that
+loses its conditional write to an unrelated write (for example a metadata
+update) re-reads the row and tries again, for at most three attempts, while it
+still owns the thread. An isolated write therefore does not fail a live run;
+three conflicting writes in a row still fail the renewal and the run ends with
+the sanitized HTTP 500. A release or renewal
+also requires the thread to still be `busy`. Failed persistence or
 release can leave a row `busy`. A host crash may skip cleanup entirely.
 
 Schedule `thread_store.reset_stale_locks(older_than_seconds=600)` from a Timer
 function only with a threshold comfortably above the longest expected run, and
 establish that a reclaimed writer cannot still mutate checkpoints. It is not an
-automatic task and CAS is not a checkpoint write fence. Missing projection
-ETags cause rows to be skipped rather than reset unsafely. This operation does
+automatic task and CAS is not a checkpoint write fence. A candidate whose
+fresh re-read exposes no usable ETag is skipped rather than reset unsafely. A reset **revokes the
+previous owner's token** atomically with the new status, so a worker that comes
+back after the sweep cannot overwrite the recovery status or publish stale
+`values` through a late release, and its renewal fails. It does not stop that
+worker's graph. This operation does
 **not** break Blob marker leases; use the separate Blob recovery procedure
 above. See [maintenance_timer](../examples/maintenance_timer/) and the
 [README run-lock contract](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/README.md#run-lock-semantics).

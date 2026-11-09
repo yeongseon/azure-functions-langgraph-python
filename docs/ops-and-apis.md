@@ -53,9 +53,16 @@ high-cardinality metadata scans on large tables.
 `lock_token` and `lock_expires_at`. Custom stores must persist those fields,
 implement `renew_run_lock(thread_id, owner_token) -> bool`, and accept
 `owner_token` in `release_run_lock`. Release must use compare-and-swap and must
-leave the current owner untouched when a stale token arrives. Platform runs
-pass the acquired token back on release; stores that omit the new methods no
-longer satisfy the public `ThreadStore` protocol.
+leave the current owner untouched when a stale token arrives, and return the
+thread as it stands after the call (the requested status with the token
+cleared after an applied release, the unchanged current thread after a stale
+one). Platform runs pass the acquired token back on release and fail a run
+whose release was not applied; stores that omit the new methods no longer
+satisfy the public `ThreadStore` protocol. A store can also implement the
+optional `ReleaseOutcomeProvider` (`release_run_lock_outcome`, returning a
+`RunLockReleaseOutcome(thread, applied)`) so the handler gets an exact answer
+even when another owner already left the thread at the requested status; the
+bundled stores do. Without it the returned thread is all the handler has.
 
 The native `invoke` / `stream` endpoints guard concurrent access to the same
 `(graph_name, thread_id)` so that single-writer checkpointers (for example
