@@ -1035,7 +1035,12 @@ one failed observer event, not a completion. The store's stale-token no-op itsel
 is unchanged. Reclaim with the default `error` status: a reset to `idle` followed
 by a successful `idle` release looks identical to a normal release.
 Owner-token checks and ETag CAS prevent an old release from clearing a newer
-store owner; release retries conflicts up to three times. A release or renewal
+store owner; release retries conflicts up to three times, and a renewal that
+loses its conditional write to an unrelated write (for example a metadata
+update) re-reads the row and tries again, for at most three attempts, while it
+still owns the thread. An isolated write therefore does not fail a live run;
+three conflicting writes in a row still fail the renewal and the run ends with
+the sanitized HTTP 500. A release or renewal
 also requires the thread to still be `busy`. Failed persistence or
 release can leave a row `busy`. A host crash may skip cleanup entirely.
 

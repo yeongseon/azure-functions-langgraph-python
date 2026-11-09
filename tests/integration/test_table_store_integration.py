@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 import importlib
+import itertools
 from typing import Any, Protocol, cast
+from unittest.mock import DEFAULT, patch
 import uuid
 
 import pytest
 
+from azure_functions_langgraph.stores._errors import RunLockRenewalConflictError
 from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
 from tests.storage_service import fail_or_skip_service, require_tcp_service
+from tests.test_platform_routes import _get_fn, _patch_request
+from tests.test_table_renew_retry import _App, _race_the_renewal, _wait_for_one_renewal
 
 AZURITE_TABLE_CONNECTION_STRING = (
     "DefaultEndpointsProtocol=http;"
@@ -321,8 +326,6 @@ def test_release_removes_lease_fields_after_renewal_conflict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given a real Azure Tables ETag invalidated by a same-owner renewal.
-    from unittest.mock import DEFAULT, patch
-
     store = _new_store(azurite_table_client)
     thread = store.create(metadata={"preserved": True})
     locked = store.try_acquire_run_lock(thread.thread_id, assistant_id="agent")
@@ -393,3 +396,163 @@ def test_reset_stale_locks_revokes_the_old_owner_against_the_real_table(
         {"kind": "kept"},
         "agent",
     )
+
+
+def test_renewal_survives_a_concurrent_metadata_write_against_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given a live owner whose renewal read is invalidated by a metadata-only write (#805): the
+    # real service answers the conditional write with 412 although the owner never changed.
+    store = _new_store(azurite_table_client)
+    thread = store.create()
+    locked = store.try_acquire_run_lock(thread.thread_id, assistant_id="agent")
+    assert locked is not None and locked.lock_token is not None
+    token = locked.lock_token
+    update = azurite_table_client.update_entity
+    raced = False
+
+    def write_metadata_before_the_renewal(
+        entity: dict[str, Any], *args: object, **kwargs: object
+    ) -> object:
+        nonlocal raced
+        is_renewal = set(entity) == {"PartitionKey", "RowKey", "updated_at", "lock_expires_at"}
+        if is_renewal and not raced:
+            raced = True
+            with patch.object(azurite_table_client, "update_entity", update):
+                store.update(thread.thread_id, metadata={"concurrent": True})
+        return DEFAULT
+
+    with patch.object(
+        azurite_table_client,
+        "update_entity",
+        side_effect=write_metadata_before_the_renewal,
+        wraps=update,
+    ):
+        # When the renewal's conditional write loses the race and is retried.
+        renewed = store.renew_run_lock(thread.thread_id, token)
+
+    # Then the real row still belongs to the same owner, with the concurrent write intact.
+    assert raced is True
+    assert renewed is True
+    after = store.get(thread.thread_id)
+    assert after is not None
+    assert (after.status, after.lock_token) == ("busy", token)
+    assert after.metadata == {"concurrent": True}
+    assert after.assistant_id == "agent"
+
+
+def test_a_renewal_that_loses_the_row_to_a_new_owner_returns_false_against_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given an old owner whose renewal conflicts with a newer owner's acquisition.
+    store = _new_store(azurite_table_client)
+    thread = store.create()
+    locked = store.try_acquire_run_lock(thread.thread_id)
+    assert locked is not None and locked.lock_token is not None
+    old_token = locked.lock_token
+    update = azurite_table_client.update_entity
+    new_token: list[str] = []
+    new_owner_row: list[Any] = []
+    lock_fields = ("lock_token", "lock_expires_at", "updated_at", "status")
+
+    def new_owner_takes_over(entity: dict[str, Any], *args: object, **kwargs: object) -> object:
+        is_renewal = set(entity) == {"PartitionKey", "RowKey", "updated_at", "lock_expires_at"}
+        if is_renewal and not new_token:
+            with patch.object(azurite_table_client, "update_entity", update):
+                store.update(thread.thread_id, status="idle")
+                owner = store.try_acquire_run_lock(thread.thread_id)
+            assert owner is not None and owner.lock_token is not None
+            new_token.append(owner.lock_token)
+            row = cast(Any, azurite_table_client).get_entity("thread", thread.thread_id)
+            new_owner_row.append({field: row[field] for field in lock_fields})
+        return DEFAULT
+
+    with patch.object(
+        azurite_table_client, "update_entity", side_effect=new_owner_takes_over, wraps=update
+    ):
+        # When the old owner's renewal re-reads the row after the 412.
+        renewed = store.renew_run_lock(thread.thread_id, old_token)
+
+    # Then it reports lost ownership and the newer owner's lock is untouched: token, status and
+    # both lock timestamps are exactly what the new owner's acquisition wrote.
+    assert renewed is False
+    after = store.get(thread.thread_id)
+    assert after is not None
+    assert (after.status, after.lock_token) == ("busy", new_token[0])
+    row = cast(Any, azurite_table_client).get_entity("thread", thread.thread_id)
+    assert {field: row[field] for field in lock_fields} == new_owner_row[0]
+
+
+def _real_metadata_patches(app: _App) -> Callable[[], None]:
+    """A concurrent writer: each call is a real ``PATCH /threads/{id}`` through the handler."""
+    handler = _get_fn(app.app.function_app, "aflg_platform_threads_update")
+    counter = itertools.count(1)
+
+    def patch_metadata() -> None:
+        request = _patch_request(
+            f"/api/threads/{app.thread_id}",
+            {"metadata": {"patched": next(counter)}},
+            thread_id=app.thread_id,
+        )
+        assert handler(request).status_code == 200
+
+    return patch_metadata
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+def test_a_real_metadata_patch_during_a_run_does_not_fail_the_run(
+    endpoint: str,
+    azurite_table_client: _TableClientProtocol,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given a Platform run over the real Table whose first renewal loses its conditional write
+    # to a real PATCH /threads/{id}: the owner token never changed (#805).
+    app = _App(endpoint, _new_store(azurite_table_client), azurite_table_client)
+    outcomes = _wait_for_one_renewal(app, monkeypatch)
+    fired = _race_the_renewal(
+        azurite_table_client, monkeypatch, times=1, concurrent=_real_metadata_patches(app)
+    )
+
+    # When the run executes and completes.
+    response = app.handler(app.request)
+
+    # Then the real 412 was retried after a re-read and the run is an ordinary success.
+    assert len(fired) == 1
+    assert outcomes[0] is True
+    assert response.status_code == 200
+    assert app.observer.events == ["started", "completed"]
+    after = app.store.get(app.thread_id)
+    assert after is not None and (after.status, after.lock_token) == ("idle", None)
+    assert after.metadata == {"patched": 1}
+    token = app.lock.acquire("agent", app.thread_id)
+    assert token is not None
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+def test_a_run_fails_safely_when_real_writes_exhaust_the_renewal_retries(
+    endpoint: str,
+    azurite_table_client: _TableClientProtocol,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given a run whose renewal loses three conditional writes in a row to real PATCH writes.
+    app = _App(endpoint, _new_store(azurite_table_client), azurite_table_client)
+    outcomes = _wait_for_one_renewal(app, monkeypatch)
+    fired = _race_the_renewal(
+        azurite_table_client, monkeypatch, times=3, concurrent=_real_metadata_patches(app)
+    )
+
+    # When the run executes.
+    response = app.handler(app.request)
+
+    # Then exhaustion is reported as such (the owner was never shown to be replaced), the caller
+    # gets the sanitized failure, and the thread ends in error with its lock cleared.
+    assert len(fired) == 3
+    assert isinstance(outcomes[0], RunLockRenewalConflictError)
+    assert response.status_code == 500
+    assert app.observer.events == ["started", "failed"]
+    assert isinstance(app.observer.failures[0], RunLockRenewalConflictError)
+    after = app.store.get(app.thread_id)
+    assert after is not None and (after.status, after.lock_token) == ("error", None)
+    assert after.metadata == {"patched": 3}
+    token = app.lock.acquire("agent", app.thread_id)
+    assert token is not None

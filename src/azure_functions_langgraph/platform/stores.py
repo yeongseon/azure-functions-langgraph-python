@@ -141,7 +141,11 @@ class ThreadStore(Protocol):
         """Extend a held run lock, returning false after ownership changes.
 
         Ownership has changed when the token no longer matches or the thread
-        is no longer ``busy``.
+        is no longer ``busy``. Return ``True`` only after the lock was
+        extended and ``False`` only for lost ownership: an operational error,
+        including contention that could not be resolved within a bounded
+        number of attempts, must be raised, not reported as ``False``. The
+        Platform renewal worker fails the run in both cases.
         """
         ...
 
