@@ -22,6 +22,7 @@ from azure_functions_langgraph.platform._common import (
     PlatformRouteDeps,
     _build_checkpoint_config,
     _check_unknown_platform_fields,
+    _merge_thread_metadata,
     _platform_error,
     _read_json_body,
     _resolve_thread_graph,
@@ -199,11 +200,15 @@ def register_thread_routes(
             return _platform_error(404, f"Thread {thread_id!r} not found")
 
         if update_req.metadata is not None:
-            merged = {**(thread.metadata or {}), **update_req.metadata}
             try:
-                updated = deps.thread_store.update(thread_id, metadata=merged)
+                updated = _merge_thread_metadata(
+                    deps.thread_store, thread_id, thread.metadata, update_req.metadata
+                )
             except KeyError:
                 return _platform_error(404, f"Thread {thread_id!r} not found")
+            except Exception:
+                logger.exception("Thread metadata update failed for thread %s", thread_id)
+                return _platform_error(500, "Internal error updating thread metadata")
         else:
             updated = thread
 

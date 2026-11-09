@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 import inspect
 import json
@@ -26,9 +27,10 @@ from azure_functions_langgraph.platform.contracts import (
     Assistant,
     Checkpoint,
     RunCreate,
+    Thread,
     ThreadState,
 )
-from azure_functions_langgraph.platform.stores import ThreadStore
+from azure_functions_langgraph.platform.stores import MetadataMergeProvider, ThreadStore
 from azure_functions_langgraph.protocols import CloneableGraph
 
 logger = logging.getLogger(__name__)
@@ -113,6 +115,26 @@ def _platform_error(
         status_code=status_code,
         headers={"X-Request-ID": request_id} if request_id is not None else None,
     )
+
+
+def _merge_thread_metadata(
+    store: ThreadStore,
+    thread_id: str,
+    current: Mapping[str, Any] | None,
+    patch: Mapping[str, Any],
+) -> Thread:
+    """Merge ``patch`` into a thread's metadata and return the updated thread.
+
+    A store with the optional ``merge_metadata`` capability merges against the metadata as it
+    stands when the write is applied, so a key another request added in the meantime survives.
+    For any other store this is the long-standing read, merge, ``update`` sequence over
+    ``current`` (the metadata the caller read earlier): it keeps working, but the whole map is
+    replaced, so a concurrent writer's new keys can be lost. Raises ``KeyError`` when the thread
+    does not exist.
+    """
+    if isinstance(store, MetadataMergeProvider):
+        return store.merge_metadata(thread_id, patch)
+    return store.update(thread_id, metadata={**(current or {}), **patch})
 
 
 def _build_sse_response(

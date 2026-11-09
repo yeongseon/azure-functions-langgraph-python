@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 import importlib
 import json
@@ -371,6 +371,48 @@ class AzureTableThreadStore(ThreadStore):
         interrupts: dict[str, list[Interrupt]] | None = None,
         assistant_id: str | None = None,
     ) -> Thread:
+
+        def apply(replacement: dict[str, Any]) -> None:
+            for field, value in (
+                ("metadata_json", metadata),
+                ("values_json", values),
+                ("interrupts_json", interrupts),
+            ):
+                if value is not None:
+                    write_json(replacement, field, value)
+            if status is not None:
+                replacement["status"] = status
+            if assistant_id is not None:
+                replacement["assistant_id"] = assistant_id
+
+        return self._read_modify_write(thread_id, apply)
+
+    def merge_metadata(self, thread_id: str, metadata: Mapping[str, Any]) -> Thread:
+        """Merge ``metadata`` into the thread's current metadata with ETag compare-and-swap.
+
+        Unlike ``update(metadata=...)`` with a map the caller merged earlier, the merge is
+        computed against the row as it stands at **every** attempt: when a concurrent write
+        changes the ETag, the retry reads the fresh metadata and merges the patch into it again,
+        so a key that other writer added is kept. For one key the last writer wins. Everything
+        else in the row (status, assistant binding, values, interrupts, lock token and expiry)
+        is preserved. After three conflicting attempts the SDK's modified error is raised, as for
+        :meth:`update`.
+        """
+
+        def apply(replacement: dict[str, Any]) -> None:
+            current = read_json(replacement, "metadata_json")
+            merged = {**(current if isinstance(current, dict) else {}), **dict(metadata)}
+            write_json(replacement, "metadata_json", merged)
+
+        return self._read_modify_write(thread_id, apply)
+
+    def _read_modify_write(self, thread_id: str, apply: Callable[[dict[str, Any]], None]) -> Thread:
+        """Read the row, let ``apply`` change a copy, write it back under its ETag; retry.
+
+        ``apply`` runs again on a fresh read after every ETag conflict (three attempts in all),
+        so a change that depends on the current row content is re-derived, never re-applied from
+        a stale snapshot.
+        """
         not_found_error = self._not_found_exception()
         for attempt in range(3):
             try:
@@ -383,17 +425,7 @@ class AzureTableThreadStore(ThreadStore):
                     key: value for key, value in entity.items() if key not in {"etag", "Timestamp"}
                 }
                 replacement["updated_at"] = self._now()
-                for field, value in (
-                    ("metadata_json", metadata),
-                    ("values_json", values),
-                    ("interrupts_json", interrupts),
-                ):
-                    if value is not None:
-                        write_json(replacement, field, value)
-                if status is not None:
-                    replacement["status"] = status
-                if assistant_id is not None:
-                    replacement["assistant_id"] = assistant_id
+                apply(replacement)
                 validate_entity(replacement)
                 self._table_client.update_entity(
                     replacement,
