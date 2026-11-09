@@ -120,3 +120,29 @@ unbounded workers for one stream; however, a graph node or tool that never
 returns keeps its lock and worker occupied until process termination. Configure
 bounded timeouts in every synchronous LLM, tool, and storage call. Async graphs
 use native async-generator cancellation and do not use this thread bridge.
+
+## Python local client and offline checks
+
+From the repository root, `make example-sse-client` calls the local host above
+with a standard-library client (Python 3.11+). It uses a 30-second socket timeout,
+checks the SSE content type, bounds each frame to 1 MiB and closes the response
+on normal completion, an error, or Ctrl+C. No keys or cloud credentials are used.
+This local demonstration is not a production retry/authentication policy.
+
+The parser handles UTF-8 split across network reads, multiple frames in one
+read, LF/CRLF/CR line endings, comments and multi-line data. It JSON-decodes only
+complete blank-line-delimited frames. A malformed JSON event, server `error`
+event or connection close before `end` fails rather than silently succeeding.
+It consumes the adapter's JSON SSE dialect, not a generic browser EventSource
+reconnection implementation; it does not reconnect or replay runs.
+
+`make example-sse-client CLIENT_ARGS="--stop-after 1"` closes the client after
+one event. Closing a client does not prove the graph stopped or undo effects;
+see the disconnect contract above and bound timeouts in graph tools.
+`make example-sse-client-check` runs fake-data parser/disconnect tests without
+Core Tools, Azure or model credentials. These tests verify client consumption,
+not server-side cancellation, lock cleanup or incremental host delivery.
+
+The same framing can occur on classic buffered SSE, but parsing it cannot make
+a buffered response incremental. True incremental delivery still needs the
+separate ASGI app and the runtime/settings listed above.
