@@ -15,6 +15,7 @@ single-process deployments.  For production scale-out, implement
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import threading
 from typing import Any, Protocol, runtime_checkable
@@ -29,6 +30,86 @@ from azure_functions_langgraph.platform.contracts import (
 # ---------------------------------------------------------------------------
 # Protocol
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class RunLockReleaseOutcome:
+    """What a release did: the thread as it stands afterwards, and whether this call applied it."""
+
+    thread: Thread
+    applied: bool
+
+
+@runtime_checkable
+class ReleaseOutcomeProvider(Protocol):
+    """Optional :class:`ThreadStore` capability: report whether a release was applied.
+
+    With an owner token, ``release_run_lock`` treats a stale release (the token no longer
+    owns a ``busy`` thread) as a no-op and returns the unchanged current thread. A caller
+    can compare that thread with what it asked for, but the comparison cannot tell an
+    applied release from a stale no-op when another owner has already left the thread at
+    the requested status, for example because it finished first and went ``idle``. A store
+    that also implements this protocol answers exactly: ``applied`` is true only when this
+    call performed the release.
+
+    Platform run handlers use the answer when the store provides it and fall back to the
+    comparison otherwise, so stores without this capability keep working. Implementations
+    must keep it consistent with ``release_run_lock``: that method's return value is this
+    method's ``thread``.
+    """
+
+    def release_run_lock_outcome(
+        self,
+        thread_id: str,
+        *,
+        status: ThreadStatus,
+        values: dict[str, Any] | None = None,
+        owner_token: str | None = None,
+    ) -> RunLockReleaseOutcome:
+        """Release exactly like ``release_run_lock`` and report whether it was applied.
+
+        ``applied`` is false for a stale release (a token that no longer owns a ``busy``
+        thread), in which case ``thread`` is the unchanged current thread. A release
+        without an owner token is always applied. Raises ``KeyError(thread_id)`` if the
+        thread does not exist and ``ValueError`` for status ``"busy"``.
+        """
+        ...
+
+
+class _ReleaseSignal:
+    """Carries a store's own "was this release applied" answer back to its outcome method.
+
+    ``release_run_lock`` keeps its public contract (it returns only the thread) and a
+    subclass or a test double may override or wrap it, so the bundled stores keep calling it
+    and the answer travels beside the return value, in a slot of the calling thread. The
+    store's own release code records it; the outcome method clears the slot before the call
+    and reads it right after. An override that bypasses the store's release code leaves the
+    slot empty, which the caller treats as "unknown" and judges by the returned thread alone.
+    """
+
+    def __init__(self) -> None:
+        self._local = threading.local()
+
+    def clear(self) -> None:
+        self._local.applied = None
+
+    def record(self, *, applied: bool) -> None:
+        self._local.applied = applied
+
+    def read(self) -> bool | None:
+        applied: bool | None = getattr(self._local, "applied", None)
+        self._local.applied = None
+        return applied
+
+
+def _release_with_outcome(
+    release: Callable[[], Thread], signal: _ReleaseSignal
+) -> RunLockReleaseOutcome:
+    """Run ``release`` and pair its thread with the answer the store recorded while doing so."""
+    signal.clear()
+    thread = release()
+    applied = signal.read()
+    return RunLockReleaseOutcome(thread, applied=True if applied is None else applied)
 
 
 @runtime_checkable
@@ -123,6 +204,18 @@ class ThreadStore(Protocol):
         maintenance sweep reclaimed), is a **stale release**: it must not
         change the thread, and the unchanged current thread is returned.
 
+        Return the thread **as it stands after the call**. After an applied
+        release that is the requested ``status`` with ``lock_token`` cleared.
+        Platform handlers compare the returned thread with what they asked
+        for: a thread that is still ``busy``, still carries a ``lock_token`` or
+        has a different status counts as a refused release and fails the run, so
+        a store that returns a snapshot taken before the write, or keeps the
+        token on the released row, makes every run fail. That comparison cannot
+        tell an applied release from a stale no-op when another owner already
+        left the thread at the requested status; a store that also implements
+        :class:`ReleaseOutcomeProvider` closes that gap and handlers then use
+        its answer instead.
+
         Raises ``KeyError(thread_id)`` if the thread does not exist.
         Implementations may treat this as a best-effort release when used
         by callers.
@@ -199,6 +292,7 @@ class InMemoryThreadStore:
         self._threads: dict[str, Thread] = {}
         self._lock = threading.RLock()
         self._id_factory = id_factory or (lambda: str(uuid.uuid4()))
+        self._release_signal = _ReleaseSignal()
 
     # -- helpers -------------------------------------------------------------
 
@@ -330,6 +424,7 @@ class InMemoryThreadStore:
             if owner_token is not None and (
                 existing.lock_token != owner_token or existing.status != "busy"
             ):
+                self._release_signal.record(applied=False)
                 return self._deep_copy(existing)
             update: dict[str, Any] = {
                 "status": status,
@@ -341,7 +436,24 @@ class InMemoryThreadStore:
                 update["values"] = values
             updated = existing.model_copy(update=update)
             self._threads[thread_id] = updated
+            self._release_signal.record(applied=True)
             return self._deep_copy(updated)
+
+    def release_run_lock_outcome(
+        self,
+        thread_id: str,
+        *,
+        status: ThreadStatus,
+        values: dict[str, Any] | None = None,
+        owner_token: str | None = None,
+    ) -> RunLockReleaseOutcome:
+        """Release exactly like :meth:`release_run_lock` and report whether it was applied."""
+        return _release_with_outcome(
+            lambda: self.release_run_lock(
+                thread_id, status=status, values=values, owner_token=owner_token
+            ),
+            self._release_signal,
+        )
 
     def renew_run_lock(self, thread_id: str, owner_token: str) -> bool:
         with self._lock:

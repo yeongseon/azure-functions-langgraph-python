@@ -6,6 +6,7 @@ import pytest
 from azure_functions_langgraph.app import LangGraphApp
 from azure_functions_langgraph.locks import InProcessThreadLock
 from azure_functions_langgraph.platform import _runs, _store_renewal
+from azure_functions_langgraph.platform._store_renewal import RunLockReleaseRejectedError
 from tests.conftest import FakeCompiledGraph
 from tests.test_platform_routes import _get_fn, _post_request
 from tests.test_stores_azure_table import _new_store
@@ -78,17 +79,20 @@ def test_run_fails_when_renewal_loses_ownership(
         else:
             response = handler(request)
 
-    # Then no exclusive success or untrusted final values are published.
+    # Then no exclusive success or untrusted final values are published. A run whose renewals
+    # kept succeeding but whose release was then refused as stale (a newer owner) is a failure
+    # too (#804): its release proves it no longer owned the thread.
+    reported_success = failure is True and outcome not in {"error", "superseded"}
     if response is not None:
         if outcome == "error" and failure is True and endpoint == "stream":
             assert b"event: error" in response.get_body()
         else:
-            assert response.status_code == (200 if failure is True and outcome != "error" else 500)
+            assert response.status_code == (200 if reported_success else 500)
         assert b"private-" not in response.get_body()
     if outcome == "cancel":
         observer.on_run_completed.assert_not_called()
         observer.on_run_failed.assert_not_called()
-    elif failure is True and outcome != "error":
+    elif reported_success:
         observer.on_run_completed.assert_called_once()
         observer.on_run_failed.assert_not_called()
     else:
@@ -96,6 +100,8 @@ def test_run_fails_when_renewal_loses_ownership(
         observer.on_run_failed.assert_called_once()
     if outcome == "error":
         assert observer.on_run_failed.call_args.args[1] is primary
+    elif failure is True and outcome == "superseded":
+        assert isinstance(observer.on_run_failed.call_args.args[1], RunLockReleaseRejectedError)
     elif isinstance(failure, Exception) and outcome != "cancel":
         assert observer.on_run_failed.call_args.args[1] is failure
     stored = store.get(thread.thread_id)

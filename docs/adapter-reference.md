@@ -1085,7 +1085,26 @@ late `renew_run_lock` from an abandoned worker returns `False` instead of
 mutating a newer owner's record. This is verified by tests for the Table-store
 fake and `InMemoryThreadStore`; custom stores must implement the same
 owner-token check. Cleanup then always attempts owner-fenced store release and
-outer-lock release; host cancellation propagates after cleanup. Still configure
+outer-lock release; host cancellation propagates after cleanup. A run whose own release the store
+refuses as stale is a failure too (`RunLockReleaseRejectedError`): the store returns the unchanged
+current thread (busy under a newer owner, reclaimed, or finished by another run), and the handler
+returns the same sanitized HTTP 500 with one failed observer event instead of reporting completion.
+The bundled stores report exactly whether the release was applied through the optional
+`ReleaseOutcomeProvider` capability (`release_run_lock_outcome`, which returns a
+`RunLockReleaseOutcome(thread, applied)`; `release_run_lock` itself is unchanged and stays the
+call the handler makes), so the handler does not have to infer it from the returned thread. That
+stays exact when a reclaim left the thread at the status the run asked for, and when another run
+acquired the thread and finished before the stale release arrived: the returned thread then looks
+like a normally finished one, but the release was not applied and the run fails. A custom store
+without the capability is judged by the returned thread alone, so it must return the thread as it
+stands after the release (the requested status, no `lock_token`); a store that returns a snapshot
+taken before the write, or leaves the token on the released row, makes every run fail with that
+500. Such a store cannot expose a stale release that left the thread at the requested status (a
+reclaim to that status, or another owner that already finished); implementing
+`release_run_lock_outcome` closes that gap. A graph error that already failed the run
+stays the reported failure; on `runs/stream` a refused release also replaces the buffered error
+frame with the sanitized JSON 500, like any other release failure. Host cancellation still
+propagates without a terminal observer event. Still configure
 bounded Azure SDK network timeouts: Python cannot interrupt a hung synchronous
 SDK or graph call, so a stuck call keeps its thread. An orphaned `busy` thread is
 recovered with `reset_stale_locks()`. This does not roll back side effects, so

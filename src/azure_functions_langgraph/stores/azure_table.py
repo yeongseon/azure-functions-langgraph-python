@@ -14,7 +14,12 @@ from typing import Any, Literal, Protocol, cast
 import uuid
 
 from ..platform.contracts import Interrupt, Thread, ThreadStatus
-from ..platform.stores import ThreadStore
+from ..platform.stores import (
+    RunLockReleaseOutcome,
+    ThreadStore,
+    _release_with_outcome,
+    _ReleaseSignal,
+)
 from ._errors import RunLockReleaseError, RunLockRenewalConflictError
 from ._table_json import read_json, validate_entity, write_json
 
@@ -84,6 +89,7 @@ class AzureTableThreadStore(ThreadStore):
         self._not_found_error: type[BaseException] = not_found_error
         self._modified_error: type[BaseException] = modified_error
         self._match_conditions = match_conditions
+        self._release_signal = _ReleaseSignal()
 
     @classmethod
     def from_connection_string(
@@ -563,6 +569,7 @@ class AzureTableThreadStore(ThreadStore):
                 entity.get("lock_token") != owner_token or entity.get("status") != "busy"
             ):
                 logger.warning("Stale run-lock release ignored for thread %s", thread_id)
+                self._release_signal.record(applied=False)
                 return self._entity_to_thread(entity)
             metadata = getattr(entity, "metadata", None)
             etag = metadata.get("etag") if isinstance(metadata, Mapping) else None
@@ -590,8 +597,31 @@ class AzureTableThreadStore(ThreadStore):
                 continue
             except not_found_error as exc:
                 raise KeyError(thread_id) from exc
+            self._release_signal.record(applied=True)
             return self._entity_to_thread(replacement)
         raise RunLockReleaseError(thread_id) from last_conflict
+
+    def release_run_lock_outcome(
+        self,
+        thread_id: str,
+        *,
+        status: ThreadStatus,
+        values: dict[str, Any] | None = None,
+        owner_token: str | None = None,
+    ) -> RunLockReleaseOutcome:
+        """Release exactly like :meth:`release_run_lock` and report whether it was applied.
+
+        ``applied`` is false when the owner token no longer owns a ``busy`` thread (the
+        stale no-op described there) and true when this call replaced the row. Unlike the
+        returned thread alone, it stays exact when another owner already finished and left
+        the thread at the requested status.
+        """
+        return _release_with_outcome(
+            lambda: self.release_run_lock(
+                thread_id, status=status, values=values, owner_token=owner_token
+            ),
+            self._release_signal,
+        )
 
     def renew_run_lock(self, thread_id: str, owner_token: str) -> bool:
         """Extend a held run lock, retrying ETag conflicts while the caller still owns it.
