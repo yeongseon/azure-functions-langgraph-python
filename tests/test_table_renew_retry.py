@@ -208,23 +208,26 @@ def test_renewal_raises_after_bounded_conflicts_while_still_owning_the_lock() ->
 def test_storage_errors_are_not_mistaken_for_lost_ownership_or_retried(
     phase: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Given an owner whose renewal hits an unrelated storage failure.
+    # Given an owner whose renewal hits an unrelated storage failure on one specific call.
     store, table = _new_store()
     thread_id, token = _stale_lock(store, table)
-    attempts = table.update_attempts
-    if phase == "read":
-        monkeypatch.setattr(table, "get_entity", _raise(TimeoutError("private-read")))
-    else:
-        monkeypatch.setattr(table, "update_entity", _raise(OSError("private-write")))
+    error: Exception = TimeoutError("private-read") if phase == "read" else OSError("private-write")
+    calls: list[str] = []
+
+    def failing(*args: Any, **kwargs: Any) -> Any:
+        calls.append(phase)
+        raise error
+
+    monkeypatch.setattr(table, "get_entity" if phase == "read" else "update_entity", failing)
 
     # When it renews.
-    expected = TimeoutError if phase == "read" else OSError
-    with pytest.raises(expected):
+    with pytest.raises(type(error)) as caught:
         store.renew_run_lock(thread_id, token)
 
-    # Then the error propagates unchanged on the first attempt: it is neither retried like a
+    # Then that very error propagates after exactly one call: it is neither retried like a
     # conflict nor converted into False or into the conflict-exhaustion error.
-    assert table.update_attempts == attempts
+    assert caught.value is error
+    assert calls == [phase]
 
 
 def test_a_deleted_thread_still_raises_instead_of_reporting_a_conflict(
@@ -241,13 +244,6 @@ def test_a_deleted_thread_still_raises_instead_of_reporting_a_conflict(
 
     # Then the missing row is surfaced, as before, not turned into a retry or a False.
     assert (PARTITION, thread_id) not in table.entities
-
-
-def _raise(error: Exception) -> Callable[..., Any]:
-    def raiser(*args: Any, **kwargs: Any) -> Any:
-        raise error
-
-    return raiser
 
 
 # ---------------------------------------------------------------------------

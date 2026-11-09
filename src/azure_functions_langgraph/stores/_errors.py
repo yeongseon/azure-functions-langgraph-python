@@ -7,12 +7,12 @@ class RunLockReleaseError(RuntimeError):
 
 
 class RunLockRenewalConflictError(RuntimeError):
-    """A renewal exhausted its bounded compare-and-swap attempts while still owning the lock.
+    """A renewal exhausted its bounded compare-and-swap attempts without a verdict on ownership.
 
-    Every attempt re-read the row and found the caller's token still owning a busy thread, but
-    the conditional write kept losing to concurrent writes. That is neither proof that ownership
-    was replaced nor a successful extension, so it is raised instead of being returned as a
-    plain ``False``.
+    At every attempt's read the caller's token still owned a busy thread, but each conditional
+    write then lost to a concurrent write. Whether ownership survived the last conflict is not
+    known. That is neither proof that ownership was replaced nor a successful extension, so it is
+    raised instead of being returned as a plain ``False``.
     """
 
     def __init__(self, thread_id: str) -> None:

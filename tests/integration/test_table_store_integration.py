@@ -452,6 +452,8 @@ def test_a_renewal_that_loses_the_row_to_a_new_owner_returns_false_against_the_r
     old_token = locked.lock_token
     update = azurite_table_client.update_entity
     new_token: list[str] = []
+    new_owner_row: list[Any] = []
+    lock_fields = ("lock_token", "lock_expires_at", "updated_at", "status")
 
     def new_owner_takes_over(entity: dict[str, Any], *args: object, **kwargs: object) -> object:
         is_renewal = set(entity) == {"PartitionKey", "RowKey", "updated_at", "lock_expires_at"}
@@ -461,6 +463,8 @@ def test_a_renewal_that_loses_the_row_to_a_new_owner_returns_false_against_the_r
                 owner = store.try_acquire_run_lock(thread.thread_id)
             assert owner is not None and owner.lock_token is not None
             new_token.append(owner.lock_token)
+            row = cast(Any, azurite_table_client).get_entity("thread", thread.thread_id)
+            new_owner_row.append({field: row[field] for field in lock_fields})
         return DEFAULT
 
     with patch.object(
@@ -469,11 +473,14 @@ def test_a_renewal_that_loses_the_row_to_a_new_owner_returns_false_against_the_r
         # When the old owner's renewal re-reads the row after the 412.
         renewed = store.renew_run_lock(thread.thread_id, old_token)
 
-    # Then it reports lost ownership and the newer owner's lock is untouched.
+    # Then it reports lost ownership and the newer owner's lock is untouched: token, status and
+    # both lock timestamps are exactly what the new owner's acquisition wrote.
     assert renewed is False
     after = store.get(thread.thread_id)
     assert after is not None
     assert (after.status, after.lock_token) == ("busy", new_token[0])
+    row = cast(Any, azurite_table_client).get_entity("thread", thread.thread_id)
+    assert {field: row[field] for field in lock_fields} == new_owner_row[0]
 
 
 def _real_metadata_patches(app: _App) -> Callable[[], None]:
