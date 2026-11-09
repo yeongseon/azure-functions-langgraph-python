@@ -695,12 +695,13 @@ def test_two_concurrent_patches_of_different_keys_both_survive_against_the_real_
 ) -> None:
     # Given request A that read the thread through the real service and has not written yet.
     app = MetadataApp(_new_store(azurite_table_client))
-    app.after_the_handlers_read("get", lambda: app.patch({"b": 2}))
+    concurrent = app.after_the_handlers_read("get", lambda: app.patch({"b": 2}))
 
     # When request B patches another key and finishes, and then A writes.
     assert app.patch({"a": 1}).status_code == 200
 
-    # Then neither acknowledged change was lost.
+    # Then B ran inside A's window and was acknowledged, and neither change was lost.
+    assert [response.status_code for response in concurrent] == [200]
     assert app.metadata() == {"base": 0, "a": 1, "b": 2}
 
 
@@ -710,10 +711,13 @@ def test_a_patch_during_a_runs_metadata_merge_is_not_lost_against_the_real_table
 ) -> None:
     # Given a run that read the thread and is about to take its lock and merge its metadata.
     app = MetadataApp(_new_store(azurite_table_client))
-    app.after_the_handlers_read("try_acquire_run_lock", lambda: app.patch({"patched": True}))
+    concurrent = app.after_the_handlers_read(
+        "try_acquire_run_lock", lambda: app.patch({"patched": True})
+    )
 
     # When a PATCH lands in that window and the run then writes its own metadata.
     assert app.run(endpoint, {"from-run": 1}).status_code == 200
 
-    # Then both survive.
+    # Then the PATCH ran inside the window and was acknowledged, and both changes survive.
+    assert [response.status_code for response in concurrent] == [200]
     assert app.metadata() == {"base": 0, "patched": True, "from-run": 1}

@@ -15,7 +15,7 @@ from collections.abc import Callable
 import json
 import logging
 import threading
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 import azure.functions as func
 import pytest
@@ -31,6 +31,8 @@ from tests.test_stores_azure_table import (
 )
 
 SECRET = "private-metadata-canary"
+
+T = TypeVar("T")
 
 
 class PlainStore:
@@ -133,18 +135,81 @@ def test_the_callers_mapping_is_not_changed_or_aliased() -> None:
     assert stored is not None and stored.metadata == {"nested": {"k": [1]}}
 
 
+class PausingStore(InMemoryThreadStore):
+    """Holds ``writer-a`` inside ``update``, after its merge read and before its write.
+
+    ``merge_metadata`` writes through ``update``, so this is the window in which another writer
+    could slip in if the merge were not atomic. ``paused`` is set once the writer is held and
+    ``resume`` lets it go; every other thread passes straight through.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.paused = threading.Event()
+        self.resume = threading.Event()
+
+    def update(self, thread_id: str, **kwargs: Any) -> Thread:
+        if threading.current_thread().name == "writer-a":
+            self.paused.set()
+            assert self.resume.wait(10), "the test never resumed the held writer"
+        return super().update(thread_id, **kwargs)
+
+
+def test_a_merge_cannot_be_interleaved_with_another_writer() -> None:
+    # Given writer A held between the read of the metadata and its write.
+    store = PausingStore()
+    thread = store.create(metadata={"base": 0})
+    worker_errors: list[Exception] = []
+
+    def merge(key: str, value: int) -> None:
+        try:
+            store.merge_metadata(thread.thread_id, {key: value})
+        except Exception as exc:
+            worker_errors.append(exc)
+
+    writer_a = threading.Thread(target=merge, args=("a", 1), name="writer-a", daemon=True)
+    writer_b = threading.Thread(target=merge, args=("b", 2), name="writer-b", daemon=True)
+
+    # When writer B merges another key while A is held, and A is let go after B had every chance
+    # to overtake it. A correct store keeps B waiting behind A for the whole interval; a store
+    # that lets B through finishes it in microseconds, so a missing lock is caught, and a slow
+    # machine can only make a broken store pass, never a correct one fail.
+    writer_a.start()
+    try:
+        assert store.paused.wait(10), "writer A never reached its write"
+        writer_b.start()
+        writer_b.join(0.2)
+    finally:
+        store.resume.set()
+    writer_a.join(10)
+    writer_b.join(10)
+
+    # Then both writers finished without error and neither key was lost: B did not write a map
+    # derived from metadata that A was about to replace.
+    assert not writer_a.is_alive() and not writer_b.is_alive()
+    assert worker_errors == []
+    stored = store.get(thread.thread_id)
+    assert stored is not None and stored.metadata == {"base": 0, "a": 1, "b": 2}
+
+
 def test_concurrent_merges_of_different_keys_all_survive() -> None:
-    # Given many threads that each merge their own key into the same thread at the same time.
+    # Supplementary stress: many threads each merge their own key into the same thread at once.
+    # The deterministic test above pins the atomicity; this one only has to stay green under
+    # contention, and fails loudly (not silently) if a worker dies or hangs.
     store = InMemoryThreadStore()
     thread = store.create(metadata={"base": 0})
     workers = 24
     barrier = threading.Barrier(workers)
+    worker_errors: list[Exception] = []
 
     def merge(index: int) -> None:
-        barrier.wait()
-        store.merge_metadata(thread.thread_id, {f"key-{index}": index})
+        try:
+            barrier.wait(10)
+            store.merge_metadata(thread.thread_id, {f"key-{index}": index})
+        except Exception as exc:
+            worker_errors.append(exc)
 
-    pool = [threading.Thread(target=merge, args=(i,)) for i in range(workers)]
+    pool = [threading.Thread(target=merge, args=(i,), daemon=True) for i in range(workers)]
 
     # When they run.
     for t in pool:
@@ -152,7 +217,9 @@ def test_concurrent_merges_of_different_keys_all_survive() -> None:
     for t in pool:
         t.join(10)
 
-    # Then no key was lost.
+    # Then every worker finished without error and no key was lost.
+    assert not any(t.is_alive() for t in pool)
+    assert worker_errors == []
     stored = store.get(thread.thread_id)
     assert stored is not None and stored.metadata is not None
     assert set(stored.metadata) == {"base", *(f"key-{i}" for i in range(workers))}
@@ -289,24 +356,28 @@ class App:
         )
         return cast(func.HttpResponse, handler(request))
 
-    def after_the_handlers_read(self, store_attr: str, concurrent: Callable[[], object]) -> None:
+    def after_the_handlers_read(self, store_attr: str, concurrent: Callable[[], T]) -> list[T]:
         """Run ``concurrent`` once, right after the next call of ``store.<store_attr>`` returns.
 
         For ``get`` that is right after a handler read the thread and before it wrote; for
-        ``try_acquire_run_lock`` it is the same window in the run handlers.
+        ``try_acquire_run_lock`` it is the same window in the run handlers. The returned list
+        receives the result of ``concurrent``, so a test can assert that it really ran there.
         """
         real = getattr(self.store, store_attr)
-        fired: list[int] = []
+        results: list[T] = []
+        fired = False
 
         def wrapped(*args: Any, **kwargs: Any) -> Any:
+            nonlocal fired
             result = real(*args, **kwargs)
             if not fired:
-                fired.append(1)
+                fired = True
                 setattr(self.store, store_attr, real)
-                concurrent()
+                results.append(concurrent())
             return result
 
         setattr(self.store, store_attr, wrapped)
+        return results
 
     def metadata(self) -> dict[str, Any] | None:
         stored = self.store.get(self.thread_id)
@@ -322,23 +393,25 @@ def _app(kind: str) -> App:
 def test_two_concurrent_patches_of_different_keys_both_survive(kind: str) -> None:
     # Given request A that has read the thread and not yet written.
     app = _app(kind)
-    app.after_the_handlers_read("get", lambda: app.patch({"b": 2}))
+    concurrent = app.after_the_handlers_read("get", lambda: app.patch({"b": 2}))
 
     # When request B patches another key and finishes first, and then A writes.
     assert app.patch({"a": 1}).status_code == 200
 
-    # Then neither acknowledged change was lost.
+    # Then B ran inside A's window and was acknowledged, and neither change was lost.
+    assert [response.status_code for response in concurrent] == [200]
     assert app.metadata() == {"base": 0, "a": 1, "b": 2}
 
 
 @pytest.mark.parametrize("kind", ["memory", "table"])
 def test_for_one_key_the_last_writer_wins(kind: str) -> None:
     app = _app(kind)
-    app.after_the_handlers_read("get", lambda: app.patch({"shared": "second"}))
+    concurrent = app.after_the_handlers_read("get", lambda: app.patch({"shared": "second"}))
 
     assert app.patch({"shared": "first"}).status_code == 200
 
     # A's write lands last, so its value stands for the key both patched.
+    assert [response.status_code for response in concurrent] == [200]
     assert app.metadata() == {"base": 0, "shared": "first"}
 
 
@@ -347,12 +420,15 @@ def test_for_one_key_the_last_writer_wins(kind: str) -> None:
 def test_a_patch_during_a_runs_metadata_merge_is_not_lost(kind: str, endpoint: str) -> None:
     # Given a run that read the thread and is about to take its lock and merge its metadata.
     app = _app(kind)
-    app.after_the_handlers_read("try_acquire_run_lock", lambda: app.patch({"patched": True}))
+    concurrent = app.after_the_handlers_read(
+        "try_acquire_run_lock", lambda: app.patch({"patched": True})
+    )
 
     # When a PATCH lands in that window and the run then writes its own metadata.
     assert app.run(endpoint, {"from-run": 1}).status_code == 200
 
-    # Then both survive.
+    # Then the PATCH ran inside the window and was acknowledged, and both changes survive.
+    assert [response.status_code for response in concurrent] == [200]
     assert app.metadata() == {"base": 0, "patched": True, "from-run": 1}
 
 
@@ -369,10 +445,11 @@ def test_patch_returns_the_merged_thread(kind: str) -> None:
 @pytest.mark.parametrize("kind", ["memory", "table"])
 def test_patching_a_thread_deleted_in_the_meantime_is_404(kind: str) -> None:
     app = _app(kind)
-    app.after_the_handlers_read("get", lambda: app.store.delete(app.thread_id))
+    deleted = app.after_the_handlers_read("get", lambda: app.store.delete(app.thread_id))
 
     response = app.patch({"a": 1})
 
+    assert deleted == [None]
     assert response.status_code == 404
 
 
@@ -431,10 +508,11 @@ def test_a_store_without_the_capability_can_still_lose_a_concurrent_key_document
     # Given the same interleaving as for the bundled stores, on a store that cannot merge
     # atomically.
     app = App(PlainStore(InMemoryThreadStore()))
-    app.after_the_handlers_read("get", lambda: app.patch({"b": 2}))
+    concurrent = app.after_the_handlers_read("get", lambda: app.patch({"b": 2}))
 
     assert app.patch({"a": 1}).status_code == 200
 
     # Then the stale map replaces the stored one: the documented limit of the fallback, which a
     # store closes by implementing merge_metadata.
+    assert [response.status_code for response in concurrent] == [200]
     assert app.metadata() == {"base": 0, "a": 1}
