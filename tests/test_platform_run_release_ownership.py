@@ -26,7 +26,7 @@ from azure_functions_langgraph.platform.stores import InMemoryThreadStore
 from tests.conftest import FakeCompiledGraph
 from tests.ownership_guard_support import RecordingObserver
 from tests.test_platform_routes import _get_fn, _post_request
-from tests.test_stores_azure_table import MockTableClient, _new_store
+from tests.test_stores_azure_table import _new_store
 
 SECRET = "private-graph-canary"
 
@@ -80,11 +80,15 @@ class HookedGraph(FakeCompiledGraph):
 class Harness:
     """A Platform app over a chosen store, with ownership stolen from inside the graph call."""
 
-    def __init__(self, kind: str) -> None:
+    def __init__(self, kind: str, store: Any = None, table: Any = None) -> None:
+        """``kind``: ``"memory"`` or ``"table"``; ``store``/``table`` plug in a real service."""
         self.kind = kind
-        self.table: MockTableClient | None
-        if kind == "memory":
-            self.store: Any = InMemoryThreadStore()
+        self.table: Any
+        if store is not None:
+            self.store: Any = store
+            self.table = table
+        elif kind == "memory":
+            self.store = InMemoryThreadStore()
             self.table = None
         else:
             self.store, self.table = _new_store()
@@ -102,9 +106,15 @@ class Harness:
         if self.table is None:
             self.store.release_run_lock(self.thread_id, status=reset_to)
         else:
-            self.table.entities[("thread", self.thread_id)]["updated_at"] = datetime.now(
-                UTC
-            ) - timedelta(seconds=900)
+            # A plain merge works on the in-process Table model and on a real service alike.
+            self.table.update_entity(
+                {
+                    "PartitionKey": "thread",
+                    "RowKey": self.thread_id,
+                    "updated_at": datetime.now(UTC) - timedelta(seconds=900),
+                },
+                mode="merge",
+            )
             assert self.store.reset_stale_locks(older_than_seconds=300, status=reset_to) == 1
         if new_owner:
             owner = self.store.try_acquire_run_lock(self.thread_id)
