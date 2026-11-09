@@ -5,7 +5,10 @@ ETag without changing its owner. ``renew_run_lock`` used to treat the resulting 
 conflict as lost ownership, so the Platform renewal worker failed a perfectly healthy long run.
 A renewal now re-reads the row after a conflict and re-checks the owner before writing again,
 for at most three attempts. Fake-backed: the Table's compare-and-swap semantics are modeled by
-``MockTableClient``; the Azurite lane covers the real SDK.
+``MockTableClient``, which is what lets every interleaving be forced deterministically and keeps
+these tests in the coverage-gated suite. The same scenarios run against the real Table service,
+through the real SDK and real PATCH requests, in the Azurite lane
+(``tests/integration/test_table_store_integration.py``).
 """
 
 from __future__ import annotations
@@ -41,7 +44,7 @@ def _is_renewal_write(entity: dict[str, Any]) -> bool:
 
 
 def _race_the_renewal(
-    table: MockTableClient,
+    table: Any,
     monkeypatch: pytest.MonkeyPatch,
     *,
     times: int,
@@ -253,8 +256,10 @@ def _raise(error: Exception) -> Callable[..., Any]:
 
 
 class _App:
-    def __init__(self, endpoint: str) -> None:
-        self.store, self.table = _new_store()
+    """A Platform app over any ``AzureTableThreadStore``: the fake Table or a real service."""
+
+    def __init__(self, endpoint: str, store: Any, table: Any) -> None:
+        self.store, self.table = store, table
         self.lock = InProcessThreadLock()
         self.observer = RecordingObserver()
         self.graph = FakeCompiledGraph(checkpointer=None)
@@ -310,7 +315,7 @@ def test_a_metadata_write_during_a_run_does_not_fail_the_run(
     endpoint: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given a run whose first renewal races a metadata-only write to the thread.
-    app = _App(endpoint)
+    app = _App(endpoint, *_new_store())
     outcomes = _wait_for_one_renewal(app, monkeypatch)
     fired = _race_the_renewal(
         app.table,
@@ -339,7 +344,7 @@ def test_a_run_is_still_failed_safely_when_renewal_conflicts_are_exhausted(
     endpoint: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given a run whose renewal writes conflict on every attempt (the owner is never replaced).
-    app = _App(endpoint)
+    app = _App(endpoint, *_new_store())
     outcomes = _wait_for_one_renewal(app, monkeypatch)
     original = app.table.update_entity
 
