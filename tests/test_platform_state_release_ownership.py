@@ -101,6 +101,9 @@ class StateHarness:
         self.thread_id = self.store.create().thread_id
         self.store.update(self.thread_id, assistant_id="agent", status=prior_status)
         self.new_owner_token: str | None = None
+        self.steals = 0
+        self.before_steal: Thread | None = None
+        self.after_steal: Thread | None = None
 
     def steal(
         self,
@@ -112,8 +115,11 @@ class StateHarness:
         """Ownership is lost while ``update_state`` runs: reclaimed, optionally re-acquired.
 
         With ``new_owner_finishes`` the new owner also runs to completion (releases to ``idle``
-        with those values) before the stale update gets to release.
+        with those values) before the stale update gets to release. The row just before and just
+        after is kept, so a test can prove that the loss happened and what it left behind.
         """
+        self.steals += 1
+        self.before_steal = self.store.get(self.thread_id)
         if self.table is None:
             self.store.release_run_lock(self.thread_id, status=reset_to)
         else:
@@ -139,6 +145,7 @@ class StateHarness:
                     owner_token=owner.lock_token,
                 )
                 assert (finished.status, finished.lock_token) == ("idle", None)
+        self.after_steal = self.store.get(self.thread_id)
 
     def update(self) -> func.HttpResponse:
         handler = _get_fn(self.app.function_app, "aflg_platform_threads_state_update")
@@ -150,10 +157,24 @@ class StateHarness:
         return cast(func.HttpResponse, handler(request))
 
 
+def assert_the_loss_happened_and_the_cleanup_changed_nothing(h: StateHarness) -> Thread:
+    """The row is exactly as the ownership loss left it, so the update's cleanup wrote nothing.
+
+    It also proves that the loss really happened inside ``update_state``, while the update held
+    the lock: a hook that never fires cannot let a test pass for the wrong reason.
+    """
+    assert h.steals == 1
+    assert h.before_steal is not None
+    assert h.before_steal.status == "busy" and h.before_steal.lock_token is not None
+    after: Thread | None = h.store.get(h.thread_id)
+    assert after is not None and after == h.after_steal
+    return after
+
+
 def check_a_stale_release_fails_the_state_update(
     h: StateHarness, new_owner: bool, reset_to: ResetTo = "error"
 ) -> None:
-    # Given an update that loses the thread while update_state runs, after its last write.
+    # Given an update that loses the thread after it took the lock and before its cleanup.
     h.graph.hook = lambda: h.steal(new_owner=new_owner, reset_to=reset_to)
 
     # When update_state returns and the handler releases with its old owner token.
@@ -165,8 +186,7 @@ def check_a_stale_release_fails_the_state_update(
     # And the update itself ran once: the failure is about ownership, not a rollback.
     assert h.graph.update_calls == 1
     # And the other party's state is preserved: the reclaimed disposition or the new owner.
-    after = h.store.get(h.thread_id)
-    assert after is not None
+    after = assert_the_loss_happened_and_the_cleanup_changed_nothing(h)
     if new_owner:
         assert (after.status, after.lock_token) == ("busy", h.new_owner_token)
     else:
@@ -191,8 +211,7 @@ def check_another_owner_finishing_first_does_not_hide_a_stale_state_update_relea
     assert response.status_code == 500
     assert json.loads(response.get_body()) == RELEASE_FAILURE
     # And the newer owner's result stands.
-    after = h.store.get(h.thread_id)
-    assert after is not None
+    after = assert_the_loss_happened_and_the_cleanup_changed_nothing(h)
     assert (after.status, after.lock_token, after.values) == ("idle", None, {"newer": "values"})
     assert len(h.lock.acquired) == 1 and h.lock.released == h.lock.acquired
 
@@ -203,6 +222,7 @@ def check_the_new_owner_can_still_finish_after_a_stale_state_update_release_was_
     # Given a stale release that was refused while a newer owner holds the thread.
     h.graph.hook = lambda: h.steal(new_owner=True)
     assert h.update().status_code == 500
+    assert_the_loss_happened_and_the_cleanup_changed_nothing(h)
     assert h.new_owner_token is not None
 
     # When the newer owner releases with its own token and a result.
@@ -245,8 +265,7 @@ def check_a_state_update_graph_failure_stays_the_primary_error_when_the_release_
     assert response.status_code == 500
     assert json.loads(response.get_body()) == UPDATE_FAILURE
     assert SECRET.encode() not in response.get_body()
-    after = h.store.get(h.thread_id)
-    assert after is not None
+    after = assert_the_loss_happened_and_the_cleanup_changed_nothing(h)
     if new_owner:
         assert (after.status, after.lock_token) == ("busy", h.new_owner_token)
     else:
@@ -333,6 +352,7 @@ def test_a_refused_release_is_logged_with_its_reason_and_nothing_private(
 
     # Then the operator can read why in the log, and the caller gets nothing but the sanitized 500.
     assert response.status_code == 500
+    assert_the_loss_happened_and_the_cleanup_changed_nothing(h)
     messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any(h.thread_id in m and "ignored" in m and "no longer owned" in m for m in messages)
     assert b"ignored" not in response.get_body()
@@ -389,9 +409,11 @@ def test_a_store_without_the_outcome_cannot_see_a_same_status_reclaim_documented
     # applied release returns, and nothing else is known.
     response = h.update()
 
-    # Then it is reported as a success. This is the documented limit of the fallback; a store that
+    # Then it is reported as a success although the store ignored the release: the row is exactly
+    # as the reclaim left it. This is the documented limit of the fallback; a store that
     # implements the outcome closes it (see the reclaimed test above).
     assert response.status_code == 200
+    assert_the_loss_happened_and_the_cleanup_changed_nothing(h)
 
 
 def test_a_store_without_the_outcome_cannot_see_a_finished_new_owner_documented_limit() -> None:
@@ -402,10 +424,11 @@ def test_a_store_without_the_outcome_cannot_see_a_finished_new_owner_documented_
     # When the stale update releases: idle with no token, the status it asked for.
     response = h.update()
 
-    # Then it is reported as a success, the documented limit of the fallback.
+    # Then it is reported as a success, the documented limit of the fallback, although the store
+    # ignored the release and the newer owner's result stands.
     assert response.status_code == 200
-    after = h.store.get(h.thread_id)
-    assert after is not None and after.values == {"newer": "values"}
+    after = assert_the_loss_happened_and_the_cleanup_changed_nothing(h)
+    assert after.values == {"newer": "values"}
 
 
 @pytest.mark.parametrize(
