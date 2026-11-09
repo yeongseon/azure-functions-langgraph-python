@@ -64,6 +64,20 @@ optional `ReleaseOutcomeProvider` (`release_run_lock_outcome`, returning a
 even when another owner already left the thread at the requested status; the
 bundled stores do. Without it the returned thread is all the handler has.
 
+### Atomic metadata merge
+
+`ThreadStore.update(thread_id, metadata=...)` replaces the thread's whole metadata map. Platform
+handlers merge a request's metadata (`PATCH /threads/{id}`, and the metadata a run carries) into
+the existing keys, and a handler that reads the thread, merges in its own copy and writes the
+result back silently drops any key another request added in between. A store can close that
+race by implementing the optional `MetadataMergeProvider`: `merge_metadata(thread_id, patch)`
+merges `patch` into the metadata as it stands when the write is applied (for one key the last
+writer wins; every other field of the thread is untouched), returns the updated `Thread` and
+raises `KeyError` for a missing thread. The bundled in-memory and Azure Table stores implement
+it (the Table store inside its ETag retry loop, re-deriving the merge from the fresh row on each
+attempt), and the handlers use it when it is present. A store without it keeps working with the
+earlier read, merge and `update` sequence, which is not protected against that race.
+
 The native `invoke` / `stream` endpoints guard concurrent access to the same
 `(graph_name, thread_id)` so that single-writer checkpointers (for example
 `AzureBlobCheckpointSaver`) never see racing writes for one thread.

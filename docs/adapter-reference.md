@@ -700,7 +700,10 @@ With `platform_compat=True`, you also get SDK-compatible endpoints:
 - `POST /assistants/count` — count assistants
 - `POST /threads` — create thread
 - `GET /threads/{id}` — get thread
-- `PATCH /threads/{id}` — update thread metadata
+- `PATCH /threads/{id}` — update thread metadata: the request's keys are merged into the
+  thread's current metadata (a key sent again takes the new value; every other key is kept).
+  The bundled stores apply the merge atomically, so concurrent patches of different keys all
+  survive; for one key the last writer wins. See "Atomic metadata merge" below.
 - `DELETE /threads/{id}` — delete thread
 - `POST /threads/search` — search threads
 - `POST /threads/count` — count threads
@@ -960,7 +963,9 @@ Notes:
   limit. `TableStorageLimitError` is a `ValueError` with size and limit attributes:
   reduce thread data or supply a Blob-backed custom `ThreadStore`; data is never
   truncated. Conditional replacements remove obsolete chunks when documents shrink,
-  preserve unrelated fields, and retry ETag conflicts up to three times. Readers
+  preserve unrelated fields, and retry ETag conflicts up to three times; a metadata
+  merge (`merge_metadata`) re-derives its result from the freshly read row on every attempt,
+  so a conflicting writer's new keys are kept. Readers
   must be upgraded before writers: older package versions cannot read chunked JSON.
   Datetimes become strings, LangChain messages retain structured message dictionaries,
   and Pydantic models use JSON-mode dumps through the shared JSON encoder.
