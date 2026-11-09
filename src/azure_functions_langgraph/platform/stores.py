@@ -86,8 +86,8 @@ class MetadataMergeProvider(Protocol):
     silently drops every key another writer added in between (a lost update): the window is the
     caller's own latency, and a store that retries a conflicting write re-applies the same stale
     map. A store that also implements this protocol merges the patch into the **current**
-    metadata inside its own atomic read-modify-write, so concurrent patches of different keys
-    all survive.
+    metadata inside its own atomic read-modify-write, so the keys of every patch that succeeds
+    survive concurrent patches of other keys.
 
     Platform handlers use it for ``PATCH /threads/{id}`` and for the metadata a run carries, and
     fall back to read, merge and ``update`` for stores without it, which keep working but are not
@@ -98,10 +98,10 @@ class MetadataMergeProvider(Protocol):
         """Shallow-merge ``metadata`` into the thread's current metadata and return the thread.
 
         Keys of ``metadata`` override the same keys of the current map (for one key the last
-        writer wins); every other key, and every other field of the thread (status, assistant
-        binding, values, lock token and expiry), is left as it is. The merge happens against the
-        metadata as it stands when the write is applied, not against any earlier read. Raises
-        ``KeyError(thread_id)`` if the thread does not exist.
+        writer wins); every other key and every other field (status, assistant binding, values,
+        lock token and expiry) is left as it is, except that ``updated_at`` advances as for
+        ``update``. The merge happens against the metadata as it stands when the write is
+        applied, not against any earlier read. Raises ``KeyError(thread_id)`` for a missing thread.
         """
         ...
 

@@ -72,11 +72,22 @@ the existing keys, and a handler that reads the thread, merges in its own copy a
 result back silently drops any key another request added in between. A store can close that
 race by implementing the optional `MetadataMergeProvider`: `merge_metadata(thread_id, patch)`
 merges `patch` into the metadata as it stands when the write is applied (for one key the last
-writer wins; every other field of the thread is untouched), returns the updated `Thread` and
-raises `KeyError` for a missing thread. The bundled in-memory and Azure Table stores implement
-it (the Table store inside its ETag retry loop, re-deriving the merge from the fresh row on each
-attempt), and the handlers use it when it is present. A store without it keeps working with the
-earlier read, merge and `update` sequence, which is not protected against that race.
+writer wins; every other field of the thread is untouched except `updated_at`, which advances
+as it does for `update`), returns the updated `Thread` and raises `KeyError` for a missing
+thread. The bundled in-memory and Azure Table stores implement it (the Table store inside its
+ETag retry loop, re-deriving the merge from the fresh row on each attempt), and the handlers use
+it when it is present. A store without it keeps working with the earlier read, merge and
+`update` sequence, which is not protected against that race.
+
+A patch that succeeds keeps its keys whatever other patches run at the same time. After three
+conflicting attempts the Table store gives up, and `PATCH /threads/{id}` answers a sanitized
+`500` (the cause is logged) without applying that patch.
+
+If you subclass a bundled store: `InMemoryThreadStore.merge_metadata` writes through
+`self.update`, so an override of `update` still sees every metadata write.
+`AzureTableThreadStore.merge_metadata` runs its own read-modify-write loop and does **not** call
+`update`; a subclass that overrides `update` to intercept metadata writes must override
+`merge_metadata` as well.
 
 The native `invoke` / `stream` endpoints guard concurrent access to the same
 `(graph_name, thread_id)` so that single-writer checkpointers (for example

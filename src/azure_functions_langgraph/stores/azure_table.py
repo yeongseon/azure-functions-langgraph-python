@@ -396,7 +396,8 @@ class AzureTableThreadStore(ThreadStore):
         so a key that other writer added is kept. For one key the last writer wins. Everything
         else in the row (status, assistant binding, values, interrupts, lock token and expiry)
         is preserved. After three conflicting attempts the SDK's modified error is raised, as for
-        :meth:`update`.
+        :meth:`update`. This method has its own read-modify-write loop and does not call
+        :meth:`update`: a subclass that overrides ``update`` must override this method as well.
         """
 
         def apply(replacement: dict[str, Any]) -> None:

@@ -702,8 +702,10 @@ With `platform_compat=True`, you also get SDK-compatible endpoints:
 - `GET /threads/{id}` — get thread
 - `PATCH /threads/{id}` — update thread metadata: the request's keys are merged into the
   thread's current metadata (a key sent again takes the new value; every other key is kept).
-  The bundled stores apply the merge atomically, so concurrent patches of different keys all
-  survive; for one key the last writer wins. See "Atomic metadata merge" below.
+  The bundled stores apply the merge atomically, so the keys of every patch that succeeds
+  survive concurrent patches of other keys; for one key the last writer wins. A merge that
+  fails is answered with a sanitized `500`. See
+  [Atomic metadata merge](ops-and-apis.md#atomic-metadata-merge).
 - `DELETE /threads/{id}` — delete thread
 - `POST /threads/search` — search threads
 - `POST /threads/count` — count threads
