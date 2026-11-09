@@ -7,6 +7,10 @@ still answered 200, emitted ``on_run_completed`` and discarded its values silent
 
 Fake-backed: ownership is stolen from inside the graph call, which runs after the renewal worker
 started (its 20 s tick never fires in a test) and before the handler's cleanup.
+
+The scenarios are plain ``check_*`` functions over a ``Harness`` so that the Azurite lane
+(``tests/integration/test_table_store_integration.py``) can run the very same assertions through a
+real Table service; the tests below run them over the in-process stores.
 """
 
 from __future__ import annotations
@@ -131,14 +135,10 @@ class Harness:
         return cast(func.HttpResponse, handler(request))
 
 
-@pytest.mark.parametrize("endpoint", ["wait", "stream"])
-@pytest.mark.parametrize("store_kind", ["memory", "table"])
-@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
-def test_a_stale_release_is_reported_as_failure_not_completion(
-    endpoint: str, store_kind: str, new_owner: bool
+def check_a_stale_release_is_reported_as_failure_not_completion(
+    h: Harness, endpoint: str, new_owner: bool
 ) -> None:
     # Given a run that loses the thread after its last renewal tick but before cleanup.
-    h = Harness(store_kind)
     h.graph.hook = lambda: h.steal(new_owner=new_owner)
 
     # When the graph returns normally and the handler releases with its old owner token.
@@ -163,13 +163,10 @@ def test_a_stale_release_is_reported_as_failure_not_completion(
     assert len(h.lock.acquired) == 1 and h.lock.released == h.lock.acquired
 
 
-@pytest.mark.parametrize("endpoint", ["wait", "stream"])
-@pytest.mark.parametrize("store_kind", ["memory", "table"])
-def test_the_new_owner_can_still_finish_after_the_stale_release_was_refused(
-    endpoint: str, store_kind: str
+def check_the_new_owner_can_still_finish_after_the_stale_release_was_refused(
+    h: Harness, endpoint: str
 ) -> None:
     # Given a stale release that was refused while a newer owner holds the thread.
-    h = Harness(store_kind)
     h.graph.hook = lambda: h.steal(new_owner=True)
     assert h.run(endpoint).status_code == 500
     assert h.new_owner_token is not None
@@ -183,13 +180,10 @@ def test_the_new_owner_can_still_finish_after_the_stale_release_was_refused(
     assert (released.status, released.values, released.lock_token) == ("idle", {"new": 1}, None)
 
 
-@pytest.mark.parametrize("endpoint", ["wait", "stream"])
-@pytest.mark.parametrize("store_kind", ["memory", "table"])
-def test_an_ordinary_run_still_completes_and_publishes_its_result(
-    endpoint: str, store_kind: str
+def check_an_ordinary_run_still_completes_and_publishes_its_result(
+    h: Harness, endpoint: str
 ) -> None:
     # Given a healthy run.
-    h = Harness(store_kind)
 
     # When it completes and releases normally.
     response = h.run(endpoint)
@@ -204,14 +198,10 @@ def test_an_ordinary_run_still_completes_and_publishes_its_result(
     assert len(h.lock.acquired) == 1 and h.lock.released == h.lock.acquired
 
 
-@pytest.mark.parametrize("endpoint", ["wait", "stream"])
-@pytest.mark.parametrize("store_kind", ["memory", "table"])
-@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
-def test_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
-    endpoint: str, store_kind: str, new_owner: bool
+def check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
+    h: Harness, endpoint: str, new_owner: bool
 ) -> None:
     # Given a run whose graph fails after it already lost the thread.
-    h = Harness(store_kind)
     h.graph.hook = lambda: h.steal(new_owner=new_owner)
     h.graph.error = RuntimeError(SECRET)
 
@@ -240,6 +230,46 @@ def test_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
     else:
         assert (after.status, after.lock_token) == ("error", None)
     assert len(h.lock.acquired) == 1 and h.lock.released == h.lock.acquired
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("store_kind", ["memory", "table"])
+@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
+def test_a_stale_release_is_reported_as_failure_not_completion(
+    endpoint: str, store_kind: str, new_owner: bool
+) -> None:
+    check_a_stale_release_is_reported_as_failure_not_completion(
+        Harness(store_kind), endpoint, new_owner
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("store_kind", ["memory", "table"])
+def test_the_new_owner_can_still_finish_after_the_stale_release_was_refused(
+    endpoint: str, store_kind: str
+) -> None:
+    check_the_new_owner_can_still_finish_after_the_stale_release_was_refused(
+        Harness(store_kind), endpoint
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("store_kind", ["memory", "table"])
+def test_an_ordinary_run_still_completes_and_publishes_its_result(
+    endpoint: str, store_kind: str
+) -> None:
+    check_an_ordinary_run_still_completes_and_publishes_its_result(Harness(store_kind), endpoint)
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("store_kind", ["memory", "table"])
+@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
+def test_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
+    endpoint: str, store_kind: str, new_owner: bool
+) -> None:
+    check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
+        Harness(store_kind), endpoint, new_owner
+    )
 
 
 @pytest.mark.parametrize("endpoint", ["wait", "stream"])
