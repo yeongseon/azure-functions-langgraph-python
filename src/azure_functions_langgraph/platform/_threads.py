@@ -59,9 +59,10 @@ def _release_thread_state_lock(
     """Release both the distributed thread lock and the store-backed run lock
     held while a state update is in flight, returning any cleanup failure.
 
-    Mirrors ``_release_thread_run_lock`` in ``_runs.py`` (no renewal thread is
-    started here since ``update_state`` is a single synchronous call expected
-    to complete well within the store's lock-lease window).
+    Mirrors ``_release_thread_run_lock`` in ``_runs.py``, except that no renewal
+    thread is started here: ``update_state`` is a single synchronous call, so the
+    store row is not refreshed while it runs and ``reset_stale_locks`` must be
+    configured above the longest state update (see the production guide).
     """
     failure: Exception | None = None
     try:
@@ -96,6 +97,22 @@ def _release_thread_state_lock(
             failure = failure or exc
             logger.exception("Unexpected error releasing thread lock for thread %s", thread_id)
     return failure
+
+
+def _release_outer_state_lock(
+    deps: PlatformRouteDeps, graph_name: str, thread_id: str, lock_token: str
+) -> None:
+    """Release the shared thread lock after the store run lock could not be taken.
+
+    An ordinary release failure is logged and not raised, so it cannot replace the
+    response that explains why the state update did not start; the lock is then left
+    to its backend's own recovery. Process-control exceptions (``BaseException``)
+    still propagate.
+    """
+    try:
+        deps.thread_lock.release(graph_name, thread_id, lock_token)
+    except Exception:
+        logger.exception("Unexpected error releasing thread lock for thread %s", thread_id)
 
 
 def register_thread_routes(
@@ -407,13 +424,17 @@ def register_thread_routes(
         try:
             locked = deps.thread_store.try_acquire_run_lock(thread_id, assistant_id=graph_name)
         except KeyError:
-            deps.thread_lock.release(graph_name, thread_id, lock_token)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
             return _platform_error(404, f"Thread {thread_id!r} not found")
         except ValueError as exc:
-            deps.thread_lock.release(graph_name, thread_id, lock_token)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
             return _platform_error(409, str(exc))
+        except Exception:
+            logger.exception("State-update store acquisition failed for thread %s", thread_id)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
+            return _platform_error(500, "Internal error updating thread state")
         if locked is None:
-            deps.thread_lock.release(graph_name, thread_id, lock_token)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
             return _platform_error(
                 409,
                 f"Thread {thread_id!r} is already busy. "
