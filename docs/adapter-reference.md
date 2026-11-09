@@ -1114,7 +1114,10 @@ stands after the release (the requested status, no `lock_token`); a store that r
 taken before the write, or leaves the token on the released row, makes every run fail with that
 500. Such a store cannot expose a stale release that left the thread at the requested status (a
 reclaim to that status, or another owner that already finished); implementing
-`release_run_lock_outcome` closes that gap. A graph error that already failed the run
+`release_run_lock_outcome` closes that gap. `POST /threads/{id}/state` judges its own
+release the same way: a release the store refuses as stale fails the update with the
+sanitized HTTP 500 `Internal error releasing thread state lock` (no observer event; the
+update is not rolled back). A graph error that already failed the run
 stays the reported failure; on `runs/stream` a refused release also replaces the buffered error
 frame with the sanitized JSON 500, like any other release failure. Host cancellation still
 propagates without a terminal observer event. Still configure
