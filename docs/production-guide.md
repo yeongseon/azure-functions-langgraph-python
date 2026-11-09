@@ -312,8 +312,9 @@ only what it observed:
 - `cancel_requested` means *the termination call returned without reporting a
   failure; termination and worker stoppage are not confirmed*. It is not a
   lifecycle status and `GET` never returns it. The run can still complete normally
-  (the Durable client also returns normally when the instance finished in the
-  meantime), so **poll `GET` until the status is terminal** and read the outcome
+  (the Durable client returns normally for HTTP 202 and 410 alike, so a request that
+  reached the host just after the run ended is acknowledged like an accepted one), so
+  **poll `GET` until the status is terminal** and read the outcome
   there: `cancelled` if the termination took effect, `success` or `error` if the
   run finished first. Repeating the request is safe: while the run is in flight it
   asks again, and once it is terminal it answers `200` without calling `terminate`.
@@ -340,7 +341,8 @@ only what it observed:
   do not use cancellation as a safeguard against a duplicate or unwanted effect.
 - **Migration.** Earlier releases answered `202 {"status": "cancelled"}` at once.
   A client that treated that body as final must now poll `GET` until the status is
-  terminal. The Durable lifecycle is experimental and may change between minor
+  terminal, and one that accepted only `202` must also accept `200` (the run had
+  already finished). The Durable lifecycle is experimental and may change between minor
   releases; this change is marked breaking so release notes flag it.
 
 ### Configure timeout explicitly

@@ -146,7 +146,8 @@ flight, `GET` shows `success` or `error` instead of `cancelled`. An unknown run 
 backend failure is a `502` with a generic message (the cause is in the host log). Cancellation
 cannot roll back effects of tools that already ran and delivery is at-least-once, so give
 side-effecting tools an idempotency key. Earlier releases answered `202 {"status": "cancelled"}`
-at once; clients that treated that as final must poll `GET`.
+at once; clients that treated that as final must poll `GET`, and clients that accepted only
+`202` must also accept `200`.
 
 ## Thread state and locking
 
