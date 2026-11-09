@@ -14,6 +14,13 @@ from azure_functions_langgraph.stores._errors import RunLockRenewalConflictError
 from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
 from tests.storage_service import fail_or_skip_service, require_tcp_service
 from tests.test_platform_routes import _get_fn, _patch_request
+from tests.test_platform_run_release_ownership import (
+    Harness,
+    check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale,
+    check_a_stale_release_is_reported_as_failure_not_completion,
+    check_an_ordinary_run_still_completes_and_publishes_its_result,
+    check_the_new_owner_can_still_finish_after_the_stale_release_was_refused,
+)
 from tests.test_table_renew_retry import _App, _race_the_renewal, _wait_for_one_renewal
 
 AZURITE_TABLE_CONNECTION_STRING = (
@@ -556,3 +563,52 @@ def test_a_run_fails_safely_when_real_writes_exhaust_the_renewal_retries(
     assert after.metadata == {"patched": 3}
     token = app.lock.acquire("agent", app.thread_id)
     assert token is not None
+
+
+def _real_run_harness(table_client: _TableClientProtocol) -> Harness:
+    """A Platform app over the real Table service (in-process lock, recording observer)."""
+    return Harness("table", _new_store(table_client), table_client)
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
+def test_a_stale_run_release_over_the_real_table_is_a_failure_not_a_completion(
+    endpoint: str, new_owner: bool, azurite_table_client: _TableClientProtocol
+) -> None:
+    # Given a real Platform run that loses the thread to a real `reset_stale_locks` (and, in the
+    # second case, to a real re-acquisition) after its last renewal tick: #804 over the service.
+    # When it releases through the real SDK with its old owner token, then it is a sanitized
+    # failure with one failed event, and the other party's real row is untouched.
+    check_a_stale_release_is_reported_as_failure_not_completion(
+        _real_run_harness(azurite_table_client), endpoint, new_owner
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+def test_the_new_owner_can_still_finish_over_the_real_table(
+    endpoint: str, azurite_table_client: _TableClientProtocol
+) -> None:
+    check_the_new_owner_can_still_finish_after_the_stale_release_was_refused(
+        _real_run_harness(azurite_table_client), endpoint
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+def test_an_ordinary_run_completes_over_the_real_table(
+    endpoint: str, azurite_table_client: _TableClientProtocol
+) -> None:
+    # The run-completion check compares the thread the store returns with what the run asked for;
+    # on the real service a healthy release must still look like a success (no false positive).
+    check_an_ordinary_run_still_completes_and_publishes_its_result(
+        _real_run_harness(azurite_table_client), endpoint
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
+def test_a_graph_failure_stays_primary_over_the_real_table(
+    endpoint: str, new_owner: bool, azurite_table_client: _TableClientProtocol
+) -> None:
+    check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
+        _real_run_harness(azurite_table_client), endpoint, new_owner
+    )
