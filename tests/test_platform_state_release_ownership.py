@@ -176,7 +176,9 @@ def check_a_stale_release_fails_the_state_update(
     assert h.observer.events == []
 
 
-def check_another_owner_finishing_first_does_not_hide_a_stale_release(h: StateHarness) -> None:
+def check_another_owner_finishing_first_does_not_hide_a_stale_state_update_release(
+    h: StateHarness,
+) -> None:
     # Given an update that loses the thread, and a newer owner that acquires it and runs to
     # completion before the stale update releases.
     h.graph.hook = lambda: h.steal(new_owner=True, new_owner_finishes={"newer": "values"})
@@ -195,7 +197,7 @@ def check_another_owner_finishing_first_does_not_hide_a_stale_release(h: StateHa
     assert len(h.lock.acquired) == 1 and h.lock.released == h.lock.acquired
 
 
-def check_the_new_owner_can_still_finish_after_the_stale_release_was_refused(
+def check_the_new_owner_can_still_finish_after_a_stale_state_update_release_was_refused(
     h: StateHarness,
 ) -> None:
     # Given a stale release that was refused while a newer owner holds the thread.
@@ -228,7 +230,7 @@ def check_an_ordinary_state_update_still_completes(h: StateHarness) -> None:
     assert h.observer.events == []
 
 
-def check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
+def check_a_state_update_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
     h: StateHarness, new_owner: bool
 ) -> None:
     # Given an update whose graph fails after it already lost the thread.
@@ -284,7 +286,7 @@ def test_a_state_update_that_lost_the_thread_to_a_new_owner_is_a_failure(
 def test_another_owner_finishing_first_does_not_hide_a_stale_release(
     store_kind: str, prior_status: ThreadStatus
 ) -> None:
-    check_another_owner_finishing_first_does_not_hide_a_stale_release(
+    check_another_owner_finishing_first_does_not_hide_a_stale_state_update_release(
         StateHarness(store_kind, prior_status=prior_status)
     )
 
@@ -293,7 +295,7 @@ def test_another_owner_finishing_first_does_not_hide_a_stale_release(
 def test_the_new_owner_can_still_finish_after_the_stale_release_was_refused(
     store_kind: str,
 ) -> None:
-    check_the_new_owner_can_still_finish_after_the_stale_release_was_refused(
+    check_the_new_owner_can_still_finish_after_a_stale_state_update_release_was_refused(
         StateHarness(store_kind)
     )
 
@@ -313,7 +315,7 @@ def test_an_ordinary_state_update_still_completes(
 def test_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
     store_kind: str, new_owner: bool
 ) -> None:
-    check_a_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
+    check_a_state_update_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
         StateHarness(store_kind), new_owner
     )
 
