@@ -605,8 +605,8 @@ pip install "azure-functions-langgraph[durable]"
 | Route | Purpose |
 |---|---|
 | `POST /api/graphs/{name}/runs` | Start a run — returns `202` with a `run_id` and `pending` status |
-| `GET /api/runs/{run_id}` | Poll normalized run status (`pending` / `running` / `completed` / `failed` / `canceled`) |
-| `POST /api/runs/{run_id}/cancel` | Terminate an in-flight run |
+| `GET /api/runs/{run_id}` | Poll normalized run status (`pending` / `running` / `success` / `error` / `cancelled`) |
+| `POST /api/runs/{run_id}/cancel` | Request termination of a run: `202` with `cancel_requested` while it is in flight, `200` with the real status once it finished, `404` unknown, sanitized `502` on a backend failure |
 
 The graph executes inside a Durable **activity**, never the orchestrator, so
 Durable replay determinism is preserved — no LLM, tool, network, clock, random,
@@ -631,7 +631,13 @@ Durable is a long-running execution/polling choice, not a global single-writer
 service. Activities use the configured `thread_lock` for checkpointed runs with
 a thread ID; separate apps must share a distributed lock configuration when
 they write the same thread. Terminating an orchestration does not forcibly
-stop an already-running activity or synchronous tool. See the
+stop an already-running activity or synchronous tool. `cancel_requested` is an
+acknowledgement, not a status: it means only that the termination call returned without
+reporting a failure, `GET` never returns it, and a `cancelled` status means the
+orchestration is terminated, not that the Activity or its tools stopped. Poll `GET` until the
+status is terminal; the full contract, the thread-ownership behavior, the handling of
+non-idempotent tools and the migration from the earlier `202 cancelled` body are in the
+[production guide](production-guide.md#cancellation-of-durable-runs). See the
 [production guide](production-guide.md#async-runs-via-durable-functions-experimental).
 
 
