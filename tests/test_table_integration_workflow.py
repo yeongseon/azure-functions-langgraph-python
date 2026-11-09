@@ -3,11 +3,13 @@
 ``tools/check_junit.py`` is the single JUnit validator behind both workflows. These tests run it
 with the ``--area`` arguments exactly as each workflow passes them, and check that each workflow
 is wired to validate the report its own pytest run wrote, and to upload it even when the lane
-fails.
+fails. The Azurite lane only gates a pull request that changes a path of its filter, so they also
+check that the filter covers every module that uses the store run lock (#832).
 """
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 import shlex
 import subprocess
@@ -21,6 +23,21 @@ ROOT = Path(__file__).resolve().parents[1]
 TABLE_WORKFLOW = ROOT / ".github" / "workflows" / "ci-table-integration.yml"
 COSMOS_WORKFLOW = ROOT / ".github" / "workflows" / "ci-cosmos-integration.yml"
 CHECK_JUNIT = ROOT / "tools" / "check_junit.py"
+SOURCE = ROOT / "src" / "azure_functions_langgraph"
+
+# The ThreadStore methods that take, renew, release and reclaim the run lock of a thread. Real
+# Table behavior of these is only exercised by the Azurite lane, so the modules that use them
+# have to be in the lane's path filter.
+RUN_LOCK_METHODS = frozenset(
+    {
+        "try_acquire_run_lock",
+        "release_run_lock",
+        "release_run_lock_outcome",
+        "renew_run_lock",
+        "reset_stale_locks",
+    }
+)
+GLOB_CHARACTERS = frozenset("*?[]!+")
 
 
 def _workflow(path: Path) -> dict[Any, Any]:
@@ -413,3 +430,147 @@ def test_cosmos_lane_stays_nightly_and_non_gating() -> None:
 
 def test_table_workflow_reruns_when_the_validator_changes() -> None:
     assert TABLE_WORKFLOW.read_text().count('"tools/check_junit.py"') == 2
+
+
+LANE_EVENTS = ["pull_request", "push"]
+KNOWN_RUN_LOCK_MODULES = {
+    "src/azure_functions_langgraph/platform/_runs.py",
+    "src/azure_functions_langgraph/platform/_store_renewal.py",
+    "src/azure_functions_langgraph/platform/_threads.py",
+    "src/azure_functions_langgraph/platform/stores.py",
+    "src/azure_functions_langgraph/stores/azure_table.py",
+}
+
+
+def _lane_paths(event: str) -> list[str]:
+    workflow = _workflow(TABLE_WORKFLOW)
+    triggers = workflow[True] if True in workflow else workflow["on"]
+    return cast(list[str], triggers[event]["paths"])
+
+
+def _plain_path(pattern: str) -> tuple[str, bool]:
+    """The path a lane filter entry names, and whether it is a directory (``dir/**``).
+
+    Any other glob is refused instead of guessed at: coverage judged with a wrong model would be
+    worse than no check.
+    """
+    is_directory = pattern.endswith("/**")
+    path = pattern.removesuffix("/**") if is_directory else pattern
+    assert not GLOB_CHARACTERS & set(path), f"{pattern!r} uses a glob this test does not model"
+    return path, is_directory
+
+
+def _covers(pattern: str, path: str) -> bool:
+    entry, is_directory = _plain_path(pattern)
+    return path.startswith(f"{entry}/") if is_directory else path == entry
+
+
+def _uses_run_lock(source: str) -> bool:
+    """Whether a module defines, calls or looks up (``getattr(store, "...")``) a run-lock method.
+
+    A docstring or a comment that only mentions one is not a use.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute) and node.attr in RUN_LOCK_METHODS:
+            return True
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and (
+            node.name in RUN_LOCK_METHODS
+        ):
+            return True
+        if isinstance(node, ast.Constant) and node.value in RUN_LOCK_METHODS:
+            return True
+    return False
+
+
+def _run_lock_modules() -> set[str]:
+    return {
+        path.relative_to(ROOT).as_posix()
+        for path in SOURCE.rglob("*.py")
+        if _uses_run_lock(path.read_text())
+    }
+
+
+def test_the_scan_finds_the_modules_known_to_use_the_run_lock() -> None:
+    assert _run_lock_modules() >= KNOWN_RUN_LOCK_MODULES
+
+
+@pytest.mark.parametrize("event", LANE_EVENTS)
+def test_the_lane_filter_covers_every_module_that_uses_the_store_run_lock(event: str) -> None:
+    entries = _lane_paths(event)
+
+    uncovered = sorted(
+        module
+        for module in _run_lock_modules()
+        if not any(_covers(entry, module) for entry in entries)
+    )
+
+    assert uncovered == [], (
+        f"a change to these modules would not start the Azurite lane on {event}: add them to "
+        f"on.{event}.paths of {TABLE_WORKFLOW.relative_to(ROOT).as_posix()}"
+    )
+
+
+def test_the_lane_filters_of_pull_request_and_push_list_the_same_paths() -> None:
+    assert sorted(_lane_paths("push")) == sorted(_lane_paths("pull_request")), (
+        "on.pull_request.paths and on.push.paths of the lane must list the same paths"
+    )
+
+
+@pytest.mark.parametrize("event", LANE_EVENTS)
+def test_every_entry_of_the_lane_filter_names_something_that_exists(event: str) -> None:
+    missing: list[str] = []
+    for pattern in _lane_paths(event):
+        entry, is_directory = _plain_path(pattern)
+        target = ROOT / entry
+        if not (target.is_dir() if is_directory else target.is_file()):
+            missing.append(pattern)
+
+    assert missing == [], f"on.{event}.paths of the lane lists paths that do not exist"
+
+
+@pytest.mark.parametrize(
+    ("pattern", "path", "expected"),
+    [
+        pytest.param("src/pkg/**", "src/pkg/_threads.py", True, id="directory-file"),
+        pytest.param("src/pkg/**", "src/pkg/sub/mod.py", True, id="directory-nested"),
+        pytest.param("src/pkg/**", "src/pkg_other/mod.py", False, id="directory-name-prefix"),
+        pytest.param("src/pkg/**", "src/other/pkg/mod.py", False, id="directory-not-at-root"),
+        pytest.param("src/pkg/mod.py", "src/pkg/mod.py", True, id="file-exact"),
+        pytest.param("src/pkg/mod.py", "src/pkg/mod.pyc", False, id="file-suffix"),
+        pytest.param("src/pkg/mod.py", "src/pkg/sub/mod.py", False, id="file-other-directory"),
+    ],
+)
+def test_the_filter_model_matches_paths_the_way_github_does(
+    pattern: str, path: str, expected: bool
+) -> None:
+    assert _covers(pattern, path) is expected
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    ["src/*.py", "src/**/mod.py", "src/pkg/mod?.py", "!src/pkg/**", "src/[a].py", "src/pkg/**/**"],
+)
+def test_the_filter_model_refuses_globs_it_does_not_model(pattern: str) -> None:
+    with pytest.raises(AssertionError, match="does not model"):
+        _covers(pattern, "src/pkg/mod.py")
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("store.try_acquire_run_lock(thread_id)", True, id="attribute-call"),
+        pytest.param("renew = getattr(store, 'renew_run_lock', None)", True, id="string-lookup"),
+        pytest.param("class S:\n    def release_run_lock(self): ...", True, id="definition"),
+        pytest.param("class S:\n    async def reset_stale_locks(self): ...", True, id="async"),
+        pytest.param('"""Calls try_acquire_run_lock."""\nvalue = 1', False, id="docstring-mention"),
+        pytest.param(
+            "# renew_run_lock is called elsewhere\nvalue = 1", False, id="comment-mention"
+        ),
+        pytest.param("store.acquire(thread_id)", False, id="other-method"),
+        pytest.param("value = 'not_a_release_run_lock_name'", False, id="longer-string"),
+    ],
+)
+def test_the_scan_counts_uses_of_the_run_lock_methods_and_not_mentions(
+    source: str, expected: bool
+) -> None:
+    assert _uses_run_lock(source) is expected
