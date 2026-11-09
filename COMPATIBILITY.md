@@ -173,8 +173,8 @@ are **native** routes, not `langgraph-sdk` calls:
 | Route | Support | Notes |
 |---|---|---|
 | `POST /api/graphs/{name}/runs` | ✅ | Starts a Durable orchestration; returns `202` with `run_id` + `pending`. Unknown graph → `404`; oversized/invalid body → `400`. |
-| `GET /api/runs/{run_id}` | ✅ | Normalized status (`pending`/`running`/`completed`/`failed`/`canceled`). Unknown id → `404`. |
-| `POST /api/runs/{run_id}/cancel` | ✅ | Terminates the orchestration. |
+| `GET /api/runs/{run_id}` | ✅ | Normalized status (`pending`/`running`/`success`/`error`/`cancelled`). Unknown id → `404`. |
+| `POST /api/runs/{run_id}/cancel` | ✅ | Requests termination of the orchestration: `202` `cancel_requested` while the run is in flight (poll `GET` for the outcome), `200` with the real status for a finished run, `404` unknown, sanitized `502` on a backend failure. It does not stop a running Activity. |
 
 Graph user code runs only in a Durable **activity**, never the orchestrator, so
 replay determinism holds. Durable history does **not** replace LangGraph

@@ -9,7 +9,8 @@ Durable Functions (issue #408). Instead of blocking on a synchronous
 2. ``GET  /api/runs/{run_id}`` — poll the normalized status
    (``pending`` → ``running`` → ``success`` / ``error`` / ``cancelled``); the
    ``output`` appears once the run completes.
-3. ``POST /api/runs/{run_id}/cancel`` — terminate an in-flight run.
+3. ``POST /api/runs/{run_id}/cancel`` — request termination of a run (``202
+   cancel_requested``; poll ``GET`` for the outcome, a running Activity is not stopped).
 
 The Durable orchestrator stays deterministic — all graph execution happens in a
 Durable activity — so replay is safe and the existing checkpointer / thread-lock

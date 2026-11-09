@@ -27,7 +27,7 @@ POST /api/graphs/{name}/runs   ──►  202  { "run_id": "...", "status": "pen
         │                           orchestrator, so replay stays deterministic)
         ▼
 GET  /api/runs/{run_id}        ──►  200  { "status": "running" | "success" | ... , "output": ... }
-POST /api/runs/{run_id}/cancel ──►  202  { "status": "cancelled" }
+POST /api/runs/{run_id}/cancel ──►  202  { "status": "cancel_requested" }  (poll GET for the outcome)
 ```
 
 `run_id == Durable instance_id == platform run_id` — one stable id, no second
@@ -41,7 +41,9 @@ Normalized statuses returned by `GET /runs/{run_id}`:
 | `running` | orchestration/activity in flight |
 | `success` | graph completed; `output.result` holds the graph output |
 | `error` | graph raised, or the run was rejected (e.g. thread-lock contention) |
-| `cancelled` | run was terminated via the cancel endpoint |
+| `cancelled` | the orchestration was terminated (it does not prove the graph or its tools stopped) |
+
+`cancel_requested` is **not** one of these: it is only the acknowledgement of the cancel endpoint.
 
 ## Files
 
@@ -123,8 +125,28 @@ curl -s -X POST http://localhost:7071/api/runs/9f3c...e21/cancel
 ```
 
 ```json
-{"run_id": "9f3c...e21", "status": "cancelled"}
+{"run_id": "9f3c...e21", "status": "cancel_requested"}
 ```
+
+`cancel_requested` means the termination call returned without reporting a failure; it does
+**not** mean the run is cancelled, and it does not stop an Activity that is already running, so
+the graph and its tools can keep executing. Poll the run until the status is terminal:
+
+```bash
+curl -s http://localhost:7071/api/runs/9f3c...e21
+```
+
+```json
+{"run_id": "9f3c...e21", "status": "cancelled", "output": null}
+```
+
+If the run had already finished, the cancel call answers `200` with that real status
+(`success`, `error` or `cancelled`) and requests nothing; if it finishes while the request is in
+flight, `GET` shows `success` or `error` instead of `cancelled`. An unknown run is `404`, and a
+backend failure is a `502` with a generic message (the cause is in the host log). Cancellation
+cannot roll back effects of tools that already ran and delivery is at-least-once, so give
+side-effecting tools an idempotency key. Earlier releases answered `202 {"status": "cancelled"}`
+at once; clients that treated that as final must poll `GET`.
 
 ## Thread state and locking
 
