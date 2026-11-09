@@ -79,9 +79,10 @@ ETag retry loop, re-deriving the merge from the fresh row on each attempt), and 
 it when it is present. A store without it keeps working with the earlier read, merge and
 `update` sequence, which is not protected against that race.
 
-A patch that succeeds keeps its keys whatever other patches run at the same time. After three
-conflicting attempts the Table store gives up, and `PATCH /threads/{id}` answers a sanitized
-`500` (the cause is logged) without applying that patch.
+A patch that succeeds is applied on top of whatever the thread holds at that moment: it never
+removes a key it does not set, and its keys survive concurrent patches of other keys. After
+three conflicting attempts the Table store gives up, and `PATCH /threads/{id}` answers a
+sanitized `500` (the cause is logged) without applying that patch.
 
 If you subclass a bundled store: `InMemoryThreadStore.merge_metadata` writes through
 `self.update`, so an override of `update` still sees every metadata write.
