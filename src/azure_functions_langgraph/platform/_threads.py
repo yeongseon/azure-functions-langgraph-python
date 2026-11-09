@@ -83,7 +83,8 @@ def _release_thread_state_lock(
             )
         # A stale owner's release is a deliberate no-op that returns the unchanged current thread,
         # so success needs the store's own "applied" answer (when it gives one) and a thread at
-        # the requested status with no lock token. The requested status is never "busy".
+        # the requested status with no lock token. A store refuses to release to "busy", so a
+        # thread still busy under a newer owner always differs from the requested status.
         if not applied or released.status != status or released.lock_token is not None:
             failure = RuntimeError("State-update store ownership was not released")
             logger.warning(

@@ -1104,8 +1104,9 @@ current thread (busy under a newer owner, reclaimed, or finished by another run)
 returns the same sanitized HTTP 500 with one failed observer event instead of reporting completion.
 The bundled stores report exactly whether the release was applied through the optional
 `ReleaseOutcomeProvider` capability (`release_run_lock_outcome`, which returns a
-`RunLockReleaseOutcome(thread, applied)`; `release_run_lock` itself is unchanged and stays the
-call the handler makes), so the handler does not have to infer it from the returned thread. That
+`RunLockReleaseOutcome(thread, applied)`; `release_run_lock` itself is unchanged and the bundled
+implementations of the outcome method call it, so an override of it is still reached), so the
+handler does not have to infer it from the returned thread. That
 stays exact when a reclaim left the thread at the status the run asked for, and when another run
 acquired the thread and finished before the stale release arrived: the returned thread then looks
 like a normally finished one, but the release was not applied and the run fails. A custom store
