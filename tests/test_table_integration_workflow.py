@@ -504,11 +504,16 @@ def test_the_lane_filter_covers_every_module_that_uses_the_store_run_lock(event:
         if not any(_covers(entry, module) for entry in entries)
     )
 
-    assert uncovered == [], f"a change to these would not start the Azurite lane on {event}"
+    assert uncovered == [], (
+        f"a change to these modules would not start the Azurite lane on {event}: add them to "
+        f"on.{event}.paths of {TABLE_WORKFLOW.relative_to(ROOT).as_posix()}"
+    )
 
 
 def test_the_lane_filters_of_pull_request_and_push_list_the_same_paths() -> None:
-    assert sorted(_lane_paths("push")) == sorted(_lane_paths("pull_request"))
+    assert sorted(_lane_paths("push")) == sorted(_lane_paths("pull_request")), (
+        "on.pull_request.paths and on.push.paths of the lane must list the same paths"
+    )
 
 
 @pytest.mark.parametrize("event", LANE_EVENTS)
@@ -520,7 +525,7 @@ def test_every_entry_of_the_lane_filter_names_something_that_exists(event: str) 
         if not (target.is_dir() if is_directory else target.is_file()):
             missing.append(pattern)
 
-    assert missing == []
+    assert missing == [], f"on.{event}.paths of the lane lists paths that do not exist"
 
 
 @pytest.mark.parametrize(
