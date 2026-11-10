@@ -434,7 +434,14 @@ def register_thread_routes(
         graph_name = thread.assistant_id
         prior_status = thread.status
 
-        lock_token = deps.thread_lock.acquire(graph_name, thread_id)
+        # The update goes back to the status it read, and a store refuses to release to "busy".
+        # A thread read as busy is refused before any lock is taken: its run may have finished
+        # since the read, and taking the store lock would then overwrite the terminal status that
+        # run left, which cannot be restored. A thread that is still busy is refused by the store
+        # lock below anyway, so the answer is the same.
+        lock_token = (
+            None if prior_status == "busy" else deps.thread_lock.acquire(graph_name, thread_id)
+        )
         if lock_token is None:
             return _platform_error(
                 409,
