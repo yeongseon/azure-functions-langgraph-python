@@ -79,6 +79,19 @@ def test_page_is_in_the_navigation_and_linked_from_the_pages_readers_start_from(
         assert "release-status.md" in path.read_text(), name
 
 
+def test_release_process_links_the_page_where_a_reader_decides_what_to_do() -> None:
+    # Given: the step that creates the GitHub Release, and the recovery row for an unpublished tag
+    process = (ROOT / "docs" / "release_process.md").read_text()
+    step_two = process.split("## Step 2: Merge the Release PR", 1)[1].split("\n## ", 1)[0]
+    recovery_row = next(
+        line for line in process.splitlines() if line.startswith("| Tag exists but was never")
+    )
+
+    # Then: both point at the page, so a reader is not told only that a state is valid
+    assert "release-status.md" in step_two
+    assert "release-status.md" in recovery_row
+
+
 def test_page_says_a_tag_or_github_release_does_not_mean_a_pypi_distribution() -> None:
     # Given: the opening of the page, before its first section
     head = PROSE.split(" ## ", 1)[0]
