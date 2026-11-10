@@ -115,6 +115,14 @@ def test_long_line_is_refused_promptly(size: int) -> None:
         pytest.param("[a]" * 6_600, 8, id="label-without-destination"),
         pytest.param("[a](b)" * 3_300, 8, id="adjacent-links"),
         pytest.param("\\" * 19_990, 8, id="backslashes"),
+        pytest.param("`" * 19_990, 8, id="backtick-run"),
+        pytest.param("`a" * 9_995, 8, id="backtick-pairs"),
+        pytest.param("`" + "``".join(["a"] * 6_000), 8, id="backtick-runs-without-closers"),
+        pytest.param("[`" * 9_995, 8, id="label-code-span-openers"),
+        pytest.param('[a](b "' * 2_850, 8, id="quoted-title-openers"),
+        pytest.param("[a](<" * 3_990, 8, id="angle-destination-openers"),
+        pytest.param("[a](" + "b" * 19_900, 8, id="destination-beyond-the-limit"),
+        pytest.param("[a](" + "(" * 19_980, 8, id="nested-parenthesis-openers"),
     ],
 )
 def test_bodies_near_the_size_limits_are_parsed_and_verified_in_linear_time(

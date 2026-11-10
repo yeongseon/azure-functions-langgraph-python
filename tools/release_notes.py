@@ -96,7 +96,25 @@ _REFERENCE_GROUP = re.compile(
     r"(?:[ \t]*,[ \t]*(?:#\d+|`[0-9a-fA-F]{7,40}`))*)\)"
 )
 _PARSE_TOKENS = re.compile(f"(?:{_REFERENCE_LINK.pattern})|(?:{_REFERENCE_GROUP.pattern})")
-_BRACKETS = re.compile(r"\\.|[\[\]()]")
+_LINK_TOKENS = re.compile(r"\\.|`+|!?\[|\]")
+_MAX_LINK_TAIL = 2_048
+
+
+def _balanced_parentheses(depth: int) -> str:
+    inner = r"(?:[^\s()\\]|\\.)*"
+    for _ in range(depth - 1):
+        inner = rf"(?:[^\s()\\]|\\.|\({inner}\))*"
+    return inner
+
+
+# The "(destination "title")" after a link label. Every alternative inside a repetition starts
+# with a different character, so a failed attempt never backtracks into itself.
+_LINK_TAIL = re.compile(
+    r"\([ \t]*"
+    rf"(?:<(?:[^<>\n\\]|\\.)*>|(?!<){_balanced_parentheses(5)})"
+    r"""(?:[ \t]+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)))?"""
+    r"[ \t]*\)"
+)
 _FULL_CHANGELOG = re.compile(r"^\*{0,2}Full Changelog\*{0,2}:.*$", re.IGNORECASE)
 _OUR_TAIL = re.compile(r"by (?:@[\w\-\[\]]+)(?:, @[\w\-\[\]]+)*$")
 # Lines reach this pattern right-stripped; a lazy ".+?" before "\s*$" would rescan every inner
@@ -276,37 +294,62 @@ def _local_ref(url: str, cfg: Config | None) -> tuple[str, str] | None:
     return (kind, ref) if ref.isdecimal() else None
 
 
-def _link_spans(line: str) -> list[tuple[int, int]]:
-    """Return the ``(start, end)`` of each inline Markdown link ``[label](destination)`` on a line.
+def _code_span_end(line: str, start: int, length: int) -> int | None:
+    """Return where the code span opened by ``length`` backticks ends, or None if it never closes.
 
-    One forward pass pairs brackets and parentheses, so a label may nest to any depth, a
-    destination may carry a title or balanced parentheses, and a backslash escapes the next
-    character. Code spans are not parsed. Nothing is rescanned, so the work is linear in the
-    length of the line.
+    Only a run of exactly ``length`` backticks closes the span, and a backslash inside a code span
+    is literal, so the closer is searched in the raw text rather than among escape tokens.
     """
-    open_brackets: list[int] = []
-    close_of: dict[int, int] = {}
-    open_parens: list[int] = []
-    paren_end: dict[int, int] = {}
-    for match in _BRACKETS.finditer(line):
-        index = match.start()
-        char = match[0]
-        if char == "[":
-            open_brackets.append(index)
-        elif char == "]":
-            if open_brackets:
-                close_of[open_brackets.pop()] = index
-        elif char == "(":
-            open_parens.append(index)
-        elif char == ")" and open_parens:
-            paren_end[open_parens.pop()] = index
-    spans: list[tuple[int, int]] = []
+    marker = "`" * length
+    while (at := line.find(marker, start)) >= 0:
+        end = at + length
+        while end < len(line) and line[end] == "`":
+            end += 1
+        if end - at == length:
+            return end
+        start = end
+    return None
+
+
+def _link_spans(line: str) -> list[tuple[int, int]]:
+    """Return the ``(start, end)`` of each inline Markdown link or image on a line.
+
+    A forward pass reads the line the way CommonMark does: a backslash escapes the next
+    character, a code span hides the brackets inside it, ``[`` (or ``![``) opens and ``]`` closes
+    a label that may nest to any depth, and the text after a closing ``]`` is read once as
+    ``(destination "title")``. A link cannot contain another link: once one is found, the
+    ``[`` openers before it are text, while an image may sit inside a link. Each character is
+    read a bounded number of times, so the work is linear in the length of the line.
+    """
+    openers: list[tuple[int, bool]] = []
+    dead = 0
+    found: list[tuple[int, int]] = []
     position = 0
-    for start in sorted(close_of):
-        end = paren_end.get(close_of[start] + 1)
-        if start >= position and end is not None:
-            spans.append((start, end + 1))
-            position = end + 1
+    while token := _LINK_TOKENS.search(line, position):
+        text = token[0]
+        position = token.end()
+        if text in ("[", "!["):
+            openers.append((token.start(), text == "!["))
+        elif text == "]":
+            if not openers:
+                continue
+            start, is_image = openers.pop()
+            usable = is_image or len(openers) >= dead
+            dead = min(dead, len(openers))
+            tail = _LINK_TAIL.match(line, position, position + _MAX_LINK_TAIL) if usable else None
+            if tail:
+                found.append((start, tail.end()))
+                position = tail.end()
+                if not is_image:
+                    dead = len(openers)
+        elif text[0] == "`":
+            position = _code_span_end(line, position, len(text)) or position
+    spans: list[tuple[int, int]] = []
+    for start, end in sorted(found):
+        if spans and start < spans[-1][1]:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], end))
+        else:
+            spans.append((start, end))
     return spans
 
 

@@ -171,14 +171,19 @@ configured protected phrase would be lost. PRs and all commits share one trailin
 ``(#12, #13, `abc1234`)``. Legacy repository references are accepted. Within an item, a Release
 Please style ``([#12](URL))`` wrapper, a ``(#12)`` group and a trailing GitHub-generated `in URL`
 are read as references. Any other inline Markdown link, `[label](destination "title")`, is kept as
-written, however its label nests brackets or its destination carries a title or balanced
-parentheses: the label is never read as a reference, and a link to another repository is never
-treated as local attribution evidence. A foreign link labelled `#12` is therefore neither parsed as
-local PR 12 nor credited to that PR's author, and it does not satisfy the check for a lost local
-`#12`. The check replaces each link with a space, so `#` before a link and `12` after it never join
-into `#12`. Only inline links on a single line are recognized: reference-style links
-(`[label][ref]`), HTML anchors and links that span lines are not, and a bracket or parenthesis
-inside a code span counts like any other character.
+written (runs of whitespace in an item collapse to one space). A link is read the way CommonMark
+reads it: its label may nest brackets and contain code spans, its destination is `<...>` or plain
+with up to four nested pairs of parentheses, its title is quoted with `"`, `'` or parentheses, and
+a backslash escapes the character after it. A link inside another link's label is a link of its own
+and the brackets around it are text; an image inside a link stays part of it. Only the 2,048
+characters after the label are read, so a longer destination and title is not a link. The label
+is never read as a reference, and a link to another repository is never treated as local
+attribution evidence. A foreign link labelled `#12` is therefore neither parsed as local PR 12 nor
+credited to that PR's author, and it does not satisfy the check for a lost local `#12`. The check
+replaces each link with a space, so `#` before a link and `12` after it never join into `#12`.
+Only inline links on a single line are recognized: reference-style links (`[label][ref]`), HTML
+tags and autolinks (`<https://...>`) and links that span lines are not, so a bracket inside an HTML
+tag or autolink counts like any other character.
 
 Layout (empty sections are omitted):
 
@@ -206,7 +211,9 @@ their lines in order, except that HTML comments, thematic breaks (`---`, `***`, 
 starting with `<details` or `</details` and `**Full Changelog**:` lines (the layout regenerates
 those) and trailing whitespace are dropped, runs of blank lines collapse to one, blank lines at the
 start and end of a block are trimmed, and links to a configured legacy repository are rewritten to
-the current one. Generated `by @username` and New Contributors credits are deliberate mentions;
+the current one. A `<details` or `</details` line also ends the block: what follows is read as
+ordinary release text, so its bullets become items of the layout and its other lines join Notes.
+Generated `by @username` and New Contributors credits are deliberate mentions;
 notification delivery on release edits has not been verified.
 
 Release-specific statements that must never be lost (for example a release that was not
