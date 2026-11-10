@@ -324,6 +324,9 @@ GitHub Releases, tag source versions and ancestry, tag-specific `publish-pypi.ym
 runs/jobs, and PyPI files/provenance. A GitHub Release is not a PyPI distribution.
 Only observed `vX.Y.Z` tags/releases and `X.Y.Z` PyPI versions are audited; other
 formats are informational notes, and gaps in version numbering are not defects.
+Numeric draft releases are ignored with a note, not used as publication evidence.
+A numeric release marked prerelease, or a published release without a recorded tag,
+is a defect even while its workflow is in flight.
 There is no scheduled or CI job running this audit in this change.
 
 ```bash
@@ -340,11 +343,16 @@ contain facts, not credentials. API failures, malformed evidence/registry and
 pagination beyond 50 pages of 100 fail closed. Offline replay makes no requests;
 `--now` fixes the evaluation clock, while `collected_at` records collection time.
 Table (default), Markdown and stable-key JSON output retain evidence links.
+Text boundaries reject terminal controls (including DEL/C1) and Unicode line/paragraph
+separators. Markdown escapes external syntax and creates links only for HTTPS URLs
+without whitespace, closing parentheses or angle brackets; table output stays plain.
 
 `PUBLISHED` means these recorded checks are consistent, not that the audit built,
-certified or uploaded anything. `PENDING` is non-failing while the publish run is
-unfinished, or when no run exists within the six-hour grace period measured from
-tag commit time or release publication. Other discrepancies are `DEFECT`.
+certified or uploaded anything. `PENDING` is non-failing only when uncovered findings
+are waiting for a run or PyPI files, while the run is unfinished or no run exists
+within the six-hour grace period measured from tag commit time or release publication.
+Observed job failures/cancellations, head-SHA mismatches, source-version and ancestry
+defects are never deferred. Other discrepancies are `DEFECT`.
 Exit status is 0 without defects (including `PENDING` and `EXCEPTED`), 1 with any
 defect, and 2 for collection, usage or registry errors.
 
@@ -352,12 +360,32 @@ defect, and 2 for collection, usage or registry errors.
 registry, paired with the [release status table](release-status.md). Adding an
 exception is a maintainer decision requiring retained run evidence and a newer
 published successor, not a way to waive new failures. The registry defines full,
-non-cumulative gate eras, exact required jobs, required job prefixes and the
-provenance threshold; even optional jobs may not fail or be cancelled. Registered
+non-cumulative gate eras, the exact publish job, required jobs, required job prefixes,
+optional prefix minimum counts and the provenance threshold. The v0.13.0 era requires
+eleven runtime-audit jobs; earlier runtime-audit eras require one. All matching jobs
+must succeed; even optional jobs may not fail or be cancelled. Each exception requires
+`failed_jobs` and `skipped_jobs` lists: named jobs must exist with those exact conclusions.
+Missing or changed jobs produce uncovered evidence mismatches, not message-based waivers. Registered
 failures print their covered findings as `EXCEPTED`; new gate failures, changed run
 evidence, missing successors or newly published files still fail. The uncertain
 v0.5.3 cause remains explicitly unconfirmed. Publisher repository aliases account
 for the repository rename, not arbitrary publisher identities.
+
+Every tag-specific workflow run is recorded with its event, ordered by id. Publication
+evidence is the latest run whose era-specific publish job succeeded, or the latest run
+when none succeeded. Later runs remain informational notes for the version rather
+than replacing successful publication evidence.
+
+From `provenance_since`, every PyPI file needs at least one attestation, and every
+attestation is checked. The base64 in-toto publish statement must name exactly that
+file and its PyPI SHA256. Fulcio certificate claims must bind the repository (or a
+registered alias), tag commit, `refs/tags/<tag>` and selected publish run id; publisher
+workflow, repository, kind and environment are also checked. Malformed base64, DER,
+JSON or semantic evidence is an error (exit 2), not absent provenance. PyPI verified
+the signature and transparency log at upload; this audit reads the claims PyPI serves
+and binds them to the recorded evidence. It does **not** verify the Sigstore signature
+or transparency proof itself. Offline snapshots are replay inputs, not authenticated
+certificates of collection.
 
 The audit never edits releases, moves tags, republishes files, or writes version
 files or `CHANGELOG.md`. Release Please, GitHub Actions and Hatch retain their

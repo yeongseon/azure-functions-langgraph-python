@@ -17,6 +17,11 @@ The read-only [release audit](release_process.md#release-audit), run manually wi
 `.github/release-audit-exceptions.json` registry mirrors the ten historical rows below,
 including the unconfirmed v0.5.3 cause; offline tests guard that correspondence.
 Covered findings remain visible as `EXCEPTED`, while new discrepancies fail the audit.
+Exceptions pin failed and skipped job names/conclusions, not diagnostic message text.
+The audit selects the latest successful publish-job run (otherwise the latest run),
+retains later runs as notes, ignores numeric drafts with a note and flags numeric
+prereleases. It binds every PyPI-served attestation to its file, tagged source and
+publish run, but does not independently verify Sigstore signatures or transparency proofs.
 No scheduled or CI audit job is added here, and the tool changes no release or publication.
 
 ## Why a GitHub Release can exist without a PyPI file
