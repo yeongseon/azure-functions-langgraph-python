@@ -31,6 +31,11 @@ from tests.test_platform_state_release_ownership import (
     check_another_owner_finishing_first_does_not_hide_a_stale_state_update_release,
     check_the_new_owner_can_still_finish_after_a_stale_state_update_release_was_refused,
 )
+from tests.test_platform_state_stale_busy_read import (
+    check_a_genuinely_busy_thread_still_answers_409_and_keeps_its_owner,
+    check_a_stale_busy_read_is_refused_before_anything_changes,
+    check_the_thread_can_be_updated_once_the_stale_read_is_gone,
+)
 from tests.test_table_renew_retry import _App, _race_the_renewal, _wait_for_one_renewal
 from tests.test_thread_metadata_merge import App as MetadataApp
 
@@ -800,4 +805,33 @@ def test_a_state_update_graph_failure_stays_primary_over_the_real_table(
 ) -> None:
     check_a_state_update_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
         _real_state_harness(azurite_table_client), new_owner
+    )
+
+
+@pytest.mark.parametrize("prior_status", ["idle", "interrupted", "error"])
+def test_a_stale_busy_read_over_the_real_table_is_refused_before_anything_changes(
+    prior_status: ThreadStatus, azurite_table_client: _TableClientProtocol
+) -> None:
+    # A real row that a finished run left terminal while the handler's reads saw it busy (#845):
+    # the update is refused with the existing 409 before any lock is taken, and the real row keeps
+    # the terminal status and carries no lock token.
+    check_a_stale_busy_read_is_refused_before_anything_changes(
+        _real_state_harness(azurite_table_client, prior_status)
+    )
+
+
+@pytest.mark.parametrize("prior_status", ["idle", "interrupted", "error"])
+def test_the_thread_can_be_updated_once_the_stale_read_is_gone_over_the_real_table(
+    prior_status: ThreadStatus, azurite_table_client: _TableClientProtocol
+) -> None:
+    check_the_thread_can_be_updated_once_the_stale_read_is_gone(
+        _real_state_harness(azurite_table_client, prior_status)
+    )
+
+
+def test_a_genuinely_busy_thread_still_answers_409_over_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    check_a_genuinely_busy_thread_still_answers_409_and_keeps_its_owner(
+        _real_state_harness(azurite_table_client)
     )
