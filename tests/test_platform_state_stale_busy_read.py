@@ -23,6 +23,7 @@ the Azurite lane can run the very same assertions through a real Table service.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -30,6 +31,7 @@ import pytest
 from azure_functions_langgraph.platform.contracts import Thread, ThreadStatus
 from tests.test_platform_state_release_ownership import StateHarness
 
+ROOT = Path(__file__).resolve().parents[1]
 BUSY_DETAIL = "State updates are not supported while a run is active."
 TERMINAL_STATUSES = ["idle", "interrupted", "error"]
 
@@ -139,3 +141,12 @@ def test_the_thread_can_be_updated_once_the_stale_read_is_gone(
 @pytest.mark.parametrize("store_kind", ["memory", "table"])
 def test_a_genuinely_busy_thread_still_answers_409_and_keeps_its_owner(store_kind: str) -> None:
     check_a_genuinely_busy_thread_still_answers_409_and_keeps_its_owner(StateHarness(store_kind))
+
+
+def test_the_troubleshooting_page_documents_the_refusal_with_the_handlers_own_text() -> None:
+    # Given the page that a user lands on after the 409, with its whitespace collapsed.
+    page = " ".join((ROOT / "docs" / "troubleshooting.md").read_text().split())
+
+    # Then it has the section for this 409 and quotes the very text that the handler answers with.
+    assert "### Platform state update returns 409 for a thread that just finished running" in page
+    assert BUSY_DETAIL.rstrip(".") in page
