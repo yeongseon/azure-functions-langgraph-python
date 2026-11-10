@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
-import sys
 
 import pytest
+
+from tests.example_imports import load_example_file
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
@@ -31,19 +31,6 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
 )
 
 
-def _load_module(example_dir: Path, module_name: str) -> object:
-    path = example_dir / f"{module_name}.py"
-    spec = importlib.util.spec_from_file_location(
-        f"_examples_{example_dir.name}_{module_name}", path
-    )
-    assert spec is not None
-    assert spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
 @pytest.mark.parametrize("example,attr", GRAPH_EXAMPLES)
 def test_example_graph_compiles(example: str, attr: str, monkeypatch: pytest.MonkeyPatch) -> None:
     example_dir = EXAMPLES_DIR / example
@@ -56,13 +43,7 @@ def test_example_graph_compiles(example: str, attr: str, monkeypatch: pytest.Mon
         "production_persistent_agent",
     }:
         monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
-        sys.modules.pop("model_config", None)
-    sys.modules.pop("tools", None)
-    sys.path.insert(0, str(example_dir))
-    try:
-        mod = _load_module(example_dir, "graph")
-    finally:
-        sys.path.pop(0)
+    mod = load_example_file(example_dir / "graph.py", f"_examples_{example}_graph")
 
     graph = getattr(mod, attr)
     assert graph is not None
