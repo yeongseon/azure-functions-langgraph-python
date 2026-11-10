@@ -1,4 +1,4 @@
-"""A state update whose prior-status read saw ``busy`` must be refused, not run and left ``busy`` (#845).
+"""A state update whose prior-status read saw ``busy`` is refused, not run and left busy (#845).
 
 ``POST /threads/{id}/state`` reads the thread before it takes any lock and releases to the status
 it read, so an ``idle``, ``interrupted`` or ``error`` thread goes back to where it was. A run that
