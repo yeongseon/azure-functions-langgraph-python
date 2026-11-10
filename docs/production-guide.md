@@ -1058,7 +1058,14 @@ until `reset_stale_locks` reclaims it. A state update is one synchronous
 `update_state` call, and the handler does **not** start the store-lock renewal
 worker that runs use, so it does not refresh the row while the update executes:
 keep `reset_stale_locks(older_than_seconds=...)` above the longest state update
-you expect, not only above the longest run.
+you expect, not only above the longest run. If the row is reclaimed anyway, or
+another run acquires the thread, while `update_state` is running, the update's
+own release is refused as stale and the handler answers the sanitized HTTP 500
+`Internal error releasing thread state lock` instead of success; the update
+itself is not rolled back. The bundled stores report this exactly, even when the
+reclaim left the thread at the status the update asked for, and a custom store
+that cannot say so is judged by the returned thread alone (see the adapter
+reference).
 
 - **Native-only:** choose a checkpointer and distributed `ThreadLock` for shared
   writers. A Platform `ThreadStore` is not required.

@@ -10,6 +10,7 @@ import uuid
 
 import pytest
 
+from azure_functions_langgraph.platform.contracts import ThreadStatus
 from azure_functions_langgraph.stores._errors import RunLockRenewalConflictError
 from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
 from tests.storage_service import fail_or_skip_service, require_tcp_service
@@ -21,6 +22,14 @@ from tests.test_platform_run_release_ownership import (
     check_an_ordinary_run_still_completes_and_publishes_its_result,
     check_another_owner_finishing_first_does_not_hide_a_stale_release,
     check_the_new_owner_can_still_finish_after_the_stale_release_was_refused,
+)
+from tests.test_platform_state_release_ownership import (
+    StateHarness,
+    check_a_stale_release_fails_the_state_update,
+    check_a_state_update_graph_failure_stays_the_primary_error_when_the_release_is_also_stale,
+    check_an_ordinary_state_update_still_completes,
+    check_another_owner_finishing_first_does_not_hide_a_stale_state_update_release,
+    check_the_new_owner_can_still_finish_after_a_stale_state_update_release_was_refused,
 )
 from tests.test_table_renew_retry import _App, _race_the_renewal, _wait_for_one_renewal
 from tests.test_thread_metadata_merge import App as MetadataApp
@@ -721,3 +730,74 @@ def test_a_patch_during_a_runs_metadata_merge_is_not_lost_against_the_real_table
     # Then the PATCH ran inside the window and was acknowledged, and both changes survive.
     assert [response.status_code for response in concurrent] == [200]
     assert app.metadata() == {"base": 0, "patched": True, "from-run": 1}
+
+
+def _real_state_harness(
+    table_client: _TableClientProtocol, prior_status: ThreadStatus = "idle"
+) -> StateHarness:
+    """A Platform app over the real Table service for ``POST /threads/{id}/state``."""
+    return StateHarness("table", _new_store(table_client), table_client, prior_status)
+
+
+@pytest.mark.parametrize(
+    ("prior_status", "reset_to", "new_owner"),
+    [
+        pytest.param("idle", "error", False, id="reclaimed"),
+        pytest.param("error", "error", False, id="reclaimed-to-the-status-it-asked-for"),
+        pytest.param("idle", "error", True, id="reacquired"),
+    ],
+)
+def test_a_stale_state_update_release_over_the_real_table_is_a_failure_not_a_success(
+    prior_status: ThreadStatus,
+    reset_to: str,
+    new_owner: bool,
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given a real state update that loses the thread to a real `reset_stale_locks` (and, in the
+    # last case, to a real re-acquisition) while update_state runs: #836 over the service.
+    # When it releases through the real SDK with its old owner token, then it is the sanitized
+    # release failure and the other party's real row is untouched.
+    check_a_stale_release_fails_the_state_update(
+        _real_state_harness(azurite_table_client, prior_status),
+        new_owner,
+        "idle" if reset_to == "idle" else "error",
+    )
+
+
+def test_a_finished_new_owner_does_not_hide_a_stale_state_update_release_over_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # The stale update's release hits a real row that another owner already finished at "idle",
+    # which is exactly the thread an applied release would return. Only the store's own answer
+    # (the replace was never sent) tells the handler it must not report success.
+    check_another_owner_finishing_first_does_not_hide_a_stale_state_update_release(
+        _real_state_harness(azurite_table_client)
+    )
+
+
+def test_the_new_owner_can_still_finish_after_a_stale_state_update_release_over_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    check_the_new_owner_can_still_finish_after_a_stale_state_update_release_was_refused(
+        _real_state_harness(azurite_table_client)
+    )
+
+
+@pytest.mark.parametrize("prior_status", ["idle", "interrupted"])
+def test_an_ordinary_state_update_completes_over_the_real_table(
+    prior_status: ThreadStatus, azurite_table_client: _TableClientProtocol
+) -> None:
+    # The check compares the thread the store returns with the status the update asked for; on
+    # the real service a healthy release must still look like a success (no false positive).
+    check_an_ordinary_state_update_still_completes(
+        _real_state_harness(azurite_table_client, prior_status)
+    )
+
+
+@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
+def test_a_state_update_graph_failure_stays_primary_over_the_real_table(
+    new_owner: bool, azurite_table_client: _TableClientProtocol
+) -> None:
+    check_a_state_update_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
+        _real_state_harness(azurite_table_client), new_owner
+    )

@@ -108,9 +108,15 @@ func start --verbose
 `Internal error releasing thread state lock` if the update succeeded but the
 store-backed or outer thread lock could not be released. A deleted thread or a
 store release that leaves another owner's lock intact also prevents an
-unqualified success. If the graph update itself failed, its original error
-response is preserved and secondary cleanup failures are logged. State updates
-do not emit run-lifecycle observer events.
+unqualified success, and so does a release the store refuses as stale: the
+update no longer owned the thread because `reset_stale_locks` reclaimed it
+while `update_state` was running, or because another run acquired it (and
+possibly finished) in the meantime. The bundled stores report exactly whether
+the release was applied, so this holds even when the reclaim left the thread at
+the status the update asked for; a custom store that cannot say so is judged by
+the returned thread alone (see the adapter reference). If the graph update
+itself failed, its original error response is preserved and secondary cleanup
+failures are logged. State updates do not emit run-lifecycle observer events.
 
 This response does **not** imply rollback: the checkpoint may already be
 committed. Before retrying, read the thread state and checkpoint/history to

@@ -56,9 +56,9 @@ implement `renew_run_lock(thread_id, owner_token) -> bool`, and accept
 leave the current owner untouched when a stale token arrives, and return the
 thread as it stands after the call (the requested status with the token
 cleared after an applied release, the unchanged current thread after a stale
-one). Platform runs pass the acquired token back on release and fail a run
-whose release was not applied; stores that omit the new methods no longer
-satisfy the public `ThreadStore` protocol. A store can also implement the
+one). Platform runs and state updates pass the acquired token back on release
+and fail one whose release was not applied; stores that omit the new methods no
+longer satisfy the public `ThreadStore` protocol. A store can also implement the
 optional `ReleaseOutcomeProvider` (`release_run_lock_outcome`, returning a
 `RunLockReleaseOutcome(thread, applied)`) so the handler gets an exact answer
 even when another owner already left the thread at the requested status; the

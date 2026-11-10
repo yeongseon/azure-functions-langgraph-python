@@ -41,6 +41,7 @@ from azure_functions_langgraph.platform.contracts import (
     ThreadStatus,
     ThreadUpdate,
 )
+from azure_functions_langgraph.platform.stores import ReleaseOutcomeProvider
 from azure_functions_langgraph.protocols import (
     StatefulGraph,
     StateHistoryGraph,
@@ -60,22 +61,36 @@ def _release_thread_state_lock(
     """Release both the distributed thread lock and the store-backed run lock
     held while a state update is in flight, returning any cleanup failure.
 
-    Mirrors ``_release_thread_run_lock`` in ``_runs.py``, except that no renewal
-    thread is started here: ``update_state`` is a single synchronous call, so the
-    store row is not refreshed while it runs and ``reset_stale_locks`` must be
-    configured above the longest state update (see the production guide).
+    Mirrors ``_release_thread_run_lock`` in ``_runs.py``, including its judgement of the
+    store's release: one the store refused as stale is a failure, not a success. The one
+    difference is that no renewal thread is started here: ``update_state`` is a single
+    synchronous call, so the store row is not refreshed while it runs and
+    ``reset_stale_locks`` must be configured above the longest state update (see the
+    production guide).
     """
     failure: Exception | None = None
     try:
-        released = deps.thread_store.release_run_lock(
-            thread_id,
-            status=status,
-            owner_token=store_owner_token or lock_token,
-        )
-        if released.status == "busy" or released.lock_token is not None:
+        owner_token = store_owner_token or lock_token
+        applied = True
+        if isinstance(deps.thread_store, ReleaseOutcomeProvider):
+            outcome = deps.thread_store.release_run_lock_outcome(
+                thread_id, status=status, owner_token=owner_token
+            )
+            released, applied = outcome.thread, outcome.applied
+        else:
+            released = deps.thread_store.release_run_lock(
+                thread_id, status=status, owner_token=owner_token
+            )
+        # A stale owner's release is a deliberate no-op that returns the unchanged current thread,
+        # so success needs the store's own "applied" answer (when it gives one) and a thread at
+        # the requested status with no lock token. A store refuses to release to "busy", so a
+        # thread still busy under a newer owner always differs from the requested status.
+        if not applied or released.status != status or released.lock_token is not None:
             failure = RuntimeError("State-update store ownership was not released")
             logger.warning(
-                "State-update lock release did not clear ownership for thread %s", thread_id
+                "State-update lock release for thread %s was ignored: "
+                "the update no longer owned the thread",
+                thread_id,
             )
     except KeyError as exc:
         failure = exc
