@@ -24,9 +24,8 @@ Rules that keep the notes honest:
   (Release Please, GitHub-generated or hand-written). Only a release whose body
   is compare-link-only is reconstructed from the commits in its compare range,
   and it says so.
-* ``by @user`` is reserved for external human contributors, drawn from the
-  GitHub API, or from a ``Co-authored-by`` trailer whose address is a GitHub
-  ``<id>+<login>@users.noreply.github.com`` address. Bots and logins listed in
+* ``by @user`` is reserved for API-verified external human contributors.
+  Co-author trailers are claims, not evidence. Bots and logins listed in
   ``non_human_logins`` are never credited; nothing is guessed.
 * "New Contributors" excludes the owner. An external human is listed only
   when GitHub verifies no earlier commit or merged PR by that login.
@@ -49,11 +48,15 @@ import os
 from pathlib import Path
 import re
 import sys
-from typing import Any, Protocol
+from time import monotonic
+from typing import Protocol, TypedDict
 from urllib.parse import quote
 
+Json = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
 MARKER = "<!-- release-notes-format: v1 -->"
 CONFIG_PATH = Path(".github/release-notes.json")
+MAX_LINE = 20_000
+MAX_BODY = 500_000
 
 SECTION_ORDER = ("Breaking Changes", "Features", "Bug Fixes", "Performance", "Reverts")
 OTHER = "Other changes"
@@ -80,16 +83,20 @@ _CONVENTIONAL = re.compile(
     r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?P<bang>!)?:\s+(?P<desc>.+)$"
 )
 _RP_SCOPE = re.compile(r"^\*\*(?P<scope>[^*]+):\*\*\s+(?P<desc>.+)$")
-_GH_AUTO_TAIL = re.compile(
-    r"\s+by @(?P<who>[\w\-\[\]]+) in https?://github\.com/[^\s]+/pull/(?P<pr>\d+)\s*$"
+_REFERENCE_LINK = re.compile(
+    r"\(\[(?:#\d+|[0-9a-fA-F]{7,40})\]\("
+    r"(?P<url>https?://github\.com/[^\s)]+)\)\)"
 )
-_LINK_PR = re.compile(r"\s*\(\[#(?P<pr>\d+)\]\([^)]*\)\)")
-_LINK_SHA = re.compile(r"\s*\(\[(?P<sha>[0-9a-f]{7,40})\]\([^)]*\)\)")
-_PLAIN_PR = re.compile(r"\s*\(#(?P<pr>\d+)\)")
+_GITHUB_REF = re.compile(
+    r"https?://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/"
+    r"(?P<kind>pull|issues|commit)/(?P<ref>[0-9a-fA-F]+)\b"
+)
+_REFERENCE_GROUP = re.compile(
+    r"\((?P<tokens>(?:#\d+|`[0-9a-fA-F]{7,40}`)"
+    r"(?:[ \t]*,[ \t]*(?:#\d+|`[0-9a-fA-F]{7,40}`))*)\)"
+)
 _FULL_CHANGELOG = re.compile(r"^\*{0,2}Full Changelog\*{0,2}:.*$", re.IGNORECASE)
-_NOREPLY = re.compile(r"(?:\d+\+)?(?P<login>[A-Za-z0-9\-]+)@users\.noreply\.github\.com$")
-_TRAILER = re.compile(r"^Co-authored-by:\s*.*<(?P<email>[^>]+)>\s*$", re.IGNORECASE | re.MULTILINE)
-_OUR_TAIL = re.compile(r"\s+by (?:@[\w\-\[\]]+)(?:, @[\w\-\[\]]+)*\s*$")
+_OUR_TAIL = re.compile(r"by (?:@[\w\-\[\]]+)(?:, @[\w\-\[\]]+)*$")
 _HEADING = re.compile(r"^(?P<hashes>#{2,4})\s+(?P<text>.+?)\s*$")
 
 
@@ -107,7 +114,9 @@ class Item:
     key: str = ""
 
     def line(self) -> str:
-        refs = [f"#{n}" for n in self.prs] or [f"`{s[:7]}`" for s in self.shas[:1]]
+        refs = [f"#{n}" for n in dict.fromkeys(self.prs)] + [
+            f"`{s}`" for s in dict.fromkeys(s[:7].lower() for s in self.shas)
+        ]
         text = self.title + (f" ({', '.join(refs)})" if refs else "")
         if self.authors:
             text += " by " + ", ".join(f"@{a}" for a in self.authors)
@@ -139,6 +148,13 @@ class GitHubError(RuntimeError):
     """A GitHub API request failed."""
 
 
+class ReleaseMetadata(TypedDict):
+    tagName: str
+    body: str
+    publishedAt: str | None
+    id: int
+
+
 class GitHub(Protocol):
     def releases(self) -> list[tuple[str, str]]: ...
 
@@ -150,7 +166,9 @@ class GitHub(Protocol):
 
     def had_prior_contribution(self, login: str, before_tag: str) -> bool: ...
 
-    def set_body(self, tag: str, body: str) -> None: ...
+    def release_metadata(self, tag: str) -> ReleaseMetadata: ...
+
+    def set_body(self, tag: str, body: str, original: str) -> None: ...
 
 
 @dataclass
@@ -231,20 +249,59 @@ def _clean_title(raw: str) -> tuple[str, str | None, bool]:
     return raw, None, False
 
 
-def parse_item(text: str, section: str | None) -> Item:
+def _check_size(text: str) -> None:
+    if len(text) > MAX_BODY:
+        raise ValueError("release body exceeds 500000 character limit")
+    if any(len(line) > MAX_LINE for line in text.splitlines()):
+        raise ValueError("release line exceeds 20000 character limit")
+
+
+def _local_ref(url: str, cfg: Config | None) -> tuple[str, str] | None:
+    match = _GITHUB_REF.fullmatch(url)
+    if match is None or cfg is None:
+        return None
+    if match["repo"].lower() not in {r.lower() for r in [cfg.repo, *cfg.legacy_repos]}:
+        return None
+    kind, ref = match["kind"], match["ref"]
+    if kind == "commit":
+        return (kind, ref[:7].lower()) if 7 <= len(ref) <= 40 else None
+    return (kind, ref) if ref.isdecimal() else None
+
+
+def parse_item(text: str, section: str | None, cfg: Config | None = None) -> Item:
+    _check_size(text)
     prs: list[int] = []
     shas: list[str] = []
-    text = _OUR_TAIL.sub("", text.strip())
-    auto = _GH_AUTO_TAIL.search(text)
-    if auto:
-        prs.append(int(auto["pr"]))
-        text = text[: auto.start()]
-    prs.extend(int(m["pr"]) for m in _LINK_PR.finditer(text))
-    shas.extend(m["sha"] for m in _LINK_SHA.finditer(text))
-    text = _LINK_SHA.sub("", _LINK_PR.sub("", text))
-    for match in _PLAIN_PR.finditer(text):
-        prs.append(int(match["pr"]))
-    text = _PLAIN_PR.sub("", text).strip()
+    text = text.strip()
+    text = _OUR_TAIL.sub("", text).rstrip()
+
+    def take(kind: str, ref: str) -> None:
+        if kind == "commit":
+            shas.append(ref[:7].lower())
+        else:
+            prs.append(int(ref))
+
+    def link(match: re.Match[str]) -> str:
+        local = _local_ref(match["url"], cfg)
+        if local is None:
+            return match[0]
+        take(*local)
+        return ""
+
+    def group(match: re.Match[str]) -> str:
+        for token in match["tokens"].split(","):
+            token = token.strip()
+            take("pull" if token.startswith("#") else "commit", token.strip("#`"))
+        return ""
+
+    tokens = re.compile(f"(?:{_REFERENCE_LINK.pattern})|(?:{_REFERENCE_GROUP.pattern})")
+    text = tokens.sub(lambda m: link(m) if m["url"] else group(m), text)
+    before, separator, url = text.rpartition(" in ")
+    local = _local_ref(url, cfg) if separator else None
+    if local is not None:
+        take(*local)
+        text = _OUR_TAIL.sub("", before.rstrip()).rstrip()
+    text = " ".join(text.split())
     title, ctype, bang = _clean_title(text)
     key = re.sub(r"^\*\*[^*]+:\*\*\s+", "", title).strip().lower()
     resolved = section
@@ -252,11 +309,18 @@ def parse_item(text: str, section: str | None) -> Item:
         resolved = "Breaking Changes"
     elif resolved in (None, OTHER) and ctype:
         resolved = CONVENTIONAL_SECTION.get(ctype, OTHER)
-    return Item(title=title, section=resolved or OTHER, prs=sorted(set(prs)), shas=shas, key=key)
+    return Item(
+        title=title,
+        section=resolved or OTHER,
+        prs=list(dict.fromkeys(prs)),
+        shas=list(dict.fromkeys(shas)),
+        key=key,
+    )
 
 
-def parse_body(body: str) -> Parsed:
+def parse_body(body: str, cfg: Config | None = None) -> Parsed:
     """Split an existing release body into verbatim blocks and structured items."""
+    _check_size(body)
     parsed = Parsed()
     body = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
     mode, section = "items", None
@@ -308,7 +372,7 @@ def parse_body(body: str) -> Parsed:
             continue
         bullet = re.match(r"^[-*]\s+(?P<text>.+)$", stripped)
         if bullet:
-            last = parse_item(bullet["text"], section)
+            last = parse_item(bullet["text"], section, cfg)
             parsed.items.append(last)
         elif line.startswith((" ", "\t")) and last is not None:
             last.extra.append(stripped)
@@ -339,16 +403,6 @@ def _is_external_human(login: str | None, is_bot: bool, cfg: Config) -> bool:
         and _is_human(login, is_bot, cfg)
         and (cfg.owner_login is None or login.lower() != cfg.owner_login.lower())
     )
-
-
-def coauthors(message: str, cfg: Config) -> list[str]:
-    """Logins from ``Co-authored-by`` trailers with a GitHub noreply address."""
-    found: list[str] = []
-    for match in _TRAILER.finditer(message):
-        noreply = _NOREPLY.match(match["email"])
-        if noreply and _is_human(noreply["login"], False, cfg):
-            found.append(noreply["login"])
-    return found
 
 
 def _commit_key(subject: str) -> str:
@@ -383,8 +437,6 @@ def attribute(
     for commit in matched[:1]:
         if not item.prs or not people:
             add(commit.login, commit.login_is_bot)
-        for login in coauthors(commit.message, cfg):
-            add(login)
     item.authors = people
 
 
@@ -417,11 +469,6 @@ def new_contributors(
                 people.append(known[0])
         if commit.login and _is_external_human(commit.login, commit.login_is_bot, cfg):
             people.append(commit.login)
-        people += [
-            login
-            for login in coauthors(commit.message, cfg)
-            if _is_external_human(login, False, cfg)
-        ]
         for login in people:
             if login:
                 first_seen.setdefault(login, ref)
@@ -527,13 +574,32 @@ def _commit_items(commits: list[Commit]) -> list[Item]:
     for commit in commits:
         if _PLUMBING_SUBJECT.match(commit.subject):
             continue
-        subject = re.sub(r"\s*\(#\d+\)\s*$", "", commit.subject)
+        _check_size(commit.message)
+        subject = re.sub(r"\(#\d+\)$", "", commit.subject.rstrip()).rstrip()
         pr = re.search(r"\(#(\d+)\)\s*$", commit.subject)
         item = parse_item(subject, None)
-        item.shas = [commit.sha]
+        item.title = _plain_commit_text(item.title)
+        item.shas = [commit.sha[:7].lower()]
         item.prs = [int(pr[1])] if pr else []
+        footer = False
+        for line in commit.message.splitlines()[1:]:
+            breaking = re.match(r"^BREAKING(?: CHANGE|-CHANGE):[ \t]*(.*)$", line)
+            if breaking:
+                footer = True
+                item.section = "Breaking Changes"
+                item.extra.append("  " + _plain_commit_text(breaking[1]))
+            elif not line.strip() or re.match(r"^[\w-]+(?:[ -][\w-]+)*:[ \t]", line):
+                footer = False
+            elif footer:
+                item.extra.append("  " + _plain_commit_text(line))
         items.append(item)
     return items
+
+
+def _plain_commit_text(text: str) -> str:
+    text = re.sub(r"<[^>]*>", "", text)
+    text = text.replace("[", r"\[").replace("]", r"\]")
+    return re.sub(r"(?<![\w`])@[A-Za-z0-9_-]+", lambda m: f"`{m[0]}`", text)
 
 
 def apply_annotations(parsed: Parsed, blocks: dict[str, list[str]]) -> None:
@@ -541,7 +607,9 @@ def apply_annotations(parsed: Parsed, blocks: dict[str, list[str]]) -> None:
     for name in ("notes", "highlights", "upgrade"):
         lines = blocks.get(name, [])
         target: list[str] = getattr(parsed, name)
-        if lines and not any(lines[0] in existing for existing in target):
+        if lines and not any(
+            target[i : i + len(lines)] == lines for i in range(len(target) - len(lines) + 1)
+        ):
             target.extend(["", *lines] if target else lines)
 
 
@@ -552,8 +620,9 @@ def build_notes(
     cfg: Config,
     published: str | None = None,
 ) -> str:
+    _check_size(original)
     releases = gh.releases()
-    parsed = parse_body(original)
+    parsed = parse_body(original, cfg)
     prev = previous_tag(tag, releases, parsed)
     if parsed.date is None and published:
         parsed.date = published[:10]
@@ -575,6 +644,8 @@ def build_notes(
 
 
 def verify(original: str, new: str, tag: str, cfg: Config) -> list[str]:
+    _check_size(original)
+    _check_size(new)
     problems: list[str] = []
     stripped = re.sub(r"<!--.*?-->", "", original, flags=re.DOTALL)
     # Unverified "New Contributors" claims are intentionally replaced, not preserved.
@@ -584,20 +655,34 @@ def verify(original: str, new: str, tag: str, cfg: Config) -> list[str]:
         stripped,
         flags=re.IGNORECASE | re.MULTILINE,
     )
-    refs = {m[1] or m[2] for m in re.finditer(r"/(?:pull|issues)/(\d+)|\[?\(?#(\d+)\b", stripped)}
-    for pr in sorted(refs):
-        if f"#{pr}" not in new:
-            problems.append(f"lost PR reference #{pr}")
-    for line in stripped.splitlines():
-        if re.search(r"#\d+|/(?:pull|issues)/\d+", line):
-            continue
-        for sha in re.findall(r"\(\[([0-9a-f]{7,40})\]", line):
-            if sha[:7] not in new:
-                problems.append(f"lost commit reference {sha[:7]}")
+    old_prs, old_shas = _references(stripped, cfg)
+    new_prs, new_shas = _references(new, cfg)
+    for pr in sorted(old_prs - new_prs):
+        problems.append(f"lost PR reference #{pr}")
+    for sha in sorted(old_shas - new_shas):
+        problems.append(f"lost commit reference {sha}")
     for phrase in cfg.protected.get(tag, []):
         if phrase not in new:
             problems.append(f"protected phrase missing: {phrase!r}")
     return sorted(set(problems))
+
+
+def _references(body: str, cfg: Config) -> tuple[set[int], set[str]]:
+    prs: set[int] = set()
+    shas: set[str] = set()
+    for match in _GITHUB_REF.finditer(body):
+        local = _local_ref(match[0], cfg)
+        if local is not None:
+            kind, ref = local
+            if kind == "commit":
+                shas.add(ref)
+            else:
+                prs.add(int(ref))
+    # Foreign link labels must not masquerade as local references.
+    body = _REFERENCE_LINK.sub("", body)
+    prs.update(int(m[1]) for m in re.finditer(r"(?<![\w/])#(\d+)\b", body))
+    shas.update(m[1][:7].lower() for m in re.finditer(r"`([0-9a-fA-F]{7,40})`", body))
+    return prs, shas
 
 
 # --------------------------------------------------------------------------- gh client
@@ -617,11 +702,18 @@ class GitHubApi:
         self.repo = repo
         self._token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
         self._prs: dict[int, tuple[str, bool]] | None = None
-        self._cache: dict[str, Any] = {}
+        self._cache: dict[str, Json] = {}
         self._veterans: set[str] = set()
-        self._release_cache: list[dict[str, Any]] | None = None
+        self._release_cache: list[dict[str, Json]] | None = None
+        self._deadline = monotonic() + 120
 
-    def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
+    def _remaining(self) -> float:
+        remaining = self._deadline - monotonic()
+        if remaining <= 0:
+            raise GitHubError("120 second command deadline exceeded")
+        return remaining
+
+    def _request(self, method: str, path: str, payload: dict[str, Json] | None = None) -> Json:
         headers = {
             "Accept": "application/vnd.github+json",
             "User-Agent": "release-notes-tool",
@@ -630,80 +722,112 @@ class GitHubApi:
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         body = json.dumps(payload) if payload is not None else None
-        conn = http.client.HTTPSConnection(self.HOST, timeout=30)
+        conn = http.client.HTTPSConnection(self.HOST, timeout=min(30, self._remaining()))
         try:
             conn.request(method, path, body=body, headers=headers)
             response = conn.getresponse()
             raw = response.read().decode("utf-8")
+        except (OSError, http.client.HTTPException, UnicodeError) as err:
+            raise GitHubError("GitHub transport failed") from err
         finally:
             conn.close()
-        if response.status >= 400:
+        self._remaining()
+        if response.status not in ({200} if method == "GET" else {200, 201}):
             raise GitHubError(f"{method} {path} -> HTTP {response.status}")
-        return json.loads(raw) if raw else None
+        try:
+            data: Json = json.loads(raw)
+        except ValueError as err:
+            raise GitHubError("GitHub returned invalid JSON") from err
+        return data
 
-    def _get(self, path: str) -> Any:
+    def _get(self, path: str) -> Json:
+        self._remaining()
         if path not in self._cache:
             self._cache[path] = self._request("GET", path)
         return self._cache[path]
 
-    def _pages(self, path: str) -> list[Any]:
+    def _pages(self, path: str) -> list[dict[str, Json]]:
         joiner = "&" if "?" in path else "?"
-        items: list[Any] = []
-        page = 1
-        while True:
-            batch = self._request("GET", f"{path}{joiner}per_page=100&page={page}")
+        items: list[dict[str, Json]] = []
+        for page in range(1, 51):
+            self._remaining()
+            batch = _object_list(self._request("GET", f"{path}{joiner}per_page=100&page={page}"))
             items.extend(batch)
             if len(batch) < 100:
                 return items
-            page += 1
+        raise GitHubError("GitHub pagination exceeds 50 page limit")
 
-    def _all_releases(self) -> list[dict[str, Any]]:
+    def _all_releases(self) -> list[dict[str, Json]]:
         if self._release_cache is None:
             self._release_cache = self._pages(f"/repos/{self.repo}/releases")
+            for release in self._release_cache:
+                if type(release.get("draft")) is not bool:
+                    raise GitHubError("release draft must be a boolean")
+                _string(release.get("tag_name"))
+                _string(release.get("published_at") or release.get("created_at"))
         return self._release_cache
 
     def releases(self) -> list[tuple[str, str]]:
         return [
-            (r["tag_name"], r["published_at"] or r["created_at"])
+            (_string(r.get("tag_name")), _string(r.get("published_at") or r.get("created_at")))
             for r in self._all_releases()
             if not r["draft"]
         ]
 
     def release_body(self, tag: str) -> str:
+        return self.release_metadata(tag)["body"]
+
+    def release_metadata(self, tag: str) -> ReleaseMetadata:
         for release in self._all_releases():
             if release["tag_name"] == tag:
-                return str(release["body"] or "")
+                identifier = release.get("id")
+                if type(identifier) is not int:
+                    raise GitHubError("release id must be an integer")
+                published = release.get("published_at")
+                return {
+                    "id": identifier,
+                    "tagName": tag,
+                    "body": _string(release.get("body") or ""),
+                    "publishedAt": _string(published) if published is not None else None,
+                }
         raise GitHubError(f"no release for {tag}")
 
     def compare(self, base: str, head: str) -> list[Commit]:
         commits: list[Commit] = []
-        page = 1
-        while True:
-            data = self._get(f"/repos/{self.repo}/compare/{base}...{head}?per_page=100&page={page}")
-            batch = data.get("commits", [])
+        path = f"/repos/{self.repo}/compare/{quote(base, safe='')}...{quote(head, safe='')}"
+        for page in range(1, 51):
+            self._remaining()
+            data = _object(self._get(f"{path}?per_page=100&page={page}"))
+            batch = _object_list(data.get("commits"))
             for raw in batch:
-                msg = raw["commit"]["message"]
-                author = raw.get("author") or {}
+                msg = _string(_object(raw.get("commit")).get("message"))
+                author = _object(raw["author"]) if raw.get("author") is not None else {}
+                login = author.get("login")
                 commits.append(
                     Commit(
-                        sha=raw["sha"],
+                        sha=_string(raw.get("sha")),
                         subject=msg.splitlines()[0] if msg else "",
                         message=msg,
-                        login=author.get("login"),
+                        login=_string(login) if login is not None else None,
                         login_is_bot=author.get("type") == "Bot",
                     )
                 )
             if len(batch) < 100:
                 return commits
-            page += 1
+        raise GitHubError("GitHub compare exceeds 50 page limit")
 
     def pr_authors(self) -> dict[int, tuple[str, bool]]:
         if self._prs is None:
-            self._prs = {
-                p["number"]: (p["user"]["login"], p["user"].get("type") == "Bot")
-                for p in self._pages(f"/repos/{self.repo}/pulls?state=closed")
-                if p.get("merged_at") and p.get("user")
-            }
+            self._prs = {}
+            for p in self._pages(f"/repos/{self.repo}/pulls?state=closed"):
+                if "merged_at" not in p or "user" not in p:
+                    raise GitHubError("PR response lacks merge or author evidence")
+                if p.get("merged_at") and p.get("user"):
+                    user = _object(p["user"])
+                    number = p.get("number")
+                    if type(number) is not int:
+                        raise GitHubError("PR number must be an integer")
+                    self._prs[number] = (_string(user.get("login")), user.get("type") == "Bot")
         return self._prs
 
     def had_prior_contribution(self, login: str, before_tag: str) -> bool:
@@ -714,26 +838,65 @@ class GitHubApi:
         if login in self._veterans:
             return True  # an earlier contribution is also earlier than any later tag
         try:
-            ref = self._get(f"/repos/{self.repo}/commits/{before_tag}")
-            before = ref["commit"]["committer"]["date"]
+            ref = _object(self._get(f"/repos/{self.repo}/commits/{quote(before_tag, safe='')}"))
+            committer = _object(_object(ref.get("commit")).get("committer"))
+            before = _string(committer.get("date"))
             found = bool(
-                self._get(
-                    f"/repos/{self.repo}/commits?author={quote(login)}&until={before}&per_page=1"
+                _object_list(
+                    self._get(
+                        f"/repos/{self.repo}/commits?author={quote(login, safe='')}"
+                        f"&until={quote(before, safe='')}&per_page=1"
+                    )
                 )
             )
             if not found:
-                query = quote(f"repo:{self.repo} is:pr is:merged author:{login} merged:<{before}")
-                result = self._get(f"/search/issues?q={query}")
-                found = int(result.get("total_count", 0)) > 0
+                query = quote(
+                    f"repo:{self.repo} is:pr is:merged author:{login} merged:<{before}", safe=""
+                )
+                result = _object(self._get(f"/search/issues?q={query}"))
+                count = result.get("total_count")
+                if result.get("incomplete_results") is not False or type(count) is not int:
+                    return True
+                if count < 0:
+                    return True
+                found = count > 0
         except (GitHubError, KeyError, ValueError, OSError):
             return True
         if found:
             self._veterans.add(login)
         return found
 
-    def set_body(self, tag: str, body: str) -> None:
-        release = self._request("GET", f"/repos/{self.repo}/releases/tags/{quote(tag)}")
-        self._request("PATCH", f"/repos/{self.repo}/releases/{release['id']}", {"body": body})
+    def set_body(self, tag: str, body: str, original: str) -> None:
+        _check_size(body)
+        release = _object(
+            self._request("GET", f"/repos/{self.repo}/releases/tags/{quote(tag, safe='')}")
+        )
+        if release.get("body") != original:
+            raise GitHubError(
+                "release body changed since the build snapshot; refusing concurrent edit"
+            )
+        identifier = release.get("id")
+        if type(identifier) is not int:
+            raise GitHubError("release id must be an integer")
+        _object(self._request("PATCH", f"/repos/{self.repo}/releases/{identifier}", {"body": body}))
+
+
+def _object(value: Json) -> dict[str, Json]:
+    if not isinstance(value, dict):
+        raise GitHubError("GitHub response must be an object")
+    return value
+
+
+def _object_list(value: Json) -> list[dict[str, Json]]:
+    if not isinstance(value, list) or len(value) > 100:
+        raise GitHubError("GitHub response must be a list of at most 100 objects")
+    return [_object(item) for item in value]
+
+
+def _string(value: Json) -> str:
+    if not isinstance(value, str):
+        raise GitHubError("GitHub response field must be a string")
+    return value
 
 
 # --------------------------------------------------------------------------- CLI
@@ -790,7 +953,8 @@ def cmd_render(args: argparse.Namespace, cfg: Config, gh: GitHub) -> int:
 def cmd_apply(args: argparse.Namespace, cfg: Config, gh: GitHub) -> int:
     original = gh.release_body(args.tag)
     if MARKER in original and not args.force:
-        print(f"{args.tag}: already standardized; nothing to do")
+        action = "would be skipped" if args.dry_run else "nothing to do"
+        print(f"{args.tag}: already standardized; {action}")
         return 0
     published = dict(gh.releases()).get(args.tag)
     new = build_notes(args.tag, original, gh, cfg, published)
@@ -800,10 +964,11 @@ def cmd_apply(args: argparse.Namespace, cfg: Config, gh: GitHub) -> int:
     if args.backup:
         directory = Path(args.backup)
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / f"{args.tag}.json").write_text(
-            json.dumps({"tagName": args.tag, "body": original}, indent=2), encoding="utf-8"
-        )
-    gh.set_body(args.tag, new)
+        metadata = gh.release_metadata(args.tag)
+        metadata["body"] = original
+        with (directory / f"{quote(args.tag, safe='')}.json").open("x", encoding="utf-8") as backup:
+            json.dump(metadata, backup, indent=2)
+    gh.set_body(args.tag, new, original)
     print(f"{args.tag}: release notes updated")
     return 0
 
@@ -827,7 +992,11 @@ def main(argv: list[str] | None = None) -> int:
     cfg = Config.load(Path(args.config))
     gh = GitHubApi(cfg.repo)
     handler = {"preview": cmd_preview, "render": cmd_render, "apply": cmd_apply}[args.command]
-    return handler(args, cfg, gh)
+    try:
+        return handler(args, cfg, gh)
+    except (GitHubError, ValueError, OSError) as err:
+        print(f"release notes: {err}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

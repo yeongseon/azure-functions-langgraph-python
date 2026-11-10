@@ -45,7 +45,17 @@ class FakeGitHub:
     def had_prior_contribution(self, login: str, before_tag: str) -> bool:
         return login in self.veterans
 
-    def set_body(self, tag: str, body: str) -> None:
+    def release_metadata(self, tag: str) -> rn.ReleaseMetadata:
+        return {
+            "tagName": tag,
+            "body": self.bodies[tag],
+            "publishedAt": dict(self.tags).get(tag),
+            "id": 101,
+        }
+
+    def set_body(self, tag: str, body: str, original: str) -> None:
+        if self.bodies[tag] != original:
+            raise rn.GitHubError("release body changed")
         self.bodies[tag] = body
 
 
@@ -68,7 +78,7 @@ def test_patch_release_omits_owner_byline_and_contributor_section() -> None:
     body = rn.build_notes("v1.0.1", RP_BODY, gh, CFG)
     assert body.startswith("## v1.0.1 (2026-02-02)\n")
     assert "### Bug Fixes" in body
-    assert "- **cli:** reject empty suffix (#12)" in body
+    assert "- **cli:** reject empty suffix (#12, `aaaaaaa`)" in body
     assert "by @maint" not in body
     assert "New Contributors" not in body
     assert "**Full Changelog**: https://github.com/acme/pkg/compare/v1.0.0...v1.0.1" in body
@@ -158,7 +168,7 @@ def test_bots_and_non_human_accounts_are_never_credited() -> None:
     assert " by @" not in body
 
 
-def test_coauthor_credit_requires_noreply_address() -> None:
+def test_coauthor_trailers_are_not_authorship_evidence() -> None:
     gh = FakeGitHub(
         commits={
             ("v1.0.0", "v1.0.1"): [
@@ -176,7 +186,7 @@ def test_coauthor_credit_requires_noreply_address() -> None:
         veterans={"maint", "realperson"},
     )
     body = rn.build_notes("v1.0.1", "### Bug Fixes\n- z (#20)\n", gh, CFG)
-    assert "(#20) by @realperson" in body
+    assert "@realperson" not in body
     assert "by @maint" not in body
     assert "someone" not in body and "agent-bot-user" not in body
 
@@ -194,7 +204,7 @@ def test_compare_only_release_is_reconstructed_and_labelled() -> None:
     original = "<!-- generated -->\n\n**Full Changelog**: https://github.com/acme/old-pkg/compare/v1.0.0...v1.0.1\n"
     body = rn.build_notes("v1.0.1", original, gh, CFG)
     assert "reconstructed from the commits in `v1.0.0...v1.0.1`" in body
-    assert "**core:** tolerate empty input (#30)" in body
+    assert "**core:** tolerate empty input (#30, `aaaaaaa`)" in body
     assert "by @maint" not in body
     assert "release 1.0.1" not in body
 
