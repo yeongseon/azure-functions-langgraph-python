@@ -3,6 +3,12 @@ PYTHON ?= python3
 PIP := $(VENV_DIR)/bin/pip
 HATCH ?= hatch
 HOST_PYTHON ?= $(HATCH) run python
+AUDIT_PYTHON ?= $(HATCH) run python
+AUDIT_ARGS ?=
+
+.PHONY: audit-releases
+audit-releases:
+	@$(AUDIT_PYTHON) -m tools.audit_releases $(AUDIT_ARGS)
 
 .PHONY: bootstrap
 bootstrap:
