@@ -3,10 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+
+from tests.example_imports import restore_example_imports, take_import_snapshot
+
+EXAMPLE_ROOTS = (
+    Path(__file__).resolve().parents[1] / "examples",
+    Path(__file__).resolve().parent / "host_smoke",
+)
+
+
+@pytest.fixture(autouse=True)
+def restore_example_imports_after_each_test() -> Iterator[None]:
+    snapshot = take_import_snapshot()
+    yield
+    restore_example_imports(snapshot, EXAMPLE_ROOTS)
 
 
 @pytest.fixture(autouse=True)

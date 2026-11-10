@@ -15,15 +15,14 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 import importlib
-import importlib.util
 from pathlib import Path
-import sys
 from typing import Any
 import uuid
 
 import pytest
 
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
+from tests.example_imports import load_example_file
 from tests.storage_service import fail_or_skip_service, require_tcp_service
 
 pytestmark = pytest.mark.integration
@@ -41,19 +40,7 @@ AZURITE_BLOB_CONNECTION_STRING = (
 
 def _load_example_graph_module() -> Any:
     """Import the example's graph.py as an isolated module (fake-model path)."""
-    path = EXAMPLE_DIR / "graph.py"
-    spec = importlib.util.spec_from_file_location("_production_persistent_agent_graph", path)
-    assert spec is not None and spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    sys.modules.pop("model_config", None)
-    sys.modules.pop("tools", None)
-    sys.path.insert(0, str(EXAMPLE_DIR))
-    try:
-        spec.loader.exec_module(mod)
-    finally:
-        sys.path.pop(0)
-    return mod
+    return load_example_file(EXAMPLE_DIR / "graph.py", "_production_persistent_agent_graph")
 
 
 @pytest.fixture
@@ -162,19 +149,10 @@ def _load_example_function_app(container_name: str) -> Any:
     module-level wiring (checkpointer + distributed lock) builds cleanly. The
     module is loaded fresh each call so env changes take effect.
     """
-    path = EXAMPLE_DIR / "function_app.py"
-    spec = importlib.util.spec_from_file_location(
-        f"_production_persistent_agent_function_app_{uuid.uuid4().hex}", path
+    return load_example_file(
+        EXAMPLE_DIR / "function_app.py",
+        f"_production_persistent_agent_function_app_{uuid.uuid4().hex}",
     )
-    assert spec is not None and spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    sys.path.insert(0, str(EXAMPLE_DIR))
-    try:
-        spec.loader.exec_module(mod)
-    finally:
-        sys.path.pop(0)
-    return mod
 
 
 def test_function_app_wires_distributed_lock(
