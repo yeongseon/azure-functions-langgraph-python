@@ -176,7 +176,9 @@ parentheses: the label is never read as a reference, and a link to another repos
 treated as local attribution evidence. A foreign link labelled `#12` is therefore neither parsed as
 local PR 12 nor credited to that PR's author, and it does not satisfy the check for a lost local
 `#12`. The check replaces each link with a space, so `#` before a link and `12` after it never join
-into `#12`. Reference-style links (`[label][ref]`) and HTML anchors are not recognized as links.
+into `#12`. Only inline links on a single line are recognized: reference-style links
+(`[label][ref]`), HTML anchors and links that span lines are not, and a bracket or parenthesis
+inside a code span counts like any other character.
 
 Layout (empty sections are omitted):
 

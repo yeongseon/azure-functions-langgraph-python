@@ -281,7 +281,8 @@ def _link_spans(line: str) -> list[tuple[int, int]]:
 
     One forward pass pairs brackets and parentheses, so a label may nest to any depth, a
     destination may carry a title or balanced parentheses, and a backslash escapes the next
-    character. Nothing is rescanned, so the work is linear in the length of the line.
+    character. Code spans are not parsed. Nothing is rescanned, so the work is linear in the
+    length of the line.
     """
     open_brackets: list[int] = []
     close_of: dict[int, int] = {}
