@@ -130,6 +130,18 @@ the Table store's expired-lock recovery procedure. Never clear a newer owner's
 lock to make a retry succeed. Successful cleanup restores the prior terminal
 status (`idle`, `interrupted`, or `error`); a failed graph update targets `error`.
 
+### Platform state update returns 409 for a thread that just finished running
+
+`POST /threads/{thread_id}/state` answers 409 `State updates are not supported
+while a run is active` when it reads the thread as `busy`, which is what a thread
+with an active run gets. The handler reads the thread before it takes any lock
+and goes back to the status it read, and a store refuses to release to `busy`. If
+the run finished between that read and the moment the update would take the store
+lock, the terminal status that run left cannot be recovered (taking the lock
+overwrites it), so the update is refused before it takes a lock or runs
+`update_state`: nothing changes, the row keeps the status the run left and carries
+no lock token. Retry the request. A thread that is still busy gets the same 409.
+
 ## Getting help
 
 - [GitHub Issues](https://github.com/yeongseon/azure-functions-langgraph-python/issues) — questions, bug reports, and feature requests
