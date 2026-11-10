@@ -20,8 +20,8 @@ selected plan/runtime; see [deployment](docs/deployment.md).
 pip install azure-functions-langgraph
 ```
 
-Only versions published on PyPI can be installed; a git tag or a GitHub Release alone is not a
-distribution (see [release status](docs/release-status.md)).
+A git tag or a GitHub Release alone does not mean that a version is on PyPI; the tagged versions
+that have no files there are listed in [release status](docs/release-status.md).
 
 ## Quick Start
 

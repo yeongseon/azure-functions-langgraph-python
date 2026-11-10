@@ -78,7 +78,7 @@ version bump and the changelog entry.
 Merging that PR is the act of cutting a release. On merge, Release Please tags the release commit
 (`v0.9.0`) and publishes the GitHub Release. That GitHub Release is created before the gates of step 3
 run and is not removed when one of them fails, so it is not evidence that the version is on PyPI; see
-[Release status](release-status.md) for the tagged versions that never reached PyPI.
+[Release status](release-status.md) for the tagged versions that have no files on PyPI.
 
 Release Please runs with `RELEASE_PLEASE_TOKEN` (a fine-grained PAT) rather than the default
 `GITHUB_TOKEN`, so the required status checks run on the Release PR and it is merged under the same
@@ -174,7 +174,7 @@ for the version, changelog, or tags — or push an ungated artifact to PyPI.
 | Situation | Action |
 |---|---|
 | Any gate failed | Nothing was uploaded. Fix the cause and re-run `publish-pypi.yml` on the same tag, or fix forward on `main` and let the next Release PR cut a new version. Never move or reuse a tag. |
-| Tag exists but was never published | A valid resting state. Re-run publish, or abandon the version and let the next release take the following number. The tagged versions where this happened, and why, are listed in [Release status](release-status.md). |
+| Tag exists but was never published | A valid resting state. Re-run publish, or abandon the version and let the next release take the following number. The tagged versions in this state, with what the retained records show about each, are listed in [Release status](release-status.md). |
 | Release PR stopped appearing | Check for a stale `autorelease: pending` label on an already-merged Release PR. Release Please treats that as a release in flight and will not open another. This failure is silent — the workflow still reports success. |
 | Automation unavailable (break-glass) | Bump `__version__`, match `.release-please-manifest.json`, commit, tag, push. The tag starts the same gated workflow — never bypass it. |
 
