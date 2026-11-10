@@ -180,9 +180,10 @@ def test_provenance_404_is_explicit_absence() -> None:
 
 def test_pagination_fetches_next_page() -> None:
     # Given: a full first page followed by a partial page.
+    full_page: list[JSON] = [{}] * 100
     fetcher = FakeFetcher(
         {
-            "/tags?per_page=100&page=1": response([{}] * 100),
+            "/tags?per_page=100&page=1": response(full_page),
             "/tags?per_page=100&page=2": response([{}]),
         }
     )
@@ -195,8 +196,9 @@ def test_pagination_fetches_next_page() -> None:
 
 def test_pagination_ceiling_fails() -> None:
     # Given: every allowed page is full.
+    full_page: list[JSON] = [{}] * 100
     fetcher = FakeFetcher(
-        {f"/tags?per_page=100&page={i}": response([{}] * 100) for i in range(1, 51)}
+        {f"/tags?per_page=100&page={i}": response(full_page) for i in range(1, 51)}
     )
     # When / Then: an unbounded or truncated inventory cannot pass.
     with pytest.raises(AuditError, match="50 pages"):
