@@ -10,6 +10,7 @@ import uuid
 
 import pytest
 
+from azure_functions_langgraph.platform.contracts import ThreadStatus
 from azure_functions_langgraph.stores._errors import RunLockRenewalConflictError
 from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
 from tests.storage_service import fail_or_skip_service, require_tcp_service
@@ -22,7 +23,16 @@ from tests.test_platform_run_release_ownership import (
     check_another_owner_finishing_first_does_not_hide_a_stale_release,
     check_the_new_owner_can_still_finish_after_the_stale_release_was_refused,
 )
+from tests.test_platform_state_release_ownership import (
+    StateHarness,
+    check_a_stale_release_fails_the_state_update,
+    check_a_state_update_graph_failure_stays_the_primary_error_when_the_release_is_also_stale,
+    check_an_ordinary_state_update_still_completes,
+    check_another_owner_finishing_first_does_not_hide_a_stale_state_update_release,
+    check_the_new_owner_can_still_finish_after_a_stale_state_update_release_was_refused,
+)
 from tests.test_table_renew_retry import _App, _race_the_renewal, _wait_for_one_renewal
+from tests.test_thread_metadata_merge import App as MetadataApp
 
 AZURITE_TABLE_CONNECTION_STRING = (
     "DefaultEndpointsProtocol=http;"
@@ -658,3 +668,136 @@ def test_release_outcome_is_exact_against_the_real_table(
     assert (stale_a.thread.status, stale_a.thread.lock_token) == ("idle", None)
     assert stale_a.thread.values == {"b": 1}
     assert store.get(thread.thread_id) == stale_a.thread
+
+
+def test_merge_metadata_retries_a_real_conflict_against_the_fresh_row(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given a metadata merge whose conditional write loses the race to another writer's new key:
+    # the real service answers 412 and the store must merge again into what is stored now (#806).
+    store = _new_store(azurite_table_client)
+    thread = store.create(metadata={"base": 0})
+    update = azurite_table_client.update_entity
+    raced: list[int] = []
+
+    def other_writer_first(entity: dict[str, Any], *args: object, **kwargs: object) -> object:
+        if not raced:
+            raced.append(1)
+            with patch.object(azurite_table_client, "update_entity", update):
+                store.update(thread.thread_id, metadata={"base": 0, "other-writer": True})
+        return DEFAULT
+
+    with patch.object(
+        azurite_table_client, "update_entity", side_effect=other_writer_first, wraps=update
+    ):
+        # When the merge is applied.
+        merged = store.merge_metadata(thread.thread_id, {"mine": 1})
+
+    # Then the other writer's key survives next to ours, in the stored row too.
+    assert raced == [1]
+    assert merged.metadata == {"base": 0, "other-writer": True, "mine": 1}
+    assert store.get(thread.thread_id) == merged
+
+
+def test_two_concurrent_patches_of_different_keys_both_survive_against_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given request A that read the thread through the real service and has not written yet.
+    app = MetadataApp(_new_store(azurite_table_client))
+    concurrent = app.after_the_handlers_read("get", lambda: app.patch({"b": 2}))
+
+    # When request B patches another key and finishes, and then A writes.
+    assert app.patch({"a": 1}).status_code == 200
+
+    # Then B ran inside A's window and was acknowledged, and neither change was lost.
+    assert [response.status_code for response in concurrent] == [200]
+    assert app.metadata() == {"base": 0, "a": 1, "b": 2}
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+def test_a_patch_during_a_runs_metadata_merge_is_not_lost_against_the_real_table(
+    endpoint: str, azurite_table_client: _TableClientProtocol
+) -> None:
+    # Given a run that read the thread and is about to take its lock and merge its metadata.
+    app = MetadataApp(_new_store(azurite_table_client))
+    concurrent = app.after_the_handlers_read(
+        "try_acquire_run_lock", lambda: app.patch({"patched": True})
+    )
+
+    # When a PATCH lands in that window and the run then writes its own metadata.
+    assert app.run(endpoint, {"from-run": 1}).status_code == 200
+
+    # Then the PATCH ran inside the window and was acknowledged, and both changes survive.
+    assert [response.status_code for response in concurrent] == [200]
+    assert app.metadata() == {"base": 0, "patched": True, "from-run": 1}
+
+
+def _real_state_harness(
+    table_client: _TableClientProtocol, prior_status: ThreadStatus = "idle"
+) -> StateHarness:
+    """A Platform app over the real Table service for ``POST /threads/{id}/state``."""
+    return StateHarness("table", _new_store(table_client), table_client, prior_status)
+
+
+@pytest.mark.parametrize(
+    ("prior_status", "reset_to", "new_owner"),
+    [
+        pytest.param("idle", "error", False, id="reclaimed"),
+        pytest.param("error", "error", False, id="reclaimed-to-the-status-it-asked-for"),
+        pytest.param("idle", "error", True, id="reacquired"),
+    ],
+)
+def test_a_stale_state_update_release_over_the_real_table_is_a_failure_not_a_success(
+    prior_status: ThreadStatus,
+    reset_to: str,
+    new_owner: bool,
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given a real state update that loses the thread to a real `reset_stale_locks` (and, in the
+    # last case, to a real re-acquisition) while update_state runs: #836 over the service.
+    # When it releases through the real SDK with its old owner token, then it is the sanitized
+    # release failure and the other party's real row is untouched.
+    check_a_stale_release_fails_the_state_update(
+        _real_state_harness(azurite_table_client, prior_status),
+        new_owner,
+        "idle" if reset_to == "idle" else "error",
+    )
+
+
+def test_a_finished_new_owner_does_not_hide_a_stale_state_update_release_over_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # The stale update's release hits a real row that another owner already finished at "idle",
+    # which is exactly the thread an applied release would return. Only the store's own answer
+    # (the replace was never sent) tells the handler it must not report success.
+    check_another_owner_finishing_first_does_not_hide_a_stale_state_update_release(
+        _real_state_harness(azurite_table_client)
+    )
+
+
+def test_the_new_owner_can_still_finish_after_a_stale_state_update_release_over_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    check_the_new_owner_can_still_finish_after_a_stale_state_update_release_was_refused(
+        _real_state_harness(azurite_table_client)
+    )
+
+
+@pytest.mark.parametrize("prior_status", ["idle", "interrupted"])
+def test_an_ordinary_state_update_completes_over_the_real_table(
+    prior_status: ThreadStatus, azurite_table_client: _TableClientProtocol
+) -> None:
+    # The check compares the thread the store returns with the status the update asked for; on
+    # the real service a healthy release must still look like a success (no false positive).
+    check_an_ordinary_state_update_still_completes(
+        _real_state_harness(azurite_table_client, prior_status)
+    )
+
+
+@pytest.mark.parametrize("new_owner", [False, True], ids=["reclaimed", "reacquired"])
+def test_a_state_update_graph_failure_stays_primary_over_the_real_table(
+    new_owner: bool, azurite_table_client: _TableClientProtocol
+) -> None:
+    check_a_state_update_graph_failure_stays_the_primary_error_when_the_release_is_also_stale(
+        _real_state_harness(azurite_table_client), new_owner
+    )

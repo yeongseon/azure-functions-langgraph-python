@@ -56,13 +56,39 @@ implement `renew_run_lock(thread_id, owner_token) -> bool`, and accept
 leave the current owner untouched when a stale token arrives, and return the
 thread as it stands after the call (the requested status with the token
 cleared after an applied release, the unchanged current thread after a stale
-one). Platform runs pass the acquired token back on release and fail a run
-whose release was not applied; stores that omit the new methods no longer
-satisfy the public `ThreadStore` protocol. A store can also implement the
+one). Platform runs and state updates pass the acquired token back on release
+and fail one whose release was not applied; stores that omit the new methods no
+longer satisfy the public `ThreadStore` protocol. A store can also implement the
 optional `ReleaseOutcomeProvider` (`release_run_lock_outcome`, returning a
 `RunLockReleaseOutcome(thread, applied)`) so the handler gets an exact answer
 even when another owner already left the thread at the requested status; the
 bundled stores do. Without it the returned thread is all the handler has.
+
+### Atomic metadata merge
+
+`ThreadStore.update(thread_id, metadata=...)` replaces the thread's whole metadata map. Platform
+handlers merge a request's metadata (`PATCH /threads/{id}`, and the metadata a run carries) into
+the existing keys, and a handler that reads the thread, merges in its own copy and writes the
+result back silently drops any key another request added in between. A store can close that
+race by implementing the optional `MetadataMergeProvider`: `merge_metadata(thread_id, patch)`
+merges `patch` into the metadata as it stands when the write is applied (for one key the last
+writer wins; every other field of the thread is untouched except `updated_at`, which advances
+as it does for `update`), returns the updated `Thread` and raises `KeyError` for a missing
+thread. The bundled in-memory and Azure Table stores implement it (the Table store inside its
+ETag retry loop, re-deriving the merge from the fresh row on each attempt), and the handlers use
+it when it is present. A store without it keeps working with the earlier read, merge and
+`update` sequence, which is not protected against that race.
+
+A patch that succeeds is applied on top of whatever the thread holds at that moment: it never
+removes a key it does not set, and its keys survive concurrent patches of other keys. After
+three conflicting attempts the Table store gives up, and `PATCH /threads/{id}` answers a
+sanitized `500` (the cause is logged) without applying that patch.
+
+If you subclass a bundled store: `InMemoryThreadStore.merge_metadata` writes through
+`self.update`, so an override of `update` still sees every metadata write.
+`AzureTableThreadStore.merge_metadata` runs its own read-modify-write loop and does **not** call
+`update`; a subclass that overrides `update` to intercept metadata writes must override
+`merge_metadata` as well.
 
 The native `invoke` / `stream` endpoints guard concurrent access to the same
 `(graph_name, thread_id)` so that single-writer checkpointers (for example

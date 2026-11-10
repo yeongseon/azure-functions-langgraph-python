@@ -28,6 +28,7 @@ from azure_functions_langgraph.platform._common import (
     _build_threadless_config,
     _check_stream_overflow,
     _get_threadless_graph,
+    _merge_thread_metadata,
     _normalize_stream_mode,
     _parse_run_create,
     _platform_error,
@@ -221,8 +222,9 @@ def register_run_routes(
                 _build_threaded_config(run_req, thread_id),
             )
             if run_req.metadata:
-                merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
-                deps.thread_store.update(thread_id, metadata=merged_metadata)
+                _merge_thread_metadata(
+                    deps.thread_store, thread_id, thread.metadata, run_req.metadata
+                )
             graph_input = run_req.input or {}
             safe_observer_call(deps.observer, "on_run_started", ctx)
             result = reg.graph.invoke(graph_input, config=config, **context_kwargs)
@@ -371,8 +373,9 @@ def register_run_routes(
                 _build_threaded_config(run_req, thread_id),
             )
             if run_req.metadata:
-                merged_metadata = {**(thread.metadata or {}), **run_req.metadata}
-                deps.thread_store.update(thread_id, metadata=merged_metadata)
+                _merge_thread_metadata(
+                    deps.thread_store, thread_id, thread.metadata, run_req.metadata
+                )
             graph_input = run_req.input or {}
             buffered_bytes = 0
             max_bytes = deps.max_stream_response_bytes

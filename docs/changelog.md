@@ -6,6 +6,8 @@ This project follows [Conventional Commits](https://www.conventionalcommits.org/
 
 For the full changelog, see [CHANGELOG.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CHANGELOG.md) in the repository root.
 
+Not every tagged version has files on PyPI. [Release status](release-status.md) lists the ones that do not, what the retained records show about each, and the published version to use instead.
+
 ## Unreleased
 
 ### 0.13.0 upgrade notes
