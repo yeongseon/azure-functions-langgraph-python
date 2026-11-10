@@ -30,13 +30,15 @@ def response(value: JSON, status: int = 200) -> Response:
 
 
 def recorded_fetcher() -> FakeFetcher:
+    from tests.test_release_audit_provenance import bundle
+
     base = "/repos/yeongseon/azure-functions-langgraph-python"
     return FakeFetcher(
         {
             base + "/commits/main": response({"sha": "main"}),
             base + "/tags?per_page=100&page=1": response(
                 [
-                    {"name": "v0.5.0", "commit": {"sha": "abc"}},
+                    {"name": "v0.5.0", "commit": {"sha": "a" * 40}},
                     {"name": "v0.5.0rc1", "commit": {"sha": "preview"}},
                 ]
             ),
@@ -57,11 +59,12 @@ def recorded_fetcher() -> FakeFetcher:
                     "workflow_runs": [
                         {
                             "id": 123,
+                            "event": "push",
                             "head_branch": "v0.5.0",
                             "html_url": "https://github.com/run",
                             "status": "completed",
                             "conclusion": "success",
-                            "head_sha": "abc",
+                            "head_sha": "a" * 40,
                             "created_at": "2026-04-06T00:00:00Z",
                         }
                     ],
@@ -70,11 +73,11 @@ def recorded_fetcher() -> FakeFetcher:
             base + "/actions/runs/123/jobs?per_page=100&page=1": response(
                 {"total_count": 1, "jobs": [{"name": "build-and-publish", "conclusion": "success"}]}
             ),
-            base + "/commits/abc": response(
+            base + "/commits/" + "a" * 40: response(
                 {"commit": {"committer": {"date": "2026-04-06T00:00:00Z"}}}
             ),
-            base + "/compare/abc...main": response({"status": "ahead"}),
-            base + "/contents/src/azure_functions_langgraph/__init__.py?ref=abc": response(
+            base + "/compare/" + "a" * 40 + "...main": response({"status": "ahead"}),
+            base + "/contents/src/azure_functions_langgraph/__init__.py?ref=" + "a" * 40: response(
                 {"encoding": "base64", "content": "X192ZXJzaW9uX18gPSAiMC41LjAiCg=="}
             ),
             "/pypi/azure-functions-langgraph/json": response(
@@ -104,14 +107,7 @@ def recorded_fetcher() -> FakeFetcher:
                 f"/integrity/azure-functions-langgraph/0.5.0/{name}/provenance": response(
                     {
                         "attestation_bundles": [
-                            {
-                                "publisher": {
-                                    "kind": "GitHub",
-                                    "repository": "yeongseon/azure-functions-langgraph",
-                                    "workflow": "publish-pypi.yml",
-                                    "environment": "pypi",
-                                }
-                            }
+                            bundle(name, "0.5.0", ("a" if name.endswith("whl") else "b") * 64)
                         ]
                     }
                 )

@@ -10,6 +10,7 @@ from urllib.parse import quote
 from tools.release_audit_http import Fetcher, get_json, pages
 from tools.release_audit_model import (
     JSON,
+    Attestation,
     AuditError,
     File,
     Job,
@@ -25,13 +26,17 @@ from tools.release_audit_model import (
 )
 from tools.release_audit_parse import (
     boolean,
-    integer,
+    conclusion,
     mapping,
     optional_text,
+    positive_id,
+    run_conclusion,
     run_status,
     sequence,
+    sha256,
     text,
 )
+from tools.release_audit_provenance import parse_attestation
 
 
 def segment(value: str) -> str:
@@ -72,9 +77,9 @@ def collect_tag(fetcher: Fetcher, base: str, refs: tuple[str, str, str]) -> Tag:
 
 def collect_run(fetcher: Fetcher, base: str, value: JSON) -> Run:
     data = mapping(value)
-    run_id = integer(data["id"])
+    run_id = positive_id(data["id"])
     jobs = tuple(
-        Job(text(j["name"]), optional_text(j["conclusion"]))
+        Job(text(j["name"]), conclusion(j["conclusion"]))
         for j in (
             mapping(raw) for raw in pages(fetcher, base + f"/actions/runs/{run_id}/jobs", "jobs")
         )
@@ -85,10 +90,11 @@ def collect_run(fetcher: Fetcher, base: str, value: JSON) -> Run:
         run_id,
         text(data["html_url"]),
         run_status(data["status"]),
-        optional_text(data["conclusion"]),
+        run_conclusion(run_status(data["status"]), data["conclusion"]),
         text(data["head_sha"]),
         created,
         jobs,
+        text(data["event"]),
     )
 
 
@@ -103,20 +109,23 @@ def collect_file(fetcher: Fetcher, identity: tuple[str, str], value: JSON) -> Fi
         provenance=True,
     )
     publishers: list[Publisher] = []
+    attestations: list[Attestation] = []
     if provenance is not None:
-        for bundle in sequence(mapping(provenance)["attestation_bundles"]):
-            p = mapping(mapping(bundle)["publisher"])
-            publishers.append(
-                Publisher(
+        try:
+            for bundle in sequence(mapping(provenance)["attestation_bundles"]):
+                p = mapping(mapping(bundle)["publisher"])
+                publisher = Publisher(
                     text(p["kind"]),
                     text(p["repository"]),
                     text(p["workflow"]),
                     text(p["environment"]),
                 )
-            )
-    digest = text(mapping(data["digests"])["sha256"])
-    if not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
-        raise AuditError("PyPI sha256 must have 64 hexadecimal digits")
+                publishers.append(publisher)
+                for attestation in sequence(mapping(bundle)["attestations"]):
+                    attestations.append(parse_attestation(attestation, publisher))
+        except KeyError as error:
+            raise AuditError("malformed PyPI provenance bundle") from error
+    digest = sha256(mapping(data["digests"])["sha256"])
     uploaded = text(data["upload_time_iso_8601"])
     timestamp(uploaded)
     return File(
@@ -126,6 +135,7 @@ def collect_file(fetcher: Fetcher, identity: tuple[str, str], value: JSON) -> Fi
         uploaded,
         boolean(data["yanked"]),
         tuple(publishers),
+        tuple(attestations),
     )
 
 
@@ -138,7 +148,7 @@ def collect(registry: Registry, fetcher: Fetcher, now: datetime) -> Snapshot:
     notes: list[str] = []
     tags: dict[str, tuple[str, str]] = {}
     releases: dict[str, Release] = {}
-    runs: dict[str, JSON] = {}
+    runs: dict[str, list[JSON]] = {}
     files: dict[str, tuple[File, ...]] = {}
     for raw in pages(fetcher, base + "/tags"):
         data = mapping(raw)
@@ -152,6 +162,9 @@ def collect(registry: Registry, fetcher: Fetcher, now: datetime) -> Snapshot:
         name = text(data["tag_name"])
         if not re.fullmatch(r"v\d+\.\d+\.\d+", name):
             notes.append(f"Not audited release: {name}")
+            continue
+        if boolean(data["draft"]):
+            notes.append(f"Draft release {name} not audited")
             continue
         published = optional_text(data["published_at"])
         if published:
@@ -167,9 +180,7 @@ def collect(registry: Registry, fetcher: Fetcher, now: datetime) -> Snapshot:
         data = mapping(raw)
         branch = optional_text(data["head_branch"])
         if branch and re.fullmatch(r"v\d+\.\d+\.\d+", branch):
-            previous = runs.get(branch[1:])
-            if previous is None or integer(data["id"]) > integer(mapping(previous)["id"]):
-                runs[branch[1:]] = raw
+            runs.setdefault(branch[1:], []).append(raw)
     pypi = mapping(get_json(fetcher, "pypi.org", "/pypi/" + segment(registry.project) + "/json"))
     for version, raw in mapping(pypi["releases"]).items():
         if not re.fullmatch(r"\d+\.\d+\.\d+", version):
@@ -187,13 +198,20 @@ def collect(registry: Registry, fetcher: Fetcher, now: datetime) -> Snapshot:
         if version in tags:
             name, sha = tags[version]
             tag = collect_tag(fetcher, base, (name, sha, main_sha))
+        collected_runs = tuple(
+            sorted(
+                (collect_run(fetcher, base, raw) for raw in runs.get(version, [])),
+                key=lambda r: r.id,
+            )
+        )
         versions.append(
             VersionFacts(
                 version,
                 tag,
                 releases.get(version),
-                collect_run(fetcher, base, runs[version]) if version in runs else None,
+                collected_runs[-1] if collected_runs else None,
                 files.get(version, ()),
+                collected_runs,
             )
         )
     return Snapshot(

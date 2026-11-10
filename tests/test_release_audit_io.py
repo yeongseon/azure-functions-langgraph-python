@@ -75,6 +75,8 @@ def registry_file(tmp_path: Path) -> Path:
         parse_registry(load((ROOT / ".github/release-audit-exceptions.json").read_text()))
     )
     data["exceptions"] = []
+    for policy in data["gate_policy"]:
+        policy["required_job_prefix_minimums"] = dict(policy["required_job_prefix_minimums"])
     path = tmp_path / "registry.json"
     path.write_text(json.dumps(data))
     return path

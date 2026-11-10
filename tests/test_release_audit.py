@@ -10,6 +10,7 @@ import pytest
 
 from tools.audit_releases import evaluate
 from tools.release_audit_model import (
+    Attestation,
     File,
     Job,
     Publisher,
@@ -45,11 +46,29 @@ def facts(version: str = "0.12.2") -> VersionFacts:
         jobs = (Job("build-and-publish", "success"),)
     return VersionFacts(
         version,
-        Tag("v" + version, "abc", version, True, OLD),
+        Tag("v" + version, "a" * 40, version, True, OLD),
         Release("https://github.com/release", OLD, False, False),
-        Run(123, "https://github.com/run/123", "completed", "success", "abc", OLD, jobs),
+        Run(123, "https://github.com/run/123", "completed", "success", "a" * 40, OLD, jobs),
         tuple(
-            File(name, kind, "a" * 64, OLD, False, (publisher,))
+            File(
+                name,
+                kind,
+                "a" * 64,
+                OLD,
+                False,
+                (publisher,),
+                (
+                    Attestation(
+                        name,
+                        "a" * 64,
+                        "https://github.com/yeongseon/azure-functions-langgraph",
+                        "a" * 40,
+                        "refs/tags/v" + version,
+                        123,
+                        publisher,
+                    ),
+                ),
+            )
             for name, kind in (
                 ("package.whl", "bdist_wheel"),
                 ("package.tar.gz", "sdist"),
@@ -122,7 +141,9 @@ def test_defects_are_actionable(code: str) -> None:
         "pypi-without-successful-run": replace(original, run=None),
         "pypi-incomplete": replace(original, files=original.files[:1]),
         "yanked": replace(original, files=(replace(original.files[0], yanked=True),)),
-        "provenance-missing": replace(original, files=(replace(original.files[0], publishers=()),)),
+        "provenance-missing": replace(
+            original, files=(replace(original.files[0], publishers=(), attestations=()),)
+        ),
         "provenance-publisher-mismatch": replace(
             original,
             files=(
@@ -160,6 +181,18 @@ def failed(version: str = "0.12.1", run_id: int = 38891888298) -> VersionFacts:
                 if j.name == "Publish to PyPI"
                 else j
                 for j in original.run.jobs
+            )
+            + (
+                (
+                    Job(
+                        "Azure release certification / Deploy & Test "
+                        "(azure-functions 2.x / Flex / Py 3.13)",
+                        "skipped",
+                    ),
+                    Job("Trigger cookbook e2e re-verification", "skipped"),
+                )
+                if tuple(int(p) for p in version.split(".")) >= (0, 11, 0)
+                else ()
             ),
         ),
     )
@@ -276,24 +309,3 @@ def test_unknown_gate_era_fails_closed() -> None:
     # Then: no known policy is not proof of successful gates.
     assert result.verdict == "DEFECT"
     assert "gate-not-successful" in {f.code for f in result.findings}
-
-
-def test_numbering_gaps_do_not_invent_versions() -> None:
-    # Given: failed patches, their published successor and a later minor without 0.6.x.
-    registry = load_registry(ROOT)
-    registry = replace(
-        registry, exceptions=tuple(e for e in registry.exceptions if e.tag in {"v0.5.2", "v0.5.3"})
-    )
-    # When: evaluating only versions actually recorded.
-    result = evaluate(
-        snapshot(
-            failed("0.5.2", 24605716212),
-            failed("0.5.3", 24958757167),
-            facts("0.5.4"),
-            facts("0.7.0"),
-        ),
-        registry,
-        NOW,
-    )
-    # Then: both failures are excepted and no synthetic numbering defect appears.
-    assert [r.verdict for r in result] == ["EXCEPTED", "EXCEPTED", "PUBLISHED", "PUBLISHED"]

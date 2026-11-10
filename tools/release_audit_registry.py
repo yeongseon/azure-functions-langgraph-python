@@ -38,21 +38,37 @@ def parse_registry(value: JSON) -> Registry:
     policies: list[GatePolicy] = []
     for raw in sequence(data["gate_policy"]):
         item = mapping(raw)
-        keys(item, "since required_jobs", "required_job_prefixes")
+        keys(
+            item,
+            "since required_jobs publish_job",
+            "required_job_prefixes required_job_prefix_minimums",
+        )
         jobs = texts(item["required_jobs"])
         prefixes = texts(item.get("required_job_prefixes", []))
         if not jobs or len(set(jobs)) != len(jobs) or len(set(prefixes)) != len(prefixes):
             raise AuditError(
                 "gate policy requires unique nonempty required_jobs and unique prefixes"
             )
-        policies.append(GatePolicy(tag(item["since"]), jobs, prefixes))
+        minimums = tuple(
+            (text(prefix), integer(count))
+            for prefix, count in mapping(item.get("required_job_prefix_minimums", {})).items()
+        )
+        if any(prefix not in prefixes or count < 1 for prefix, count in minimums):
+            raise AuditError("prefix minimums require a declared prefix and positive count")
+        publish_job = text(item["publish_job"])
+        if publish_job not in jobs:
+            raise AuditError("publish_job must be a required job")
+        policies.append(GatePolicy(tag(item["since"]), jobs, prefixes, minimums, publish_job))
     starts = [version_key(p.since) for p in policies]
     if not starts or starts != sorted(set(starts)):
         raise AuditError("gate_policy must be nonempty and ordered with unique since tags")
     exceptions: list[ExceptionEntry] = []
     for raw in sequence(data["exceptions"]):
         item = mapping(raw)
-        keys(item, "tag reason run_id run_conclusion summary successor confirmed")
+        keys(
+            item,
+            "tag reason run_id run_conclusion summary successor confirmed failed_jobs skipped_jobs",
+        )
         reason = text(item["reason"])
         if reason not in {
             "publish-config",
@@ -76,7 +92,12 @@ def parse_registry(value: JSON) -> Registry:
             text(item["summary"]),
             successor,
             boolean(item["confirmed"]),
+            texts(item["failed_jobs"]),
+            texts(item["skipped_jobs"]),
         )
+        names = (*entry.failed_jobs, *entry.skipped_jobs)
+        if not entry.failed_jobs or len(set(names)) != len(names):
+            raise AuditError("exception job lists must be unique with at least one failed job")
         if version_key(entry.successor) <= version_key(entry.tag):
             raise AuditError(f"successor must be newer than {entry.tag}")
         exceptions.append(entry)

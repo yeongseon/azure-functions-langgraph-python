@@ -6,11 +6,10 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
+from tools.release_audit_gates import covered_gate, gate_errors, select_run
 from tools.release_audit_model import (
     AuditError,
-    ExceptionEntry,
     Finding,
-    GatePolicy,
     Registry,
     Snapshot,
     VersionAudit,
@@ -20,44 +19,8 @@ from tools.release_audit_model import (
 )
 
 
-def covered_gate_messages(entry: ExceptionEntry) -> set[str]:
-    failed = {"build-and-publish"}
-    if entry.reason == "wheel-tests":
-        failed = {"Wheel packaging tests"}
-        if entry.tag == "v0.11.0":
-            failed.add("Azure release certification / Deploy & Test")
-    if entry.reason == "azure-certification":
-        failed = {"Azure release certification / Deploy & Test"}
-    return {f"Job {name} concluded failure." for name in failed} | {
-        f"Required job {name} did not succeed." for name in failed | {"Publish to PyPI"}
-    }
-
-
-def gate_errors(facts: VersionFacts, policies: tuple[GatePolicy, ...]) -> tuple[str, ...]:
-    eligible = [p for p in policies if version_key(p.since) <= version_key(facts.version)]
-    if not eligible:
-        return ("No gate policy covers this version.",)
-    if facts.run is None:
-        return ()
-    policy = max(eligible, key=lambda p: version_key(p.since))
-    jobs = facts.run.jobs
-    errors = [
-        f"Job {j.name} concluded {j.conclusion}."
-        for j in jobs
-        if j.conclusion in {"failure", "cancelled"}
-    ]
-    for name in policy.required_jobs:
-        matches = [j for j in jobs if j.name == name]
-        if not matches or any(j.conclusion != "success" for j in matches):
-            errors.append(f"Required job {name} did not succeed.")
-    for prefix in policy.required_job_prefixes:
-        matches = [j for j in jobs if j.name.startswith(prefix)]
-        if not matches or any(j.conclusion != "success" for j in matches):
-            errors.append(f"Required job prefix {prefix} did not succeed.")
-    return tuple(errors)
-
-
 def audit_version(facts: VersionFacts, registry: Registry, now: datetime) -> VersionAudit:
+    facts = replace(facts, run=select_run(facts, registry.gate_policy))
     release, tag, run = facts.release, facts.tag, facts.run
     page = f"https://pypi.org/project/{quote(registry.project, safe='')}/{facts.version}/#files"
     release_url = release.url if release else ""
@@ -84,13 +47,18 @@ def audit_version(facts: VersionFacts, registry: Registry, now: datetime) -> Ver
             add("tag-version-mismatch", "Source __version__ differs from the tag version.")
         if not tag.ancestor:
             add("tag-not-on-main", "Tag commit is not an ancestor of the recorded main commit.")
+    if release and not tag:
+        add("release-without-tag", "Published GitHub Release has no tag in the snapshot.")
+    if release and release.prerelease:
+        add("release-prerelease", "Numeric GitHub Release is marked prerelease.")
     if run is None:
         add("no-publish-run", "No publish workflow run exists for this tag.")
-    elif not pending:
-        if run.conclusion != "success":
+    else:
+        if run.status == "completed" and run.conclusion != "success":
             add("publish-run-failed", "Publish workflow did not conclude success.")
-        for error in gate_errors(facts, registry.gate_policy):
-            add("gate-not-successful", error)
+        findings.extend(
+            replace(error, links=links) for error in gate_errors(facts, registry.gate_policy)
+        )
         if tag and run.head_sha != tag.commit:
             add("gate-not-successful", "Publish run head SHA differs from the tag commit.")
     if release and not facts.files:
@@ -109,19 +77,44 @@ def audit_version(facts: VersionFacts, registry: Registry, now: datetime) -> Ver
             if file.yanked:
                 add("yanked", f"PyPI file {file.filename} is yanked.")
             if version_key(facts.version) >= version_key(registry.provenance_since):
-                if not file.publishers:
+                if not file.attestations:
                     add("provenance-missing", f"PyPI file {file.filename} has no provenance.")
-                elif any(
+                if any(
                     p.workflow != registry.publish_workflow
                     or p.repository not in (registry.repository, *registry.repository_aliases)
                     or p.kind != "GitHub"
                     or p.environment != "pypi"
-                    for p in file.publishers
+                    for p in (*file.publishers, *(a.publisher for a in file.attestations))
                 ):
                     add(
                         "provenance-publisher-mismatch",
                         f"Unexpected publisher for {file.filename}.",
                     )
+                for attestation in file.attestations:
+                    if (attestation.subject_name, attestation.subject_sha256) != (
+                        file.filename,
+                        file.sha256,
+                    ):
+                        add(
+                            "provenance-subject-mismatch",
+                            f"Attestation subject differs from {file.filename}.",
+                        )
+                    if (
+                        attestation.source_repository
+                        not in tuple(
+                            "https://github.com/" + r
+                            for r in (registry.repository, *registry.repository_aliases)
+                        )
+                        or tag is None
+                        or attestation.source_digest != tag.commit
+                        or attestation.source_ref != "refs/tags/" + tag.name
+                        or run is None
+                        or attestation.run_id != run.id
+                    ):
+                        add(
+                            "provenance-source-mismatch",
+                            f"Attestation source/run differs for {file.filename}.",
+                        )
     entry = next((e for e in registry.exceptions if e.tag == "v" + facts.version), None)
     if entry:
         if tag is None:
@@ -130,14 +123,22 @@ def audit_version(facts: VersionFacts, registry: Registry, now: datetime) -> Ver
             add("exception-stale", "Registered unpublished candidate now has PyPI files.")
         if run is None or (run.id, run.conclusion) != (entry.run_id, entry.run_conclusion):
             add("exception-evidence-mismatch", "Exception run id/conclusion differs from evidence.")
+        expected = tuple((name, "failure") for name in entry.failed_jobs) + tuple(
+            (name, "skipped") for name in entry.skipped_jobs
+        )
+        if run is None or any(
+            len([j for j in run.jobs if j.name == name and j.conclusion == conclusion]) != 1
+            or len([j for j in run.jobs if j.name == name]) != 1
+            for name, conclusion in expected
+        ):
+            add(
+                "exception-evidence-mismatch", "Exception failed/skipped jobs differ from evidence."
+            )
         allowed = {"no-pypi-files", "publish-run-failed"}
         if entry.reason == "tag-version-gate":
             allowed.add("tag-version-mismatch")
         findings = [
-            replace(f, covered=True)
-            if f.code in allowed
-            or (f.code == "gate-not-successful" and f.message in covered_gate_messages(entry))
-            else f
+            replace(f, covered=True) if f.code in allowed or covered_gate(f, entry) else f
             for f in findings
         ]
     uncovered = [f for f in findings if not f.covered]
@@ -158,6 +159,11 @@ def audit_version(facts: VersionFacts, registry: Registry, now: datetime) -> Ver
         (run.conclusion or run.status) if run else "absent",
         verdict,
         tuple(findings),
+        tuple(
+            f"Later run {r.id} ({r.event}): {r.conclusion or r.status} {r.html_url}"
+            for r in facts.runs
+            if run and r.id > run.id
+        ),
     )
 
 

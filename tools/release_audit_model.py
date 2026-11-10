@@ -36,6 +36,17 @@ class Publisher:
 
 
 @dataclass(frozen=True, slots=True)
+class Attestation:
+    subject_name: str
+    subject_sha256: str
+    source_repository: str
+    source_digest: str
+    source_ref: str
+    run_id: int
+    publisher: Publisher
+
+
+@dataclass(frozen=True, slots=True)
 class File:
     filename: str
     packagetype: str
@@ -43,6 +54,7 @@ class File:
     upload_time: str
     yanked: bool
     publishers: tuple[Publisher, ...]
+    attestations: tuple[Attestation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +72,7 @@ class Run:
     head_sha: str
     created_at: str
     jobs: tuple[Job, ...]
+    event: str = "push"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +99,7 @@ class VersionFacts:
     release: Release | None
     run: Run | None
     files: tuple[File, ...]
+    runs: tuple[Run, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +117,8 @@ class GatePolicy:
     since: str
     required_jobs: tuple[str, ...]
     required_job_prefixes: tuple[str, ...] = ()
+    required_job_prefix_minimums: tuple[tuple[str, int], ...] = ()
+    publish_job: str = "Publish to PyPI"
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +130,8 @@ class ExceptionEntry:
     summary: str
     successor: str
     confirmed: bool
+    failed_jobs: tuple[str, ...]
+    skipped_jobs: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +154,8 @@ class Finding:
     message: str
     links: tuple[str, ...]
     covered: bool = False
+    job_name: str | None = None
+    conclusion: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,3 +167,4 @@ class VersionAudit:
     run_conclusion: str
     verdict: str
     findings: tuple[Finding, ...]
+    notes: tuple[str, ...] = ()

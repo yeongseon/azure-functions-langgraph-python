@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from tools.release_audit_model import JSON, AuditError
 
@@ -25,7 +26,11 @@ def sequence(value: JSON) -> list[JSON]:
 
 
 def text(value: JSON) -> str:
-    if not isinstance(value, str) or not value or any(ord(c) < 32 for c in value):
+    if (
+        not isinstance(value, str)
+        or not value
+        or any(ord(c) < 32 or 127 <= ord(c) <= 159 or c in "\u2028\u2029" for c in value)
+    ):
         raise AuditError("expected nonempty text without control characters")
     return value
 
@@ -40,6 +45,44 @@ def boolean(value: JSON) -> bool:
     if not isinstance(value, bool):
         raise AuditError("expected boolean")
     return value
+
+
+def positive_id(value: JSON) -> int:
+    result = integer(value)
+    if result <= 0:
+        raise AuditError("id must be a positive integer")
+    return result
+
+
+def sha256(value: JSON) -> str:
+    result = text(value)
+    if not re.fullmatch(r"[a-fA-F0-9]{64}", result):
+        raise AuditError("sha256 must have 64 hexadecimal digits")
+    return result.lower()
+
+
+def conclusion(value: JSON) -> str | None:
+    result = optional_text(value)
+    if result is not None and result not in {
+        "success",
+        "failure",
+        "cancelled",
+        "skipped",
+        "neutral",
+        "timed_out",
+        "action_required",
+        "stale",
+        "startup_failure",
+    }:
+        raise AuditError("unknown job/run conclusion")
+    return result
+
+
+def run_conclusion(status: str, value: JSON) -> str | None:
+    result = conclusion(value)
+    if (status == "completed") != (result is not None):
+        raise AuditError("run status and conclusion are inconsistent")
+    return result
 
 
 def optional_text(value: JSON) -> str | None:

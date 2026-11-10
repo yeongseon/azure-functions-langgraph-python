@@ -34,8 +34,16 @@ def render(snapshot: Snapshot, audits: list[VersionAudit], format_name: str) -> 
         )
     markdown = format_name == "markdown"
 
+    def literal(value: str) -> str:
+        return (
+            "".join("\\" + c if c in "\\`*_[]<>|#!~" else c for c in value) if markdown else value
+        )
+
     def link(label: str, url: str) -> str:
-        return f"[{label}]({url})" if markdown and url else (f"{label} {url}" if url else label)
+        safe = url.startswith("https://") and not any(c.isspace() or c in ")<>" for c in url)
+        if markdown and safe:
+            return f"[{literal(label)}]({url.replace('|', '%7C')})"
+        return literal(f"{label} {url}" if url else label)
 
     rows = [
         ["version", "GitHub Release", "PyPI files", "publish run", "verdict", "detail/findings"]
@@ -43,16 +51,19 @@ def render(snapshot: Snapshot, audits: list[VersionAudit], format_name: str) -> 
     for audit in audits:
         findings = []
         for finding in audit.findings:
-            detail = f"{finding.code}{' (covered)' if finding.covered else ''}: {finding.message}"
+            detail = literal(
+                f"{finding.code}{' (covered)' if finding.covered else ''}: {finding.message}"
+            )
             detail += " " + " ".join(link("evidence", url) for url in finding.links)
             findings.append(detail)
+        findings.extend("note: " + literal(note) for note in audit.notes)
         rows.append(
             [
-                audit.version,
+                literal(audit.version),
                 link("exists" if audit.release_url else "absent", audit.release_url),
                 link(str(len(audit.file_urls)), audit.file_urls[0] if audit.file_urls else ""),
                 link(audit.run_conclusion, audit.run_url),
-                audit.verdict,
+                literal(audit.verdict),
                 "; ".join(findings) or "consistent",
             ]
         )
@@ -68,6 +79,6 @@ def render(snapshot: Snapshot, audits: list[VersionAudit], format_name: str) -> 
             "  ".join(cell.ljust(widths[i]) if i < 5 else cell for i, cell in enumerate(row))
             for row in rows
         )
-    lines.extend("note: " + note for note in sorted(snapshot.notes))
+    lines.extend("note: " + literal(note) for note in sorted(snapshot.notes))
     lines.append(summary)
     return "\n".join(lines)
