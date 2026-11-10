@@ -1,15 +1,28 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import json
 from pathlib import Path
 import signal
-from time import monotonic
 
 import pytest
 
-from tests.test_release_notes import CFG, RP_BODY, FakeGitHub
+from tests.test_release_notes import CFG, RP_BODY, FakeGitHub, commit
 from tools import release_notes as rn
+
+
+def _within(seconds: float, action: Callable[[], object]) -> None:
+    def expired(signum: int, frame: object) -> None:
+        raise AssertionError(f"did not finish within {seconds} seconds")
+
+    previous = signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        action()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 @pytest.mark.parametrize(
@@ -78,20 +91,48 @@ def test_annotation_requires_entire_exact_block(existing: list[str]) -> None:
 @pytest.mark.parametrize("size", [20_001, 100_000])
 def test_long_line_is_refused_promptly(size: int) -> None:
     # Given: a pathological whitespace run, bounded independently of parser behavior
-    def timeout(signum: int, frame: object) -> None:
-        raise AssertionError("parser exceeded two seconds")
-
-    previous = signal.signal(signal.SIGALRM, timeout)
-    signal.setitimer(signal.ITIMER_REAL, 2)
-    start = monotonic()
-    try:
+    def refuse() -> None:
         # When / Then: a clear size error precedes regex work
         with pytest.raises(ValueError, match="20.?000|line.*limit"):
             rn.parse_item("fix: x" + " " * size + "y", None)
-        assert monotonic() - start < 2
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
+
+    _within(2, refuse)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param("<!--" * 4_997, id="comment-openers"),
+        pytest.param("## a" + " " * 19_900 + "b", id="heading-whitespace-run"),
+        pytest.param("## v1.0.0" + "(" * 19_900 + " x", id="version-heading-parentheses"),
+        pytest.param("**Full Changelog**: " + "compare/" * 2_400, id="compare-link-chain"),
+    ],
+)
+def test_bodies_near_the_size_limits_are_parsed_and_verified_in_linear_time(line: str) -> None:
+    # Given: the largest accepted body, one adversarial line shape repeated
+    body = "\n".join([line] * 24)
+    assert len(line) <= rn.MAX_LINE and len(body) <= rn.MAX_BODY
+    # When / Then: neither parsing nor verifying rescans the same text quadratically
+    _within(1, lambda: rn.parse_body(body, CFG))
+    _within(1, lambda: rn.verify(body, body, "v1.0.1", CFG))
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param("-" * 72, id="dash-rule"),
+        pytest.param("<" * 19_900, id="unclosed-tag-openers"),
+        pytest.param("<!--" * 4_997, id="comment-openers"),
+    ],
+)
+def test_commit_message_lines_near_the_size_limits_are_reconstructed_in_linear_time(
+    line: str,
+) -> None:
+    # Given: an adversarial line repeated through a large breaking footer
+    footer = "\n".join(["BREAKING CHANGE: x", *[line] * 23])
+    gh = FakeGitHub(commits={("v1.0.0", "v1.0.1"): [commit("a", "fix: x", "maint", footer)]})
+    # When / Then: classifying and neutralizing each line takes time linear in its length
+    _within(1, lambda: rn.build_notes("v1.0.1", "", gh, CFG))
 
 
 def test_whole_body_limit_is_refused() -> None:

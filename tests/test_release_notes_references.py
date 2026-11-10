@@ -113,6 +113,58 @@ def test_verify_accepts_local_link_as_preserved_reference(kind: str) -> None:
     assert rn.verify(old, new, "v1.0.1", CFG) == []
 
 
+def test_foreign_link_with_a_local_looking_label_is_neither_parsed_nor_credited() -> None:
+    # Given: a foreign link whose label contains "(#12)", and a local PR 12 by someone else
+    link = "[foreign (#12)](https://github.com/foreign/repo/pull/12)"
+    gh = FakeGitHub(prs={12: ("victim", False)})
+    # When: standardize it twice
+    once = rn.build_notes("v1.0.1", f"- thing {link}\n", gh, CFG)
+    twice = rn.build_notes("v1.0.1", once, gh, CFG)
+    # Then: the link stays whole, its label creates no local reference and no credit
+    assert f"- thing {link}\n" in once
+    assert "@victim" not in once
+    assert twice == once
+
+
+def test_local_markdown_link_stays_verbatim_beside_a_real_reference() -> None:
+    # Given: an ordinary local link in the title, plus a genuine trailing reference
+    link = "[the discussion](https://github.com/acme/pkg/pull/5)"
+    gh = FakeGitHub(prs={13: ("external", False)}, veterans={"external"})
+    # When: standardize
+    body = rn.build_notes("v1.0.1", f"- thing {link} (#13)\n", gh, CFG)
+    # Then: only the real reference is read; the link text is kept as written
+    assert f"- thing {link} (#13) by @external\n" in body
+
+
+@pytest.mark.parametrize(
+    ("label", "foreign_url"),
+    [
+        ("#12", "https://github.com/foreign/repo/pull/12"),
+        ("#12", "https://github.com/foreign/repo/issues/12"),
+        ("`abcdef1`", "https://github.com/foreign/repo/commit/abcdef1234"),
+    ],
+)
+def test_verify_does_not_accept_a_foreign_link_label_as_a_local_reference(
+    label: str, foreign_url: str
+) -> None:
+    # Given: the local reference exists only as a label on a foreign link
+    old = f"- x ({label})"
+    new = f"- x [{label}]({foreign_url})"
+    # When: compare reference sets
+    problems = rn.verify(old, new, "v1.0.1", CFG)
+    # Then: the label does not stand in for the lost local reference
+    assert problems and "lost" in problems[0]
+
+
+@pytest.mark.parametrize("label", ["#12", "the pull request"])
+def test_verify_accepts_a_local_markdown_link_through_its_url(label: str) -> None:
+    # Given: the local PR kept as a Markdown link, with or without a numeric label
+    old = "- x (#12)"
+    new = f"- x [{label}](https://github.com/acme/pkg/pull/12)"
+    # When / Then: the URL carries the identity
+    assert rn.verify(old, new, "v1.0.1", CFG) == []
+
+
 @pytest.mark.parametrize("token", ["BREAKING CHANGE", "BREAKING-CHANGE"])
 def test_compare_breaking_footer_keeps_multiline_migration(token: str) -> None:
     # Given: a non-bang subject with a conventional breaking footer
@@ -134,6 +186,77 @@ def test_compare_breaking_footer_keeps_multiline_migration(token: str) -> None:
     assert "### ⚠️ Breaking Changes" in body
     assert "  remove foo; migrate to bar.\n  Use bar(value) instead." in body
     assert "Refs:" not in body
+
+
+def _breaking_commit_body(footer: str) -> FakeGitHub:
+    return FakeGitHub(
+        commits={("v1.0.0", "v1.0.1"): [commit("a", "fix: drop API", "maint", footer)]}
+    )
+
+
+@pytest.mark.parametrize("token", ["BREAKING CHANGE", "BREAKING-CHANGE"])
+def test_compare_breaking_footer_keeps_paragraphs_after_a_blank_line(token: str) -> None:
+    # Given: migration guidance whose second paragraph follows a blank line, then a real trailer
+    gh = _breaking_commit_body(f"{token}: remove foo.\n\nUse bar(value) instead.\n\nRefs: #12")
+    # When: reconstruct a compare-only body
+    body = rn.build_notes("v1.0.1", "", gh, CFG)
+    # Then: both paragraphs stay under the breaking item; the trailer and its text do not
+    assert "  remove foo.\n\n  Use bar(value) instead.\n" in body
+    assert "Refs:" not in body
+
+
+def test_compare_breaking_footer_keeps_prose_lines_that_contain_a_colon() -> None:
+    # Given: guidance lines whose text before a colon is several words, not a trailer token
+    gh = _breaking_commit_body(
+        "BREAKING CHANGE: remove foo.\nMigration steps: replace foo with bar.\n\nThen rerun it."
+    )
+    # When: reconstruct a compare-only body
+    body = rn.build_notes("v1.0.1", "", gh, CFG)
+    # Then: nothing after the first line is mistaken for a footer and dropped
+    assert "  Migration steps: replace foo with bar.\n\n  Then rerun it.\n" in body
+
+
+def test_compare_breaking_footer_ends_at_the_next_trailer() -> None:
+    # Given: a breaking footer followed by a sign-off and unrelated body text
+    gh = _breaking_commit_body(
+        "BREAKING CHANGE: remove foo.\n\nSigned-off-by: Dev <dev@example.com>\n\nunrelated text"
+    )
+    # When: reconstruct a compare-only body
+    body = rn.build_notes("v1.0.1", "", gh, CFG)
+    # Then: only the breaking guidance is published
+    assert "  remove foo.\n" in body
+    assert "Signed-off-by" not in body and "dev@example.com" not in body
+    assert "unrelated text" not in body
+
+
+def test_compare_breaking_footer_with_its_value_on_the_next_line() -> None:
+    # Given: a footer token that carries no text on its own line
+    gh = _breaking_commit_body("BREAKING CHANGE:\nremove foo.")
+    # When: reconstruct a compare-only body
+    body = rn.build_notes("v1.0.1", "", gh, CFG)
+    # Then: no whitespace-only line precedes the guidance
+    assert "(`aaaaaaa`)\n  remove foo.\n" in body
+
+
+def test_reconstructed_breaking_paragraphs_survive_a_second_render() -> None:
+    # Given: a reconstructed item with two guidance paragraphs
+    gh = _breaking_commit_body("BREAKING CHANGE: remove foo.\n\nUse bar(value) instead.")
+    # When: render the result again, as --force does
+    once = rn.build_notes("v1.0.1", "", gh, CFG)
+    twice = rn.build_notes("v1.0.1", once, gh, CFG)
+    # Then: the paragraph break is read back from the item rather than dropped
+    assert twice == once
+    assert "  remove foo.\n\n  Use bar(value) instead.\n" in twice
+
+
+def test_item_continuation_keeps_blank_lines_between_its_paragraphs() -> None:
+    # Given: a bullet with an indented second paragraph, followed by an ordinary bullet
+    body = "- first (#1)\n  one\n\n  two\n\n- second (#2)\n"
+    # When: parse the existing body
+    first, second = rn.parse_body(body, CFG).items
+    # Then: only the blank line inside the item is kept
+    assert first.extra == ["  one", "", "  two"]
+    assert second.extra == []
 
 
 def test_reconstructed_subject_neutralizes_markup_but_existing_notes_stay_verbatim() -> None:

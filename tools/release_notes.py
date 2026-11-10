@@ -87,6 +87,9 @@ _REFERENCE_LINK = re.compile(
     r"\(\[(?:#\d+|[0-9a-fA-F]{7,40})\]\("
     r"(?P<url>https?://github\.com/[^\s)]+)\)\)"
 )
+# Label and URL exclude every bracket and parenthesis, so a failed attempt at one "[" never
+# rescans text that a later "[" will scan again (matching stays linear on adversarial lines).
+_MARKDOWN_LINK = re.compile(r"!?\[[^\[\]]*\]\([^()\s\[\]]*\)")
 _GITHUB_REF = re.compile(
     r"https?://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/"
     r"(?P<kind>pull|issues|commit)/(?P<ref>[0-9a-fA-F]+)\b"
@@ -95,9 +98,19 @@ _REFERENCE_GROUP = re.compile(
     r"\((?P<tokens>(?:#\d+|`[0-9a-fA-F]{7,40}`)"
     r"(?:[ \t]*,[ \t]*(?:#\d+|`[0-9a-fA-F]{7,40}`))*)\)"
 )
+# One pass over an item: complete Markdown links are matched first so their labels are never
+# read as references; only a parenthesized local reference link or a reference group is parsed.
+_PARSE_TOKENS = re.compile(
+    rf"(?P<opaque>{_MARKDOWN_LINK.pattern})|{_REFERENCE_LINK.pattern}|{_REFERENCE_GROUP.pattern}"
+)
 _FULL_CHANGELOG = re.compile(r"^\*{0,2}Full Changelog\*{0,2}:.*$", re.IGNORECASE)
 _OUR_TAIL = re.compile(r"by (?:@[\w\-\[\]]+)(?:, @[\w\-\[\]]+)*$")
-_HEADING = re.compile(r"^(?P<hashes>#{2,4})\s+(?P<text>.+?)\s*$")
+# Lines reach this pattern right-stripped; a lazy ".+?" before "\s*$" would rescan every inner
+# whitespace run, which is quadratic on an adversarial heading.
+_HEADING = re.compile(r"^(?P<hashes>#{2,4})\s+(?P<text>.+)$")
+# A footer token has no spaces (Conventional Commits); a token with a space cannot be a trailer.
+_BREAKING_FOOTER = re.compile(r"BREAKING(?: CHANGE|-CHANGE):[ \t]*(.*)")
+_FOOTER_TOKEN = re.compile(r"[\w-]+:[ \t]")
 
 
 # --------------------------------------------------------------------------- model
@@ -281,21 +294,21 @@ def parse_item(text: str, section: str | None, cfg: Config | None = None) -> Ite
         else:
             prs.append(int(ref))
 
-    def link(match: re.Match[str]) -> str:
-        local = _local_ref(match["url"], cfg)
-        if local is None:
+    def token(match: re.Match[str]) -> str:
+        if match["opaque"]:
             return match[0]
-        take(*local)
+        if match["url"]:
+            local = _local_ref(match["url"], cfg)
+            if local is None:
+                return match[0]
+            take(*local)
+            return ""
+        for ref in match["tokens"].split(","):
+            ref = ref.strip()
+            take("pull" if ref.startswith("#") else "commit", ref.strip("#`"))
         return ""
 
-    def group(match: re.Match[str]) -> str:
-        for token in match["tokens"].split(","):
-            token = token.strip()
-            take("pull" if token.startswith("#") else "commit", token.strip("#`"))
-        return ""
-
-    tokens = re.compile(f"(?:{_REFERENCE_LINK.pattern})|(?:{_REFERENCE_GROUP.pattern})")
-    text = tokens.sub(lambda m: link(m) if m["url"] else group(m), text)
+    text = _PARSE_TOKENS.sub(token, text)
     before, separator, url = text.rpartition(" in ")
     local = _local_ref(url, cfg) if separator else None
     if local is not None:
@@ -322,19 +335,21 @@ def parse_body(body: str, cfg: Config | None = None) -> Parsed:
     """Split an existing release body into verbatim blocks and structured items."""
     _check_size(body)
     parsed = Parsed()
-    body = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
+    body = _drop_spans(body, "<!--", "-->")
     mode, section = "items", None
     verbatim_level = 0
     last: Item | None = None
+    blank_before = False
     for line in body.splitlines():
         stripped = line.rstrip()
+        after_blank, blank_before = blank_before, not stripped.strip()
         if re.fullmatch(r"(-{3,}|\*{3,}|_{3,})", stripped.strip()):
             continue
         if stripped.strip().startswith(("<details", "</details")):
             mode, section, last = "items", None, None
             continue
         if _FULL_CHANGELOG.match(stripped.strip()):
-            compare = re.search(r"compare/([^\s)]+?)\.\.\.", stripped)
+            compare = re.search(r"compare/([^\s)]{1,255}?)\.\.\.", stripped)
             if compare:
                 parsed.compare_prev = compare[1]
             continue
@@ -347,7 +362,7 @@ def parse_body(body: str, cfg: Config | None = None) -> Parsed:
                 continue
             text = heading["text"]
             rp = re.match(
-                r"^\[?v?(\d+\.\d+\.\d+[^\]\s)]*)\]?(?:\([^)]*\))?\s*(?:\((\d{4}-\d{2}-\d{2})\))?$",
+                r"^\[?v?(\d+\.\d+\.\d+[^\]\s()]*)\]?(?:\([^)]*\))?\s*(?:\((\d{4}-\d{2}-\d{2})\))?$",
                 text,
             )
             if level == 2 and rp:
@@ -375,6 +390,8 @@ def parse_body(body: str, cfg: Config | None = None) -> Parsed:
             last = parse_item(bullet["text"], section, cfg)
             parsed.items.append(last)
         elif line.startswith((" ", "\t")) and last is not None:
+            if after_blank and (not last.extra or last.extra[-1]):
+                last.extra.append("")
             last.extra.append(stripped)
         else:
             parsed.notes.append(stripped)
@@ -581,23 +598,46 @@ def _commit_items(commits: list[Commit]) -> list[Item]:
         item.title = _plain_commit_text(item.title)
         item.shas = [commit.sha[:7].lower()]
         item.prs = [int(pr[1])] if pr else []
-        footer = False
+        in_breaking = False
         for line in commit.message.splitlines()[1:]:
-            breaking = re.match(r"^BREAKING(?: CHANGE|-CHANGE):[ \t]*(.*)$", line)
+            breaking = _BREAKING_FOOTER.match(line)
             if breaking:
-                footer = True
+                in_breaking = True
                 item.section = "Breaking Changes"
-                item.extra.append("  " + _plain_commit_text(breaking[1]))
-            elif not line.strip() or re.match(r"^[\w-]+(?:[ -][\w-]+)*:[ \t]", line):
-                footer = False
-            elif footer:
-                item.extra.append("  " + _plain_commit_text(line))
+                if breaking[1].strip():
+                    item.extra.append("  " + _plain_commit_text(breaking[1].rstrip()))
+            elif _FOOTER_TOKEN.match(line):
+                in_breaking = False
+            elif in_breaking and line.strip():
+                item.extra.append("  " + _plain_commit_text(line.rstrip()))
+            elif in_breaking and item.extra and item.extra[-1]:
+                item.extra.append("")
+        while item.extra and not item.extra[-1]:
+            item.extra.pop()
         items.append(item)
     return items
 
 
+def _drop_spans(text: str, opener: str, closer: str) -> str:
+    """Delete every ``opener``...``closer`` span in one forward pass; an unclosed opener stays.
+
+    A lazy regex such as ``<!--.*?-->`` rescans the whole tail for every unclosed opener, which
+    is quadratic. Once ``find`` misses a closer, no later opener can have one, so the scan ends.
+    """
+    kept: list[str] = []
+    position = 0
+    while (start := text.find(opener, position)) >= 0:
+        end = text.find(closer, start + len(opener))
+        if end < 0:
+            break
+        kept.append(text[position:start])
+        position = end + len(closer)
+    kept.append(text[position:])
+    return "".join(kept)
+
+
 def _plain_commit_text(text: str) -> str:
-    text = re.sub(r"<[^>]*>", "", text)
+    text = _drop_spans(text, "<", ">")
     text = text.replace("[", r"\[").replace("]", r"\]")
     return re.sub(r"(?<![\w`])@[A-Za-z0-9_-]+", lambda m: f"`{m[0]}`", text)
 
@@ -647,7 +687,7 @@ def verify(original: str, new: str, tag: str, cfg: Config) -> list[str]:
     _check_size(original)
     _check_size(new)
     problems: list[str] = []
-    stripped = re.sub(r"<!--.*?-->", "", original, flags=re.DOTALL)
+    stripped = _drop_spans(original, "<!--", "-->")
     # Unverified "New Contributors" claims are intentionally replaced, not preserved.
     stripped = re.sub(
         r"^#{2,4}[^\n]*New Contributors[^\n]*\n(?:(?!#{2,4} |\*{0,2}Full Changelog).*\n?)*",
@@ -678,8 +718,9 @@ def _references(body: str, cfg: Config) -> tuple[set[int], set[str]]:
                 shas.add(ref)
             else:
                 prs.add(int(ref))
-    # Foreign link labels must not masquerade as local references.
-    body = _REFERENCE_LINK.sub("", body)
+    # Only a link's URL identifies it; its label is display text, so a foreign link labelled
+    # "#12" must not stand in for local PR 12.
+    body = _MARKDOWN_LINK.sub("", _REFERENCE_LINK.sub("", body))
     prs.update(int(m[1]) for m in re.finditer(r"(?<![\w/])#(\d+)\b", body))
     shas.update(m[1][:7].lower() for m in re.finditer(r"`([0-9a-fA-F]{7,40})`", body))
     return prs, shas

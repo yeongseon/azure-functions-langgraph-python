@@ -160,12 +160,19 @@ edit `CHANGELOG.md`, and runs separately from `publish-pypi.yml`, so it cannot b
 For new Release Please bodies, the items are the ones Release Please already generated.
 Historical bodies instead preserve their existing items; a compare-link-only body is reconstructed
 from compared commits and explicitly labelled as reconstructed. Such historical summaries need not
-match `CHANGELOG.md`. Breaking footers and their migration guidance survive reconstruction.
+match `CHANGELOG.md`. A reconstructed commit keeps its `BREAKING CHANGE:` or `BREAKING-CHANGE:`
+footer and the lines after it, including paragraphs that follow a blank line, up to the next
+`Token: value` trailer. A token has no spaces, so a prose line such as `Migration steps: ...`
+stays; other trailers and body text are not published.
 The tool refuses to write if an exact local PR/issue number or seven-character commit reference
 would be dropped (except unverified references in the replaced New Contributors block), or if a
 configured protected phrase would be lost. PRs and all commits share one trailing group, for example
-``(#12, #13, `abc1234`)``. Legacy repository references are accepted; foreign links remain verbatim
-and are never treated as local attribution evidence.
+``(#12, #13, `abc1234`)``. Legacy repository references are accepted. Within an item, a Release
+Please style ``([#12](URL))`` wrapper, a ``(#12)`` group and a trailing GitHub-generated `in URL`
+are read as references. Every other Markdown link is kept as written: its label is never read as a
+reference, and a link to another repository is never treated as local attribution evidence. A
+foreign link labelled `#12` is therefore neither parsed as local PR 12 nor credited to that PR's
+author, and it does not satisfy the check for a lost local `#12`.
 
 Layout (empty sections are omitted):
 
@@ -188,9 +195,12 @@ Credit rules:
 - Show **New Contributors** only when prior-commit lookup and a complete, well-formed merged-PR search verify no prior contribution from an external human; uncertain/API-error results omit the claim. Omit the section for owner-only releases.
 
 Compare-only reconstructed commit subjects have HTML tags removed, Markdown brackets escaped and
-unsolicited `@mentions` rendered as code spans. Existing maintainer-authored release blocks remain
-verbatim. Generated `by @username` and New Contributors credits are deliberate mentions; notification
-delivery on release edits has not been verified.
+unsolicited `@mentions` rendered as code spans. Existing Notes, Highlights and Upgrade blocks are
+kept line by line, except that HTML comments, thematic breaks (`---`, `***`, `___`) and trailing
+whitespace are dropped, blank lines at the start and end of a block are trimmed, and links to a
+configured legacy repository are rewritten to the current one. Generated `by @username` and New
+Contributors credits are deliberate mentions; notification delivery on release edits has not been
+verified.
 
 Release-specific statements that must never be lost (for example a release that was not
 published) are listed under `protected` in `.github/release-notes.json`; the tool fails instead of
@@ -217,16 +227,21 @@ zero. Use `render` for an unconditional read-only preview (including standardize
 causes an error and no release write. It contains `tagName`, the original `body`, `publishedAt` and
 the release `id`; `preview --backup DIRECTORY --out DIRECTORY` keeps that publication date in the
 heading. Preserve the first snapshot as the rollback source; select a new directory for a later
-intentional edit instead of overwriting it. The final API read compares the current body with the
-build snapshot and aborts on a concurrent change. This reduces races but is **not atomic**: a change
-between that read and the PATCH is still possible.
+intentional edit instead of overwriting it. If the PATCH itself fails, the snapshot stays on disk
+and still holds the original body, so retrying with the same directory stops with `File exists`:
+check the release, then remove that file or choose a new directory. The final API read compares the
+current body with the build snapshot and aborts on a concurrent change. This reduces races but is
+**not atomic**: a change between that read and the PATCH is still possible.
 
 Inputs and generated bodies are refused above 500,000 characters total or 20,000 characters on one
-line (GitHub's release-body limit is 125,000). API work has a 120-second command deadline and at most
-50 pages of 100 records per pagination loop; exceeding a limit fails closed rather than truncating.
-The workflow has a ten-minute timeout, retains available backups as an artifact and warns in its
-summary if standardization fails. Its `github.token` has `contents: write`, a broader permission
-than release-body editing: the tool edits only `body` by implementation, not token-level enforcement.
+line (GitHub's release-body limit is 125,000). Parsing time is linear in the input size. API work
+shares a 120-second budget that is checked before and after each request rather than enforced by
+interruption (each socket operation waits at most 30 seconds), and each pagination loop stops at 50
+pages of 100 records; exceeding a limit fails closed rather than truncating. The workflow has a
+ten-minute timeout, which is the hard outer bound, retains available backups as an artifact and
+warns in its summary if standardization fails. Its `github.token` has `contents: write`, a broader
+permission than release-body editing: the tool edits only `body` by implementation, not token-level
+enforcement.
 
 ```bash
 # Needs a token: export GH_TOKEN=$(gh auth token)
