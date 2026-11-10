@@ -2,9 +2,8 @@
 
 A git tag or a GitHub Release does **not** mean that a version is available on PyPI.
 `azure-functions-langgraph` is distributed through
-[PyPI](https://pypi.org/project/azure-functions-langgraph/), and
-`pip install azure-functions-langgraph==<version>` can only select a version whose files are on the
-index.
+[PyPI](https://pypi.org/project/azure-functions-langgraph/). An installation that uses PyPI as its only
+package source can only select a version whose files were published there.
 
 This page lists the tagged versions that have no files on PyPI, what the retained records show about
 each one, and which published version to use instead. For every one of them the `Publish to PyPI` run
@@ -39,9 +38,10 @@ a separate fact, and PyPI is where to check it.
 - `pip install azure-functions-langgraph==<version>` for a version without files on the index fails with
   `No matching distribution found`.
 
-A range such as `azure-functions-langgraph>=0.12.0,<0.13` still resolves, because published versions
-inside it exist (0.12.0 and 0.12.2). A range fails only when none of the versions it allows has files
-on the index, and an exact pin to one of the versions below cannot be resolved from PyPI.
+The range `azure-functions-langgraph>=0.12.0,<0.13` has published candidates on PyPI (0.12.0 and 0.12.2),
+so the missing 0.12.1 does not by itself prevent resolution. An installation still needs a candidate that
+is compatible with the Python environment and the other dependency constraints. An exact pin to one of
+the versions below has no candidate on PyPI.
 
 ## Tagged versions without files on PyPI
 
@@ -96,8 +96,9 @@ tag is handled, and this page does not add to it:
 
 The reasons: a tag names the exact commit that was built and tested. Moving it to another commit would
 change what readers, and anything that pinned the tag or its GitHub Release, refer to, and the tag, the
-GitHub Release and any PyPI file would stop describing the same source. A file uploaded outside the gated
-run under an existing version number would put on PyPI an artifact that none of the gates vouched for.
+GitHub Release and any PyPI file would stop describing the same source. Uploading outside that workflow
+would bypass the repository's required publication path and its enforced gate dependencies, even if the
+files had been tested separately.
 The GitHub Releases stay as the record of what each tag contained, and their status is stated here
 instead of being hidden by deleting them.
 

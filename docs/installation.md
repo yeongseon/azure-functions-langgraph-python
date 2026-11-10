@@ -36,7 +36,7 @@ azure-functions-langgraph>=0.12.0,<0.13
 
 Pin to the minor range you tested against. A few tagged versions have no files on PyPI (see
 [Release status](release-status.md)), so an exact `==` pin to one of them cannot be resolved from PyPI,
-while the range above still resolves because published versions inside it exist. The default-path example
+while the range above includes published candidates and is not blocked by those missing versions. The default-path example
 (`examples/simple_agent`, used by the [5-minute tutorial](tutorial-5-min.md)) and the four
 primary learning-path examples use the same `>=0.12.0,<0.13` form. CI certifies only the
 primary examples against the published release (see

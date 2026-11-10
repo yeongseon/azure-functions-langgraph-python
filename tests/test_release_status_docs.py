@@ -121,11 +121,11 @@ def test_each_row_has_a_reason_and_a_later_successor_that_is_not_itself_unpublis
         assert f"v{successor}" not in RECORDED, tag
 
 
-def test_recovery_section_restates_the_release_process_without_new_promises() -> None:
+def test_recovery_section_links_the_policy_and_keeps_its_key_rules() -> None:
     # Given: the release process that the page defers to, and the page's own recovery section
     process = " ".join((ROOT / "docs" / "release_process.md").read_text().split())
 
-    # Then: the page links the recovery section that exists and states only what the process says
+    # Then: the page links the recovery section that exists and carries the process's key rules
     assert "(release_process.md#recovery)" in PAGE
     assert re.search(r"^## Recovery$", (ROOT / "docs" / "release_process.md").read_text(), re.M)
     for sentence, source in (
@@ -145,14 +145,14 @@ def test_recovery_section_restates_the_release_process_without_new_promises() ->
 
 
 def test_page_and_entry_points_avoid_statements_that_were_wrong_or_are_not_policy() -> None:
-    # Given: every file this change touches in prose
-    texts = [
-        PROSE,
-        (ROOT / "README.md").read_text(),
-        (ROOT / "docs" / "installation.md").read_text(),
-        (ROOT / "docs" / "changelog.md").read_text(),
-        (ROOT / "docs" / "release_process.md").read_text(),
-    ]
+    # Given: every file this change touches in prose, with its whitespace collapsed
+    paths = (
+        ROOT / "README.md",
+        ROOT / "docs" / "installation.md",
+        ROOT / "docs" / "changelog.md",
+        ROOT / "docs" / "release_process.md",
+    )
+    texts = [PROSE, *(" ".join(path.read_text().split()) for path in paths)]
 
     # Then: none of them contains a statement that review found false or that is not policy
     for phrase in FORBIDDEN:
