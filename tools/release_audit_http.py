@@ -51,6 +51,8 @@ class HTTPFetcher:
             ) as c:
                 c.request("GET", path, headers=self.headers(host, accept))
                 with c.getresponse() as response:
+                    if response.status in {301, 302}:
+                        raise AuditError("HTTP redirect refused")
                     chunks: list[bytes] = []
                     size = 0
                     while True:
@@ -68,7 +70,7 @@ class HTTPFetcher:
                         chunks.append(block)
                     return Response(response.status, b"".join(chunks).decode("utf-8"))
         except (OSError, http.client.HTTPException, UnicodeError):
-            raise AuditError(f"HTTPS GET failed for {host}; diagnostics redacted") from None
+            raise AuditError("HTTPS GET failed; diagnostics redacted") from None
 
 
 def get_json(fetcher: Fetcher, host: str, path: str, *, provenance: bool = False) -> JSON:
