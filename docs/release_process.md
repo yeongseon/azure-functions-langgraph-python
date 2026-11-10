@@ -173,17 +173,17 @@ Please style ``([#12](URL))`` wrapper, a ``(#12)`` group and a trailing GitHub-g
 are read as references. Any other inline Markdown link, `[label](destination "title")`, is kept as
 written (runs of whitespace in an item collapse to one space). A link is read the way CommonMark
 reads it: its label may nest brackets and contain code spans, its destination is `<...>` or plain
-with up to four nested pairs of parentheses, its title is quoted with `"`, `'` or parentheses, and
-a backslash escapes the character after it. A link inside another link's label is a link of its own
-and the brackets around it are text; an image inside a link stays part of it. Only the 2,048
-characters after the label are read, so a longer destination and title is not a link. The label
-is never read as a reference, and a link to another repository is never treated as local
-attribution evidence. A foreign link labelled `#12` is therefore neither parsed as local PR 12 nor
-credited to that PR's author, and it does not satisfy the check for a lost local `#12`. The check
-replaces each link with a space, so `#` before a link and `12` after it never join into `#12`.
-Only inline links on a single line are recognized: reference-style links (`[label][ref]`), HTML
-tags and autolinks (`<https://...>`) and links that span lines are not, so a bracket inside an HTML
-tag or autolink counts like any other character.
+with up to 32 nested pairs of parentheses, its title is quoted with `"`, `'` or parentheses, and a
+backslash escapes ASCII punctuation (before anything else it is an ordinary character). A link
+inside another link's label is a link of its own and the brackets around it are text. An image may
+sit inside a link, and a link inside a valid image's description leaves the brackets outside the
+image alone. The label is never read as a reference, and a link to another repository is never
+treated as local attribution evidence. A foreign link labelled `#12` is therefore neither parsed as
+local PR 12 nor credited to that PR's author, and it does not satisfy the check for a lost local
+`#12`. The check replaces each link with a space, so `#` before a link and `12` after it never join
+into `#12`. Only inline links on a single line are recognized: reference-style links
+(`[label][ref]`), HTML tags and autolinks (`<https://...>`) and links that span lines are not, so a
+bracket inside an HTML tag or autolink counts like any other character.
 
 Layout (empty sections are omitted):
 

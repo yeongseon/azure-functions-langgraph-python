@@ -158,6 +158,24 @@ def test_verify_accepts_local_link_as_preserved_reference(kind: str) -> None:
             "[x `a\\` (#12)](https://github.com/foreign/repo/pull/12)",
             id="code-span-ending-in-backslash",
         ),
+        pytest.param(
+            "[x (#12)](https://foreign.example/" + "a" * 2_050 + ")", id="long-destination"
+        ),
+        pytest.param(
+            "[x](https://foreign.example/" + "a" * 2_050 + ' "see (#12)")',
+            id="long-destination-title",
+        ),
+        pytest.param(
+            "[x (#12)](u" + "(a" * 12 + ")" * 12 + ")", id="deeply-parenthesized-destination"
+        ),
+        pytest.param(
+            "[![a [b](u)](v) (#12)](https://github.com/foreign/repo/pull/12)",
+            id="link-inside-an-image-inside-a-link",
+        ),
+        pytest.param(
+            "[![a [b [c](u)]](v) (#12)](https://github.com/foreign/repo/pull/12)",
+            id="deeper-image-inside-a-link",
+        ),
     ],
 )
 def test_foreign_link_with_a_local_looking_label_is_neither_parsed_nor_credited(link: str) -> None:
@@ -209,6 +227,9 @@ def test_verify_does_not_accept_a_foreign_link_label_as_a_local_reference(
     [
         '[#12](https://github.com/foreign/repo/pull/12 "Support foo(")',
         "[`foo]` #12](https://github.com/foreign/repo/pull/12)",
+        "[![a [b](u)](v) #12](https://github.com/foreign/repo/pull/12)",
+        "[#12](https://foreign.example/" + "a" * 2_050 + ")",
+        "[#12](u" + "(a" * 12 + ")" * 12 + ")",
     ],
 )
 def test_verify_does_not_accept_a_foreign_link_with_awkward_text_as_a_local_reference(
@@ -220,6 +241,25 @@ def test_verify_does_not_accept_a_foreign_link_with_awkward_text_as_a_local_refe
     problems = rn.verify("- x (#12)", f"- x {foreign}", "v1.0.1", CFG)
     # Then: it is reported as lost
     assert problems and "lost" in problems[0]
+
+
+def test_verify_does_not_accept_a_foreign_link_with_a_commit_label_inside_an_image() -> None:
+    # Given: a local commit that survives only as the label of a foreign link around an image
+    old = "- x (`abcdef1`)"
+    new = "- x [![a [b](u)](v) `abcdef1`](https://github.com/foreign/repo/commit/abcdef1234)"
+    # When / Then: the label does not stand in for the lost commit
+    assert any("abcdef1" in problem for problem in rn.verify(old, new, "v1.0.1", CFG))
+
+
+def test_a_backslash_before_a_space_leaves_the_text_after_it_readable() -> None:
+    # Given: Windows-path prose that Markdown renders as text, then a genuine reference
+    text = "see [guide](C:\\ notes (#12))"
+    # When: parse it, and check what verification sees when the reference is dropped
+    item = rn.parse_item(text, None, CFG)
+    problems = rn.verify("- " + text, "- removed", "v1.0.1", CFG)
+    # Then: no link hides the reference
+    assert item.prs == [12]
+    assert any("lost PR reference #12" in problem for problem in problems)
 
 
 def test_verify_sees_a_reference_that_follows_a_link_with_an_open_parenthesis_in_its_title() -> (
@@ -264,12 +304,46 @@ def test_verify_sees_a_reference_that_follows_a_link_with_an_open_parenthesis_in
         pytest.param("[a](b`c) `d` [e](f)", ["[a](b`c)", "[e](f)"], id="backtick-in-destination"),
         pytest.param("[a] (b)", [], id="space-before-destination"),
         pytest.param("[a][b]", [], id="reference-style"),
+        pytest.param("\\``x", [], id="escaped-backtick-before-a-backtick"),
+        pytest.param("\\``[a](b)`", [], id="code-span-opened-after-an-escaped-backtick"),
         pytest.param("[a](b", [], id="unclosed-destination"),
         pytest.param("[a](<b)", [], id="unclosed-angle-destination"),
+        pytest.param('[a]( "t(")', [], id="title-needs-a-destination"),
+        pytest.param('[a](<> "t(")', ['[a](<> "t(")'], id="empty-angle-destination-takes-a-title"),
         pytest.param("[a [b](<c) d](e)", ["[a [b](<c) d](e)"], id="outer-link-around-a-non-link"),
         pytest.param("[a(b)", [], id="unclosed-label"),
         pytest.param("\\[a](b)", [], id="escaped-opening-bracket"),
-        pytest.param("[a](b(c(d(e(f(g))))))", [], id="too-deeply-nested-parentheses"),
+        pytest.param(
+            "[a](x" + "(x" * 32 + ")" * 32 + ")",
+            ["[a](x" + "(x" * 32 + ")" * 32 + ")"],
+            id="thirty-two-nested-parentheses",
+        ),
+        pytest.param(
+            "[a](x" + "(x" * 33 + ")" * 33 + ")", [], id="thirty-three-nested-parentheses"
+        ),
+        pytest.param(
+            "[a](" + "b" * 5_000 + ")", ["[a](" + "b" * 5_000 + ")"], id="long-destination"
+        ),
+        pytest.param("[guide](C:\\ notes (#12))", [], id="backslash-space-is-not-an-escape"),
+        pytest.param("[a](b\\) c)", [], id="escaped-parenthesis-then-space"),
+        pytest.param("[a](b\\))", ["[a](b\\))"], id="escaped-parenthesis-in-destination"),
+        pytest.param("[a\\]](b)", ["[a\\]](b)"], id="escaped-bracket-in-label"),
+        pytest.param("[a\\z](b)", ["[a\\z](b)"], id="backslash-before-a-letter-is-literal"),
+        pytest.param(
+            "[![a [b](u)](v) c](w)", ["[![a [b](u)](v) c](w)"], id="link-in-image-in-link"
+        ),
+        pytest.param("![[a](b) c](d)", ["![[a](b) c](d)"], id="link-in-image"),
+        pytest.param("[a ![b](c)](d) [e](f)", ["[a ![b](c)](d)", "[e](f)"], id="image-then-link"),
+        pytest.param("[a [![b](c)](d)](e)", ["[![b](c)](d)"], id="link-in-link-around-an-image"),
+        pytest.param(
+            "[![[]()]#7]()", ["[]()"], id="failed-image-around-a-link-ends-the-outer-link"
+        ),
+        pytest.param(
+            "[![a](b) [c](d)](e)", ["![a](b)", "[c](d)"], id="link-after-an-image-in-a-link"
+        ),
+        pytest.param(
+            "[![[a](b)](c) d](e)", ["[![[a](b)](c) d](e)"], id="link-in-a-valid-image-in-a-link"
+        ),
     ],
 )
 def test_link_scanner_recognizes_inline_links_the_way_commonmark_does(
@@ -280,15 +354,6 @@ def test_link_scanner_recognizes_inline_links_the_way_commonmark_does(
     found = [line[start:end] for start, end in rn._link_spans(line)]
     # Then: exactly the links a CommonMark reader sees (a few conservative supersets aside)
     assert found == links
-
-
-def test_link_scanner_reads_a_destination_and_title_only_up_to_its_limit() -> None:
-    # Given: a destination just inside and just beyond the documented 2,048 characters
-    within = "[a](" + "b" * 2_000 + ")"
-    beyond = "[a](" + "b" * 2_100 + ")"
-    # When / Then: only the first is a link
-    assert rn._link_spans(within) == [(0, len(within))]
-    assert rn._link_spans(beyond) == []
 
 
 @pytest.mark.parametrize("label", ["#12", "the pull request"])

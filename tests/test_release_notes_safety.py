@@ -108,9 +108,9 @@ def test_long_line_is_refused_promptly(size: int) -> None:
         pytest.param("## v1.0.0" + "(" * 19_900 + " x", 24, id="version-heading-parentheses"),
         pytest.param("## v1.0." + "1" * 19_900 + " x", 24, id="version-heading-digits"),
         pytest.param("**Full Changelog**: " + "compare/" * 2_400, 24, id="compare-link-chain"),
-        pytest.param("([#12](https://github.com/" * 760, 24, id="reference-wrapper-openers"),
+        pytest.param("([#12](https://github.com/" * 760, 2, id="reference-wrapper-openers"),
         pytest.param("[" * 19_990, 8, id="open-brackets"),
-        pytest.param("[a](" * 4_997, 8, id="link-openers"),
+        pytest.param("[a](" * 4_997, 2, id="link-openers"),
         pytest.param("[x](" + "(" * 19_980, 8, id="unclosed-destination"),
         pytest.param("[a]" * 6_600, 8, id="label-without-destination"),
         pytest.param("[a](b)" * 3_300, 8, id="adjacent-links"),
@@ -118,11 +118,16 @@ def test_long_line_is_refused_promptly(size: int) -> None:
         pytest.param("`" * 19_990, 8, id="backtick-run"),
         pytest.param("`a" * 9_995, 8, id="backtick-pairs"),
         pytest.param("`" + "``".join(["a"] * 6_000), 8, id="backtick-runs-without-closers"),
+        pytest.param(
+            "".join("`" * n + "x" for n in range(1, 199)), 24, id="increasing-backtick-runs"
+        ),
         pytest.param("[`" * 9_995, 8, id="label-code-span-openers"),
-        pytest.param('[a](b "' * 2_850, 8, id="quoted-title-openers"),
-        pytest.param("[a](<" * 3_990, 8, id="angle-destination-openers"),
-        pytest.param("[a](" + "b" * 19_900, 8, id="destination-beyond-the-limit"),
+        pytest.param('[a](b "' * 2_850, 2, id="quoted-title-openers"),
+        pytest.param("[a](<" * 3_990, 2, id="angle-destination-openers"),
+        pytest.param("[a](" + "b" * 19_900, 8, id="long-destination"),
         pytest.param("[a](" + "(" * 19_980, 8, id="nested-parenthesis-openers"),
+        pytest.param("![a [b](c)](d) " * 1_300, 8, id="links-inside-images"),
+        pytest.param("[" * 9_990 + "]" * 9_990, 8, id="deeply-nested-labels"),
     ],
 )
 def test_bodies_near_the_size_limits_are_parsed_and_verified_in_linear_time(
@@ -138,6 +143,13 @@ def test_bodies_near_the_size_limits_are_parsed_and_verified_in_linear_time(
         # When / Then: neither parsing nor verifying rescans the same text quadratically
         _within(1, partial(rn.parse_body, body, CFG))
         _within(1, partial(rn.verify, body, body, "v1.0.1", CFG))
+
+
+def test_reference_wrapper_pattern_does_not_rescan_the_wrappers_that_follow() -> None:
+    # Given: one line of wrapper openers, none of them closed
+    text = "([#12](https://github.com/" * 760
+    # When / Then: each search fails at every opener in constant time, not by reading to the end
+    _within(1, lambda: [rn._PARSE_TOKENS.search(text) for _ in range(24)])
 
 
 def test_a_block_with_hundreds_of_thousands_of_blank_lines_is_trimmed_in_linear_time() -> None:

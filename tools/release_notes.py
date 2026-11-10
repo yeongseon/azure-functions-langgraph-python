@@ -40,6 +40,7 @@ the logic is unit-testable with a fake.
 from __future__ import annotations
 
 import argparse
+from bisect import bisect_left
 from dataclasses import dataclass, field
 import difflib
 import http.client
@@ -96,23 +97,35 @@ _REFERENCE_GROUP = re.compile(
     r"(?:[ \t]*,[ \t]*(?:#\d+|`[0-9a-fA-F]{7,40}`))*)\)"
 )
 _PARSE_TOKENS = re.compile(f"(?:{_REFERENCE_LINK.pattern})|(?:{_REFERENCE_GROUP.pattern})")
-_LINK_TOKENS = re.compile(r"\\.|`+|!?\[|\]")
-_MAX_LINK_TAIL = 2_048
+# A backslash escapes only ASCII punctuation; before anything else it is a literal backslash.
+_ESCAPE = r"\\[!-/:-@\[-`{-~]"
+_LITERAL_BACKSLASH = r"\\(?![!-/:-@\[-`{-~])"
+_LINK_TOKENS = re.compile(rf"{_ESCAPE}|`+|!?\[|\]")
+_BACKTICKS = re.compile(r"`+")
 
 
 def _balanced_parentheses(depth: int) -> str:
-    inner = r"(?:[^\s()\\]|\\.)*"
+    inner = rf"(?:[^\s()\\]|{_ESCAPE}|{_LITERAL_BACKSLASH})*"
     for _ in range(depth - 1):
-        inner = rf"(?:[^\s()\\]|\\.|\({inner}\))*"
+        inner = rf"(?:[^\s()\\]|{_ESCAPE}|{_LITERAL_BACKSLASH}|\({inner}\))*"
     return inner
 
 
-# The "(destination "title")" after a link label. Every alternative inside a repetition starts
-# with a different character, so a failed attempt never backtracks into itself.
+def _quoted(opener: str, closer: str, excluded: str) -> str:
+    return rf"{opener}(?:{_ESCAPE}|{_LITERAL_BACKSLASH}|[^\\{excluded}])*{closer}"
+
+
+_DOUBLE_QUOTED = _quoted('"', '"', '"')
+_SINGLE_QUOTED = _quoted("'", "'", "'")
+_PARENTHESIZED = _quoted(r"\(", r"\)", "()")
+# The "(destination "title")" after a link label, with CommonMark's limit of 32 nested pairs of
+# parentheses. A title needs a destination before it, which is non-empty unless written "<>".
+# Every alternative inside a repetition starts with a different character, so a failed attempt
+# never backtracks into itself.
 _LINK_TAIL = re.compile(
     r"\([ \t]*"
-    rf"(?:<(?:[^<>\n\\]|\\.)*>|(?!<){_balanced_parentheses(5)})"
-    r"""(?:[ \t]+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)))?"""
+    rf"(?:(?:<(?:[^<>\n\\]|{_ESCAPE}|{_LITERAL_BACKSLASH})*>|(?!<)(?=[^\s)]){_balanced_parentheses(33)})"
+    rf"(?:[ \t]+(?:{_DOUBLE_QUOTED}|{_SINGLE_QUOTED}|{_PARENTHESIZED}))?)?"
     r"[ \t]*\)"
 )
 _FULL_CHANGELOG = re.compile(r"^\*{0,2}Full Changelog\*{0,2}:.*$", re.IGNORECASE)
@@ -294,56 +307,65 @@ def _local_ref(url: str, cfg: Config | None) -> tuple[str, str] | None:
     return (kind, ref) if ref.isdecimal() else None
 
 
-def _code_span_end(line: str, start: int, length: int) -> int | None:
-    """Return where the code span opened by ``length`` backticks ends, or None if it never closes.
-
-    Only a run of exactly ``length`` backticks closes the span, and a backslash inside a code span
-    is literal, so the closer is searched in the raw text rather than among escape tokens.
-    """
-    marker = "`" * length
-    while (at := line.find(marker, start)) >= 0:
-        end = at + length
-        while end < len(line) and line[end] == "`":
-            end += 1
-        if end - at == length:
-            return end
-        start = end
-    return None
-
-
 def _link_spans(line: str) -> list[tuple[int, int]]:
     """Return the ``(start, end)`` of each inline Markdown link or image on a line.
 
-    A forward pass reads the line the way CommonMark does: a backslash escapes the next
-    character, a code span hides the brackets inside it, ``[`` (or ``![``) opens and ``]`` closes
-    a label that may nest to any depth, and the text after a closing ``]`` is read once as
-    ``(destination "title")``. A link cannot contain another link: once one is found, the
-    ``[`` openers before it are text, while an image may sit inside a link. Each character is
-    read a bounded number of times, so the work is linear in the length of the line.
+    A forward pass reads the line the way CommonMark does. A backslash escapes ASCII
+    punctuation. A code span hides the brackets inside it, found by looking up the next run of
+    exactly as many backticks (the run lengths are indexed once, and a backslash inside a code
+    span is literal). ``[`` or ``![`` opens and ``]`` closes a label that may nest to any depth,
+    and the text after a closing ``]`` is read once as ``(destination "title")``. A link cannot
+    contain a link: once one is found, the link openers below it in the same label are text.
+    A link inside the description of a valid image does not change the openers outside it, but
+    if the image turns out not to be one, that link counts for them as well.
     """
     openers: list[tuple[int, bool]] = []
-    dead = 0
+    bases = [0]
+    dead = [0]
+    pending = [False]
     found: list[tuple[int, int]] = []
+    runs: dict[int, list[int]] | None = None
     position = 0
     while token := _LINK_TOKENS.search(line, position):
         text = token[0]
         position = token.end()
         if text in ("[", "!["):
             openers.append((token.start(), text == "!["))
+            if text == "![":
+                bases.append(len(openers))
+                dead.append(0)
+                pending.append(False)
         elif text == "]":
             if not openers:
                 continue
             start, is_image = openers.pop()
-            usable = is_image or len(openers) >= dead
-            dead = min(dead, len(openers))
-            tail = _LINK_TAIL.match(line, position, position + _MAX_LINK_TAIL) if usable else None
+            had_link = False
+            if is_image:
+                bases.pop()
+                dead.pop()
+                had_link = pending.pop()
+            index = len(openers) - bases[-1]
+            usable = is_image or index >= dead[-1]
+            dead[-1] = min(dead[-1], index)
+            tail = _LINK_TAIL.match(line, position) if usable else None
             if tail:
                 found.append((start, tail.end()))
                 position = tail.end()
                 if not is_image:
-                    dead = len(openers)
+                    dead[-1] = index
+                    pending[-1] = True
+            elif had_link:
+                dead[-1] = index
+                pending[-1] = True
         elif text[0] == "`":
-            position = _code_span_end(line, position, len(text)) or position
+            if runs is None:
+                runs = {}
+                for run in _BACKTICKS.finditer(line):
+                    runs.setdefault(len(run[0]), []).append(run.start())
+            starts = runs.get(len(text), [])
+            after = bisect_left(starts, position)
+            if after < len(starts):
+                position = starts[after] + len(text)
     spans: list[tuple[int, int]] = []
     for start, end in sorted(found):
         if spans and start < spans[-1][1]:
