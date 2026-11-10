@@ -317,6 +317,52 @@ pip install dist/azure_functions_langgraph-<version>-py3-none-any.whl
 
 ---
 
+## Release audit
+
+`make audit-releases` runs the stdlib-only, read-only audit of stable numeric tags,
+GitHub Releases, tag source versions and ancestry, tag-specific `publish-pypi.yml`
+runs/jobs, and PyPI files/provenance. A GitHub Release is not a PyPI distribution.
+Only observed `vX.Y.Z` tags/releases and `X.Y.Z` PyPI versions are audited; other
+formats are informational notes, and gaps in version numbering are not defects.
+There is no scheduled or CI job running this audit in this change.
+
+```bash
+make audit-releases AUDIT_ARGS='--snapshot-out /tmp/release-facts.json --format markdown'
+make audit-releases AUDIT_ARGS='--snapshot-in /tmp/release-facts.json --now 2026-11-10T00:00:00Z --format json'
+```
+
+Set `AUDIT_PYTHON=.venv/bin/python` to use an existing environment instead of the
+default Hatch interpreter. `AUDIT_ARGS='--help'` needs no network. Live collection
+uses only HTTPS GET to `api.github.com` and `pypi.org`, never follows redirects,
+and has per-request and overall deadlines (`--timeout`, `--deadline`, in seconds).
+Optional `GH_TOKEN` or `GITHUB_TOKEN` credentials are sent only to GitHub; snapshots
+contain facts, not credentials. API failures, malformed evidence/registry and
+pagination beyond 50 pages of 100 fail closed. Offline replay makes no requests;
+`--now` fixes the evaluation clock, while `collected_at` records collection time.
+Table (default), Markdown and stable-key JSON output retain evidence links.
+
+`PUBLISHED` means these recorded checks are consistent, not that the audit built,
+certified or uploaded anything. `PENDING` is non-failing while the publish run is
+unfinished, or when no run exists within the six-hour grace period measured from
+tag commit time or release publication. Other discrepancies are `DEFECT`.
+Exit status is 0 without defects (including `PENDING` and `EXCEPTED`), 1 with any
+defect, and 2 for collection, usage or registry errors.
+
+`.github/release-audit-exceptions.json` is the explicit historical exception
+registry, paired with the [release status table](release-status.md). Adding an
+exception is a maintainer decision requiring retained run evidence and a newer
+published successor, not a way to waive new failures. The registry defines full,
+non-cumulative gate eras, exact required jobs, required job prefixes and the
+provenance threshold; even optional jobs may not fail or be cancelled. Registered
+failures print their covered findings as `EXCEPTED`; new gate failures, changed run
+evidence, missing successors or newly published files still fail. The uncertain
+v0.5.3 cause remains explicitly unconfirmed. Publisher repository aliases account
+for the repository rename, not arbitrary publisher identities.
+
+The audit never edits releases, moves tags, republishes files, or writes version
+files or `CHANGELOG.md`. Release Please, GitHub Actions and Hatch retain their
+existing authority and gates; recovery still requires a maintainer decision.
+
 ## Related
 
 - [CHANGELOG.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CHANGELOG.md)

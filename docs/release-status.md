@@ -12,6 +12,13 @@ for the tag failed.
 *Last verified: 2026-11-10, against PyPI, the GitHub Releases API, the git tags and the GitHub Actions
 run records. It covers the GitHub Releases from v0.2.0 to v0.13.0.*
 
+The read-only [release audit](release_process.md#release-audit), run manually with
+`make audit-releases`, compares GitHub and PyPI facts version by version. Its explicit
+`.github/release-audit-exceptions.json` registry mirrors the ten historical rows below,
+including the unconfirmed v0.5.3 cause; offline tests guard that correspondence.
+Covered findings remain visible as `EXCEPTED`, while new discrepancies fail the audit.
+No scheduled or CI audit job is added here, and the tool changes no release or publication.
+
 ## Why a GitHub Release can exist without a PyPI file
 
 The release process works like this today (see [Release Process](release_process.md)):
