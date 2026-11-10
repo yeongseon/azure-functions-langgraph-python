@@ -250,6 +250,21 @@ def test_required_gate_must_succeed(conclusion: str | None) -> None:
     assert "gate-not-successful" in {f.code for f in result.findings}
 
 
+def test_publish_run_must_build_the_tagged_commit() -> None:
+    # Given: a successful publish run whose head commit is not the tag's commit.
+    original = facts()
+    assert original.run
+    # When: evaluating the run evidence.
+    result = evaluate(
+        snapshot(replace(original, run=replace(original.run, head_sha="other"))),
+        replace(load_registry(ROOT), exceptions=()),
+        NOW,
+    )[0]
+    # Then: a run of different source cannot vouch for the tag.
+    assert result.verdict == "DEFECT"
+    assert any(f.code == "gate-not-successful" and "head SHA" in f.message for f in result.findings)
+
+
 def test_unknown_gate_era_fails_closed() -> None:
     # Given: policy starts after the candidate.
     registry = replace(load_registry(ROOT), exceptions=())
