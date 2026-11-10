@@ -45,7 +45,7 @@ def report_busy_until_the_store_lock_is_taken(h: StateHarness) -> Any:
     acquiring = {"started": False}
 
     def get(thread_id: str) -> Thread | None:
-        thread = real_get(thread_id)
+        thread: Thread | None = real_get(thread_id)
         if thread is not None and not acquiring["started"]:
             return thread.model_copy(update={"status": "busy"})
         return thread
