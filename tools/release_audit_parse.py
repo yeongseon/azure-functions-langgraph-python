@@ -50,6 +50,13 @@ def texts(value: JSON) -> tuple[str, ...]:
     return tuple(text(item) for item in sequence(value))
 
 
+def run_status(value: JSON) -> str:
+    status = text(value)
+    if status not in {"completed", "queued", "in_progress", "waiting", "pending", "requested"}:
+        raise AuditError("unknown workflow run status")
+    return status
+
+
 def keys(data: dict[str, JSON], required: str, optional: str = "") -> None:
     expected = set(required.split())
     missing = expected - data.keys()

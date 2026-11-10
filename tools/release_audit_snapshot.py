@@ -22,6 +22,7 @@ from tools.release_audit_parse import (
     keys,
     mapping,
     optional_text,
+    run_status,
     sequence,
     text,
     texts,
@@ -63,7 +64,7 @@ def parse_run(value: JSON) -> Run:
     return Run(
         integer(data["id"]),
         text(data["html_url"]),
-        text(data["status"]),
+        run_status(data["status"]),
         optional_text(data["conclusion"]),
         text(data["head_sha"]),
         text(data["created_at"]),

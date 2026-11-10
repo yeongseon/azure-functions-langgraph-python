@@ -23,7 +23,15 @@ from tools.release_audit_model import (
     timestamp,
     version_key,
 )
-from tools.release_audit_parse import boolean, integer, mapping, optional_text, sequence, text
+from tools.release_audit_parse import (
+    boolean,
+    integer,
+    mapping,
+    optional_text,
+    run_status,
+    sequence,
+    text,
+)
 
 
 def segment(value: str) -> str:
@@ -76,7 +84,7 @@ def collect_run(fetcher: Fetcher, base: str, value: JSON) -> Run:
     return Run(
         run_id,
         text(data["html_url"]),
-        text(data["status"]),
+        run_status(data["status"]),
         optional_text(data["conclusion"]),
         text(data["head_sha"]),
         created,

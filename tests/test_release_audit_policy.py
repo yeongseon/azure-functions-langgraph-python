@@ -1,12 +1,29 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
+import json
 
 import pytest
 
 from tests.test_release_audit import NOW, ROOT, facts, failed, snapshot
 from tools.audit_releases import evaluate
+from tools.release_audit_model import AuditError
+from tools.release_audit_parse import load
 from tools.release_audit_registry import load_registry
+from tools.release_audit_snapshot import parse_snapshot
+
+
+@pytest.mark.parametrize("status", ["unknown", "complete", ""])
+def test_unknown_run_status_is_collection_error(status: str) -> None:
+    # Given: a malformed run state that must not receive unlimited pending grace.
+    candidate = facts()
+    assert candidate.run
+    raw = json.dumps(
+        asdict(snapshot(replace(candidate, run=replace(candidate.run, status=status))))
+    )
+    # When / Then: replay rejects unknown workflow states at the boundary.
+    with pytest.raises(AuditError):
+        parse_snapshot(load(raw))
 
 
 def test_exception_does_not_cover_new_gate_failure() -> None:
