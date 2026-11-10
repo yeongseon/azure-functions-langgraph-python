@@ -43,6 +43,7 @@ nav:
   - FAQ: faq.md
   - Security: security.md
   - Changelog: changelog.md
+  - Release Status: release-status.md
 
 markdown_extensions:
   - admonition

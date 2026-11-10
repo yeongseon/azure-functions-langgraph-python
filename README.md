@@ -20,6 +20,9 @@ selected plan/runtime; see [deployment](docs/deployment.md).
 pip install azure-functions-langgraph
 ```
 
+A git tag or a GitHub Release alone does not mean that a version is on PyPI; the tagged versions
+that have no files there are listed in [release status](docs/release-status.md).
+
 ## Quick Start
 
 Save as `function_app.py` in a Functions app with `host.json`:
