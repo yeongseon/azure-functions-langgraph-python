@@ -150,6 +150,24 @@ def test_concurrent_body_change_aborts_without_patch(monkeypatch: pytest.MonkeyP
     assert calls == ["GET"]
 
 
+def test_a_release_without_a_body_is_not_mistaken_for_a_concurrent_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: GitHub answers null for a release that has no body, and its build snapshot is ""
+    client = rn.GitHubApi("acme/pkg")
+    calls: list[str] = []
+
+    def request(method: str, path: str, payload: dict[str, object] | None = None) -> object:
+        calls.append(method)
+        return {"id": 101, "body": None}
+
+    monkeypatch.setattr(client, "_request", request)
+    # When: the notes are written
+    client.set_body("v1.0.1", "new notes", "")
+    # Then: the write goes through instead of being refused as a concurrent edit
+    assert calls == ["GET", "PATCH"]
+
+
 def test_dry_run_reports_skip_for_standardized_body(capsys: pytest.CaptureFixture[str]) -> None:
     # Given: an already standardized release
     gh = FakeGitHub(bodies={"v1.0.1": rn.MARKER})

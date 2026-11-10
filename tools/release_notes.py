@@ -871,7 +871,7 @@ class GitHubApi:
         release = _object(
             self._request("GET", f"/repos/{self.repo}/releases/tags/{quote(tag, safe='')}")
         )
-        if release.get("body") != original:
+        if (release.get("body") or "") != original:
             raise GitHubError(
                 "release body changed since the build snapshot; refusing concurrent edit"
             )
