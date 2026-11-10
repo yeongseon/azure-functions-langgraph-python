@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import logging
 from pathlib import Path
 import sys
@@ -9,6 +8,8 @@ from typing import Any
 import uuid
 
 import pytest
+
+from tests.example_imports import load_example_file
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 MODEL_EXAMPLES = (
@@ -25,18 +26,9 @@ AZURE_SETTINGS = (
 )
 
 
-def _load_graph(example: str, monkeypatch: pytest.MonkeyPatch) -> Any:
-    example_dir = EXAMPLES_DIR / example
+def _load_graph(example: str) -> Any:
     module_name = f"_model_mode_{example}_{uuid.uuid4().hex}"
-    spec = importlib.util.spec_from_file_location(module_name, example_dir / "graph.py")
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    sys.modules.pop("model_config", None)
-    sys.modules.pop("tools", None)
-    monkeypatch.syspath_prepend(str(example_dir))
-    spec.loader.exec_module(module)
-    return module
+    return load_example_file(EXAMPLES_DIR / example / "graph.py", module_name)
 
 
 def _clear_model_settings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,7 +50,7 @@ def test_fake_mode_needs_no_credentials_or_live_sdk(
 
     # When
     with caplog.at_level(logging.WARNING):
-        module = _load_graph(example, monkeypatch)
+        module = _load_graph(example)
 
     # Then
     assert module.MODEL_MODE == "fake"
@@ -79,7 +71,7 @@ def test_omitted_or_invalid_mode_fails_before_startup(
 
     # When / Then
     with pytest.raises(ValueError, match="AGENT_MODEL_MODE"):
-        _load_graph(example, monkeypatch)
+        _load_graph(example)
 
 
 @pytest.mark.parametrize("example", MODEL_EXAMPLES)
@@ -114,7 +106,7 @@ def test_azure_mode_lists_only_missing_setting_names(
 
     # When / Then
     with pytest.raises(RuntimeError) as caught:
-        _load_graph(example, monkeypatch)
+        _load_graph(example)
     assert set(str(caught.value).split(": ", maxsplit=1)[1].split(", ")) == missing
     assert "secret" not in str(caught.value)
     assert "example.invalid" not in str(caught.value)
@@ -162,7 +154,7 @@ def test_valid_azure_auth_builds_live_model(
         monkeypatch.setitem(sys.modules, "azure.identity", identity_module)
 
     # When
-    module = _load_graph(example, monkeypatch)
+    module = _load_graph(example)
 
     # Then
     assert module.MODEL_MODE == "azure_openai"
@@ -192,14 +184,14 @@ def test_live_sdk_construction_error_does_not_downgrade(monkeypatch: pytest.Monk
 
     # When / Then
     with pytest.raises(SDKConstructionError):
-        _load_graph("azure_openai_agent", monkeypatch)
+        _load_graph("azure_openai_agent")
 
 
 def test_tool_fake_is_state_aware_for_independent_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     # Given
     _clear_model_settings(monkeypatch)
     monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
-    module = _load_graph("tool_calling_agent", monkeypatch)
+    module = _load_graph("tool_calling_agent")
     request = {"messages": [{"role": "human", "content": "status"}]}
 
     # When
@@ -215,7 +207,7 @@ def test_missing_tool_name_has_helpful_error(monkeypatch: pytest.MonkeyPatch) ->
     # Given
     _clear_model_settings(monkeypatch)
     monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
-    module = _load_graph("tool_calling_agent", monkeypatch)
+    module = _load_graph("tool_calling_agent")
     module.FAKE_TOOL_CALL = module.FakeToolCall(name="removed_tool", args={})
 
     # When / Then
