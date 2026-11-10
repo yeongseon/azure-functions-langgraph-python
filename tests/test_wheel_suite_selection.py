@@ -17,6 +17,10 @@ def test_wheel_config_collects_runtime_but_not_repository_tooling(tmp_path: Path
         "test_security_evidence.py",
         "test_bandit_scope.py",
         "test_release_notes.py",
+        "test_release_notes_api.py",
+        "test_release_notes_references.py",
+        "test_release_notes_safety.py",
+        "test_release_notes_workflow.py",
     ):
         (tmp_path / name).write_text("raise RuntimeError('repository tooling collected')\n")
     # When collecting from an isolated directory with the installed-wheel configuration.
