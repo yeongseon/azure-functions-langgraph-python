@@ -85,11 +85,8 @@ _CONVENTIONAL = re.compile(
 _RP_SCOPE = re.compile(r"^\*\*(?P<scope>[^*]+):\*\*\s+(?P<desc>.+)$")
 _REFERENCE_LINK = re.compile(
     r"\(\[(?:#\d+|[0-9a-fA-F]{7,40})\]\("
-    r"(?P<url>https?://github\.com/[^\s)]+)\)\)"
+    r"(?P<url>https?://github\.com/[^\s()\[\]]+)\)\)"
 )
-# Label and URL exclude every bracket and parenthesis, so a failed attempt at one "[" never
-# rescans text that a later "[" will scan again (matching stays linear on adversarial lines).
-_MARKDOWN_LINK = re.compile(r"!?\[[^\[\]]*\]\([^()\s\[\]]*\)")
 _GITHUB_REF = re.compile(
     r"https?://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/"
     r"(?P<kind>pull|issues|commit)/(?P<ref>[0-9a-fA-F]+)\b"
@@ -98,19 +95,17 @@ _REFERENCE_GROUP = re.compile(
     r"\((?P<tokens>(?:#\d+|`[0-9a-fA-F]{7,40}`)"
     r"(?:[ \t]*,[ \t]*(?:#\d+|`[0-9a-fA-F]{7,40}`))*)\)"
 )
-# One pass over an item: complete Markdown links are matched first so their labels are never
-# read as references; only a parenthesized local reference link or a reference group is parsed.
-_PARSE_TOKENS = re.compile(
-    rf"(?P<opaque>{_MARKDOWN_LINK.pattern})|{_REFERENCE_LINK.pattern}|{_REFERENCE_GROUP.pattern}"
-)
+_PARSE_TOKENS = re.compile(f"(?:{_REFERENCE_LINK.pattern})|(?:{_REFERENCE_GROUP.pattern})")
+_BRACKETS = re.compile(r"\\.|[\[\]()]")
 _FULL_CHANGELOG = re.compile(r"^\*{0,2}Full Changelog\*{0,2}:.*$", re.IGNORECASE)
 _OUR_TAIL = re.compile(r"by (?:@[\w\-\[\]]+)(?:, @[\w\-\[\]]+)*$")
 # Lines reach this pattern right-stripped; a lazy ".+?" before "\s*$" would rescan every inner
 # whitespace run, which is quadratic on an adversarial heading.
 _HEADING = re.compile(r"^(?P<hashes>#{2,4})\s+(?P<text>.+)$")
-# A footer token has no spaces (Conventional Commits); a token with a space cannot be a trailer.
+# A Conventional Commits footer is "token: value" or "token #value"; a token has no spaces, so
+# prose such as "Migration steps: ..." is not a trailer.
 _BREAKING_FOOTER = re.compile(r"BREAKING(?: CHANGE|-CHANGE):[ \t]*(.*)")
-_FOOTER_TOKEN = re.compile(r"[\w-]+:[ \t]")
+_FOOTER_TOKEN = re.compile(r"[\w-]+(?::[ \t]| #)")
 
 
 # --------------------------------------------------------------------------- model
@@ -281,6 +276,63 @@ def _local_ref(url: str, cfg: Config | None) -> tuple[str, str] | None:
     return (kind, ref) if ref.isdecimal() else None
 
 
+def _link_spans(line: str) -> list[tuple[int, int]]:
+    """Return the ``(start, end)`` of each inline Markdown link ``[label](destination)`` on a line.
+
+    One forward pass pairs brackets and parentheses, so a label may nest to any depth, a
+    destination may carry a title or balanced parentheses, and a backslash escapes the next
+    character. Nothing is rescanned, so the work is linear in the length of the line.
+    """
+    open_brackets: list[int] = []
+    close_of: dict[int, int] = {}
+    open_parens: list[int] = []
+    paren_end: dict[int, int] = {}
+    for match in _BRACKETS.finditer(line):
+        index = match.start()
+        char = match[0]
+        if char == "[":
+            open_brackets.append(index)
+        elif char == "]":
+            if open_brackets:
+                close_of[open_brackets.pop()] = index
+        elif char == "(":
+            open_parens.append(index)
+        elif char == ")" and open_parens:
+            paren_end[open_parens.pop()] = index
+    spans: list[tuple[int, int]] = []
+    position = 0
+    for start in sorted(close_of):
+        end = paren_end.get(close_of[start] + 1)
+        if start >= position and end is not None:
+            spans.append((start, end + 1))
+            position = end + 1
+    return spans
+
+
+def _outside_links(line: str) -> str:
+    """Replace every inline link with one space, so text on either side is never joined."""
+    kept: list[str] = []
+    position = 0
+    for start, end in _link_spans(line):
+        kept += (line[position:start], " ")
+        position = end
+    kept.append(line[position:])
+    return "".join(kept)
+
+
+def _protect_links(text: str) -> str:
+    """Blank every link except a Release Please ``([#N](url))`` wrapper; offsets are unchanged."""
+    kept: list[str] = []
+    position = 0
+    for start, end in _link_spans(text):
+        if start > 0 and _REFERENCE_LINK.fullmatch(text[start - 1 : end + 1]):
+            continue
+        kept += (text[position:start], "\x00" * (end - start))
+        position = end
+    kept.append(text[position:])
+    return "".join(kept)
+
+
 def parse_item(text: str, section: str | None, cfg: Config | None = None) -> Item:
     _check_size(text)
     prs: list[int] = []
@@ -295,8 +347,6 @@ def parse_item(text: str, section: str | None, cfg: Config | None = None) -> Ite
             prs.append(int(ref))
 
     def token(match: re.Match[str]) -> str:
-        if match["opaque"]:
-            return match[0]
         if match["url"]:
             local = _local_ref(match["url"], cfg)
             if local is None:
@@ -308,7 +358,13 @@ def parse_item(text: str, section: str | None, cfg: Config | None = None) -> Ite
             take("pull" if ref.startswith("#") else "commit", ref.strip("#`"))
         return ""
 
-    text = _PARSE_TOKENS.sub(token, text)
+    parts: list[str] = []
+    position = 0
+    for match in _PARSE_TOKENS.finditer(_protect_links(text)):
+        parts += (text[position : match.start()], token(match))
+        position = match.end()
+    parts.append(text[position:])
+    text = "".join(parts)
     before, separator, url = text.rpartition(" in ")
     local = _local_ref(url, cfg) if separator else None
     if local is not None:
@@ -342,7 +398,11 @@ def parse_body(body: str, cfg: Config | None = None) -> Parsed:
     blank_before = False
     for line in body.splitlines():
         stripped = line.rstrip()
-        after_blank, blank_before = blank_before, not stripped.strip()
+        after_blank, blank_before = blank_before, not stripped
+        if not stripped:
+            if mode in {"highlights", "notes", "upgrade"}:
+                getattr(parsed, mode).append("")
+            continue
         if re.fullmatch(r"(-{3,}|\*{3,}|_{3,})", stripped.strip()):
             continue
         if stripped.strip().startswith(("<details", "</details")):
@@ -362,7 +422,8 @@ def parse_body(body: str, cfg: Config | None = None) -> Parsed:
                 continue
             text = heading["text"]
             rp = re.match(
-                r"^\[?v?(\d+\.\d+\.\d+[^\]\s()]*)\]?(?:\([^)]*\))?\s*(?:\((\d{4}-\d{2}-\d{2})\))?$",
+                r"^\[?v?(\d+\.\d+\.\d+(?:[^\]\s()\d][^\]\s()]*)?)\]?"
+                r"(?:\([^)]*\))?\s*(?:\((\d{4}-\d{2}-\d{2})\))?$",
                 text,
             )
             if level == 2 and rp:
@@ -375,10 +436,6 @@ def parse_body(body: str, cfg: Config | None = None) -> Parsed:
                 parsed.upgrade_title = text
             verbatim_level = level
             last = None
-            continue
-        if not stripped.strip():
-            if mode in {"highlights", "notes", "upgrade"}:
-                getattr(parsed, mode).append("")
             continue
         if mode in {"highlights", "notes", "upgrade"}:
             getattr(parsed, mode).append(stripped)
@@ -398,8 +455,7 @@ def parse_body(body: str, cfg: Config | None = None) -> Parsed:
     for block in (parsed.notes, parsed.highlights, parsed.upgrade):
         while block and not block[-1].strip():
             block.pop()
-        while block and not block[0].strip():
-            block.pop(0)
+        del block[: next((i for i, text in enumerate(block) if text.strip()), len(block))]
     return parsed
 
 
@@ -719,10 +775,11 @@ def _references(body: str, cfg: Config) -> tuple[set[int], set[str]]:
             else:
                 prs.add(int(ref))
     # Only a link's URL identifies it; its label is display text, so a foreign link labelled
-    # "#12" must not stand in for local PR 12.
-    body = _MARKDOWN_LINK.sub("", _REFERENCE_LINK.sub("", body))
-    prs.update(int(m[1]) for m in re.finditer(r"(?<![\w/])#(\d+)\b", body))
-    shas.update(m[1][:7].lower() for m in re.finditer(r"`([0-9a-fA-F]{7,40})`", body))
+    # "#12" must not stand in for local PR 12. Each link becomes a space, never nothing, so
+    # "#" before a link and "12" after it cannot join into a reference.
+    plain = "\n".join(_outside_links(line) for line in body.splitlines())
+    prs.update(int(m[1]) for m in re.finditer(r"(?<![\w/])#(\d+)\b", plain))
+    shas.update(m[1][:7].lower() for m in re.finditer(r"`([0-9a-fA-F]{7,40})`", plain))
     return prs, shas
 
 

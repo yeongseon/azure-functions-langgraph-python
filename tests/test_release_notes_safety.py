@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from functools import partial
 import json
 from pathlib import Path
 import signal
@@ -100,21 +101,43 @@ def test_long_line_is_refused_promptly(size: int) -> None:
 
 
 @pytest.mark.parametrize(
-    "line",
+    ("line", "repeat"),
     [
-        pytest.param("<!--" * 4_997, id="comment-openers"),
-        pytest.param("## a" + " " * 19_900 + "b", id="heading-whitespace-run"),
-        pytest.param("## v1.0.0" + "(" * 19_900 + " x", id="version-heading-parentheses"),
-        pytest.param("**Full Changelog**: " + "compare/" * 2_400, id="compare-link-chain"),
+        pytest.param("<!--" * 4_997, 24, id="comment-openers"),
+        pytest.param("## a" + " " * 19_900 + "b", 24, id="heading-whitespace-run"),
+        pytest.param("## v1.0.0" + "(" * 19_900 + " x", 24, id="version-heading-parentheses"),
+        pytest.param("## v1.0." + "1" * 19_900 + " x", 24, id="version-heading-digits"),
+        pytest.param("**Full Changelog**: " + "compare/" * 2_400, 24, id="compare-link-chain"),
+        pytest.param("([#12](https://github.com/" * 760, 24, id="reference-wrapper-openers"),
+        pytest.param("[" * 19_990, 8, id="open-brackets"),
+        pytest.param("[a](" * 4_997, 8, id="link-openers"),
+        pytest.param("[x](" + "(" * 19_980, 8, id="unclosed-destination"),
+        pytest.param("[a]" * 6_600, 8, id="label-without-destination"),
+        pytest.param("[a](b)" * 3_300, 8, id="adjacent-links"),
+        pytest.param("\\" * 19_990, 8, id="backslashes"),
     ],
 )
-def test_bodies_near_the_size_limits_are_parsed_and_verified_in_linear_time(line: str) -> None:
-    # Given: the largest accepted body, one adversarial line shape repeated
-    body = "\n".join([line] * 24)
-    assert len(line) <= rn.MAX_LINE and len(body) <= rn.MAX_BODY
-    # When / Then: neither parsing nor verifying rescans the same text quadratically
-    _within(1, lambda: rn.parse_body(body, CFG))
-    _within(1, lambda: rn.verify(body, body, "v1.0.1", CFG))
+def test_bodies_near_the_size_limits_are_parsed_and_verified_in_linear_time(
+    line: str, repeat: int
+) -> None:
+    # Given: the largest accepted body, one adversarial line shape repeated, bare and as an item
+    bodies = [
+        "\n".join([line] * repeat),
+        "\n".join(["- " + line[: rn.MAX_LINE - 2]] * repeat),
+    ]
+    assert all(len(body) <= rn.MAX_BODY for body in bodies)
+    for body in bodies:
+        # When / Then: neither parsing nor verifying rescans the same text quadratically
+        _within(1, partial(rn.parse_body, body, CFG))
+        _within(1, partial(rn.verify, body, body, "v1.0.1", CFG))
+
+
+def test_a_block_with_hundreds_of_thousands_of_blank_lines_is_trimmed_in_linear_time() -> None:
+    # Given: blank lines on both sides of one line of text inside a Notes block
+    body = "### Notes\n" + "\n" * 200_000 + "text\n" + "\n" * 200_000
+    # When / Then: trimming the block does not shift the list once per blank line
+    _within(2, lambda: rn.parse_body(body, CFG))
+    assert rn.parse_body(body, CFG).notes == ["text"]
 
 
 @pytest.mark.parametrize(

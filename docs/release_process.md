@@ -162,17 +162,21 @@ Historical bodies instead preserve their existing items; a compare-link-only bod
 from compared commits and explicitly labelled as reconstructed. Such historical summaries need not
 match `CHANGELOG.md`. A reconstructed commit keeps its `BREAKING CHANGE:` or `BREAKING-CHANGE:`
 footer and the lines after it, including paragraphs that follow a blank line, up to the next
-`Token: value` trailer. A token has no spaces, so a prose line such as `Migration steps: ...`
-stays; other trailers and body text are not published.
+trailer: a line that begins with a token without spaces followed by `: ` or ` #`, such as
+`Refs: #12`, `Closes #12` or `Signed-off-by: ...`. Prose such as `Migration steps: ...` has a token
+with spaces, so it stays. Nothing else in the commit message is published.
 The tool refuses to write if an exact local PR/issue number or seven-character commit reference
 would be dropped (except unverified references in the replaced New Contributors block), or if a
 configured protected phrase would be lost. PRs and all commits share one trailing group, for example
 ``(#12, #13, `abc1234`)``. Legacy repository references are accepted. Within an item, a Release
 Please style ``([#12](URL))`` wrapper, a ``(#12)`` group and a trailing GitHub-generated `in URL`
-are read as references. Every other Markdown link is kept as written: its label is never read as a
-reference, and a link to another repository is never treated as local attribution evidence. A
-foreign link labelled `#12` is therefore neither parsed as local PR 12 nor credited to that PR's
-author, and it does not satisfy the check for a lost local `#12`.
+are read as references. Any other inline Markdown link, `[label](destination "title")`, is kept as
+written, however its label nests brackets or its destination carries a title or balanced
+parentheses: the label is never read as a reference, and a link to another repository is never
+treated as local attribution evidence. A foreign link labelled `#12` is therefore neither parsed as
+local PR 12 nor credited to that PR's author, and it does not satisfy the check for a lost local
+`#12`. The check replaces each link with a space, so `#` before a link and `12` after it never join
+into `#12`. Reference-style links (`[label][ref]`) and HTML anchors are not recognized as links.
 
 Layout (empty sections are omitted):
 
@@ -195,12 +199,13 @@ Credit rules:
 - Show **New Contributors** only when prior-commit lookup and a complete, well-formed merged-PR search verify no prior contribution from an external human; uncertain/API-error results omit the claim. Omit the section for owner-only releases.
 
 Compare-only reconstructed commit subjects have HTML tags removed, Markdown brackets escaped and
-unsolicited `@mentions` rendered as code spans. Existing Notes, Highlights and Upgrade blocks are
-kept line by line, except that HTML comments, thematic breaks (`---`, `***`, `___`) and trailing
-whitespace are dropped, blank lines at the start and end of a block are trimmed, and links to a
-configured legacy repository are rewritten to the current one. Generated `by @username` and New
-Contributors credits are deliberate mentions; notification delivery on release edits has not been
-verified.
+unsolicited `@mentions` rendered as code spans. Existing Notes, Highlights and Upgrade blocks keep
+their lines in order, except that HTML comments, thematic breaks (`---`, `***`, `___`), lines
+starting with `<details` or `</details` and `**Full Changelog**:` lines (the layout regenerates
+those) and trailing whitespace are dropped, runs of blank lines collapse to one, blank lines at the
+start and end of a block are trimmed, and links to a configured legacy repository are rewritten to
+the current one. Generated `by @username` and New Contributors credits are deliberate mentions;
+notification delivery on release edits has not been verified.
 
 Release-specific statements that must never be lost (for example a release that was not
 published) are listed under `protected` in `.github/release-notes.json`; the tool fails instead of
@@ -234,7 +239,8 @@ current body with the build snapshot and aborts on a concurrent change. This red
 **not atomic**: a change between that read and the PATCH is still possible.
 
 Inputs and generated bodies are refused above 500,000 characters total or 20,000 characters on one
-line (GitHub's release-body limit is 125,000). Parsing time is linear in the input size. API work
+line (GitHub's release-body limit is 125,000). The patterns that read a body are written not to
+backtrack on adversarial lines, and tests run worst-case shapes at these limits. API work
 shares a 120-second budget that is checked before and after each request rather than enforced by
 interruption (each socket operation waits at most 30 seconds), and each pagination loop stops at 50
 pages of 100 records; exceeding a limit fails closed rather than truncating. The workflow has a

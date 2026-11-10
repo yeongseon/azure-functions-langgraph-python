@@ -113,9 +113,30 @@ def test_verify_accepts_local_link_as_preserved_reference(kind: str) -> None:
     assert rn.verify(old, new, "v1.0.1", CFG) == []
 
 
-def test_foreign_link_with_a_local_looking_label_is_neither_parsed_nor_credited() -> None:
-    # Given: a foreign link whose label contains "(#12)", and a local PR 12 by someone else
-    link = "[foreign (#12)](https://github.com/foreign/repo/pull/12)"
+@pytest.mark.parametrize(
+    "link",
+    [
+        pytest.param("[foreign (#12)](https://github.com/foreign/repo/pull/12)", id="plain"),
+        pytest.param(
+            "[foreign [label] (#12)](https://github.com/foreign/repo/pull/12)", id="nested-label"
+        ),
+        pytest.param(
+            "[a [b [c]] (#12)](https://github.com/foreign/repo/pull/12)", id="deeply-nested-label"
+        ),
+        pytest.param(
+            r"[x \] (#12)](https://github.com/foreign/repo/pull/12)", id="escaped-bracket"
+        ),
+        pytest.param('[x (#12)](https://github.com/foreign/repo/pull/12 "t")', id="titled"),
+        pytest.param("[x (#12)](https://github.com/foreign/repo/pull/12 (t))", id="paren-title"),
+        pytest.param("![x (#12)](https://github.com/foreign/repo/pull/12)", id="image"),
+        pytest.param(
+            "[x (#12)](<https://github.com/foreign/repo/pull/12>)", id="angle-destination"
+        ),
+        pytest.param("[x (#12)](https://example.com/a_(b)_c)", id="parenthesized-destination"),
+    ],
+)
+def test_foreign_link_with_a_local_looking_label_is_neither_parsed_nor_credited(link: str) -> None:
+    # Given: a link whose label contains "(#12)", and a local PR 12 by someone else
     gh = FakeGitHub(prs={12: ("victim", False)})
     # When: standardize it twice
     once = rn.build_notes("v1.0.1", f"- thing {link}\n", gh, CFG)
@@ -137,19 +158,21 @@ def test_local_markdown_link_stays_verbatim_beside_a_real_reference() -> None:
 
 
 @pytest.mark.parametrize(
-    ("label", "foreign_url"),
+    ("label", "destination"),
     [
         ("#12", "https://github.com/foreign/repo/pull/12"),
         ("#12", "https://github.com/foreign/repo/issues/12"),
         ("`abcdef1`", "https://github.com/foreign/repo/commit/abcdef1234"),
+        ("#12", 'https://github.com/foreign/repo/pull/12 "t"'),
+        ("[#12]", "https://github.com/foreign/repo/pull/12"),
     ],
 )
 def test_verify_does_not_accept_a_foreign_link_label_as_a_local_reference(
-    label: str, foreign_url: str
+    label: str, destination: str
 ) -> None:
     # Given: the local reference exists only as a label on a foreign link
-    old = f"- x ({label})"
-    new = f"- x [{label}]({foreign_url})"
+    old = f"- x ({label.strip('[]')})"
+    new = f"- x [{label}]({destination})"
     # When: compare reference sets
     problems = rn.verify(old, new, "v1.0.1", CFG)
     # Then: the label does not stand in for the lost local reference
@@ -162,6 +185,31 @@ def test_verify_accepts_a_local_markdown_link_through_its_url(label: str) -> Non
     old = "- x (#12)"
     new = f"- x [{label}](https://github.com/acme/pkg/pull/12)"
     # When / Then: the URL carries the identity
+    assert rn.verify(old, new, "v1.0.1", CFG) == []
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "lost"),
+    [
+        ("- x (#12)", "- x #[label](https://foreign.example)12", "#12"),
+        ("- x (#12)", "- x #1[label](https://foreign.example)2", "#12"),
+        ("- x (`abcdef1`)", "- x `abc[label](https://foreign.example)def1`", "abcdef1"),
+        ("- x (#12)", "- x (#1[a](b)2)", "#12"),
+    ],
+)
+def test_verify_never_joins_text_on_either_side_of_a_link(old: str, new: str, lost: str) -> None:
+    # Given: digits or hex split by a foreign link, which would read as one reference if joined
+    # When: compare reference sets
+    problems = rn.verify(old, new, "v1.0.1", CFG)
+    # Then: the reassembled reference is not credited as preserved
+    assert any(lost in problem for problem in problems)
+
+
+def test_verify_still_sees_references_beside_a_link() -> None:
+    # Given: genuine references adjacent to a foreign link
+    old = "- x (#1) (`abcdef1`)"
+    new = "- x #1[label](https://foreign.example) `abcdef1`[l](https://foreign.example)"
+    # When / Then: removing the link does not hide what is written around it
     assert rn.verify(old, new, "v1.0.1", CFG) == []
 
 
@@ -216,17 +264,25 @@ def test_compare_breaking_footer_keeps_prose_lines_that_contain_a_colon() -> Non
     assert "  Migration steps: replace foo with bar.\n\n  Then rerun it.\n" in body
 
 
-def test_compare_breaking_footer_ends_at_the_next_trailer() -> None:
-    # Given: a breaking footer followed by a sign-off and unrelated body text
-    gh = _breaking_commit_body(
-        "BREAKING CHANGE: remove foo.\n\nSigned-off-by: Dev <dev@example.com>\n\nunrelated text"
-    )
+@pytest.mark.parametrize(
+    "trailer",
+    [
+        "Refs: #12",
+        "Refs #12",
+        "Closes #12",
+        "Signed-off-by: Dev <dev@example.com>",
+        "Co-authored-by: Dev <dev@example.com>",
+    ],
+)
+def test_compare_breaking_footer_ends_at_the_next_trailer(trailer: str) -> None:
+    # Given: a breaking footer, a trailer in either Conventional Commits form, then its follow-up
+    gh = _breaking_commit_body(f"BREAKING CHANGE: remove foo.\n\n{trailer}\nmetadata not guidance")
     # When: reconstruct a compare-only body
     body = rn.build_notes("v1.0.1", "", gh, CFG)
     # Then: only the breaking guidance is published
     assert "  remove foo.\n" in body
-    assert "Signed-off-by" not in body and "dev@example.com" not in body
-    assert "unrelated text" not in body
+    assert trailer not in body and "dev@example.com" not in body
+    assert "metadata not guidance" not in body
 
 
 def test_compare_breaking_footer_with_its_value_on_the_next_line() -> None:
@@ -257,6 +313,26 @@ def test_item_continuation_keeps_blank_lines_between_its_paragraphs() -> None:
     # Then: only the blank line inside the item is kept
     assert first.extra == ["  one", "", "  two"]
     assert second.extra == []
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "## [1.0.1](https://github.com/acme/pkg/compare/v1.0.0...v1.0.1) (2026-02-02)",
+        "## 1.0.1 (2026-02-02)",
+        "## v1.0.1-rc.1 (2026-02-02)",
+        "## v1.0.1+build.5 (2026-02-02)",
+        "## v1.0.1.post1 (2026-02-02)",
+        "## [v1.0.1] (2026-02-02)",
+    ],
+)
+def test_release_heading_yields_its_date(heading: str) -> None:
+    # Given: the heading shapes Release Please and hand-written bodies use
+    # When: parse the body
+    parsed = rn.parse_body(f"{heading}\n\n- fix: a (#1)\n", CFG)
+    # Then: the heading is recognized as a version heading and its date is read
+    assert parsed.date == "2026-02-02"
+    assert [item.title for item in parsed.items] == ["a"]
 
 
 def test_reconstructed_subject_neutralizes_markup_but_existing_notes_stay_verbatim() -> None:
