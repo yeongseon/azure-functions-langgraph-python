@@ -76,15 +76,33 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Rewrite release notes
+        id: rewrite
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: python3 -m tools.release_notes apply "$RELEASE_TAG"
+        run: python3 -m tools.release_notes apply "$RELEASE_TAG" --backup "$RUNNER_TEMP/release-notes-backup"
         continue-on-error: true
+
+      - name: Report unstandardized notes
+        if: steps.rewrite.outcome == 'failure'
+        run: |
+          echo "::warning::Release notes were left unstandardized; inspect the rewrite failure."
+          echo "Release notes were left unstandardized; inspect the rewrite failure." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain original release notes
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-notes-backup
+          path: ${{ runner.temp }}/release-notes-backup
+          if-no-files-found: ignore
