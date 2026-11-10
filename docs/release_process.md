@@ -157,8 +157,15 @@ applied retroactively to an already-cut tag. Never move or reuse a tag.
 After Release Please creates the GitHub Release, the `standardize-release-notes` job rewrites
 **only the Release body** with `tools/release_notes.py`. It does not create or move tags, does not
 edit `CHANGELOG.md`, and runs separately from `publish-pypi.yml`, so it cannot block a release.
-The items are the ones Release Please already generated, so the Release and `CHANGELOG.md` list
-the same changes. The tool refuses to write if a PR or commit reference would be dropped.
+For new Release Please bodies, the items are the ones Release Please already generated.
+Historical bodies instead preserve their existing items; a compare-link-only body is reconstructed
+from compared commits and explicitly labelled as reconstructed. Such historical summaries need not
+match `CHANGELOG.md`. Breaking footers and their migration guidance survive reconstruction.
+The tool refuses to write if an exact local PR/issue number or seven-character commit reference
+would be dropped (except unverified references in the replaced New Contributors block), or if a
+configured protected phrase would be lost. PRs and all commits share one trailing group, for example
+``(#12, #13, `abc1234`)``. Legacy repository references are accepted; foreign links remain verbatim
+and are never treated as local attribution evidence.
 
 Layout (empty sections are omitted):
 
@@ -168,24 +175,64 @@ Layout (empty sections are omitted):
 4. Breaking Changes, followed by the upgrade steps
 5. Features, Bug Fixes, Performance, Reverts
 6. New Contributors
-7. A collapsed block for documentation, maintenance and other changes (historical releases only,
-   because Release Please hides those types)
+7. Documentation, maintenance and other changes: collapsed when mixed with classified user-facing
+   items, or visible under `### Changes` when all items are unclassified. Release Please normally
+   hides maintenance types, but historical bodies can contain them.
 8. `**Full Changelog**` compare link
 
 Credit rules:
 
 - This is a primarily solo-maintained project: omit repetitive `by @yeongseon` on owner-authored changes, while retaining PR/issue references.
-- Credit verified external human contributors with `by @username`, even when their PR was squash-merged by the owner. Confirm authorship from merged PRs, commits, or trusted GitHub noreply co-author trailers.
+- Credit API-verified external human contributors with `by @username`, even when their PR was squash-merged by the owner. Authorship evidence comes only from API commit authors and merged PR authors. Co-author trailers, including GitHub noreply addresses, are claimed identities and are not used as evidence.
 - Exclude bots and configured non-human accounts from human credits.
-- Show **New Contributors** only for verified first merged contributions from external humans; omit the section for owner-only releases.
+- Show **New Contributors** only when prior-commit lookup and a complete, well-formed merged-PR search verify no prior contribution from an external human; uncertain/API-error results omit the claim. Omit the section for owner-only releases.
+
+Compare-only reconstructed commit subjects have HTML tags removed, Markdown brackets escaped and
+unsolicited `@mentions` rendered as code spans. Existing maintainer-authored release blocks remain
+verbatim. Generated `by @username` and New Contributors credits are deliberate mentions; notification
+delivery on release edits has not been verified.
 
 Release-specific statements that must never be lost (for example a release that was not
 published) are listed under `protected` in `.github/release-notes.json`; the tool fails instead of
 dropping them.
 
+Maintainer clarifications use `annotations` in the same JSON configuration, keyed by tag and block:
+
+```json
+{"annotations": {"vX.Y.Z": {"notes": ["Status explanation", "Supporting evidence"]}}}
+```
+
+Supported blocks are `notes`, `highlights` and `upgrade`, each containing an array of lines. An
+annotation is already present only when its entire exact line sequence occurs in its target block;
+a shared first line is not enough. To change an existing annotation, remove its old lines from the
+release body, update the configuration, then re-render with `--force`. Otherwise the new block is
+appended, not substituted for an old partial block. Review the read-only render before any apply.
+
+`apply` normally skips a body carrying the standardization marker. `--force` bypasses only that
+shortcut, never reference/phrase verification. `apply --dry-run` prints the candidate for an
+unstandardized body; for an already standardized body it reports that it would be skipped and exits
+zero. Use `render` for an unconditional read-only preview (including standardized releases).
+
+`--backup DIRECTORY` exclusively creates a per-tag JSON snapshot before editing; an existing file
+causes an error and no release write. It contains `tagName`, the original `body`, `publishedAt` and
+the release `id`; `preview --backup DIRECTORY --out DIRECTORY` keeps that publication date in the
+heading. Preserve the first snapshot as the rollback source; select a new directory for a later
+intentional edit instead of overwriting it. The final API read compares the current body with the
+build snapshot and aborts on a concurrent change. This reduces races but is **not atomic**: a change
+between that read and the PATCH is still possible.
+
+Inputs and generated bodies are refused above 500,000 characters total or 20,000 characters on one
+line (GitHub's release-body limit is 125,000). API work has a 120-second command deadline and at most
+50 pages of 100 records per pagination loop; exceeding a limit fails closed rather than truncating.
+The workflow has a ten-minute timeout, retains available backups as an artifact and warns in its
+summary if standardization fails. Its `github.token` has `contents: write`, a broader permission
+than release-body editing: the tool edits only `body` by implementation, not token-level enforcement.
+
 ```bash
 # Needs a token: export GH_TOKEN=$(gh auth token)
-# Preview without changing anything
+# Unconditional read-only preview
+python3 -m tools.release_notes render v0.13.0
+# Dry-run apply (reports a skip when already standardized)
 python3 -m tools.release_notes apply v0.13.0 --dry-run
 # Re-render an already standardized release (it is skipped otherwise)
 python3 -m tools.release_notes apply v0.13.0 --force --backup ./release-backup
