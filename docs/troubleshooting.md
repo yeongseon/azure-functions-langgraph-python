@@ -139,8 +139,10 @@ and goes back to the status it read, and a store refuses to release to `busy`. I
 the run finished between that read and the moment the update would take the store
 lock, the terminal status that run left cannot be recovered (taking the lock
 overwrites it), so the update is refused before it takes a lock or runs
-`update_state`: nothing changes, the row keeps the status the run left and carries
-no lock token. Retry the request. A thread that is still busy gets the same 409.
+`update_state`. This request changes nothing and creates no lock token; unless
+another writer changes the thread, it keeps the terminal status and the cleared
+token that the finished run left. Retry the request once the thread is available.
+A thread that is still busy gets the same 409.
 
 ## Getting help
 
