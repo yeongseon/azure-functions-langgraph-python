@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from typing import Any
 
 import azure.functions as func
@@ -211,6 +210,7 @@ def register_run_routes(
         store_lock_token = locked.lock_token or lock_token
         status: ThreadStatus = "error"
         primary_error: Exception | None = None
+        release_error: Exception | None = None
         output = None
         try:
             _start_store_renewal(deps, thread_id, store_lock_token)
@@ -245,7 +245,7 @@ def register_run_routes(
                 thread_id,
             )
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
-            return _platform_error(500, "Graph execution failed", ctx.run_id)
+            response = _platform_error(500, "Graph execution failed", ctx.run_id)
         finally:
             release_error = _release_thread_run_lock(
                 deps,
@@ -256,19 +256,17 @@ def register_run_routes(
                 values=output if status == "idle" else None,
                 store_owner_token=store_lock_token,
             )
-            if release_error is not None and (
-                sys.exception() is None or isinstance(sys.exception(), Exception)
-            ):
-                if primary_error is None and status == "idle":
-                    safe_observer_call(
-                        deps.observer,
-                        "on_run_failed",
-                        finish_context(ctx),
-                        release_error,
-                    )
-                if primary_error is None:
-                    return _platform_error(500, "Run-lock release failed", ctx.run_id)
-        safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
+        if release_error is not None and primary_error is None:
+            if status == "idle":
+                safe_observer_call(
+                    deps.observer,
+                    "on_run_failed",
+                    finish_context(ctx),
+                    release_error,
+                )
+            response = _platform_error(500, "Run-lock release failed", ctx.run_id)
+        elif primary_error is None:
+            safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
         return response
 
     @app.function_name(name="aflg_platform_runs_stream")
@@ -363,6 +361,7 @@ def register_run_routes(
         chunks: list[str] = []
         status: ThreadStatus = "error"
         primary_error: Exception | None = None
+        release_error: Exception | None = None
         try:
             _start_store_renewal(deps, thread_id, store_lock_token)
             config, guard = guard_run_config(
@@ -391,38 +390,43 @@ def register_run_routes(
                     finish_context(ctx),
                     RuntimeError("stream response exceeded max buffered size"),
                 )
-                return _build_sse_response(
+                run_response = _build_sse_response(
                     chunks,
                     content_location=f"/api/threads/{thread_id}/runs/{run_id}",
                 )
-            for event in reg.graph.stream(
-                graph_input,
-                config=config,
-                stream_mode=stream_mode,
-                **context_kwargs,
-            ):
-                chunk = format_data_event(stream_mode, event)
-                chunk_bytes = len(chunk.encode())
-                if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
-                    safe_observer_call(
-                        deps.observer,
-                        "on_run_failed",
-                        finish_context(ctx),
-                        RuntimeError("stream response exceeded max buffered size"),
-                    )
-                    return _build_sse_response(
+            else:
+                overflowed = False
+                for event in reg.graph.stream(
+                    graph_input,
+                    config=config,
+                    stream_mode=stream_mode,
+                    **context_kwargs,
+                ):
+                    chunk = format_data_event(stream_mode, event)
+                    chunk_bytes = len(chunk.encode())
+                    if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
+                        safe_observer_call(
+                            deps.observer,
+                            "on_run_failed",
+                            finish_context(ctx),
+                            RuntimeError("stream response exceeded max buffered size"),
+                        )
+                        run_response = _build_sse_response(
+                            chunks,
+                            content_location=f"/api/threads/{thread_id}/runs/{run_id}",
+                        )
+                        overflowed = True
+                        break
+                    chunks.append(chunk)
+                    buffered_bytes += chunk_bytes
+                if not overflowed:
+                    check_ownership_guard(guard)
+                    chunks.append(format_end_event())
+                    run_response = _build_sse_response(
                         chunks,
                         content_location=f"/api/threads/{thread_id}/runs/{run_id}",
                     )
-                chunks.append(chunk)
-                buffered_bytes += chunk_bytes
-            check_ownership_guard(guard)
-            chunks.append(format_end_event())
-            response = _build_sse_response(
-                chunks,
-                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
-            )
-            status = "idle"
+                    status = "idle"
         except Exception as exc:
             primary_error = exc
             logger.exception(
@@ -432,13 +436,14 @@ def register_run_routes(
             )
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             if not chunks:
-                return _platform_error(500, "Graph execution failed", ctx.run_id)
-            chunks.append(format_error_event("stream processing failed", ctx.run_id))
-            chunks.append(format_end_event())
-            return _build_sse_response(
-                chunks,
-                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
-            )
+                run_response = _platform_error(500, "Graph execution failed", ctx.run_id)
+            else:
+                chunks.append(format_error_event("stream processing failed", ctx.run_id))
+                chunks.append(format_end_event())
+                run_response = _build_sse_response(
+                    chunks,
+                    content_location=f"/api/threads/{thread_id}/runs/{run_id}",
+                )
 
         finally:
             release_error = _release_thread_run_lock(
@@ -449,20 +454,19 @@ def register_run_routes(
                 status=status,
                 store_owner_token=store_lock_token,
             )
-            if release_error is not None and (
-                sys.exception() is None or isinstance(sys.exception(), Exception)
-            ):
-                if primary_error is None and status == "idle":
-                    safe_observer_call(
-                        deps.observer,
-                        "on_run_failed",
-                        finish_context(ctx),
-                        release_error,
-                    )
-                message = "Graph execution failed" if primary_error else "Run-lock release failed"
-                return _platform_error(500, message, ctx.run_id)
-        safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
-        return response
+        if release_error is not None:
+            if primary_error is None and status == "idle":
+                safe_observer_call(
+                    deps.observer,
+                    "on_run_failed",
+                    finish_context(ctx),
+                    release_error,
+                )
+            message = "Graph execution failed" if primary_error else "Run-lock release failed"
+            run_response = _platform_error(500, message, ctx.run_id)
+        elif status == "idle":
+            safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
+        return run_response
 
     @app.function_name(name="aflg_platform_runs_wait_threadless")
     @app.route(route="runs/wait", methods=["POST"], auth_level=auth)
