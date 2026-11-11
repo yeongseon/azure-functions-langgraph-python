@@ -1,0 +1,9 @@
+{
+ "azure-functions-langgraph": "0.12.2",
+ "azure-storage-blob": "12.31.1",
+ "label": "0.12.2",
+ "langgraph": "1.2.11",
+ "langgraph-checkpoint": "4.2.0",
+ "python": "3.12.16",
+ "source_ref": "pypi:azure_functions_langgraph-0.12.2-py3-none-any.whl sha256=16c4b7546c9ed9ec14cb4182a8e8e1af1be22de67ba9be15b95ddc5d98e28faa"
+}
