@@ -106,6 +106,8 @@ separately from GitHub Release status, review the user-facing changes,
 compatibility and migration notes, pending near-term fixes, and readiness
 of all relevant package/consumer/Azure verification gates.
 This repository additionally reviews durable orchestration state/cancellation, checkpoint fencing limitations and long-running workflow compatibility.
+Check that the latest `Release audit` run on `main` is green (or its only findings are
+registered exceptions), so a previous release is not left unpublished before the next one is cut.
 Preserve Release Please ownership of version/tags/CHANGELOG and keep all
 existing tag-specific verification and publication gates intact.
 
@@ -327,7 +329,8 @@ formats are informational notes, and gaps in version numbering are not defects.
 Numeric draft releases are ignored with a note, not used as publication evidence.
 A numeric release marked prerelease, or a published release without a recorded tag,
 is a defect even while its workflow is in flight.
-There is no scheduled or CI job running this audit in this change.
+The audit also runs, read-only, in the `Release audit` workflow
+(`.github/workflows/release-audit.yml`); see [Automated runs](#automated-runs).
 
 ```bash
 make audit-releases AUDIT_ARGS='--snapshot-out /tmp/release-facts.json --format markdown'
@@ -390,6 +393,55 @@ certificates of collection.
 The audit never edits releases, moves tags, republishes files, or writes version
 files or `CHANGELOG.md`. Release Please, GitHub Actions and Hatch retain their
 existing authority and gates; recovery still requires a maintainer decision.
+
+### Automated runs
+
+`.github/workflows/release-audit.yml` runs `python -m tools.audit_releases` in three situations:
+
+| Trigger | Purpose |
+|---|---|
+| `pull_request` touching the audit, its registry, the workflow or `docs/release-status.md` | exercises the change against the real GitHub and PyPI facts; path-filtered, so it is not a required check |
+| `workflow_run` after every `Publish to PyPI` run, whatever its conclusion | surfaces a failed or incomplete publication right after the release event (re-checked up to three times, two minutes apart, because PyPI can lag a finished run) |
+| daily `schedule` (and `workflow_dispatch`) | catches a tag whose publish run never appeared (a `PENDING` verdict becomes a defect after the six-hour grace period) |
+
+A new defect makes the run **red** (exit 1); an audit that cannot collect or parse
+evidence is also red (exit 2) and is not a verdict on any release. The Markdown report
+is in the job summary and, with the collected facts, in the `release-audit` artifact. The
+workflow reports through its exit status only: it opens no issue and edits no release.
+Failed scheduled runs are announced through GitHub's own workflow notifications.
+
+The workflow has `contents: read` and `actions: read` only, uses no secret, never checks
+out a ref taken from the triggering run, and cannot publish, tag, or edit a release or
+version file. It is not a dependency of `publish-pypi.yml`, so it does not gate
+publication: the `build`, `lib-tests`, `wheel-tests`, `runtime-audit` and `azure-e2e`
+tiers still decide whether PyPI is uploaded. The audit confirms afterwards that the
+outcome matches. The documented release gate itself is not weakened or replaced.
+
+### When the audit is red: fix-forward and metadata correction
+
+1. Read the finding and its evidence links. Do not treat the GitHub Release as proof of
+   delivery.
+2. If the cause was transient or external, re-run `publish-pypi.yml` on the **unchanged**
+   tag (see [Recovery](#recovery)). Never move or reuse a tag, and never upload files
+   outside that workflow.
+3. Otherwise fix forward: merge a `fix:` change and let Release Please cut the next
+   version. Once a later version is published, record the unpublished tag by a pull
+   request that adds an entry to `.github/release-audit-exceptions.json` **and** a row to
+   [Release status](release-status.md) with the failed run id, its conclusion, the first
+   published successor and whether the cause is confirmed. An entry needs retained run
+   evidence; an unprovable cause is recorded as unconfirmed, not guessed.
+4. Metadata correction: add a short, factual status note at the top of the GitHub Release
+   of the unpublished version (a maintainer action; the audit never edits releases). Keep the
+   change summary. Suggested text: "Status: this tag's `Publish to PyPI` run failed
+   ([run N](URL)), so <version> was not published to PyPI. First published successor:
+   <successor>. See [Release status](https://yeongseon.github.io/azure-functions-langgraph-python/release-status/)."
+   State only what the records show; do not claim a cause that was not verified, and do not
+   describe a version as available unless PyPI lists its files.
+
+User-facing release notes may therefore show only these statuses: *published* (PyPI
+lists the files; no note needed), *not published* (the note above, with the first
+published successor) and *publication pending* (a run is in flight). They never state
+that a GitHub Release is itself a distribution.
 
 ## Related
 
