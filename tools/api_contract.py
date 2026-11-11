@@ -40,6 +40,7 @@ import ast
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 import hashlib
+import http.client
 import json
 import logging
 import os
@@ -47,7 +48,9 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import time
 from typing import Any
+import urllib.parse
 import zipfile
 
 PACKAGE = "azure_functions_langgraph"
@@ -1135,6 +1138,155 @@ def write_baselines(
 
 
 # ---------------------------------------------------------------------------
+# Published-wheel verification of the committed baseline
+# ---------------------------------------------------------------------------
+
+PACKAGE_DISTRIBUTION = "azure-functions-langgraph"
+PYPI_JSON_URL = "https://pypi.org/pypi/{package}/{version}/json"
+_WHEEL_HOSTS = frozenset({"files.pythonhosted.org"})
+_MAX_WHEEL_BYTES = 25_000_000
+_HEADER_KEYS = frozenset({"schema_version", "package", "version", "provenance"})
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _http_get(url: str, timeout: float, limit: int) -> bytes:
+    """Read at most *limit* bytes from an https URL on an allowed host."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in (_WHEEL_HOSTS | {"pypi.org"}):
+        raise ContractError(f"refusing to fetch {url!r}: only https PyPI hosts are allowed")
+    connection = http.client.HTTPSConnection(parsed.hostname, timeout=timeout)
+    try:
+        connection.request(
+            "GET",
+            parsed.path + (f"?{parsed.query}" if parsed.query else ""),
+            headers={"User-Agent": "api-contract-verify/1"},
+        )
+        response = connection.getresponse()
+        if response.status != 200:
+            raise ContractError(f"{parsed.hostname} answered HTTP {response.status}")
+        data = bytes(response.read(limit + 1))
+    except http.client.HTTPException as exc:
+        raise OSError(f"HTTP error from {parsed.hostname}: {exc}") from exc
+    finally:
+        connection.close()
+    if len(data) > limit:
+        raise ContractError(f"response from {parsed.hostname} exceeds {limit} bytes")
+    return data
+
+
+def registry_wheel(
+    version: str,
+    fetch: Callable[[str, float, int], bytes] = _http_get,
+    *,
+    timeout: float = 30,
+) -> tuple[str, str]:
+    """Return ``(url, sha256)`` of the pure-Python wheel the registry lists for *version*."""
+    url = PYPI_JSON_URL.format(package=PACKAGE_DISTRIBUTION, version=version)
+    try:
+        document = json.loads(fetch(url, timeout, 5_000_000))
+    except (OSError, ValueError) as exc:
+        raise ContractError(f"cannot read registry metadata for {version}: {exc}") from exc
+    wheels = [
+        entry
+        for entry in document.get("urls", [])
+        if isinstance(entry, dict) and entry.get("packagetype") == "bdist_wheel"
+    ]
+    if len(wheels) != 1:
+        raise ContractError(
+            f"expected exactly one wheel for {version}, registry lists {len(wheels)}"
+        )
+    digest = str(wheels[0].get("digests", {}).get("sha256", ""))
+    if not _SHA256_RE.match(digest) or not isinstance(wheels[0].get("url"), str):
+        raise ContractError(f"registry metadata for {version} lacks a valid wheel url or sha256")
+    return str(wheels[0]["url"]), digest
+
+
+def download_published_wheel(
+    version: str,
+    directory: Path,
+    fetch: Callable[[str, float, int], bytes] = _http_get,
+    *,
+    attempts: int = 4,
+    timeout: float = 60,
+    sleep: Callable[[float], None] = time.sleep,
+) -> tuple[Path, str]:
+    """Download the published wheel, retrying, and verify it against the registry digest."""
+    url, expected = registry_wheel(version, fetch)
+    last: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            data = fetch(url, timeout, _MAX_WHEEL_BYTES)
+        except (OSError, ContractError) as exc:
+            last = exc
+            logging.getLogger(__name__).warning(
+                "wheel download attempt %d failed: %s", attempt, exc
+            )
+            if attempt < attempts:
+                sleep(min(2.0**attempt, 20.0))
+            continue
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != expected:
+            raise ContractError(f"published wheel sha256 {actual} != registry digest {expected}")
+        path = directory / url.rsplit("/", 1)[-1]
+        path.write_bytes(data)
+        return path, expected
+    raise ContractError(f"published wheel unreachable after {attempts} attempts: {last}")
+
+
+def verify_baseline_against_wheel(
+    wheel_root: Path, expected_sha256: str, wheel_sha256: str
+) -> list[str]:
+    """Return problems found comparing the committed baselines with an unpacked wheel."""
+    problems: list[str] = []
+    api_baseline = load_json(API_BASELINE)
+    http_baseline = load_json(HTTP_BASELINE)
+    if wheel_sha256 != expected_sha256:
+        problems.append(f"wheel sha256 {wheel_sha256} != expected {expected_sha256}")
+    recorded = api_baseline.get("provenance", {}).get("published_wheel_sha256")
+    if recorded != expected_sha256:
+        problems.append(
+            f"baseline provenance published_wheel_sha256 {recorded!r} != {expected_sha256}"
+        )
+    api_now, http_now = current_snapshots(wheel_root)
+    for name, baseline, now in (
+        ("api_baseline.json", api_baseline, api_now),
+        ("native_http_baseline.json", http_baseline, http_now),
+    ):
+        committed = {k: v for k, v in baseline.items() if k not in _HEADER_KEYS}
+        if committed != now:
+            problems.append(f"{name} differs from the published wheel")
+    for change in diff_api(api_baseline, api_now) + diff_http(http_baseline, http_now):
+        problems.append(f"{change.category}: {change.id}")
+    return problems
+
+
+def _cmd_verify_baseline(args: argparse.Namespace) -> int:
+    version = str(load_json(API_BASELINE)["version"])
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            if args.wheel:
+                wheel = Path(args.wheel)
+                if not args.expected_sha256:
+                    raise ContractError("--wheel needs --expected-sha256")
+                expected = args.expected_sha256
+            else:
+                wheel, expected = download_published_wheel(version, Path(tmp))
+            actual = hashlib.sha256(wheel.read_bytes()).hexdigest()
+            root = extract_wheel(wheel, Path(tmp) / "unpacked")
+            problems = verify_baseline_against_wheel(root, expected, actual)
+    except ContractError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if problems:
+        print(f"baseline {version} does NOT match the published wheel:")
+        for problem in problems:
+            print(f"  - {problem}")
+        return 1
+    print(f"baseline {version} matches the published wheel (sha256={actual})")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1211,6 +1363,13 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--commit", help="commit SHA of the pinned tag")
             p.add_argument("--published-sha256", help="registry-reported wheel sha256, if known")
             p.add_argument("--note", help="free-form provenance note")
+    verify = sub.add_parser(
+        "verify-baseline",
+        help="re-download the published wheel and compare it with the committed baselines",
+    )
+    verify.add_argument("--wheel", help="use a local wheel instead of downloading (offline)")
+    verify.add_argument("--expected-sha256", help="registry sha256 for --wheel")
+    verify.set_defaults(handler=_cmd_verify_baseline)
     return parser
 
 

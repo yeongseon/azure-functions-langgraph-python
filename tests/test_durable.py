@@ -245,7 +245,7 @@ class TestActivity:
             _payload(), registry={"echo": reg}, thread_lock=InProcessThreadLock(), observer=obs
         )
         assert result.activity_status == "error"
-        assert result.error == {"type": "RuntimeError", "message": "boom"}
+        assert result.error == {"type": "RuntimeError", "message": "The run failed."}
         assert obs.events == ["started", "failed"]
 
     async def test_lock_used_with_checkpointer_and_thread_id(self) -> None:
