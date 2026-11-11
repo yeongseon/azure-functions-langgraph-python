@@ -490,6 +490,47 @@ def _run_lock_modules() -> set[str]:
     }
 
 
+LANE_TEST_MODULES = (
+    "tests/integration/test_table_store_integration.py",
+    "tests/integration/test_checkpoint_conformance.py",
+    "tests/test_production_persistent_agent_example.py",
+)
+# Source modules the real-Table cases depend on without touching the run lock (#841).
+LANE_SOURCE_DEPENDENCIES = ("src/azure_functions_langgraph/platform/_common.py",)
+
+
+def _tests_imports(source: str) -> set[str]:
+    """Dotted ``tests.*`` module names a module imports (``from tests import x`` included)."""
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if node.module == "tests" or node.module.startswith("tests."):
+                names.add(node.module)
+                names.update(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Import):
+            names.update(a.name for a in node.names if a.name.startswith("tests."))
+    return names
+
+
+def _lane_test_closure() -> set[str]:
+    """Every test file the lane's test modules import, directly or not, plus the lane modules.
+
+    ``tests/__init__.py`` and ``tests/conftest.py`` are always loaded by pytest for these modules.
+    """
+    pending = list(LANE_TEST_MODULES)
+    seen: set[str] = {"tests/__init__.py", "tests/conftest.py"}
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        for name in _tests_imports((ROOT / current).read_text()):
+            candidate = ROOT / (name.replace(".", "/") + ".py")
+            if candidate.is_file():
+                pending.append(candidate.relative_to(ROOT).as_posix())
+    return seen
+
+
 def test_the_scan_finds_the_modules_known_to_use_the_run_lock() -> None:
     assert _run_lock_modules() >= KNOWN_RUN_LOCK_MODULES
 
@@ -508,6 +549,41 @@ def test_the_lane_filter_covers_every_module_that_uses_the_store_run_lock(event:
         f"a change to these modules would not start the Azurite lane on {event}: add them to "
         f"on.{event}.paths of {TABLE_WORKFLOW.relative_to(ROOT).as_posix()}"
     )
+
+
+@pytest.mark.parametrize("event", LANE_EVENTS)
+def test_the_lane_filter_covers_every_test_module_the_lane_imports(event: str) -> None:
+    entries = _lane_paths(event)
+
+    uncovered = sorted(
+        module
+        for module in _lane_test_closure() | set(LANE_SOURCE_DEPENDENCIES)
+        if not any(_covers(entry, module) for entry in entries)
+    )
+
+    assert uncovered == [], (
+        f"a change to these modules would not start the Azurite lane on {event}: add them to "
+        f"on.{event}.paths of {TABLE_WORKFLOW.relative_to(ROOT).as_posix()}"
+    )
+
+
+def test_the_lane_test_modules_are_the_ones_the_lane_runs() -> None:
+    command = _step(TABLE_WORKFLOW, "run", "pytest")["run"]
+    assert all(module in command for module in LANE_TEST_MODULES)
+
+
+def test_the_import_scan_follows_imports_and_ignores_other_packages() -> None:
+    source = (
+        "import os\nfrom tests import helper\nfrom tests.sub import thing as t\n"
+        "import tests.other\nfrom .local import x\nfrom langgraph import tests\n"
+    )
+    assert _tests_imports(source) == {
+        "tests",
+        "tests.helper",
+        "tests.sub",
+        "tests.sub.thing",
+        "tests.other",
+    }
 
 
 def test_the_lane_filters_of_pull_request_and_push_list_the_same_paths() -> None:
