@@ -3,6 +3,8 @@ PYTHON ?= python3
 PIP := $(VENV_DIR)/bin/pip
 HATCH ?= hatch
 HOST_PYTHON ?= $(HATCH) run python
+AUDIT_PYTHON ?= $(HATCH) run python
+AUDIT_ARGS ?=
 
 .PHONY: bootstrap
 bootstrap:
@@ -169,6 +171,10 @@ e2e-azure: ensure-hatch
 .PHONY: host-smoke
 host-smoke: ensure-hatch
 	@$(HOST_PYTHON) tools/run_host_smoke.py
+
+.PHONY: audit-releases
+audit-releases:
+	@$(AUDIT_PYTHON) -m tools.audit_releases $(AUDIT_ARGS)
 
 .PHONY: build
 build: ensure-hatch
