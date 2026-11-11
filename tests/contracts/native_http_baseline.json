@@ -1,0 +1,228 @@
+{
+  "exchanges": {
+    "health": {
+      "body": {
+        "json": {
+          "status": "string=ok"
+        }
+      },
+      "content_type": "application/json",
+      "status": 200
+    },
+    "health_details": {
+      "body": {
+        "json": {
+          "graphs": [
+            {
+              "description": "null",
+              "has_checkpointer": "boolean",
+              "name": "string"
+            }
+          ],
+          "status": "string=ok"
+        }
+      },
+      "content_type": "application/json",
+      "status": 200
+    },
+    "invoke_graph_failure": {
+      "body": {
+        "json": {
+          "detail": "string",
+          "error": "string=error",
+          "request_id": "string"
+        }
+      },
+      "content_type": "application/json",
+      "status": 500
+    },
+    "invoke_invalid_json": {
+      "body": {
+        "json": {
+          "detail": "string",
+          "error": "string=error",
+          "request_id": "string"
+        }
+      },
+      "content_type": "application/json",
+      "status": 400
+    },
+    "invoke_missing_input": {
+      "body": {
+        "json": {
+          "detail": [
+            {
+              "loc": [
+                "string"
+              ],
+              "type": "string"
+            }
+          ],
+          "error": "string=error",
+          "request_id": "string"
+        }
+      },
+      "content_type": "application/json",
+      "status": 422
+    },
+    "invoke_ok": {
+      "body": {
+        "json": {
+          "output": {
+            "messages": [
+              {
+                "content": "string",
+                "role": "string"
+              }
+            ]
+          }
+        }
+      },
+      "content_type": "application/json",
+      "status": 200
+    },
+    "state_ok": {
+      "body": {
+        "json": {
+          "metadata": {
+            "step": "integer"
+          },
+          "next": [
+            "string"
+          ],
+          "values": {
+            "messages": [
+              {
+                "content": "string",
+                "role": "string"
+              }
+            ]
+          }
+        }
+      },
+      "content_type": "application/json",
+      "status": 200
+    },
+    "stream_graph_failure": {
+      "body": {
+        "sse": [
+          {
+            "data": {
+              "error": "string=stream processing failed",
+              "request_id": "string"
+            },
+            "event": "error"
+          },
+          {
+            "data": {},
+            "event": "end"
+          }
+        ]
+      },
+      "content_type": "text/event-stream",
+      "status": 200
+    },
+    "stream_ok": {
+      "body": {
+        "sse": [
+          {
+            "data": {
+              "messages": [
+                {
+                  "content": "string",
+                  "role": "string"
+                }
+              ]
+            },
+            "event": "data"
+          },
+          {
+            "data": {
+              "messages": [
+                {
+                  "content": "string",
+                  "role": "string"
+                }
+              ]
+            },
+            "event": "data"
+          },
+          {
+            "data": {},
+            "event": "end"
+          }
+        ]
+      },
+      "content_type": "text/event-stream",
+      "status": 200
+    }
+  },
+  "package": "azure-functions-langgraph",
+  "provenance": {
+    "commit": "c79ea8331dfb4fe444f0c61ce54e049fc9cc3c9b",
+    "kind": "tag-source",
+    "note": "Generated from the v0.13.0 tag source because files.pythonhosted.org was unreachable from the generating host; the sha256 is the PyPI JSON API digest of the published wheel and was not re-verified against the tag source.",
+    "published_wheel_sha256": "4c4c924182861a1a0fdb47058a19611d448352be7eadcff7cca95e34aec71d91",
+    "ref": "v0.13.0"
+  },
+  "routes": [
+    {
+      "auth_level": "FUNCTION",
+      "function": "aflg_agent_invoke",
+      "methods": [
+        "POST"
+      ],
+      "route": "graphs/agent/invoke"
+    },
+    {
+      "auth_level": "FUNCTION",
+      "function": "aflg_agent_state",
+      "methods": [
+        "GET"
+      ],
+      "route": "graphs/agent/threads/{thread_id}/state"
+    },
+    {
+      "auth_level": "FUNCTION",
+      "function": "aflg_agent_stream",
+      "methods": [
+        "POST"
+      ],
+      "route": "graphs/agent/stream"
+    },
+    {
+      "auth_level": "FUNCTION",
+      "function": "aflg_broken_invoke",
+      "methods": [
+        "POST"
+      ],
+      "route": "graphs/broken/invoke"
+    },
+    {
+      "auth_level": "FUNCTION",
+      "function": "aflg_broken_stream",
+      "methods": [
+        "POST"
+      ],
+      "route": "graphs/broken/stream"
+    },
+    {
+      "auth_level": "ANONYMOUS",
+      "function": "aflg_health",
+      "methods": [
+        "GET"
+      ],
+      "route": "health"
+    },
+    {
+      "auth_level": "FUNCTION",
+      "function": "aflg_health_details",
+      "methods": [
+        "GET"
+      ],
+      "route": "health/details"
+    }
+  ],
+  "schema_version": 1,
+  "version": "0.13.0"
+}
