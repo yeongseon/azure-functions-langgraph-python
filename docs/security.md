@@ -227,10 +227,18 @@ Safe options: raise the app-level `auth_level` to at least the strictest graph
 level, relax the graph override, or disable the optional routes. Graphs that are
 *looser* than the app level, and native-only apps with mixed levels, keep working.
 
+Registration after export is guarded the same way. Once `app.function_app` has
+exposed Platform or Durable routes, those handlers keep serving the app's live
+graph registry, so `register()` raises `ValueError` **before** mutating the
+registry when the new graph's `auth_level` is stricter than the app-level
+`auth_level`. Register such graphs before first accessing `app.function_app`, or
+raise the app-level `auth_level`. Looser or equal graphs, and native-only apps,
+can still register late.
+
 Platform run routes (`/runs/wait`, `/runs/stream`, `/threads/{id}/runs/*`) also
 call `authorize` a second time after `assistant_id` is resolved, with
 `AuthorizationContext.graph_name` set to the registered graph name, so a callback
-can deny per graph before the graph runs. Durable lifecycle routes rely on the host
+can deny per graph before the graph runs. Thread-scoped routes (`/threads/{id}/runs/wait|stream`) perform this graph-aware check before the thread lookup, so a denial is uniform for existing and missing threads and never reveals thread existence. Durable lifecycle routes rely on the host
 key only; they do not invoke `authorize` callbacks.
 
 ## Local emulators and resource ownership

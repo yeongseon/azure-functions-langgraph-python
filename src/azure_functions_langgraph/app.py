@@ -252,6 +252,9 @@ class LangGraphApp:
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _sb_registrations: dict[str, Any] = field(default_factory=dict)
     _function_app: func.FunctionApp | None = field(default=None, init=False, repr=False)
+    # Set once a build has handed the live registry to Platform/Durable routes.
+    # Never reset: apps exported earlier keep serving that registry (#854).
+    _optional_routes_exported: bool = field(default=False, init=False, repr=False)
     _thread_store: Any = field(default=None, init=False, repr=False)
     _readiness_runner: ReadinessRunner | None = field(default=None, init=False, repr=False)
 
@@ -380,6 +383,10 @@ class LangGraphApp:
                 UserWarning,
                 stacklevel=2,
             )
+        if self._optional_routes_exported:
+            # Previously exported handlers share the live registry, so an unsafe
+            # registration must be rejected before it mutates that registry.
+            self._check_optional_route_auth(name, auth_level, late=True)
         self._registrations[name] = _GraphRegistration(
             graph=graph,
             name=name,
@@ -583,6 +590,33 @@ class LangGraphApp:
     # Internal route builders
     # ------------------------------------------------------------------
 
+    def _check_optional_route_auth(
+        self, name: str, graph_level: func.AuthLevel | None, *, late: bool = False
+    ) -> None:
+        surfaces: list[str] = []
+        if self.platform_compat:
+            surfaces.append("platform_compat=True")
+        if self.async_runs == "durable":
+            surfaces.append('async_runs="durable"')
+        if not surfaces or graph_level is None:
+            return
+        if _AUTH_RANK[graph_level] <= _AUTH_RANK[self.auth_level]:
+            return
+        when = (
+            " Registering it after the optional routes were already exported would let "
+            "the exported handlers run it without its host key."
+            if late
+            else ""
+        )
+        raise ValueError(
+            f"Graph {name!r} requires auth_level={graph_level.name} but "
+            f"{' and '.join(surfaces)} expose it through routes protected only by "
+            f"the app-level auth_level={self.auth_level.name}, which would bypass "
+            f"the graph's host key.{when} Raise the app-level auth_level to at least "
+            f"{graph_level.name}, relax the graph's auth_level, or disable the "
+            "optional routes."
+        )
+
     def _validate_optional_route_auth(self) -> None:
         """Fail closed when optional routes would weaken a graph's host auth (#854).
 
@@ -591,24 +625,8 @@ class LangGraphApp:
         *stricter* per-graph ``auth_level`` would therefore be reachable through
         those routes without its intended host key.
         """
-        surfaces: list[str] = []
-        if self.platform_compat:
-            surfaces.append("platform_compat=True")
-        if self.async_runs == "durable":
-            surfaces.append('async_runs="durable"')
-        if not surfaces:
-            return
-        app_rank = _AUTH_RANK[self.auth_level]
         for name, reg in self._registrations.items():
-            if reg.auth_level is not None and _AUTH_RANK[reg.auth_level] > app_rank:
-                raise ValueError(
-                    f"Graph {name!r} requires auth_level={reg.auth_level.name} but "
-                    f"{' and '.join(surfaces)} expose it through routes protected only by "
-                    f"the app-level auth_level={self.auth_level.name}, which would bypass "
-                    "the graph's host key. Raise the app-level auth_level to at least "
-                    f"{reg.auth_level.name}, relax the graph's auth_level, or disable the "
-                    "optional routes."
-                )
+            self._check_optional_route_auth(name, reg.auth_level)
 
     def _build_function_app(self) -> func.FunctionApp:
         self._validate_optional_route_auth()
@@ -772,6 +790,8 @@ class LangGraphApp:
         if self.async_runs == "durable":
             self._register_durable_runtime(app)
 
+        if self.platform_compat or self.async_runs == "durable":
+            self._optional_routes_exported = True
         return app
 
     def _new_function_app(self) -> func.FunctionApp:

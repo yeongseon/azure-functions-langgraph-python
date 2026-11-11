@@ -375,19 +375,20 @@ def _validate_run_io_structure(
     return None
 
 
-def _resolve_run_graph(
+def _authorize_run_graph(
     run_req: RunCreate,
     deps: PlatformRouteDeps,
     req: func.HttpRequest,
     thread_id: str | None = None,
 ) -> Any:
-    """Look up the assistant registration and validate its run I/O structure.
+    """Resolve the assistant registration and authorize it graph-aware (#854).
 
-    Authorization is re-checked here with the resolved registration name so
-    ``authorize`` callbacks see the actual graph (#854).
+    Authorization runs with the resolved registration name so ``authorize``
+    callbacks see the actual graph. Threaded routes call this *before* any
+    thread lookup so a graph-level denial cannot reveal thread existence.
 
-    Returns the registration on success, or an ``HttpResponse`` when the
-    assistant is unknown (404), access is denied, or the input/config structure is invalid (400).
+    Returns the registration, or an ``HttpResponse`` (404 unknown assistant,
+    401/403 denied).
     """
     reg = deps.registrations.get(run_req.assistant_id)
     if reg is None:
@@ -398,6 +399,23 @@ def _resolve_run_graph(
     )
     if status is not None:
         return _platform_error(status, "Access denied")
+    return reg
+
+
+def _resolve_run_graph(
+    run_req: RunCreate,
+    deps: PlatformRouteDeps,
+    req: func.HttpRequest,
+    thread_id: str | None = None,
+) -> Any:
+    """Authorize the assistant's graph and validate its run I/O structure.
+
+    Returns the registration on success, or an ``HttpResponse`` when the
+    assistant is unknown (404), access is denied, or the input/config structure is invalid (400).
+    """
+    reg = _authorize_run_graph(run_req, deps, req, thread_id)
+    if isinstance(reg, func.HttpResponse):
+        return reg
     io_err = _validate_run_io_structure(run_req, deps)
     if io_err is not None:
         return io_err
