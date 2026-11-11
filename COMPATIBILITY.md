@@ -65,7 +65,7 @@ migration and contract-based breaking classification, not an incidental cleanup.
 
 The `platform/` subpackage mirrors the LangGraph Platform REST API as understood by `langgraph-sdk >=0.2.2,<0.5`. This means:
 
-1. **Response shapes** — JSON response structures match what `langgraph-sdk` expects. Required fields, types, and nesting are tested via contract tests in `tests/test_sdk_contracts.py`.
+1. **Response shapes** — JSON response structures match what `langgraph-sdk` expects. Platform wait, buffered stream, state, and history responses serialize LangChain messages as flat message objects (for example, `{"type": "human", "content": "..."}`), including nested messages and tool-call fields. Platform responses reject `NaN` and infinities instead of emitting non-standard JSON. Required fields, types, nesting, and representative message bytes are tested via contract tests. Native response serialization is unchanged.
 
 2. **Route paths** — URL patterns match the SDK's expected endpoints (e.g., `/assistants/search`, `/threads/{thread_id}/runs/wait`).
 

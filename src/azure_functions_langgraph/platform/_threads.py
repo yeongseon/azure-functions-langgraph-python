@@ -30,6 +30,7 @@ from azure_functions_langgraph.platform._common import (
     _snapshot_to_thread_state,
     logger,
 )
+from azure_functions_langgraph.platform._serialization import dumps as platform_dumps
 from azure_functions_langgraph.platform.contracts import (
     Checkpoint,
     ThreadCount,
@@ -355,21 +356,18 @@ def register_thread_routes(
                 tasks=[],
                 interrupts=[],
             )
-            return func.HttpResponse(
-                body=json.dumps(state.model_dump(mode="json"), default=str),
-                mimetype="application/json",
-                status_code=200,
-            )
+            return func.HttpResponse(body=platform_dumps(state), mimetype="application/json")
         except Exception:
             logger.exception("get_state failed for thread %s", thread_id)
             return _platform_error(500, "Internal error retrieving thread state")
 
         state = _snapshot_to_thread_state(snapshot, thread_id)
-        return func.HttpResponse(
-            body=json.dumps(state.model_dump(mode="json"), default=str),
-            mimetype="application/json",
-            status_code=200,
-        )
+        try:
+            body = platform_dumps(state)
+        except ValueError:
+            logger.exception("get_state returned non-finite JSON for thread %s", thread_id)
+            return _platform_error(500, "Internal error serializing thread state")
+        return func.HttpResponse(body=body, mimetype="application/json", status_code=200)
 
     @app.function_name(name="aflg_platform_threads_state_update")
     @app.route(route="threads/{thread_id}/state", methods=["POST"], auth_level=auth)
@@ -639,8 +637,9 @@ def register_thread_routes(
             logger.exception("get_state_history failed for thread %s", thread_id)
             return _platform_error(500, "Internal error retrieving thread history")
 
-        return func.HttpResponse(
-            body=json.dumps([s.model_dump(mode="json") for s in results], default=str),
-            mimetype="application/json",
-            status_code=200,
-        )
+        try:
+            response_body = platform_dumps(results)
+        except ValueError:
+            logger.exception("get_state_history returned non-finite JSON for thread %s", thread_id)
+            return _platform_error(500, "Internal error serializing thread history")
+        return func.HttpResponse(body=response_body, mimetype="application/json", status_code=200)
