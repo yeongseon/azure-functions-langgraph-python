@@ -161,7 +161,7 @@ sequenceDiagram
 > **Streaming is buffered end-to-end; the SSE log is returned as a single
 > response.** The graph runs to completion and every event is accumulated, then
 > flushed as one `text/event-stream` response with `Cache-Control: no-cache` and
-> `X-Accel-Buffering: no` headers (the native stream endpoint sets no `Content-Location`).
+> `X-Accel-Buffering: no` headers (no `Content-Location` is set).
 > If the buffer would exceed `max_stream_response_bytes`, the run is halted and a
 > terminal `event: error` + `event: end` is injected in-band (still HTTP 200).
 
@@ -193,11 +193,11 @@ sequenceDiagram
     Graph-->>Routes: result dict
     Routes->>Store: release_run_lock (owner-token guarded)
     Routes->>Routes: Release shared ThreadLock
-    Routes-->>AzureFunctions: HttpResponse (200, final values JSON + Content-Location header)
+    Routes-->>AzureFunctions: HttpResponse (200, final values JSON)
     AzureFunctions-->>SDK: JSON response
 ```
 
-Successful run responses include `Content-Location: /api/threads/{thread_id}/runs/{run_id}`. Threadless runs use `/api/runs/{run_id}`.
+Platform run responses (wait and stream, threaded and threadless) set no `Content-Location` header: the Platform router registers no GET route for a run resource, so such a link would dangle.
 
 ### Platform: Thread lifecycle (state machine)
 
