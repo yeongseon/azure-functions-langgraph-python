@@ -3,24 +3,9 @@
     {
       "documented": true,
       "modules": [
-        "azure_functions_langgraph.app",
-        "azure_functions_langgraph.streaming"
-      ],
-      "name": "AZFUNC_LANGGRAPH_LOCK_BACKEND"
-    },
-    {
-      "documented": true,
-      "modules": [
         "azure_functions_langgraph.platform._common"
       ],
       "name": "AZFUNC_LANGGRAPH_PLATFORM_STRICT"
-    },
-    {
-      "documented": true,
-      "modules": [
-        "azure_functions_langgraph.app"
-      ],
-      "name": "AZFUNC_LANGGRAPH_THREAD_STORE"
     },
     {
       "documented": true,
@@ -746,6 +731,12 @@
     },
     {
       "module": "azure_functions_langgraph._stream_response",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph._topology",
       "public": false,
       "tier": "Internal",
       "tier_basis": "private module"

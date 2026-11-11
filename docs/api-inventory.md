@@ -112,7 +112,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `triggers` | Experimental | README | 8 | 8 |
 | `triggers.service_bus` | Experimental | README | 0 | 9 |
 
-26 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
+27 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
 
 ### Symbols by module
 
@@ -550,9 +550,7 @@ Routes are shown relative to the Functions host `routePrefix` (default `/api`). 
 
 | Variable | Read in | Documented |
 | --- | --- | --- |
-| `AZFUNC_LANGGRAPH_LOCK_BACKEND` | `app`, `streaming` | yes |
 | `AZFUNC_LANGGRAPH_PLATFORM_STRICT` | `platform._common` | yes |
-| `AZFUNC_LANGGRAPH_THREAD_STORE` | `app` | yes |
 | `COSMOSDB_ENDPOINT` | `checkpointers.cosmos` | yes |
 | `COSMOSDB_KEY` | `checkpointers.cosmos` | yes |
 | `COSMOS_DISABLE_SSL` | `checkpointers.cosmos` | yes |

@@ -54,6 +54,7 @@ nav:
       - Usage: usage.md
       - Adapter Reference & Migration: adapter-reference.md
       - API Boundary & Migration Policy: api-boundary.md
+      - Public API Inventory: api-inventory.md
       - Operations & APIs: ops-and-apis.md
       - Architecture: architecture.md
       - Blob Checkpoint Format: blob-checkpoint-format.md
