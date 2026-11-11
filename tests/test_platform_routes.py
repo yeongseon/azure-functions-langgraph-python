@@ -2109,9 +2109,13 @@ class TestAssistantsSearchInvalidJson:
 
 
 class TestContentLocationHeader:
-    """Runs endpoints must include Content-Location header."""
+    """Runs endpoints must not advertise a Content-Location run resource.
 
-    def test_runs_wait_has_content_location(self, store: InMemoryThreadStore) -> None:
+    The Platform router registers no GET run-retrieval route, so any
+    ``Content-Location`` would point at a nonexistent resource.
+    """
+
+    def test_runs_wait_has_no_content_location(self, store: InMemoryThreadStore) -> None:
         g = FakeCompiledGraph()
         app = _build_platform_app(graphs={"agent": g}, store=store)
         fa = app.function_app
@@ -2127,10 +2131,9 @@ class TestContentLocationHeader:
         resp = fn(req)
         assert resp.status_code == 200
         headers = dict(resp.headers)
-        assert "Content-Location" in headers
-        assert f"/api/threads/{thread.thread_id}/runs/" in headers["Content-Location"]
+        assert "Content-Location" not in headers
 
-    def test_runs_stream_has_content_location(self, store: InMemoryThreadStore) -> None:
+    def test_runs_stream_has_no_content_location(self, store: InMemoryThreadStore) -> None:
         g = FakeCompiledGraph()
         app = _build_platform_app(graphs={"agent": g}, store=store)
         fa = app.function_app
@@ -2146,8 +2149,7 @@ class TestContentLocationHeader:
         resp = fn(req)
         assert resp.status_code == 200
         headers = dict(resp.headers)
-        assert "Content-Location" in headers
-        assert f"/api/threads/{thread.thread_id}/runs/" in headers["Content-Location"]
+        assert "Content-Location" not in headers
 
 
 class TestAdditionalPreflightFields:
@@ -2294,8 +2296,8 @@ class TestRunsWaitThreadless:
         assert isinstance(data, dict)
         assert "messages" in data
 
-    def test_content_location_header(self, store: InMemoryThreadStore) -> None:
-        """Response includes Content-Location: /api/runs/{run_id}."""
+    def test_no_content_location_header(self, store: InMemoryThreadStore) -> None:
+        """Response omits Content-Location (no GET run resource exists)."""
         g = FakeCompiledGraph()
         app = _build_platform_app(graphs={"agent": g}, store=store)
         fa = app.function_app
@@ -2305,10 +2307,7 @@ class TestRunsWaitThreadless:
         resp = fn(req)
         assert resp.status_code == 200
         headers = dict(resp.headers)
-        assert "Content-Location" in headers
-        assert headers["Content-Location"].startswith("/api/runs/")
-        # Threadless: no thread_id in URL
-        assert "/threads/" not in headers["Content-Location"]
+        assert "Content-Location" not in headers
 
     def test_unknown_graph_returns_404(self, store: InMemoryThreadStore) -> None:
         g = FakeCompiledGraph()
@@ -2530,8 +2529,8 @@ class TestRunsStreamThreadless:
         assert "event: values" in body
         assert "event: end" in body
 
-    def test_content_location_header(self, store: InMemoryThreadStore) -> None:
-        """Response includes Content-Location: /api/runs/{run_id}."""
+    def test_no_content_location_header(self, store: InMemoryThreadStore) -> None:
+        """Response omits Content-Location (no GET run resource exists)."""
         g = FakeCompiledGraph()
         app = _build_platform_app(graphs={"agent": g}, store=store)
         fa = app.function_app
@@ -2541,9 +2540,7 @@ class TestRunsStreamThreadless:
         resp = fn(req)
         assert resp.status_code == 200
         headers = dict(resp.headers)
-        assert "Content-Location" in headers
-        assert headers["Content-Location"].startswith("/api/runs/")
-        assert "/threads/" not in headers["Content-Location"]
+        assert "Content-Location" not in headers
 
     def test_unknown_graph_returns_404(self, store: InMemoryThreadStore) -> None:
         g = FakeCompiledGraph()

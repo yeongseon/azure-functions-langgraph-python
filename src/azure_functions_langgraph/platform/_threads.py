@@ -446,6 +446,28 @@ def register_thread_routes(
                 f"Thread {thread_id!r} is already busy. "
                 f"State updates are not supported while a run is active.",
             )
+        # The status read above predates the shared lock. A run that started and finished since
+        # then (under a distributed ThreadLock it held this lock the whole time) left a different
+        # terminal status, and releasing to the stale one would silently replace it (#849). The
+        # store lock overwrites the status with "busy", so it has to be read again before that.
+        try:
+            current = deps.thread_store.get(thread_id)
+        except Exception:
+            logger.exception("State-update status re-read failed for thread %s", thread_id)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
+            return _platform_error(500, "Internal error updating thread state")
+        if current is None:
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
+            return _platform_error(404, f"Thread {thread_id!r} not found")
+        if current.status == "busy":
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
+            return _platform_error(
+                409,
+                f"Thread {thread_id!r} is already busy. "
+                f"State updates are not supported while a run is active.",
+            )
+        prior_status = current.status
+
         try:
             locked = deps.thread_store.try_acquire_run_lock(thread_id, assistant_id=graph_name)
         except KeyError:
