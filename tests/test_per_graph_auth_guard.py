@@ -140,6 +140,7 @@ def test_late_unsafe_registration_after_platform_export_is_rejected_without_muta
 
 @pytest.mark.filterwarnings("ignore::UserWarning")
 def test_late_unsafe_registration_after_durable_export_is_rejected() -> None:
+    pytest.importorskip("azure.durable_functions")
     app = LangGraphApp(auth_level=ANON, async_runs="durable")
     app.register(_Graph(), name="open")
     app.function_app  # noqa: B018
