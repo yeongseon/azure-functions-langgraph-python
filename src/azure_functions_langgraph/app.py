@@ -20,6 +20,7 @@ from azure_functions_langgraph._handlers import (
     handle_invoke,
     handle_invoke_async,
     handle_state,
+    handle_state_async,
     handle_stream,
     handle_stream_async,
 )
@@ -50,6 +51,7 @@ from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
 from azure_functions_langgraph.observability import NoOpRunObserver, RunObserver
 from azure_functions_langgraph.protocols import (
     AsyncInvocableGraph,
+    AsyncStatefulGraph,
     InvocableGraph,
     StatefulGraph,
 )
@@ -747,13 +749,17 @@ class LangGraphApp:
                     is_async=is_async,
                 )
             if self._has_state_route(reg):
+                state_is_async = self._uses_async_state_handler(reg)
                 self._register_route(
                     app,
                     reg,
                     endpoint="state",
                     route_template=_ROUTE_STATE,
                     methods=["GET"],
-                    handler_impl=self._handle_state,
+                    handler_impl=(
+                        self._handle_state_async if state_is_async else self._handle_state
+                    ),
+                    is_async=state_is_async,
                 )
 
         # Service Bus trigger routes (issue #409)
@@ -905,7 +911,18 @@ class LangGraphApp:
     @staticmethod
     def _has_state_route(reg: _GraphRegistration) -> bool:
         """Whether a graph exposes a thread-state endpoint (single source of truth)."""
-        return isinstance(reg.graph, StatefulGraph)
+        return isinstance(reg.graph, StatefulGraph) or (
+            LangGraphApp._is_async(reg) and isinstance(reg.graph, AsyncStatefulGraph)
+        )
+
+    @staticmethod
+    def _uses_async_state_handler(reg: _GraphRegistration) -> bool:
+        """Whether the state route awaits ``aget_state`` (preferred when async).
+
+        Graphs served async that only expose ``get_state`` keep the synchronous
+        handler, which Azure runs in its worker pool (off the event loop).
+        """
+        return LangGraphApp._is_async(reg) and isinstance(reg.graph, AsyncStatefulGraph)
 
     @staticmethod
     def _is_async(reg: _GraphRegistration) -> bool:
@@ -1070,6 +1087,11 @@ class LangGraphApp:
             reg,
             self.authorize,
         )
+
+    async def _handle_state_async(
+        self, req: func.HttpRequest, reg: _GraphRegistration
+    ) -> func.HttpResponse:
+        return await handle_state_async(req, reg, self.authorize)
 
     # ------------------------------------------------------------------
     # Metadata API

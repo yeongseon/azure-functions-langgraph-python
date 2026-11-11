@@ -142,15 +142,12 @@ def _merge_thread_metadata(
     return store.update(thread_id, metadata={**(current or {}), **patch})
 
 
-def _build_sse_response(
-    chunks: list[str],
-    *,
-    content_location: str,
-) -> func.HttpResponse:
+def _build_sse_response(chunks: list[str]) -> func.HttpResponse:
     """Build the buffered SSE ``HttpResponse`` shared by all streaming routes.
 
     Every platform streaming exit path emits the same ``text/event-stream``
-    response with identical headers, differing only in ``Content-Location``.
+    response with identical headers. No ``Content-Location`` is set because the
+    Platform router registers no GET route for a run resource.
     """
     return func.HttpResponse(
         body="".join(chunks),
@@ -159,7 +156,6 @@ def _build_sse_response(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Content-Location": content_location,
         },
     )
 
