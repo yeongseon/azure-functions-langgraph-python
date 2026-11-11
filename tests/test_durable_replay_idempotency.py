@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import logging
 import threading
 from typing import Any, TypedDict
 import uuid
@@ -596,16 +597,32 @@ class TestObservabilityAndErrors:
         assert terminals == ["completed"] * 3
         assert host.observer.kinds.count("started") == 3
 
-    async def test_activity_result_keeps_raw_message_http_layer_sanitizes(self) -> None:
-        """Characterization: the Activity output records the raw exception text
-        (Durable history), so the HTTP read path is the sanitization boundary."""
+    async def test_activity_result_stores_no_raw_exception_text(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The Activity output (Durable history) never carries exception text (#898).
+
+        It holds only the exception class name and a fixed message; the raw
+        exception is logged server-side. The HTTP status contract is unchanged.
+        """
         from azure_functions_langgraph.durable._lifecycle import get_run_impl
 
         effects = _Effects()
         host = _Host(_graph(effects, crash_in_a_after_effect=True, checkpointer=MemorySaver()))
-        result = await host.deliver(_payload())
-        assert result.error is not None
-        assert _SECRET in result.error["message"]  # raw in Durable history
+        with caplog.at_level(logging.ERROR, logger="azure_functions_langgraph.durable._activity"):
+            result = await host.deliver(_payload(input={"value": 1, "token": "tok-123"}))
+
+        assert result.error == {"type": "RuntimeError", "message": "The run failed."}
+        history = json.dumps(result.to_dict())  # what lands in Durable history
+        assert _SECRET not in history
+        assert "crashed after effect" not in history
+        assert "tok-123" not in history
+
+        # Raw exception is available to operators in server-side logs only; the log
+        # record carries identifiers, not the input payload.
+        assert _SECRET in caplog.text
+        assert "run_id=run-1" in caplog.text
+        assert "tok-123" not in caplog.text
 
         class _Status:
             runtime_status = type("E", (), {"name": "Completed"})()
@@ -630,3 +647,19 @@ class TestObservabilityAndErrors:
         assert code == 200
         assert _SECRET not in json.dumps(body)
         assert body["output"]["error"] == {"code": "run_failed", "message": "The run failed."}
+
+    async def test_leak_check_fails_if_raw_exception_text_is_stored(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mutation check: reinstating ``str(exc)`` must make the guard above fail."""
+        from azure_functions_langgraph.durable import _state
+
+        monkeypatch.setattr(
+            _state,
+            "serialize_error",
+            lambda exc: {"type": type(exc).__name__, "message": str(exc)},
+        )
+        effects = _Effects()
+        host = _Host(_graph(effects, crash_in_a_after_effect=True, checkpointer=MemorySaver()))
+        result = await host.deliver(_payload())
+        assert _SECRET in json.dumps(result.to_dict())  # the leak the real test rejects

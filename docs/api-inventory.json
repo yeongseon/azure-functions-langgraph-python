@@ -1218,6 +1218,22 @@
           "signature": "(*, container_client: _ContainerClientProtocol, aio_container_client: _AsyncContainerClientProtocol | None=None, serde: SerializerProtocol | None=None, require_ownership_guard: bool=False)"
         },
         {
+          "bases": [
+            "RuntimeError"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.azure_blob",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "BlobCheckpointFormatError",
+          "signature": "()"
+        },
+        {
           "bases": [],
           "consumers": {
             "docs": false,
@@ -2411,7 +2427,7 @@
         {
           "bases": [],
           "consumers": {
-            "docs": false,
+            "docs": true,
             "examples": false,
             "tests": true
           },
@@ -2715,7 +2731,7 @@
         {
           "bases": [],
           "consumers": {
-            "docs": false,
+            "docs": true,
             "examples": false,
             "tests": true
           },

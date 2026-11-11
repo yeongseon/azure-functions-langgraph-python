@@ -352,9 +352,27 @@ only what it observed:
   input and nodes' external effects can repeat. *Orchestrator replay* re-drives
   only the deterministic orchestrator and does not re-run the Activity. An
   *application retry* is a new run with a new `run_id`. Use an idempotency key derived
-  from the stable `run_id` with a provider that enforces it atomically; see
+  from the stable `run_id` with a provider that enforces it atomically, and put retries
+  inside the tool call with that same key rather than relying on Durable to re-run the
+  Activity (a re-run repeats the whole graph, not one tool); see
   [`examples/durable_async_agent/`](../examples/durable_async_agent/) and
   `tests/test_durable_replay_idempotency.py` for the pattern and its limits.
+  Carry that key in a `config.configurable` entry that LangGraph does not reserve
+  (for example `app_run_id`). **Do not use `run_id` there:** LangGraph reserves it. It
+  copies `configurable.run_id` into checkpoint metadata, and a later invoke on the same
+  thread with the same value is treated as a resume of that run, so the new input is
+  ignored and the nodes do not run. The adapter itself never sets it; see
+  [Troubleshooting](troubleshooting.md#a-second-durable-run-on-the-same-thread-skips-the-graph).
+- **Errors in Durable history.** A failed Activity stores only the exception class name
+  and the fixed message `The run failed.` in the orchestration output, which is what
+  Durable history, the Task Hub storage and the Durable management endpoints expose.
+  Exception text is never stored there (it can carry connection strings or tokens). The
+  raw exception is logged server-side by the Activity (`logger.exception`, with `run_id`
+  and graph name but no input, config or result), so read it in Application Insights or
+  the host log. `GET /api/runs/{run_id}` returns `{"code": "run_failed", "message": "The
+  run failed."}`. The graph `input` and `result` are still stored in history as
+  application data and need the access controls described in
+  [Security](security.md#shared-persistence-is-a-trust-boundary).
 
 - **Migration.** Earlier releases answered `202 {"status": "cancelled"}` at once.
   A client that treated that body as final must now poll `GET` until the status is
@@ -1087,7 +1105,7 @@ run executes or when it finishes):
 | Native stream, true streaming, Platform `runs/stream` | An `event: error` frame, then `event: end` (the HTTP status is already 200); Platform thread status ends `error`. |
 | Platform `runs/wait` | `500`; thread status `error`. |
 | Platform `POST /threads/{id}/state` | `500` `Internal error updating thread state`; thread status `error`. |
-| Durable activity | `activity_status: "error"` with `error.type` `ThreadLeaseLostError` and a fixed message. |
+| Durable activity | `activity_status: "error"` with `error.type` `ThreadLeaseLostError` and the fixed message `The run failed.`. |
 | Service Bus | The exception propagates, so the Functions runtime applies its normal retry and dead-letter policy; the result handler does not run. |
 
 The error message is a fixed sentence without thread ID, graph name or token, so

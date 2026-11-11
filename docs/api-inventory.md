@@ -86,7 +86,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `app` | Stable-intent Core | README | 0 | 3 |
 | `authorization` | Beta | provisional | 0 | 6 |
 | `checkpointers` | Beta | README | 6 | 6 |
-| `checkpointers.azure_blob` | Beta | README | 0 | 3 |
+| `checkpointers.azure_blob` | Beta | README | 0 | 4 |
 | `checkpointers.cosmos` | Beta | README | 2 | 3 |
 | `checkpointers.postgres` | Beta | README | 1 | 2 |
 | `checkpointers.sqlite` | Beta | README | 1 | 2 |
@@ -186,6 +186,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | Symbol | Kind | In `__all__` | Consumers |
 | --- | --- | --- | --- |
 | `AzureBlobCheckpointSaver` | class | no | `ETD` |
+| `BlobCheckpointFormatError` | class | no | `-TD` |
 | `OrphanedValueCollectionResult` | dataclass | no | `-T-` |
 | `logger` | alias | no | `ETD` |
 
@@ -290,7 +291,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `bind_ownership_guard` | function | no | `-T-` |
 | `check_ownership_guard` | function | no | `-T-` |
 | `config_with_ownership_guard` | function | no | `-T-` |
-| `guard_run_config` | function | no | `-T-` |
+| `guard_run_config` | function | no | `-TD` |
 | `ownership_guard_for` | function | no | `-T-` |
 | `resolve_ownership_guard` | function | no | `-T-` |
 
@@ -315,7 +316,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `RunTransport` | alias | no | `-TD` |
 | `finish_context` | function | no | `-T-` |
 | `logger` | alias | no | `ETD` |
-| `new_run_context` | function | no | `-T-` |
+| `new_run_context` | function | no | `-TD` |
 | `request_id_from_headers` | function | no | `---` |
 | `safe_observer_call` | function | no | `---` |
 
