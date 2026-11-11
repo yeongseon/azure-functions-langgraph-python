@@ -158,3 +158,17 @@ def test_page_and_entry_points_avoid_statements_that_were_wrong_or_are_not_polic
     for phrase in FORBIDDEN:
         for text in texts:
             assert phrase not in text, phrase
+
+
+def test_release_notes_annotations_cover_exactly_the_recorded_unpublished_tags() -> None:
+    import json
+
+    annotations = json.loads((ROOT / ".github" / "release-notes.json").read_text())["annotations"]
+    assert set(annotations) == set(RECORDED)
+    for tag, (_, run, successor) in RECORDED.items():
+        (note,) = annotations[tag]["notes"]
+        assert note.startswith("**Status: not published to PyPI.**")
+        assert f"/actions/runs/{run})" in note
+        assert f"First published successor: **{successor}**." in note
+        assert f"{tag} has no files on PyPI" in note
+        assert "docs/release-status.md" in note
