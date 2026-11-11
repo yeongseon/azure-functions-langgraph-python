@@ -15,8 +15,26 @@ on:
       - "src/azure_functions_langgraph/platform/_runs.py"
       - "src/azure_functions_langgraph/platform/_threads.py"
       - "src/azure_functions_langgraph/platform/_store_renewal.py"
+      # The handlers call _merge_thread_metadata from here, and the real-Table metadata cases
+      # depend on it (#841).
+      - "src/azure_functions_langgraph/platform/_common.py"
       - "tests/integration/**"
       - "tests/storage_service.py"
+      # Test modules the lane's tests import; a change to one can change what the real-Table
+      # cases do (#841). tests/test_table_integration_workflow.py keeps this list complete.
+      - "tests/__init__.py"
+      - "tests/conftest.py"
+      - "tests/example_imports.py"
+      - "tests/ownership_guard_support.py"
+      - "tests/test_checkpointers_azure_blob.py"
+      - "tests/test_platform_routes.py"
+      - "tests/test_platform_run_release_ownership.py"
+      - "tests/test_platform_state_release_ownership.py"
+      - "tests/test_platform_state_stale_busy_read.py"
+      - "tests/test_platform_state_stale_terminal_read.py"
+      - "tests/test_stores_azure_table.py"
+      - "tests/test_table_renew_retry.py"
+      - "tests/test_thread_metadata_merge.py"
       - "tests/test_production_persistent_agent_example.py"
       - "examples/production_persistent_agent/**"
       - "pyproject.toml"
@@ -36,8 +54,26 @@ on:
       - "src/azure_functions_langgraph/platform/_runs.py"
       - "src/azure_functions_langgraph/platform/_threads.py"
       - "src/azure_functions_langgraph/platform/_store_renewal.py"
+      # The handlers call _merge_thread_metadata from here, and the real-Table metadata cases
+      # depend on it (#841).
+      - "src/azure_functions_langgraph/platform/_common.py"
       - "tests/integration/**"
       - "tests/storage_service.py"
+      # Test modules the lane's tests import; a change to one can change what the real-Table
+      # cases do (#841). tests/test_table_integration_workflow.py keeps this list complete.
+      - "tests/__init__.py"
+      - "tests/conftest.py"
+      - "tests/example_imports.py"
+      - "tests/ownership_guard_support.py"
+      - "tests/test_checkpointers_azure_blob.py"
+      - "tests/test_platform_routes.py"
+      - "tests/test_platform_run_release_ownership.py"
+      - "tests/test_platform_state_release_ownership.py"
+      - "tests/test_platform_state_stale_busy_read.py"
+      - "tests/test_platform_state_stale_terminal_read.py"
+      - "tests/test_stores_azure_table.py"
+      - "tests/test_table_renew_retry.py"
+      - "tests/test_thread_metadata_merge.py"
       - "tests/test_production_persistent_agent_example.py"
       - "examples/production_persistent_agent/**"
       - "pyproject.toml"

@@ -76,6 +76,7 @@ def test_anything_that_may_affect_code_runs_the_full_matrix(files: list[str]) ->
         ["pyproject.toml"],
         ["docs/hooks.py"],
         ["docs/extra.css"],
+        ["docs/testing.md"],
         ["src/pkg/module.py"],
     ],
 )
