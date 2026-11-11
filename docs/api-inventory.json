@@ -1,0 +1,5378 @@
+{
+  "environment_variables": [
+    {
+      "documented": true,
+      "modules": [
+        "azure_functions_langgraph.app",
+        "azure_functions_langgraph.streaming"
+      ],
+      "name": "AZFUNC_LANGGRAPH_LOCK_BACKEND"
+    },
+    {
+      "documented": true,
+      "modules": [
+        "azure_functions_langgraph.platform._common"
+      ],
+      "name": "AZFUNC_LANGGRAPH_PLATFORM_STRICT"
+    },
+    {
+      "documented": true,
+      "modules": [
+        "azure_functions_langgraph.app"
+      ],
+      "name": "AZFUNC_LANGGRAPH_THREAD_STORE"
+    },
+    {
+      "documented": true,
+      "modules": [
+        "azure_functions_langgraph.checkpointers.cosmos"
+      ],
+      "name": "COSMOSDB_ENDPOINT"
+    },
+    {
+      "documented": true,
+      "modules": [
+        "azure_functions_langgraph.checkpointers.cosmos"
+      ],
+      "name": "COSMOSDB_KEY"
+    },
+    {
+      "documented": true,
+      "modules": [
+        "azure_functions_langgraph.checkpointers.cosmos"
+      ],
+      "name": "COSMOS_DISABLE_SSL"
+    },
+    {
+      "documented": false,
+      "modules": [
+        "azure_functions_langgraph.checkpointers.cosmos"
+      ],
+      "name": "COSMOS_KEY"
+    }
+  ],
+  "generated_by": "tools/public_api_inventory.py",
+  "modules": [
+    {
+      "all": [
+        "AppMetadata",
+        "AsyncInvocableGraph",
+        "AsyncStreamableGraph",
+        "CloneableGraph",
+        "ErrorResponse",
+        "GraphInfo",
+        "HealthResponse",
+        "InvocableGraph",
+        "InvokeRequest",
+        "InvokeResponse",
+        "LangGraphApp",
+        "LangGraphLike",
+        "LoggingRunObserver",
+        "NoOpRunObserver",
+        "OTelRunObserver",
+        "RegisteredGraphMetadata",
+        "RouteMetadata",
+        "RunContext",
+        "RunObserver",
+        "RunRejectedReason",
+        "RunTransport",
+        "ServiceBusMessageLike",
+        "StateResponse",
+        "StatefulGraph",
+        "StreamRequest",
+        "StreamableGraph",
+        "StreamingLangGraphApp",
+        "ThreadContentionError",
+        "__version__",
+        "default_message_mapper",
+        "get_langgraph_metadata"
+      ],
+      "module": "azure_functions_langgraph",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "AppMetadata",
+          "signature": "(graphs: Mapping[str, RegisteredGraphMetadata] = field(default_factory=lambda: MappingProxyType({})), app_routes: tuple[RouteMetadata, ...] = ())"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "ainvoke",
+              "signature": "(input: dict[str, Any], config: dict[str, Any] | None=...) -> Awaitable[Any]"
+            }
+          ],
+          "name": "AsyncInvocableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "astream",
+              "signature": "(input: dict[str, Any], config: dict[str, Any] | None=..., stream_mode: str=...) -> AsyncIterator[Any]"
+            }
+          ],
+          "name": "AsyncStreamableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "copy",
+              "signature": "(*, update: dict[str, Any] | None=...) -> Any"
+            }
+          ],
+          "name": "CloneableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ErrorResponse",
+          "signature": "(error: str, detail: str | list[ValidationErrorDetail] | None = None, request_id: str | None = None)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "GraphInfo",
+          "signature": "(name: str, description: str | None = None, has_checkpointer: bool = False)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "HealthResponse",
+          "signature": "(status: str = 'ok', graphs: list[GraphInfo] = Field(default_factory=list))"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "invoke",
+              "signature": "(input: dict[str, Any], config: dict[str, Any] | None=...) -> Any"
+            }
+          ],
+          "name": "InvocableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "InvokeRequest",
+          "signature": "(input: dict[str, Any] = Field(description='Input to the graph'), config: dict[str, Any] | None = Field(default=None, description=\"LangGraph config, e.g. {'configurable': {'thread_id': '...'}}\"), version: LangGraphVersion | None = Field(default=None, description=\"Optional LangGraph output version ('v1' or 'v2'). Forwarded to graph.invoke(..., version=...) only when set; requires langgraph>=1.1. 'v2' returns a GraphOutput {'value', 'interrupts'} shape.\"))"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "InvokeResponse",
+          "signature": "(output: dict[str, Any] = Field(description='Graph output state'))"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.app",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [
+            {
+              "kind": "property",
+              "name": "function_app",
+              "signature": "() -> func.FunctionApp"
+            },
+            {
+              "kind": "method",
+              "name": "get_app_metadata",
+              "signature": "() -> AppMetadata"
+            },
+            {
+              "kind": "method",
+              "name": "register",
+              "signature": "(graph: Any, name: str, description: str | None=None, stream: bool=True, auth_level: func.AuthLevel | None=None, *, request_model: type[Any] | None=None, response_model: type[Any] | None=None, async_mode: bool=False, allowed_configurable_keys: frozenset[str]=frozenset()) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "register_service_bus",
+              "signature": "(graph: Any, name: str, *, connection: str, queue_name: str | None=None, topic_name: str | None=None, subscription_name: str | None=None, input_mapper: Callable[[Any], Any] | None=None, thread_id_factory: Callable[[Any], str | None] | None=None, result_handler: Callable[[Any, Any], None] | None=None, async_mode: bool=False, lock_timeout: float=5.0, binding_kwargs: dict[str, Any] | None=None, session: bool=False, session_exclusive: bool=False) -> None"
+            },
+            {
+              "kind": "property",
+              "name": "thread_store",
+              "signature": "() -> Any"
+            },
+            {
+              "kind": "method",
+              "name": "thread_store",
+              "signature": "(store: Any) -> None"
+            }
+          ],
+          "name": "LangGraphApp",
+          "signature": "(auth_level: func.AuthLevel = func.AuthLevel.FUNCTION, health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS, health_details_auth_level: func.AuthLevel | None = None, readiness_auth_level: func.AuthLevel | None = None, readiness_checks: Mapping[str, Callable[[], bool | Awaitable[bool]]] | None = None, readiness_timeout_seconds: float = 5.0, max_stream_response_bytes: int = 1024 * 1024, max_request_body_bytes: int = 1024 * 1024, max_input_depth: int = 32, max_input_nodes: int = 10000, max_platform_result_limit: int = 100, platform_compat: bool = False, async_runs: AsyncRunsMode = False, thread_lock: ThreadLock | None = None, observer: RunObserver | None = None, authorize: ThreadAuthorizer | None = None, route_prefix: str = _ROUTE_PREFIX)"
+        },
+        {
+          "bases": [
+            "InvocableGraph",
+            "StreamableGraph",
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [],
+          "name": "LangGraphLike",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": true,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "on_run_completed",
+              "signature": "(ctx: RunContext) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_failed",
+              "signature": "(ctx: RunContext, exc: BaseException) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_rejected",
+              "signature": "(ctx: RunContext, reason: RunRejectedReason) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_started",
+              "signature": "(ctx: RunContext) -> None"
+            }
+          ],
+          "name": "LoggingRunObserver",
+          "signature": "(logger: logging.Logger | None=None, *, level: int=logging.INFO)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": true,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "on_run_completed",
+              "signature": "(ctx: RunContext) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_failed",
+              "signature": "(ctx: RunContext, exc: BaseException) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_rejected",
+              "signature": "(ctx: RunContext, reason: RunRejectedReason) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_started",
+              "signature": "(ctx: RunContext) -> None"
+            }
+          ],
+          "name": "NoOpRunObserver",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": null,
+          "in_all": true,
+          "kind": "unknown",
+          "methods": [],
+          "name": "OTelRunObserver",
+          "signature": ""
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "RegisteredGraphMetadata",
+          "signature": "(name: str, description: str | None = None, routes: tuple[RouteMetadata, ...] = ())"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "RouteMetadata",
+          "signature": "(path: str, method: str, summary: str = '', description: str = '', parameters: tuple[Mapping[str, Any], ...] = (), request_model: type[Any] | None = None, response_model: type[Any] | None = None)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "RunContext",
+          "signature": "(graph_name: str, endpoint: EndpointName, run_id: str, thread_id: str | None, started_at_ns: int, ended_at_ns: int | None = None, execution_id: str = dataclasses.field(default_factory=lambda: uuid4().hex), assistant_id: str | None = None, invocation_id: str | None = None, stream_mode: str | tuple[str, ...] | None = None, transport: RunTransport = 'buffered', has_checkpointer: bool | None = None, lock_backend: str | None = None, trigger_type: str | None = None)"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "on_run_completed",
+              "signature": "(ctx: RunContext) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_failed",
+              "signature": "(ctx: RunContext, exc: BaseException) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_rejected",
+              "signature": "(ctx: RunContext, reason: RunRejectedReason) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_started",
+              "signature": "(ctx: RunContext) -> None"
+            }
+          ],
+          "name": "RunObserver",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "RunRejectedReason",
+          "signature": "Literal['invalid_request', 'invalid_config', 'unsupported_version', 'streaming_unsupported', 'lock_contention', 'auth..."
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "RunTransport",
+          "signature": "Literal['buffered', 'streaming']"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "get_body",
+              "signature": "() -> bytes"
+            },
+            {
+              "kind": "property",
+              "name": "message_id",
+              "signature": "() -> str | None"
+            }
+          ],
+          "name": "ServiceBusMessageLike",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "StateResponse",
+          "signature": "(values: dict[str, Any] = Field(description='Current state values'), next: list[str] = Field(default_factory=list, description='Next node(s) to execute'), metadata: dict[str, Any] | None = Field(default=None, description='State metadata'))"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "get_state",
+              "signature": "(config: dict[str, Any]) -> Any"
+            }
+          ],
+          "name": "StatefulGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "StreamRequest",
+          "signature": "(input: dict[str, Any] = Field(description='Input to the graph'), config: dict[str, Any] | None = Field(default=None, description=\"LangGraph config, e.g. {'configurable': {'thread_id': '...'}}\"), stream_mode: str = Field(default='values', description=\"Stream mode: 'values', 'updates', 'messages', or 'custom'\"), version: LangGraphVersion | None = Field(default=None, description=\"Optional LangGraph output version ('v1' or 'v2'). Forwarded to graph.stream(..., version=...) only when set; requires langgraph>=1.1. 'v2' emits unified StreamPart {'type','ns','data','interrupts'} events.\"))"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "stream",
+              "signature": "(input: dict[str, Any], config: dict[str, Any] | None=..., stream_mode: str=...) -> Iterator[Any]"
+            }
+          ],
+          "name": "StreamableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.streaming",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [
+            {
+              "kind": "property",
+              "name": "function_app",
+              "signature": "() -> func.FunctionApp"
+            },
+            {
+              "kind": "method",
+              "name": "register",
+              "signature": "(graph: Any, name: str, description: str | None=None, stream: bool=True, auth_level: func.AuthLevel | None=None, *, request_model: type[Any] | None=None, response_model: type[Any] | None=None, async_mode: bool=False, allowed_configurable_keys: Iterable[str]=frozenset()) -> None"
+            }
+          ],
+          "name": "StreamingLangGraphApp",
+          "signature": "(auth_level: func.AuthLevel = func.AuthLevel.FUNCTION, health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS, health_details_auth_level: func.AuthLevel | None = None, max_request_body_bytes: int = 1024 * 1024, max_input_depth: int = 32, max_input_nodes: int = 10000, max_stream_events: int = 100000, thread_lock: ThreadLock | None = None, observer: RunObserver | None = None, route_prefix: str = '/api', authorize: StreamingThreadAuthorizer | None = field(default=None, kw_only=True, repr=False))"
+        },
+        {
+          "bases": [
+            "RuntimeError"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadContentionError",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "default_message_mapper",
+          "signature": "(msg: ServiceBusMessageLike) -> dict[str, Any]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.app",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "get_langgraph_metadata",
+          "signature": "(func: Any) -> dict[str, Any] | None"
+        }
+      ],
+      "tier": "Stable-intent Core",
+      "tier_basis": "README"
+    },
+    {
+      "module": "azure_functions_langgraph._endpoint",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph._execution_plan",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph._handlers",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph._json",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph._metadata",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph._readiness",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph._run_authorization",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph._stream_response",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph._validation",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.app",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.app",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "AsyncRunsMode",
+          "signature": "Literal[False, 'durable']"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.app",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [
+            {
+              "kind": "property",
+              "name": "function_app",
+              "signature": "() -> func.FunctionApp"
+            },
+            {
+              "kind": "method",
+              "name": "get_app_metadata",
+              "signature": "() -> AppMetadata"
+            },
+            {
+              "kind": "method",
+              "name": "register",
+              "signature": "(graph: Any, name: str, description: str | None=None, stream: bool=True, auth_level: func.AuthLevel | None=None, *, request_model: type[Any] | None=None, response_model: type[Any] | None=None, async_mode: bool=False, allowed_configurable_keys: frozenset[str]=frozenset()) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "register_service_bus",
+              "signature": "(graph: Any, name: str, *, connection: str, queue_name: str | None=None, topic_name: str | None=None, subscription_name: str | None=None, input_mapper: Callable[[Any], Any] | None=None, thread_id_factory: Callable[[Any], str | None] | None=None, result_handler: Callable[[Any, Any], None] | None=None, async_mode: bool=False, lock_timeout: float=5.0, binding_kwargs: dict[str, Any] | None=None, session: bool=False, session_exclusive: bool=False) -> None"
+            },
+            {
+              "kind": "property",
+              "name": "thread_store",
+              "signature": "() -> Any"
+            },
+            {
+              "kind": "method",
+              "name": "thread_store",
+              "signature": "(store: Any) -> None"
+            }
+          ],
+          "name": "LangGraphApp",
+          "signature": "(auth_level: func.AuthLevel = func.AuthLevel.FUNCTION, health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS, health_details_auth_level: func.AuthLevel | None = None, readiness_auth_level: func.AuthLevel | None = None, readiness_checks: Mapping[str, Callable[[], bool | Awaitable[bool]]] | None = None, readiness_timeout_seconds: float = 5.0, max_stream_response_bytes: int = 1024 * 1024, max_request_body_bytes: int = 1024 * 1024, max_input_depth: int = 32, max_input_nodes: int = 10000, max_platform_result_limit: int = 100, platform_compat: bool = False, async_runs: AsyncRunsMode = False, thread_lock: ThreadLock | None = None, observer: RunObserver | None = None, authorize: ThreadAuthorizer | None = None, route_prefix: str = _ROUTE_PREFIX)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.app",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "get_langgraph_metadata",
+          "signature": "(func: Any) -> dict[str, Any] | None"
+        }
+      ],
+      "tier": "Stable-intent Core",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.authorization",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [
+            "StrEnum"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.authorization",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "AuthorizationAction",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.authorization",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "AuthorizationContext",
+          "signature": "(action: AuthorizationAction, graph_name: str | None, thread_id: str | None, request: func.HttpRequest)"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.authorization",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [],
+          "name": "ThreadAuthorizer",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Exception"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.authorization",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "UnauthenticatedError",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.authorization",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "authorization_status",
+          "signature": "(authorize: ThreadAuthorizer | None, context: AuthorizationContext) -> int | None"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.authorization",
+          "in_all": false,
+          "kind": "async function",
+          "methods": [],
+          "name": "authorization_status_async",
+          "signature": "(authorize: ThreadAuthorizer | None, context: AuthorizationContext) -> int | None"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "provisional"
+    },
+    {
+      "all": [
+        "AzureBlobCheckpointSaver",
+        "OrphanedValueCollectionResult",
+        "close_cosmos_checkpointer",
+        "create_cosmos_checkpointer",
+        "create_postgres_checkpointer",
+        "create_sqlite_checkpointer"
+      ],
+      "module": "azure_functions_langgraph.checkpointers",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [
+            "BaseCheckpointSaver[str]"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.azure_blob",
+          "in_all": true,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "async",
+              "name": "adelete_thread",
+              "signature": "(thread_id: str) -> None"
+            },
+            {
+              "kind": "async",
+              "name": "aget_tuple",
+              "signature": "(config: RunnableConfig) -> CheckpointTuple | None"
+            },
+            {
+              "kind": "async",
+              "name": "alist",
+              "signature": "(config: RunnableConfig | None, *, filter: dict[str, Any] | None=None, before: RunnableConfig | None=None, limit: int | None=None) -> AsyncIterator[CheckpointTuple]"
+            },
+            {
+              "kind": "async",
+              "name": "aput",
+              "signature": "(config: RunnableConfig, checkpoint: Checkpoint, metadata: CheckpointMetadata, new_versions: ChannelVersions) -> RunnableConfig"
+            },
+            {
+              "kind": "async",
+              "name": "aput_writes",
+              "signature": "(config: RunnableConfig, writes: Sequence[tuple[str, Any]], task_id: str, task_path: str='') -> None"
+            },
+            {
+              "kind": "method",
+              "name": "collect_orphaned_values",
+              "signature": "(thread_id: str, *, checkpoint_ns: str | None=None, dry_run: bool=True, grace_period_seconds: int=300) -> OrphanedValueCollectionResult"
+            },
+            {
+              "kind": "method",
+              "name": "delete_checkpoints_before",
+              "signature": "(thread_id: str, *, before_checkpoint_id: str, checkpoint_ns: str | None=None) -> int"
+            },
+            {
+              "kind": "method",
+              "name": "delete_old_checkpoints",
+              "signature": "(thread_id: str, *, keep_last: int=20, checkpoint_ns: str | None=None) -> int"
+            },
+            {
+              "kind": "method",
+              "name": "delete_thread",
+              "signature": "(thread_id: str) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "get_next_version",
+              "signature": "(current: str | None, channel: None) -> str"
+            },
+            {
+              "kind": "method",
+              "name": "get_tuple",
+              "signature": "(config: RunnableConfig) -> CheckpointTuple | None"
+            },
+            {
+              "kind": "method",
+              "name": "list",
+              "signature": "(config: RunnableConfig | None, *, filter: dict[str, Any] | None=None, before: RunnableConfig | None=None, limit: int | None=None) -> Iterator[CheckpointTuple]"
+            },
+            {
+              "kind": "property",
+              "name": "lock_scope_identity",
+              "signature": "() -> str | None"
+            },
+            {
+              "kind": "method",
+              "name": "put",
+              "signature": "(config: RunnableConfig, checkpoint: Checkpoint, metadata: CheckpointMetadata, new_versions: ChannelVersions) -> RunnableConfig"
+            },
+            {
+              "kind": "method",
+              "name": "put_writes",
+              "signature": "(config: RunnableConfig, writes: Sequence[tuple[str, Any]], task_id: str, task_path: str='') -> None"
+            }
+          ],
+          "name": "AzureBlobCheckpointSaver",
+          "signature": "(*, container_client: _ContainerClientProtocol, aio_container_client: _AsyncContainerClientProtocol | None=None, serde: SerializerProtocol | None=None, require_ownership_guard: bool=False)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.azure_blob",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "OrphanedValueCollectionResult",
+          "signature": "(dry_run: bool, would_delete: list[str] = field(default_factory=list), deleted: list[str] = field(default_factory=list), skipped_namespaces: list[tuple[str, str]] = field(default_factory=list), skipped_recent: list[str] = field(default_factory=list))"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.cosmos",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "close_cosmos_checkpointer",
+          "signature": "(saver: CosmosDBSaver) -> None"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.cosmos",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "create_cosmos_checkpointer",
+          "signature": "(*, endpoint: str, key: str | None=None, credential: str | None=None, database_name: str, container_name: str) -> CosmosDBSaver"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.postgres",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "create_postgres_checkpointer",
+          "signature": "(conn_string: str, *, setup: bool=True, autocommit: bool=True, prepare_threshold: int | None=0) -> PostgresSaver"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.sqlite",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "create_sqlite_checkpointer",
+          "signature": "(conn_string: str, *, setup: bool=True, check_same_thread: bool=False) -> SqliteSaver"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.checkpointers.azure_blob",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [
+            "BaseCheckpointSaver[str]"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.azure_blob",
+          "in_all": false,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "async",
+              "name": "adelete_thread",
+              "signature": "(thread_id: str) -> None"
+            },
+            {
+              "kind": "async",
+              "name": "aget_tuple",
+              "signature": "(config: RunnableConfig) -> CheckpointTuple | None"
+            },
+            {
+              "kind": "async",
+              "name": "alist",
+              "signature": "(config: RunnableConfig | None, *, filter: dict[str, Any] | None=None, before: RunnableConfig | None=None, limit: int | None=None) -> AsyncIterator[CheckpointTuple]"
+            },
+            {
+              "kind": "async",
+              "name": "aput",
+              "signature": "(config: RunnableConfig, checkpoint: Checkpoint, metadata: CheckpointMetadata, new_versions: ChannelVersions) -> RunnableConfig"
+            },
+            {
+              "kind": "async",
+              "name": "aput_writes",
+              "signature": "(config: RunnableConfig, writes: Sequence[tuple[str, Any]], task_id: str, task_path: str='') -> None"
+            },
+            {
+              "kind": "method",
+              "name": "collect_orphaned_values",
+              "signature": "(thread_id: str, *, checkpoint_ns: str | None=None, dry_run: bool=True, grace_period_seconds: int=300) -> OrphanedValueCollectionResult"
+            },
+            {
+              "kind": "method",
+              "name": "delete_checkpoints_before",
+              "signature": "(thread_id: str, *, before_checkpoint_id: str, checkpoint_ns: str | None=None) -> int"
+            },
+            {
+              "kind": "method",
+              "name": "delete_old_checkpoints",
+              "signature": "(thread_id: str, *, keep_last: int=20, checkpoint_ns: str | None=None) -> int"
+            },
+            {
+              "kind": "method",
+              "name": "delete_thread",
+              "signature": "(thread_id: str) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "get_next_version",
+              "signature": "(current: str | None, channel: None) -> str"
+            },
+            {
+              "kind": "method",
+              "name": "get_tuple",
+              "signature": "(config: RunnableConfig) -> CheckpointTuple | None"
+            },
+            {
+              "kind": "method",
+              "name": "list",
+              "signature": "(config: RunnableConfig | None, *, filter: dict[str, Any] | None=None, before: RunnableConfig | None=None, limit: int | None=None) -> Iterator[CheckpointTuple]"
+            },
+            {
+              "kind": "property",
+              "name": "lock_scope_identity",
+              "signature": "() -> str | None"
+            },
+            {
+              "kind": "method",
+              "name": "put",
+              "signature": "(config: RunnableConfig, checkpoint: Checkpoint, metadata: CheckpointMetadata, new_versions: ChannelVersions) -> RunnableConfig"
+            },
+            {
+              "kind": "method",
+              "name": "put_writes",
+              "signature": "(config: RunnableConfig, writes: Sequence[tuple[str, Any]], task_id: str, task_path: str='') -> None"
+            }
+          ],
+          "name": "AzureBlobCheckpointSaver",
+          "signature": "(*, container_client: _ContainerClientProtocol, aio_container_client: _AsyncContainerClientProtocol | None=None, serde: SerializerProtocol | None=None, require_ownership_guard: bool=False)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.azure_blob",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "OrphanedValueCollectionResult",
+          "signature": "(dry_run: bool, would_delete: list[str] = field(default_factory=list), deleted: list[str] = field(default_factory=list), skipped_namespaces: list[tuple[str, str]] = field(default_factory=list), skipped_recent: list[str] = field(default_factory=list))"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.azure_blob",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [
+        "close_cosmos_checkpointer",
+        "create_cosmos_checkpointer"
+      ],
+      "module": "azure_functions_langgraph.checkpointers.cosmos",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.cosmos",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "close_cosmos_checkpointer",
+          "signature": "(saver: CosmosDBSaver) -> None"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.cosmos",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "create_cosmos_checkpointer",
+          "signature": "(*, endpoint: str, key: str | None=None, credential: str | None=None, database_name: str, container_name: str) -> CosmosDBSaver"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.cosmos",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [
+        "create_postgres_checkpointer"
+      ],
+      "module": "azure_functions_langgraph.checkpointers.postgres",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.postgres",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "create_postgres_checkpointer",
+          "signature": "(conn_string: str, *, setup: bool=True, autocommit: bool=True, prepare_threshold: int | None=0) -> PostgresSaver"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.postgres",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [
+        "create_sqlite_checkpointer"
+      ],
+      "module": "azure_functions_langgraph.checkpointers.sqlite",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.sqlite",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "create_sqlite_checkpointer",
+          "signature": "(conn_string: str, *, setup: bool=True, check_same_thread: bool=False) -> SqliteSaver"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.checkpointers.sqlite",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.contracts",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "AppMetadata",
+          "signature": "(graphs: Mapping[str, RegisteredGraphMetadata] = field(default_factory=lambda: MappingProxyType({})), app_routes: tuple[RouteMetadata, ...] = ())"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "ErrorResponse",
+          "signature": "(error: str, detail: str | list[ValidationErrorDetail] | None = None, request_id: str | None = None)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "GraphInfo",
+          "signature": "(name: str, description: str | None = None, has_checkpointer: bool = False)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "HealthResponse",
+          "signature": "(status: str = 'ok', graphs: list[GraphInfo] = Field(default_factory=list))"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "HealthStatus",
+          "signature": "(status: str = 'ok')"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "InvokeRequest",
+          "signature": "(input: dict[str, Any] = Field(description='Input to the graph'), config: dict[str, Any] | None = Field(default=None, description=\"LangGraph config, e.g. {'configurable': {'thread_id': '...'}}\"), version: LangGraphVersion | None = Field(default=None, description=\"Optional LangGraph output version ('v1' or 'v2'). Forwarded to graph.invoke(..., version=...) only when set; requires langgraph>=1.1. 'v2' returns a GraphOutput {'value', 'interrupts'} shape.\"))"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "InvokeResponse",
+          "signature": "(output: dict[str, Any] = Field(description='Graph output state'))"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "LangGraphVersion",
+          "signature": "Literal['v1', 'v2']"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "ReadinessResponse",
+          "signature": "(status: Literal['ready', 'unready'], components: dict[str, Literal['ok', 'failed']])"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "RegisteredGraphMetadata",
+          "signature": "(name: str, description: str | None = None, routes: tuple[RouteMetadata, ...] = ())"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "RouteMetadata",
+          "signature": "(path: str, method: str, summary: str = '', description: str = '', parameters: tuple[Mapping[str, Any], ...] = (), request_model: type[Any] | None = None, response_model: type[Any] | None = None)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "StateResponse",
+          "signature": "(values: dict[str, Any] = Field(description='Current state values'), next: list[str] = Field(default_factory=list, description='Next node(s) to execute'), metadata: dict[str, Any] | None = Field(default=None, description='State metadata'))"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "StreamRequest",
+          "signature": "(input: dict[str, Any] = Field(description='Input to the graph'), config: dict[str, Any] | None = Field(default=None, description=\"LangGraph config, e.g. {'configurable': {'thread_id': '...'}}\"), stream_mode: str = Field(default='values', description=\"Stream mode: 'values', 'updates', 'messages', or 'custom'\"), version: LangGraphVersion | None = Field(default=None, description=\"Optional LangGraph output version ('v1' or 'v2'). Forwarded to graph.stream(..., version=...) only when set; requires langgraph>=1.1. 'v2' emits unified StreamPart {'type','ns','data','interrupts'} events.\"))"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "build_invoke_request_model",
+          "signature": "(input_model: type[Any] | None) -> type[BaseModel]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "build_invoke_response_model",
+          "signature": "(output_model: type[Any] | None) -> type[BaseModel]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.contracts",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "build_stream_request_model",
+          "signature": "(input_model: type[Any] | None) -> type[BaseModel]"
+        }
+      ],
+      "tier": "Stable-intent Core",
+      "tier_basis": "README"
+    },
+    {
+      "all": [
+        "ACTIVITY_NAME",
+        "CANCEL_REQUESTED",
+        "DurableClientLike",
+        "DurableRunPayload",
+        "DurableRunResult",
+        "DurableRunStatus",
+        "GraphRegistrationLike",
+        "OrchestrationContextLike",
+        "OrchestrationStatusLike",
+        "cancel_run_impl",
+        "create_run_impl",
+        "execute_langgraph_run_impl",
+        "get_run_impl",
+        "normalize_status",
+        "run_orchestration",
+        "runtime_status_str",
+        "serialize_error"
+      ],
+      "module": "azure_functions_langgraph.durable",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._orchestrator",
+          "in_all": true,
+          "kind": "constant",
+          "methods": [],
+          "name": "ACTIVITY_NAME",
+          "signature": "'execute_langgraph_run'"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._lifecycle",
+          "in_all": true,
+          "kind": "constant",
+          "methods": [],
+          "name": "CANCEL_REQUESTED",
+          "signature": "'cancel_requested'"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.durable._lifecycle",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "async",
+              "name": "get_status",
+              "signature": "(instance_id: str) -> OrchestrationStatusLike | None"
+            },
+            {
+              "kind": "async",
+              "name": "start_new",
+              "signature": "(orchestration_function_name: str, instance_id: str | None=None, client_input: Any=None) -> str"
+            },
+            {
+              "kind": "async",
+              "name": "terminate",
+              "signature": "(instance_id: str, reason: str) -> None"
+            }
+          ],
+          "name": "DurableClientLike",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._state",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [
+            {
+              "kind": "classmethod",
+              "name": "from_dict",
+              "signature": "(data: Mapping[str, Any]) -> DurableRunPayload"
+            },
+            {
+              "kind": "method",
+              "name": "to_dict",
+              "signature": "() -> dict[str, Any]"
+            }
+          ],
+          "name": "DurableRunPayload",
+          "signature": "(run_id: str, graph_name: str, input: Any, thread_id: str | None = None, config: dict[str, Any] = field(default_factory=dict), assistant_id: str | None = None, correlation_id: str | None = None)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._state",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [
+            {
+              "kind": "classmethod",
+              "name": "failure",
+              "signature": "(run_id: str, exc: BaseException) -> DurableRunResult"
+            },
+            {
+              "kind": "classmethod",
+              "name": "from_dict",
+              "signature": "(data: Mapping[str, Any]) -> DurableRunResult"
+            },
+            {
+              "kind": "classmethod",
+              "name": "rejected",
+              "signature": "(run_id: str, reason: str) -> DurableRunResult"
+            },
+            {
+              "kind": "classmethod",
+              "name": "success",
+              "signature": "(run_id: str, result: Any) -> DurableRunResult"
+            },
+            {
+              "kind": "method",
+              "name": "to_dict",
+              "signature": "() -> dict[str, Any]"
+            }
+          ],
+          "name": "DurableRunResult",
+          "signature": "(run_id: str, activity_status: _ActivityStatus, result: Any = None, error: dict[str, str] | None = None)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.durable._state",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "DurableRunStatus",
+          "signature": "Literal['pending', 'running', 'success', 'error', 'cancelled']"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.durable._activity",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [],
+          "name": "GraphRegistrationLike",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.durable._orchestrator",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "call_activity",
+              "signature": "(name: str, input_: Any) -> Any"
+            },
+            {
+              "kind": "method",
+              "name": "get_input",
+              "signature": "() -> Any"
+            }
+          ],
+          "name": "OrchestrationContextLike",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.durable._lifecycle",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [],
+          "name": "OrchestrationStatusLike",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._lifecycle",
+          "in_all": true,
+          "kind": "async function",
+          "methods": [],
+          "name": "cancel_run_impl",
+          "signature": "(client: DurableClientLike, run_id: str, *, reason: str='cancelled by client') -> tuple[int, dict[str, Any]]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._lifecycle",
+          "in_all": true,
+          "kind": "async function",
+          "methods": [],
+          "name": "create_run_impl",
+          "signature": "(client: DurableClientLike, orchestrator_name: str, body: Mapping[str, Any], *, graph_name: str) -> tuple[int, dict[str, Any]]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._activity",
+          "in_all": true,
+          "kind": "async function",
+          "methods": [],
+          "name": "execute_langgraph_run_impl",
+          "signature": "(payload: DurableRunPayload, *, registry: Mapping[str, GraphRegistrationLike], thread_lock: ThreadLock, observer: RunObserver=NOOP_OBSERVER) -> DurableRunResult"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._lifecycle",
+          "in_all": true,
+          "kind": "async function",
+          "methods": [],
+          "name": "get_run_impl",
+          "signature": "(client: DurableClientLike, run_id: str) -> tuple[int, dict[str, Any]]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._state",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "normalize_status",
+          "signature": "(runtime_status: str | None, output: Mapping[str, Any] | None=None) -> DurableRunStatus"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._orchestrator",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "run_orchestration",
+          "signature": "(context: OrchestrationContextLike) -> Generator[Any, Any, Any]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._lifecycle",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "runtime_status_str",
+          "signature": "(status: OrchestrationStatusLike | None) -> str | None"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.durable._state",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "serialize_error",
+          "signature": "(exc: BaseException) -> dict[str, str]"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "README"
+    },
+    {
+      "module": "azure_functions_langgraph.durable._activity",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.durable._lifecycle",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.durable._orchestrator",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.durable._runtime",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.durable._state",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "all": [
+        "AzureBlobLeaseThreadLock",
+        "InProcessThreadLock",
+        "OwnershipGuard",
+        "OwnershipGuardProvider",
+        "ThreadLeaseLostError",
+        "ThreadLock"
+      ],
+      "module": "azure_functions_langgraph.locks",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.azure_blob",
+          "in_all": true,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "acquire",
+              "signature": "(graph_name: str, thread_id: str, timeout: float=0.0) -> str | None"
+            },
+            {
+              "kind": "method",
+              "name": "close",
+              "signature": "() -> None"
+            },
+            {
+              "kind": "method",
+              "name": "ownership_guard",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> OwnershipGuard | None"
+            },
+            {
+              "kind": "method",
+              "name": "release",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> None"
+            }
+          ],
+          "name": "AzureBlobLeaseThreadLock",
+          "signature": "(*, container_client: _ContainerClientProtocol, lease_duration: int=_LEASE_DURATION_MAX, blob_prefix: str='thread-locks/', auto_renew: bool=True, guard_checkpoint_writes: bool=False)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.inprocess",
+          "in_all": true,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "acquire",
+              "signature": "(graph_name: str, thread_id: str, timeout: float=0.0) -> str | None"
+            },
+            {
+              "kind": "method",
+              "name": "release",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> None"
+            }
+          ],
+          "name": "InProcessThreadLock",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "check",
+              "signature": "() -> None"
+            }
+          ],
+          "name": "OwnershipGuard",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "ownership_guard",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> OwnershipGuard | None"
+            }
+          ],
+          "name": "OwnershipGuardProvider",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "RuntimeError"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadLeaseLostError",
+          "signature": "(*, reason: LeaseLossReason, graph_name: str | None=None, thread_id: str | None=None)"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.base",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "acquire",
+              "signature": "(graph_name: str, thread_id: str, timeout: float=0.0) -> str | None"
+            },
+            {
+              "kind": "method",
+              "name": "release",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> None"
+            }
+          ],
+          "name": "ThreadLock",
+          "signature": "()"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "module": "azure_functions_langgraph.locks._async",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.locks._scope",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.locks.azure_blob",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.azure_blob",
+          "in_all": false,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "acquire",
+              "signature": "(graph_name: str, thread_id: str, timeout: float=0.0) -> str | None"
+            },
+            {
+              "kind": "method",
+              "name": "close",
+              "signature": "() -> None"
+            },
+            {
+              "kind": "method",
+              "name": "ownership_guard",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> OwnershipGuard | None"
+            },
+            {
+              "kind": "method",
+              "name": "release",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> None"
+            }
+          ],
+          "name": "AzureBlobLeaseThreadLock",
+          "signature": "(*, container_client: _ContainerClientProtocol, lease_duration: int=_LEASE_DURATION_MAX, blob_prefix: str='thread-locks/', auto_renew: bool=True, guard_checkpoint_writes: bool=False)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.azure_blob",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.locks.base",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.base",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "acquire",
+              "signature": "(graph_name: str, thread_id: str, timeout: float=0.0) -> str | None"
+            },
+            {
+              "kind": "method",
+              "name": "release",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> None"
+            }
+          ],
+          "name": "ThreadLock",
+          "signature": "()"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [
+        "LeaseLossReason",
+        "OwnershipGuard",
+        "OwnershipGuardProvider",
+        "ThreadLeaseLostError"
+      ],
+      "module": "azure_functions_langgraph.locks.guard",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "LeaseLossReason",
+          "signature": "Literal['lost', 'released', 'superseded', 'missing']"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": false,
+          "kind": "constant",
+          "methods": [],
+          "name": "OWNERSHIP_GUARD_CONFIG_KEY",
+          "signature": "'__pregel_azfunc_ownership_guard'"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "check",
+              "signature": "() -> None"
+            }
+          ],
+          "name": "OwnershipGuard",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "ownership_guard",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> OwnershipGuard | None"
+            }
+          ],
+          "name": "OwnershipGuardProvider",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "RuntimeError"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadLeaseLostError",
+          "signature": "(*, reason: LeaseLossReason, graph_name: str | None=None, thread_id: str | None=None)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "bind_ownership_guard",
+          "signature": "(guard: OwnershipGuard | None) -> Iterator[None]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "check_ownership_guard",
+          "signature": "(guard: OwnershipGuard | None) -> None"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "config_with_ownership_guard",
+          "signature": "(config: dict[str, Any] | None, guard: OwnershipGuard | None) -> dict[str, Any] | None"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "guard_run_config",
+          "signature": "(thread_lock: object, graph_name: str, thread_id: str | None, token: str | None, config: dict[str, Any] | None) -> tuple[dict[str, Any] | None, OwnershipGuard | None]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "ownership_guard_for",
+          "signature": "(thread_lock: object, graph_name: str, thread_id: str | None, token: str | None) -> OwnershipGuard | None"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.guard",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "resolve_ownership_guard",
+          "signature": "(config: Mapping[str, Any] | None) -> OwnershipGuard | None"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.locks.inprocess",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.inprocess",
+          "in_all": false,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "acquire",
+              "signature": "(graph_name: str, thread_id: str, timeout: float=0.0) -> str | None"
+            },
+            {
+              "kind": "method",
+              "name": "release",
+              "signature": "(graph_name: str, thread_id: str, token: str) -> None"
+            }
+          ],
+          "name": "InProcessThreadLock",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.locks.inprocess",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.observability",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "EndpointName",
+          "signature": "Literal['invoke', 'stream']"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "on_run_completed",
+              "signature": "(ctx: RunContext) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_failed",
+              "signature": "(ctx: RunContext, exc: BaseException) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_rejected",
+              "signature": "(ctx: RunContext, reason: RunRejectedReason) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_started",
+              "signature": "(ctx: RunContext) -> None"
+            }
+          ],
+          "name": "LoggingRunObserver",
+          "signature": "(logger: logging.Logger | None=None, *, level: int=logging.INFO)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "constant",
+          "methods": [],
+          "name": "NOOP_OBSERVER",
+          "signature": "NoOpRunObserver()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "on_run_completed",
+              "signature": "(ctx: RunContext) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_failed",
+              "signature": "(ctx: RunContext, exc: BaseException) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_rejected",
+              "signature": "(ctx: RunContext, reason: RunRejectedReason) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_started",
+              "signature": "(ctx: RunContext) -> None"
+            }
+          ],
+          "name": "NoOpRunObserver",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "RunContext",
+          "signature": "(graph_name: str, endpoint: EndpointName, run_id: str, thread_id: str | None, started_at_ns: int, ended_at_ns: int | None = None, execution_id: str = dataclasses.field(default_factory=lambda: uuid4().hex), assistant_id: str | None = None, invocation_id: str | None = None, stream_mode: str | tuple[str, ...] | None = None, transport: RunTransport = 'buffered', has_checkpointer: bool | None = None, lock_backend: str | None = None, trigger_type: str | None = None)"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "on_run_completed",
+              "signature": "(ctx: RunContext) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_failed",
+              "signature": "(ctx: RunContext, exc: BaseException) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_rejected",
+              "signature": "(ctx: RunContext, reason: RunRejectedReason) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_started",
+              "signature": "(ctx: RunContext) -> None"
+            }
+          ],
+          "name": "RunObserver",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "RunRejectedReason",
+          "signature": "Literal['invalid_request', 'invalid_config', 'unsupported_version', 'streaming_unsupported', 'lock_contention', 'auth..."
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "RunTransport",
+          "signature": "Literal['buffered', 'streaming']"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "finish_context",
+          "signature": "(ctx: RunContext) -> RunContext"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "new_run_context",
+          "signature": "(graph_name: str, endpoint: EndpointName, *, run_id: str | None=None, thread_id: str | None=None, assistant_id: str | None=None, invocation_id: str | None=None, stream_mode: str | list[str] | tuple[str, ...] | None=None, transport: RunTransport='buffered', has_checkpointer: bool | None=None, lock_backend: str | None=None, trigger_type: str | None=None) -> RunContext"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "request_id_from_headers",
+          "signature": "(headers: Mapping[str, str]) -> str"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.observability",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "safe_observer_call",
+          "signature": "(observer: RunObserver, method: str, *args: object) -> None"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.observability_otel",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.observability_otel",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "AttributeValue",
+          "signature": "str | bool | int | float | Sequence[str] | Sequence[bool] | Sequence[int] | Sequence[float]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.observability_otel",
+          "in_all": false,
+          "kind": "constant",
+          "methods": [],
+          "name": "INSTRUMENTATION_NAME",
+          "signature": "'azure_functions_langgraph'"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.observability_otel",
+          "in_all": false,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "on_run_completed",
+              "signature": "(ctx: RunContext) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_failed",
+              "signature": "(ctx: RunContext, exc: BaseException) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_rejected",
+              "signature": "(ctx: RunContext, reason: RunRejectedReason) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "on_run_started",
+              "signature": "(ctx: RunContext) -> None"
+            }
+          ],
+          "name": "OTelRunObserver",
+          "signature": "(tracer: Tracer | None=None, *, span_name_prefix: str='langgraph.run')"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.openapi",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.openapi",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "register_with_openapi",
+          "signature": "(app: LangGraphApp) -> int"
+        }
+      ],
+      "tier": "Beta",
+      "tier_basis": "provisional"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.platform",
+      "public": true,
+      "symbols": [],
+      "tier": "Experimental",
+      "tier_basis": "README"
+    },
+    {
+      "module": "azure_functions_langgraph.platform._assistants",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.platform._common",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.platform._runs",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.platform._serialization",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.platform._sse",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.platform._store_renewal",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.platform._threads",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "all": [
+        "Assistant",
+        "AssistantCount",
+        "AssistantSearch",
+        "Checkpoint",
+        "Interrupt",
+        "Json",
+        "MultitaskStrategy",
+        "Run",
+        "RunCreate",
+        "RunStatus",
+        "Thread",
+        "ThreadCount",
+        "ThreadCreate",
+        "ThreadHistoryRequest",
+        "ThreadSearch",
+        "ThreadState",
+        "ThreadStateUpdate",
+        "ThreadStatus",
+        "ThreadTask",
+        "ThreadUpdate"
+      ],
+      "module": "azure_functions_langgraph.platform.contracts",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "Assistant",
+          "signature": "(assistant_id: str, graph_id: str, config: dict[str, Any] = Field(default_factory=dict), created_at: datetime, metadata: Json = None, version: int = 1, name: str, description: str | None = None, updated_at: datetime, context: dict[str, Any] = Field(default_factory=dict))"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "AssistantCount",
+          "signature": "(graph_id: str | None = None, metadata: dict[str, Any] | None = None, name: str | None = None)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "AssistantSearch",
+          "signature": "(graph_id: str | None = None, metadata: dict[str, Any] | None = None, name: str | None = None, limit: int = Field(default=10, ge=1), offset: int = Field(default=0, ge=0))"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "Checkpoint",
+          "signature": "(thread_id: str, checkpoint_ns: str = '', checkpoint_id: str | None = None, checkpoint_map: dict[str, Any] | None = None)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "Interrupt",
+          "signature": "(value: Any = None, id: str)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "Json",
+          "signature": "Union[dict[str, Any], None]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "MultitaskStrategy",
+          "signature": "Literal['reject', 'interrupt', 'rollback', 'enqueue']"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "Run",
+          "signature": "(run_id: str, thread_id: str, assistant_id: str, created_at: datetime, updated_at: datetime, status: RunStatus, metadata: Json = None, multitask_strategy: MultitaskStrategy = 'reject')"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "RunCreate",
+          "signature": "(assistant_id: str, thread_id: str | None = None, input: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None, config: dict[str, Any] | None = None, context: dict[str, Any] | None = None, stream_mode: str | list[str] = 'values', interrupt_before: list[str] | Literal['*'] | None = None, interrupt_after: list[str] | Literal['*'] | None = None, webhook: str | None = None, multitask_strategy: MultitaskStrategy | None = None, checkpoint_id: str | None = None, on_completion: str | None = None, after_seconds: float | None = None, if_not_exists: str | None = None, command: dict[str, Any] | None = None, feedback_keys: list[str] | None = None)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "RunStatus",
+          "signature": "Literal['pending', 'running', 'error', 'success', 'timeout', 'interrupted']"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "Thread",
+          "signature": "(thread_id: str, created_at: datetime, updated_at: datetime, metadata: Json = None, status: ThreadStatus = 'idle', values: Json = None, assistant_id: str | None = None, interrupts: dict[str, list[Interrupt]] = Field(default_factory=dict), lock_token: str | None = Field(default=None, exclude=True), lock_expires_at: datetime | None = Field(default=None, exclude=True))"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadCount",
+          "signature": "(metadata: dict[str, Any] | None = None, status: ThreadStatus | None = None)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadCreate",
+          "signature": "(metadata: dict[str, Any] | None = None)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadHistoryRequest",
+          "signature": "(limit: int = Field(default=10, ge=1), before: str | dict[str, Any] | None = None, metadata: dict[str, Any] | None = None, checkpoint: dict[str, Any] | None = None)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadSearch",
+          "signature": "(metadata: dict[str, Any] | None = None, status: ThreadStatus | None = None, limit: int = Field(default=10, ge=1), offset: int = Field(default=0, ge=0))"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadState",
+          "signature": "(values: dict[str, Any] | list[dict[str, Any]], next: list[str], checkpoint: Checkpoint, metadata: Json = None, created_at: str | None = None, parent_checkpoint: Checkpoint | None = None, tasks: list[ThreadTask] = Field(default_factory=list), interrupts: list[Interrupt] = Field(default_factory=list))"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadStateUpdate",
+          "signature": "(values: dict[str, Any] | list[dict[str, Any]], as_node: str | None = None, checkpoint_id: str | None = None, checkpoint: dict[str, Any] | None = None)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "ThreadStatus",
+          "signature": "Literal['idle', 'busy', 'interrupted', 'error']"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadTask",
+          "signature": "(id: str, name: str, error: str | None = None, interrupts: list[Interrupt] = Field(default_factory=list), checkpoint: Checkpoint | None = None, state: dict[str, Any] | None = None, result: dict[str, Any] | None = None)"
+        },
+        {
+          "bases": [
+            "BaseModel"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.contracts",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadUpdate",
+          "signature": "(metadata: dict[str, Any] | None = None)"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "README"
+    },
+    {
+      "all": [
+        "PlatformRouteDeps",
+        "_get_threadless_graph",
+        "_platform_error",
+        "_preflight_run_create",
+        "_registration_to_assistant",
+        "_snapshot_to_thread_state",
+        "register_platform_routes"
+      ],
+      "module": "azure_functions_langgraph.platform.routes",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform._common",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "PlatformRouteDeps",
+          "signature": "(*, registrations: dict[str, Any], thread_store: ThreadStore, thread_lock: ThreadLock, observer: RunObserver=NOOP_OBSERVER, auth_level: func.AuthLevel, max_stream_response_bytes: int, max_request_body_bytes: int=1024 * 1024, max_input_depth: int=32, max_input_nodes: int=10000, max_platform_result_limit: int=100, authorize: ThreadAuthorizer | None=None)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform._common",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "_get_threadless_graph",
+          "signature": "(graph: Any) -> Any | None"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform._common",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "_platform_error",
+          "signature": "(status_code: int, detail: str | list[ValidationErrorDetail], request_id: str | None=None) -> func.HttpResponse"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.platform._common",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "_preflight_run_create",
+          "signature": "(run: RunCreate) -> func.HttpResponse | None"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.platform._common",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "_registration_to_assistant",
+          "signature": "(name: str, reg: Any) -> Assistant"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.platform._common",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "_snapshot_to_thread_state",
+          "signature": "(snapshot: Any, thread_id: str) -> ThreadState"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.platform.routes",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "register_platform_routes",
+          "signature": "(app: func.FunctionApp, deps: PlatformRouteDeps) -> None"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "README"
+    },
+    {
+      "all": [
+        "InMemoryThreadStore",
+        "ThreadStore"
+      ],
+      "module": "azure_functions_langgraph.platform.stores",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.stores",
+          "in_all": true,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "count",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None) -> int"
+            },
+            {
+              "kind": "method",
+              "name": "create",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "delete",
+              "signature": "(thread_id: str) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "get",
+              "signature": "(thread_id: str) -> Thread | None"
+            },
+            {
+              "kind": "method",
+              "name": "merge_metadata",
+              "signature": "(thread_id: str, metadata: Mapping[str, Any]) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "release_run_lock",
+              "signature": "(thread_id: str, *, status: ThreadStatus, values: dict[str, Any] | None=None, owner_token: str | None=None) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "release_run_lock_outcome",
+              "signature": "(thread_id: str, *, status: ThreadStatus, values: dict[str, Any] | None=None, owner_token: str | None=None) -> RunLockReleaseOutcome"
+            },
+            {
+              "kind": "method",
+              "name": "renew_run_lock",
+              "signature": "(thread_id: str, owner_token: str) -> bool"
+            },
+            {
+              "kind": "method",
+              "name": "search",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, limit: int=10, offset: int=0) -> list[Thread]"
+            },
+            {
+              "kind": "method",
+              "name": "try_acquire_run_lock",
+              "signature": "(thread_id: str, *, assistant_id: str | None=None) -> Thread | None"
+            },
+            {
+              "kind": "method",
+              "name": "update",
+              "signature": "(thread_id: str, *, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, values: dict[str, Any] | None=None, interrupts: dict[str, list[Interrupt]] | None=None, assistant_id: str | None=None) -> Thread"
+            }
+          ],
+          "name": "InMemoryThreadStore",
+          "signature": "(*, id_factory: Callable[[], str] | None=None)"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.stores",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "merge_metadata",
+              "signature": "(thread_id: str, metadata: Mapping[str, Any]) -> Thread"
+            }
+          ],
+          "name": "MetadataMergeProvider",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.stores",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "release_run_lock_outcome",
+              "signature": "(thread_id: str, *, status: ThreadStatus, values: dict[str, Any] | None=None, owner_token: str | None=None) -> RunLockReleaseOutcome"
+            }
+          ],
+          "name": "ReleaseOutcomeProvider",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.stores",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "RunLockReleaseOutcome",
+          "signature": "(thread: Thread, applied: bool)"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.platform.stores",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "count",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None) -> int"
+            },
+            {
+              "kind": "method",
+              "name": "create",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "delete",
+              "signature": "(thread_id: str) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "get",
+              "signature": "(thread_id: str) -> Thread | None"
+            },
+            {
+              "kind": "method",
+              "name": "release_run_lock",
+              "signature": "(thread_id: str, *, status: ThreadStatus, values: dict[str, Any] | None=None, owner_token: str | None=None) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "renew_run_lock",
+              "signature": "(thread_id: str, owner_token: str) -> bool"
+            },
+            {
+              "kind": "method",
+              "name": "search",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, limit: int=10, offset: int=0) -> list[Thread]"
+            },
+            {
+              "kind": "method",
+              "name": "try_acquire_run_lock",
+              "signature": "(thread_id: str, *, assistant_id: str | None=None) -> Thread | None"
+            },
+            {
+              "kind": "method",
+              "name": "update",
+              "signature": "(thread_id: str, *, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, values: dict[str, Any] | None=None, interrupts: dict[str, list[Interrupt]] | None=None, assistant_id: str | None=None) -> Thread"
+            }
+          ],
+          "name": "ThreadStore",
+          "signature": "()"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.protocols",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "ainvoke",
+              "signature": "(input: dict[str, Any], config: dict[str, Any] | None=...) -> Awaitable[Any]"
+            }
+          ],
+          "name": "AsyncInvocableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "aget_state",
+              "signature": "(config: dict[str, Any]) -> Awaitable[Any]"
+            }
+          ],
+          "name": "AsyncStatefulGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "astream",
+              "signature": "(input: dict[str, Any], config: dict[str, Any] | None=..., stream_mode: str=...) -> AsyncIterator[Any]"
+            }
+          ],
+          "name": "AsyncStreamableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "copy",
+              "signature": "(*, update: dict[str, Any] | None=...) -> Any"
+            }
+          ],
+          "name": "CloneableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "invoke",
+              "signature": "(input: dict[str, Any], config: dict[str, Any] | None=...) -> Any"
+            }
+          ],
+          "name": "InvocableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "InvocableGraph",
+            "StreamableGraph",
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [],
+          "name": "LangGraphLike",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "get_state_history",
+              "signature": "(config: dict[str, Any]) -> Any"
+            }
+          ],
+          "name": "StateHistoryGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "get_state",
+              "signature": "(config: dict[str, Any]) -> Any"
+            }
+          ],
+          "name": "StatefulGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "stream",
+              "signature": "(input: dict[str, Any], config: dict[str, Any] | None=..., stream_mode: str=...) -> Iterator[Any]"
+            }
+          ],
+          "name": "StreamableGraph",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.protocols",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "update_state",
+              "signature": "(config: dict[str, Any], values: dict[str, Any] | list[dict[str, Any]] | None, *, as_node: str | None=...) -> Any"
+            }
+          ],
+          "name": "UpdatableStateGraph",
+          "signature": "()"
+        }
+      ],
+      "tier": "Stable-intent Core",
+      "tier_basis": "README"
+    },
+    {
+      "all": [
+        "AzureTableThreadStore"
+      ],
+      "module": "azure_functions_langgraph.stores",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [
+            "ThreadStore"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.stores.azure_table",
+          "in_all": true,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "count",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None) -> int"
+            },
+            {
+              "kind": "method",
+              "name": "create",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "delete",
+              "signature": "(thread_id: str) -> None"
+            },
+            {
+              "kind": "classmethod",
+              "name": "from_connection_string",
+              "signature": "(connection_string: str, table_name: str) -> AzureTableThreadStore"
+            },
+            {
+              "kind": "classmethod",
+              "name": "from_table_client",
+              "signature": "(table_client: _TableClientProtocol) -> AzureTableThreadStore"
+            },
+            {
+              "kind": "method",
+              "name": "get",
+              "signature": "(thread_id: str) -> Thread | None"
+            },
+            {
+              "kind": "method",
+              "name": "merge_metadata",
+              "signature": "(thread_id: str, metadata: Mapping[str, Any]) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "release_run_lock",
+              "signature": "(thread_id: str, *, status: ThreadStatus, values: dict[str, Any] | None=None, owner_token: str | None=None) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "release_run_lock_outcome",
+              "signature": "(thread_id: str, *, status: ThreadStatus, values: dict[str, Any] | None=None, owner_token: str | None=None) -> RunLockReleaseOutcome"
+            },
+            {
+              "kind": "method",
+              "name": "renew_run_lock",
+              "signature": "(thread_id: str, owner_token: str) -> bool"
+            },
+            {
+              "kind": "method",
+              "name": "reset_stale_locks",
+              "signature": "(older_than_seconds: int, status: Literal['idle', 'error']='error') -> int"
+            },
+            {
+              "kind": "method",
+              "name": "search",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, limit: int=10, offset: int=0) -> list[Thread]"
+            },
+            {
+              "kind": "method",
+              "name": "try_acquire_run_lock",
+              "signature": "(thread_id: str, *, assistant_id: str | None=None) -> Thread | None"
+            },
+            {
+              "kind": "method",
+              "name": "update",
+              "signature": "(thread_id: str, *, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, values: dict[str, Any] | None=None, interrupts: dict[str, list[Interrupt]] | None=None, assistant_id: str | None=None) -> Thread"
+            }
+          ],
+          "name": "AzureTableThreadStore",
+          "signature": "(*, table_client: _TableClientProtocol, not_found_error: type[BaseException], modified_error: type[BaseException], match_conditions: Any)"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "provisional"
+    },
+    {
+      "module": "azure_functions_langgraph.stores._errors",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.stores._table_json",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "all": [
+        "AzureTableThreadStore"
+      ],
+      "module": "azure_functions_langgraph.stores.azure_table",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [
+            "ThreadStore"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.stores.azure_table",
+          "in_all": true,
+          "kind": "class",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "count",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None) -> int"
+            },
+            {
+              "kind": "method",
+              "name": "create",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "delete",
+              "signature": "(thread_id: str) -> None"
+            },
+            {
+              "kind": "classmethod",
+              "name": "from_connection_string",
+              "signature": "(connection_string: str, table_name: str) -> AzureTableThreadStore"
+            },
+            {
+              "kind": "classmethod",
+              "name": "from_table_client",
+              "signature": "(table_client: _TableClientProtocol) -> AzureTableThreadStore"
+            },
+            {
+              "kind": "method",
+              "name": "get",
+              "signature": "(thread_id: str) -> Thread | None"
+            },
+            {
+              "kind": "method",
+              "name": "merge_metadata",
+              "signature": "(thread_id: str, metadata: Mapping[str, Any]) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "release_run_lock",
+              "signature": "(thread_id: str, *, status: ThreadStatus, values: dict[str, Any] | None=None, owner_token: str | None=None) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "release_run_lock_outcome",
+              "signature": "(thread_id: str, *, status: ThreadStatus, values: dict[str, Any] | None=None, owner_token: str | None=None) -> RunLockReleaseOutcome"
+            },
+            {
+              "kind": "method",
+              "name": "renew_run_lock",
+              "signature": "(thread_id: str, owner_token: str) -> bool"
+            },
+            {
+              "kind": "method",
+              "name": "reset_stale_locks",
+              "signature": "(older_than_seconds: int, status: Literal['idle', 'error']='error') -> int"
+            },
+            {
+              "kind": "method",
+              "name": "search",
+              "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, limit: int=10, offset: int=0) -> list[Thread]"
+            },
+            {
+              "kind": "method",
+              "name": "try_acquire_run_lock",
+              "signature": "(thread_id: str, *, assistant_id: str | None=None) -> Thread | None"
+            },
+            {
+              "kind": "method",
+              "name": "update",
+              "signature": "(thread_id: str, *, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, values: dict[str, Any] | None=None, interrupts: dict[str, list[Interrupt]] | None=None, assistant_id: str | None=None) -> Thread"
+            }
+          ],
+          "name": "AzureTableThreadStore",
+          "signature": "(*, table_client: _TableClientProtocol, not_found_error: type[BaseException], modified_error: type[BaseException], match_conditions: Any)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.stores.azure_table",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "provisional"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.streaming",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.streaming",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [
+            {
+              "kind": "property",
+              "name": "function_app",
+              "signature": "() -> func.FunctionApp"
+            },
+            {
+              "kind": "method",
+              "name": "register",
+              "signature": "(graph: Any, name: str, description: str | None=None, stream: bool=True, auth_level: func.AuthLevel | None=None, *, request_model: type[Any] | None=None, response_model: type[Any] | None=None, async_mode: bool=False, allowed_configurable_keys: Iterable[str]=frozenset()) -> None"
+            }
+          ],
+          "name": "StreamingLangGraphApp",
+          "signature": "(auth_level: func.AuthLevel = func.AuthLevel.FUNCTION, health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS, health_details_auth_level: func.AuthLevel | None = None, max_request_body_bytes: int = 1024 * 1024, max_input_depth: int = 32, max_input_nodes: int = 10000, max_stream_events: int = 100000, thread_lock: ThreadLock | None = None, observer: RunObserver | None = None, route_prefix: str = '/api', authorize: StreamingThreadAuthorizer | None = field(default=None, kw_only=True, repr=False))"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.streaming",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "README"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.streaming_authorization",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.streaming_authorization",
+          "in_all": false,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "StreamingAuthorizationContext",
+          "signature": "(action: AuthorizationAction, graph_name: str, thread_id: str | None, request: Request)"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.streaming_authorization",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [],
+          "name": "StreamingThreadAuthorizer",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.streaming_authorization",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "logger",
+          "signature": "logging.getLogger(__name__)"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "provisional"
+    },
+    {
+      "all": [
+        "InputMapper",
+        "ResultHandler",
+        "ServiceBusMessageLike",
+        "ThreadContentionError",
+        "ThreadIdFactory",
+        "default_message_mapper",
+        "process_service_bus_message",
+        "process_service_bus_message_async"
+      ],
+      "module": "azure_functions_langgraph.triggers",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "InputMapper",
+          "signature": "Callable[[ServiceBusMessageLike], Any]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "ResultHandler",
+          "signature": "Callable[[Any, ServiceBusMessageLike], None]"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "get_body",
+              "signature": "() -> bytes"
+            },
+            {
+              "kind": "property",
+              "name": "message_id",
+              "signature": "() -> str | None"
+            }
+          ],
+          "name": "ServiceBusMessageLike",
+          "signature": "()"
+        },
+        {
+          "bases": [
+            "RuntimeError"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadContentionError",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "ThreadIdFactory",
+          "signature": "Callable[[ServiceBusMessageLike], str | None]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "default_message_mapper",
+          "signature": "(msg: ServiceBusMessageLike) -> dict[str, Any]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "function",
+          "methods": [],
+          "name": "process_service_bus_message",
+          "signature": "(reg: _ServiceBusRegistration, msg: ServiceBusMessageLike, *, thread_lock: ThreadLock, observer: RunObserver=NOOP_OBSERVER) -> Any"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": true,
+          "kind": "async function",
+          "methods": [],
+          "name": "process_service_bus_message_async",
+          "signature": "(reg: _ServiceBusRegistration, msg: ServiceBusMessageLike, *, thread_lock: ThreadLock, observer: RunObserver=NOOP_OBSERVER) -> Any"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "README"
+    },
+    {
+      "module": "azure_functions_langgraph.triggers._session_topology",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "all": [],
+      "module": "azure_functions_langgraph.triggers.service_bus",
+      "public": true,
+      "symbols": [
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "InputMapper",
+          "signature": "Callable[[ServiceBusMessageLike], Any]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "ResultHandler",
+          "signature": "Callable[[Any, ServiceBusMessageLike], None]"
+        },
+        {
+          "bases": [
+            "Protocol"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": false,
+          "kind": "protocol",
+          "methods": [
+            {
+              "kind": "method",
+              "name": "get_body",
+              "signature": "() -> bytes"
+            },
+            {
+              "kind": "property",
+              "name": "message_id",
+              "signature": "() -> str | None"
+            }
+          ],
+          "name": "ServiceBusMessageLike",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": false,
+          "kind": "constant",
+          "methods": [],
+          "name": "TRIGGER_TYPE",
+          "signature": "'service_bus'"
+        },
+        {
+          "bases": [
+            "RuntimeError"
+          ],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": false,
+          "kind": "class",
+          "methods": [],
+          "name": "ThreadContentionError",
+          "signature": "()"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": false,
+          "kind": "alias",
+          "methods": [],
+          "name": "ThreadIdFactory",
+          "signature": "Callable[[ServiceBusMessageLike], str | None]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": true,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "default_message_mapper",
+          "signature": "(msg: ServiceBusMessageLike) -> dict[str, Any]"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": true,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": false,
+          "kind": "function",
+          "methods": [],
+          "name": "process_service_bus_message",
+          "signature": "(reg: _ServiceBusRegistration, msg: ServiceBusMessageLike, *, thread_lock: ThreadLock, observer: RunObserver=NOOP_OBSERVER) -> Any"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": true
+          },
+          "defined_in": "azure_functions_langgraph.triggers.service_bus",
+          "in_all": false,
+          "kind": "async function",
+          "methods": [],
+          "name": "process_service_bus_message_async",
+          "signature": "(reg: _ServiceBusRegistration, msg: ServiceBusMessageLike, *, thread_lock: ThreadLock, observer: RunObserver=NOOP_OBSERVER) -> Any"
+        }
+      ],
+      "tier": "Experimental",
+      "tier_basis": "README"
+    }
+  ],
+  "package": "azure_functions_langgraph",
+  "packaging": {
+    "extras": {
+      "azure-blob": [
+        "azure-storage-blob"
+      ],
+      "azure-identity": [
+        "azure-identity"
+      ],
+      "azure-table": [
+        "azure-data-tables"
+      ],
+      "cosmos": [
+        "langgraph-checkpoint-cosmosdb"
+      ],
+      "durable": [
+        "azure-functions-durable"
+      ],
+      "openapi": [
+        "azure-functions-openapi"
+      ],
+      "otel": [
+        "opentelemetry-api"
+      ],
+      "postgres": [
+        "langgraph-checkpoint-postgres",
+        "psycopg"
+      ],
+      "sqlite": [
+        "langgraph-checkpoint-sqlite"
+      ],
+      "streaming": [
+        "azurefunctions-extensions-http-fastapi"
+      ]
+    },
+    "optional_imports": [
+      {
+        "extra": "azure-blob",
+        "import": "azure.storage.blob",
+        "module": "azure_functions_langgraph.checkpointers.azure_blob",
+        "scope": "dynamic"
+      },
+      {
+        "extra": "azure-blob",
+        "import": "azure.storage.blob.aio",
+        "module": "azure_functions_langgraph.checkpointers.azure_blob",
+        "scope": "dynamic"
+      },
+      {
+        "extra": "cosmos",
+        "import": "langgraph_checkpoint_cosmosdb",
+        "module": "azure_functions_langgraph.checkpointers.cosmos",
+        "scope": "dynamic"
+      },
+      {
+        "extra": "cosmos",
+        "import": "langgraph_checkpoint_cosmosdb",
+        "module": "azure_functions_langgraph.checkpointers.cosmos",
+        "scope": "type_checking"
+      },
+      {
+        "extra": "postgres",
+        "import": "langgraph.checkpoint.postgres",
+        "module": "azure_functions_langgraph.checkpointers.postgres",
+        "scope": "dynamic"
+      },
+      {
+        "extra": "postgres",
+        "import": "langgraph.checkpoint.postgres",
+        "module": "azure_functions_langgraph.checkpointers.postgres",
+        "scope": "type_checking"
+      },
+      {
+        "extra": "postgres",
+        "import": "psycopg",
+        "module": "azure_functions_langgraph.checkpointers.postgres",
+        "scope": "dynamic"
+      },
+      {
+        "extra": "postgres",
+        "import": "psycopg.rows",
+        "module": "azure_functions_langgraph.checkpointers.postgres",
+        "scope": "dynamic"
+      },
+      {
+        "extra": "sqlite",
+        "import": "langgraph.checkpoint.sqlite",
+        "module": "azure_functions_langgraph.checkpointers.sqlite",
+        "scope": "dynamic"
+      },
+      {
+        "extra": "sqlite",
+        "import": "langgraph.checkpoint.sqlite",
+        "module": "azure_functions_langgraph.checkpointers.sqlite",
+        "scope": "type_checking"
+      },
+      {
+        "extra": "durable",
+        "import": "azure.durable_functions",
+        "module": "azure_functions_langgraph.durable._runtime",
+        "scope": "nested"
+      },
+      {
+        "extra": "azure-blob",
+        "import": "azure.storage.blob",
+        "module": "azure_functions_langgraph.locks.azure_blob",
+        "scope": "dynamic"
+      },
+      {
+        "extra": "otel",
+        "import": "opentelemetry",
+        "module": "azure_functions_langgraph.observability_otel",
+        "scope": "module"
+      },
+      {
+        "extra": "otel",
+        "import": "opentelemetry.trace",
+        "module": "azure_functions_langgraph.observability_otel",
+        "scope": "module"
+      },
+      {
+        "extra": "openapi",
+        "import": "azure_functions_openapi",
+        "module": "azure_functions_langgraph.openapi",
+        "scope": "nested"
+      },
+      {
+        "extra": "azure-table",
+        "import": "azure.data.tables",
+        "module": "azure_functions_langgraph.stores.azure_table",
+        "scope": "dynamic"
+      },
+      {
+        "extra": "streaming",
+        "import": "azurefunctions.extensions.http.fastapi",
+        "module": "azure_functions_langgraph.streaming",
+        "scope": "nested"
+      }
+    ],
+    "required_dependencies": [
+      "azure-functions",
+      "langchain-core",
+      "langgraph",
+      "pydantic"
+    ],
+    "root_import_pulls_optional_extras": false
+  },
+  "root": {
+    "all": [
+      "AppMetadata",
+      "AsyncInvocableGraph",
+      "AsyncStreamableGraph",
+      "CloneableGraph",
+      "ErrorResponse",
+      "GraphInfo",
+      "HealthResponse",
+      "InvocableGraph",
+      "InvokeRequest",
+      "InvokeResponse",
+      "LangGraphApp",
+      "LangGraphLike",
+      "LoggingRunObserver",
+      "NoOpRunObserver",
+      "OTelRunObserver",
+      "RegisteredGraphMetadata",
+      "RouteMetadata",
+      "RunContext",
+      "RunObserver",
+      "RunRejectedReason",
+      "RunTransport",
+      "ServiceBusMessageLike",
+      "StateResponse",
+      "StatefulGraph",
+      "StreamRequest",
+      "StreamableGraph",
+      "StreamingLangGraphApp",
+      "ThreadContentionError",
+      "__version__",
+      "default_message_mapper",
+      "get_langgraph_metadata"
+    ],
+    "all_matches_lazy": true,
+    "exports": [
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "dataclass",
+        "name": "AppMetadata",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(graphs: Mapping[str, RegisteredGraphMetadata] = field(default_factory=lambda: MappingProxyType({})), app_routes: tuple[RouteMetadata, ...] = ())",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.protocols",
+        "kind": "protocol",
+        "name": "AsyncInvocableGraph",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.protocols",
+        "kind": "protocol",
+        "name": "AsyncStreamableGraph",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.protocols",
+        "kind": "protocol",
+        "name": "CloneableGraph",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "class",
+        "name": "ErrorResponse",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(error: str, detail: str | list[ValidationErrorDetail] | None = None, request_id: str | None = None)",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "class",
+        "name": "GraphInfo",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(name: str, description: str | None = None, has_checkpointer: bool = False)",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "class",
+        "name": "HealthResponse",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(status: str = 'ok', graphs: list[GraphInfo] = Field(default_factory=list))",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.protocols",
+        "kind": "protocol",
+        "name": "InvocableGraph",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "class",
+        "name": "InvokeRequest",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(input: dict[str, Any] = Field(description='Input to the graph'), config: dict[str, Any] | None = Field(default=None, description=\"LangGraph config, e.g. {'configurable': {'thread_id': '...'}}\"), version: LangGraphVersion | None = Field(default=None, description=\"Optional LangGraph output version ('v1' or 'v2'). Forwarded to graph.invoke(..., version=...) only when set; requires langgraph>=1.1. 'v2' returns a GraphOutput {'value', 'interrupts'} shape.\"))",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "class",
+        "name": "InvokeResponse",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(output: dict[str, Any] = Field(description='Graph output state'))",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": true,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.app",
+        "kind": "dataclass",
+        "name": "LangGraphApp",
+        "requires_extra": null,
+        "requires_runtime_deps": true,
+        "signature": "(auth_level: func.AuthLevel = func.AuthLevel.FUNCTION, health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS, health_details_auth_level: func.AuthLevel | None = None, readiness_auth_level: func.AuthLevel | None = None, readiness_checks: Mapping[str, Callable[[], bool | Awaitable[bool]]] | None = None, readiness_timeout_seconds: float = 5.0, max_stream_response_bytes: int = 1024 * 1024, max_request_body_bytes: int = 1024 * 1024, max_input_depth: int = 32, max_input_nodes: int = 10000, max_platform_result_limit: int = 100, platform_compat: bool = False, async_runs: AsyncRunsMode = False, thread_lock: ThreadLock | None = None, observer: RunObserver | None = None, authorize: ThreadAuthorizer | None = None, route_prefix: str = _ROUTE_PREFIX)",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.protocols",
+        "kind": "protocol",
+        "name": "LangGraphLike",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": true,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.observability",
+        "kind": "class",
+        "name": "LoggingRunObserver",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(logger: logging.Logger | None=None, *, level: int=logging.INFO)",
+        "tier": "Beta",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.observability",
+        "kind": "class",
+        "name": "NoOpRunObserver",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Beta",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": true,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.observability_otel",
+        "kind": "class",
+        "name": "OTelRunObserver",
+        "requires_extra": "otel",
+        "requires_runtime_deps": false,
+        "signature": "(tracer: Tracer | None=None, *, span_name_prefix: str='langgraph.run')",
+        "tier": "Beta",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "dataclass",
+        "name": "RegisteredGraphMetadata",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(name: str, description: str | None = None, routes: tuple[RouteMetadata, ...] = ())",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "dataclass",
+        "name": "RouteMetadata",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(path: str, method: str, summary: str = '', description: str = '', parameters: tuple[Mapping[str, Any], ...] = (), request_model: type[Any] | None = None, response_model: type[Any] | None = None)",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": true,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.observability",
+        "kind": "dataclass",
+        "name": "RunContext",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(graph_name: str, endpoint: EndpointName, run_id: str, thread_id: str | None, started_at_ns: int, ended_at_ns: int | None = None, execution_id: str = dataclasses.field(default_factory=lambda: uuid4().hex), assistant_id: str | None = None, invocation_id: str | None = None, stream_mode: str | tuple[str, ...] | None = None, transport: RunTransport = 'buffered', has_checkpointer: bool | None = None, lock_backend: str | None = None, trigger_type: str | None = None)",
+        "tier": "Beta",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": true,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.observability",
+        "kind": "protocol",
+        "name": "RunObserver",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Beta",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": true,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.observability",
+        "kind": "alias",
+        "name": "RunRejectedReason",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "Literal['invalid_request', 'invalid_config', 'unsupported_version', 'streaming_unsupported', 'lock_contention', 'auth...",
+        "tier": "Beta",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.observability",
+        "kind": "alias",
+        "name": "RunTransport",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "Literal['buffered', 'streaming']",
+        "tier": "Beta",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.triggers.service_bus",
+        "kind": "protocol",
+        "name": "ServiceBusMessageLike",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Experimental",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "class",
+        "name": "StateResponse",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(values: dict[str, Any] = Field(description='Current state values'), next: list[str] = Field(default_factory=list, description='Next node(s) to execute'), metadata: dict[str, Any] | None = Field(default=None, description='State metadata'))",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.protocols",
+        "kind": "protocol",
+        "name": "StatefulGraph",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.contracts",
+        "kind": "class",
+        "name": "StreamRequest",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(input: dict[str, Any] = Field(description='Input to the graph'), config: dict[str, Any] | None = Field(default=None, description=\"LangGraph config, e.g. {'configurable': {'thread_id': '...'}}\"), stream_mode: str = Field(default='values', description=\"Stream mode: 'values', 'updates', 'messages', or 'custom'\"), version: LangGraphVersion | None = Field(default=None, description=\"Optional LangGraph output version ('v1' or 'v2'). Forwarded to graph.stream(..., version=...) only when set; requires langgraph>=1.1. 'v2' emits unified StreamPart {'type','ns','data','interrupts'} events.\"))",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.protocols",
+        "kind": "protocol",
+        "name": "StreamableGraph",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": true,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.streaming",
+        "kind": "dataclass",
+        "name": "StreamingLangGraphApp",
+        "requires_extra": "streaming",
+        "requires_runtime_deps": false,
+        "signature": "(auth_level: func.AuthLevel = func.AuthLevel.FUNCTION, health_auth_level: func.AuthLevel = func.AuthLevel.ANONYMOUS, health_details_auth_level: func.AuthLevel | None = None, max_request_body_bytes: int = 1024 * 1024, max_input_depth: int = 32, max_input_nodes: int = 10000, max_stream_events: int = 100000, thread_lock: ThreadLock | None = None, observer: RunObserver | None = None, route_prefix: str = '/api', authorize: StreamingThreadAuthorizer | None = field(default=None, kw_only=True, repr=False))",
+        "tier": "Experimental",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": true,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.triggers.service_bus",
+        "kind": "class",
+        "name": "ThreadContentionError",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "()",
+        "tier": "Experimental",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": true,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.triggers.service_bus",
+        "kind": "function",
+        "name": "default_message_mapper",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(msg: ServiceBusMessageLike) -> dict[str, Any]",
+        "tier": "Experimental",
+        "tier_basis": "README"
+      },
+      {
+        "consumers": {
+          "docs": true,
+          "examples": false,
+          "tests": true
+        },
+        "defined_in": "azure_functions_langgraph.app",
+        "kind": "function",
+        "name": "get_langgraph_metadata",
+        "requires_extra": null,
+        "requires_runtime_deps": false,
+        "signature": "(func: Any) -> dict[str, Any] | None",
+        "tier": "Stable-intent Core",
+        "tier_basis": "README"
+      }
+    ],
+    "lazy_exports": {
+      "AppMetadata": {
+        "attr": "AppMetadata",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "AsyncInvocableGraph": {
+        "attr": "AsyncInvocableGraph",
+        "module": "azure_functions_langgraph.protocols"
+      },
+      "AsyncStreamableGraph": {
+        "attr": "AsyncStreamableGraph",
+        "module": "azure_functions_langgraph.protocols"
+      },
+      "CloneableGraph": {
+        "attr": "CloneableGraph",
+        "module": "azure_functions_langgraph.protocols"
+      },
+      "ErrorResponse": {
+        "attr": "ErrorResponse",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "GraphInfo": {
+        "attr": "GraphInfo",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "HealthResponse": {
+        "attr": "HealthResponse",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "InvocableGraph": {
+        "attr": "InvocableGraph",
+        "module": "azure_functions_langgraph.protocols"
+      },
+      "InvokeRequest": {
+        "attr": "InvokeRequest",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "InvokeResponse": {
+        "attr": "InvokeResponse",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "LangGraphApp": {
+        "attr": "LangGraphApp",
+        "module": "azure_functions_langgraph.app"
+      },
+      "LangGraphLike": {
+        "attr": "LangGraphLike",
+        "module": "azure_functions_langgraph.protocols"
+      },
+      "LoggingRunObserver": {
+        "attr": "LoggingRunObserver",
+        "module": "azure_functions_langgraph.observability"
+      },
+      "NoOpRunObserver": {
+        "attr": "NoOpRunObserver",
+        "module": "azure_functions_langgraph.observability"
+      },
+      "OTelRunObserver": {
+        "attr": "OTelRunObserver",
+        "module": "azure_functions_langgraph.observability_otel"
+      },
+      "RegisteredGraphMetadata": {
+        "attr": "RegisteredGraphMetadata",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "RouteMetadata": {
+        "attr": "RouteMetadata",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "RunContext": {
+        "attr": "RunContext",
+        "module": "azure_functions_langgraph.observability"
+      },
+      "RunObserver": {
+        "attr": "RunObserver",
+        "module": "azure_functions_langgraph.observability"
+      },
+      "RunRejectedReason": {
+        "attr": "RunRejectedReason",
+        "module": "azure_functions_langgraph.observability"
+      },
+      "RunTransport": {
+        "attr": "RunTransport",
+        "module": "azure_functions_langgraph.observability"
+      },
+      "ServiceBusMessageLike": {
+        "attr": "ServiceBusMessageLike",
+        "module": "azure_functions_langgraph.triggers.service_bus"
+      },
+      "StateResponse": {
+        "attr": "StateResponse",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "StatefulGraph": {
+        "attr": "StatefulGraph",
+        "module": "azure_functions_langgraph.protocols"
+      },
+      "StreamRequest": {
+        "attr": "StreamRequest",
+        "module": "azure_functions_langgraph.contracts"
+      },
+      "StreamableGraph": {
+        "attr": "StreamableGraph",
+        "module": "azure_functions_langgraph.protocols"
+      },
+      "StreamingLangGraphApp": {
+        "attr": "StreamingLangGraphApp",
+        "module": "azure_functions_langgraph.streaming"
+      },
+      "ThreadContentionError": {
+        "attr": "ThreadContentionError",
+        "module": "azure_functions_langgraph.triggers.service_bus"
+      },
+      "default_message_mapper": {
+        "attr": "default_message_mapper",
+        "module": "azure_functions_langgraph.triggers.service_bus"
+      },
+      "get_langgraph_metadata": {
+        "attr": "get_langgraph_metadata",
+        "module": "azure_functions_langgraph.app"
+      }
+    }
+  },
+  "routes": [
+    {
+      "documented": true,
+      "family": "Native HTTP (LangGraphApp)",
+      "method": "POST",
+      "route": "graphs/{name}/invoke",
+      "tier": "Stable-intent Core"
+    },
+    {
+      "documented": true,
+      "family": "Native HTTP (LangGraphApp)",
+      "method": "POST",
+      "route": "graphs/{name}/stream",
+      "tier": "Stable-intent Core"
+    },
+    {
+      "documented": true,
+      "family": "Native HTTP (LangGraphApp)",
+      "method": "GET",
+      "route": "graphs/{name}/threads/{thread_id}/state",
+      "tier": "Stable-intent Core"
+    },
+    {
+      "documented": true,
+      "family": "Native HTTP (LangGraphApp)",
+      "method": "GET",
+      "route": "health",
+      "tier": "Stable-intent Core"
+    },
+    {
+      "documented": true,
+      "family": "Native HTTP (LangGraphApp)",
+      "method": "GET",
+      "route": "health/details",
+      "tier": "Stable-intent Core"
+    },
+    {
+      "documented": true,
+      "family": "Native HTTP (LangGraphApp)",
+      "method": "GET",
+      "route": "health/ready",
+      "tier": "Stable-intent Core"
+    },
+    {
+      "documented": true,
+      "family": "Native HTTP (StreamingLangGraphApp)",
+      "method": "POST",
+      "route": "graphs/{name}/invoke",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Native HTTP (StreamingLangGraphApp)",
+      "method": "POST",
+      "route": "graphs/{name}/stream",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Native HTTP (StreamingLangGraphApp)",
+      "method": "GET",
+      "route": "health",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Native HTTP (StreamingLangGraphApp)",
+      "method": "GET",
+      "route": "health/details",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "assistants/count",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "assistants/search",
+      "tier": "Experimental"
+    },
+    {
+      "documented": false,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "GET",
+      "route": "assistants/{assistant_id}",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "runs/stream",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "runs/wait",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "threads",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "threads/count",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "threads/search",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "DELETE",
+      "route": "threads/{thread_id}",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "GET",
+      "route": "threads/{thread_id}",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "PATCH",
+      "route": "threads/{thread_id}",
+      "tier": "Experimental"
+    },
+    {
+      "documented": false,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "threads/{thread_id}/history",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "threads/{thread_id}/runs/stream",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "threads/{thread_id}/runs/wait",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "GET",
+      "route": "threads/{thread_id}/state",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Platform SDK compatibility (partial)",
+      "method": "POST",
+      "route": "threads/{thread_id}/state",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Durable async-run lifecycle",
+      "method": "POST",
+      "route": "graphs/{name}/runs",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Durable async-run lifecycle",
+      "method": "GET",
+      "route": "runs/{run_id}",
+      "tier": "Experimental"
+    },
+    {
+      "documented": true,
+      "family": "Durable async-run lifecycle",
+      "method": "POST",
+      "route": "runs/{run_id}/cancel",
+      "tier": "Experimental"
+    }
+  ],
+  "schema_version": 1,
+  "tiers": [
+    "Stable-intent Core",
+    "Beta",
+    "Experimental"
+  ]
+}
