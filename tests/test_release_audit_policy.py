@@ -47,6 +47,30 @@ def test_exception_does_not_cover_new_gate_failure() -> None:
     assert any(f.code == "gate-not-successful" and not f.covered for f in result.findings)
 
 
+@pytest.mark.parametrize(
+    "state", ["failure", "cancelled", "timed_out", "startup_failure", "action_required", "stale"]
+)
+def test_exception_does_not_hide_new_optional_job_failure(state: str) -> None:
+    # Given: the registered v0.12.1 run gains an optional job that did not complete cleanly.
+    registry = load_registry(ROOT)
+    registry = replace(
+        registry, exceptions=tuple(e for e in registry.exceptions if e.tag == "v0.12.1")
+    )
+    candidate = failed()
+    assert candidate.run
+    extra = replace(candidate.run.jobs[0], name="Optional extra", conclusion=state)
+    run = replace(candidate.run, jobs=(*candidate.run.jobs, extra))
+    # When: evaluating the changed evidence.
+    result = evaluate(
+        snapshot(replace(candidate, run=replace(candidate.run, jobs=run.jobs)), facts()),
+        registry,
+        NOW,
+    )[0]
+    # Then: the historical exception must not hide it.
+    assert result.verdict == "DEFECT"
+    assert any(f.job_name == "Optional extra" and not f.covered for f in result.findings)
+
+
 def test_exception_requires_published_successor() -> None:
     # Given: the documented successor no longer has files in the evidence.
     registry = load_registry(ROOT)

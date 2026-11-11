@@ -11,6 +11,12 @@ from tools.release_audit_model import (
     version_key,
 )
 
+# Any non-clean terminal job state is a gate failure; only success, skipped
+# and neutral are acceptable for optional jobs.
+FAILING_CONCLUSIONS = frozenset(
+    {"failure", "cancelled", "timed_out", "startup_failure", "action_required", "stale"}
+)
+
 
 def select_run(facts: VersionFacts, policies: tuple[GatePolicy, ...]) -> Run | None:
     runs = facts.runs or ((facts.run,) if facts.run else ())
@@ -48,7 +54,7 @@ def gate_errors(facts: VersionFacts, policies: tuple[GatePolicy, ...]) -> tuple[
             conclusion=j.conclusion,
         )
         for j in jobs
-        if j.conclusion in {"failure", "cancelled"}
+        if j.conclusion in FAILING_CONCLUSIONS
     ]
     for name in policy.required_jobs:
         matches = [j for j in jobs if j.name == name]

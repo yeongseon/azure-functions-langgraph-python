@@ -108,6 +108,11 @@ of all relevant package/consumer/Azure verification gates.
 This repository additionally reviews durable orchestration state/cancellation, checkpoint fencing limitations and long-running workflow compatibility.
 Check that the latest `Release audit` run on `main` is green (or its only findings are
 registered exceptions), so a previous release is not left unpublished before the next one is cut.
+The exception is a maintainer-authorized corrective release: when a tag failed because of a
+source/workflow defect, its audit stays red until a newer successor has PyPI files, so the
+successor may be cut while its predecessor remains red. Register the predecessor as an
+exception only after the successor is published. Release Please remains the sole release
+authority and no tag is moved or reused.
 Preserve Release Please ownership of version/tags/CHANGELOG and keep all
 existing tag-specific verification and publication gates intact.
 
