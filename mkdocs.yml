@@ -22,6 +22,7 @@ nav:
   - User Guide:
       - Usage: usage.md
       - Adapter Reference & Migration: adapter-reference.md
+      - API Boundary & Migration Policy: api-boundary.md
       - Architecture: architecture.md
       - Operations & APIs: ops-and-apis.md
   - Deployment:
