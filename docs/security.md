@@ -172,6 +172,16 @@ tenant isolation requires them. Do not accept tenant IDs or owner metadata from
 the request as proof of ownership. Backups, Durable history and logs need the same
 classification and access controls as live state.
 
+A failed Durable Activity records only the exception class name and the fixed
+message `The run failed.` in orchestration history: exception text (which can hold
+connection strings, hostnames or tokens) is never written there, because anyone who
+can read the Task Hub storage or call the Durable management endpoints can read
+history. The raw exception goes to server-side logs through `logger.exception`
+without the input, config or result, so log access needs the same classification.
+The graph `input` and `result` are still stored in history. Orchestrations started
+by an earlier release keep the raw message already written to their history; this
+change does not rewrite it.
+
 Setting app-level or per-graph auth to `ANONYMOUS` does not authenticate a
 principal; explicit warnings remain enabled for both configurations.
 

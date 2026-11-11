@@ -144,6 +144,30 @@ another writer changes the thread, it keeps the terminal status and the cleared
 token that the finished run left. Retry the request once the thread is available.
 A thread that is still busy gets the same 409.
 
+### A second Durable run on the same thread skips the graph
+
+Symptom: two runs on one `thread_id` where the second run returns the first run's
+state and its nodes never execute (no tool call, no new checkpoint). Cause: the
+create-run body's `config.configurable` carries a `run_id` key (for example
+`{"configurable": {"run_id": "job-1"}}`) and both runs send the same value.
+
+This is LangGraph's own reserved-key behaviour, not something this adapter does.
+The adapter never writes `run_id` into `config`; it only adds `thread_id`. In
+LangGraph, `run_id` (with `thread_id`, `checkpoint_id`, `checkpoint_ns`, `task_id`,
+`assistant_id` and `graph_id`) is copied from `configurable` into the run
+`metadata`, the checkpointer stores that metadata, and on the next invoke on the
+thread LangGraph treats a run whose `metadata.run_id` equals the stored one as a
+**re-entry into an ongoing run** (a resume) rather than a fresh run, so the new
+input is not applied and the completed checkpoint is returned. Verified against
+`langgraph` 1.2.11 (`langgraph/_internal/_config.py` `_PROPAGATE_TO_METADATA`;
+`langgraph/pregel/_loop.py` `_first`); `tests/test_durable_replay_idempotency.py`
+uses the key `app_run_id` for this reason.
+
+Fix: do not put `run_id` in `config.configurable`. The Durable `run_id` is the
+top-level create-run body field (and the Durable instance id), not a
+`configurable` entry. For an application-level idempotency key use a name that
+LangGraph does not reserve, such as `app_run_id` or `idempotency_key`.
+
 ## Getting help
 
 - [GitHub Issues](https://github.com/yeongseon/azure-functions-langgraph-python/issues) — questions, bug reports, and feature requests

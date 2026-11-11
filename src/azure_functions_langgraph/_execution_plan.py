@@ -92,21 +92,28 @@ def plan_run_config(request_config: dict[str, Any] | None, graph: Any) -> RunPla
     return RunPlan(config, thread_id, None)
 
 
-def method_accepts_version(method: Any) -> bool:
-    """Return ``True`` if *method* accepts a ``version`` keyword argument.
+def method_accepts_kwarg(method: Any, name: str) -> bool:
+    """Return ``True`` if *method* accepts a keyword argument called *name*.
 
-    Matches an explicit ``version`` parameter or a ``**kwargs`` catch-all;
+    Matches an explicit parameter named *name* or a ``**kwargs`` catch-all;
     returns ``False`` when the signature cannot be introspected (e.g. some
-    C-level callables).
+    C-level callables). Native/Streaming use it for ``version`` and Platform
+    for ``context``; only the probe is shared, each surface keeps its own
+    request field, status/message and forwarding rule.
     """
     try:
         sig = inspect.signature(method)
     except (TypeError, ValueError):
         return False
     for param in sig.parameters.values():
-        if param.name == "version" or param.kind is inspect.Parameter.VAR_KEYWORD:
+        if param.name == name or param.kind is inspect.Parameter.VAR_KEYWORD:
             return True
     return False
+
+
+def method_accepts_version(method: Any) -> bool:
+    """Return ``True`` if *method* accepts a ``version`` keyword argument."""
+    return method_accepts_kwarg(method, "version")
 
 
 def negotiate_version(
