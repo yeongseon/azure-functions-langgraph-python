@@ -151,8 +151,9 @@ async def test_early_close_runs_finalizer_with_consumer_context() -> None:
     events = _aiter_graph_events(graph, {}, {}, "updates", {}, async_mode=False)
     async for _ in events:
         break
+    _VAR.set("after-break")
     await events.aclose()
-    assert graph.close_seen == ["early"]
+    assert graph.close_seen == ["after-break"]
     assert threading.get_ident() not in graph.close_threads
 
 
