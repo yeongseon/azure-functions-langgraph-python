@@ -36,6 +36,7 @@ from azure_functions_langgraph.authorization import (
     AuthorizationContext,
     ThreadAuthorizer,
     authorization_status,
+    authorization_status_async,
 )
 from azure_functions_langgraph.contracts import (
     ErrorResponse,
@@ -57,6 +58,7 @@ from azure_functions_langgraph.observability import (
     safe_observer_call,
 )
 from azure_functions_langgraph.protocols import (
+    AsyncStatefulGraph,
     AsyncStreamableGraph,
     StatefulGraph,
     StreamableGraph,
@@ -812,15 +814,15 @@ def handle_state(
     thread_id = req.route_params.get("thread_id")
     if not thread_id:
         return _error_response(400, "Missing thread_id in URL path")
+    tid_err = validate_thread_id(thread_id)
+    if tid_err:
+        return _error_response(400, tid_err)
     status = authorization_status(
         authorize,
         AuthorizationContext(AuthorizationAction.STATE_READ, reg.name, thread_id, req),
     )
     if status is not None:
         return _error_response(status, "Access denied")
-    tid_err = validate_thread_id(thread_id)
-    if tid_err:
-        return _error_response(400, tid_err)
 
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
 
@@ -839,9 +841,55 @@ def handle_state(
         dict(snapshot.metadata) if hasattr(snapshot, "metadata") and snapshot.metadata else None
     )
 
-    response = StateResponse(values=values, next=next_nodes, metadata=metadata)
-    return func.HttpResponse(
-        body=json.dumps(response.model_dump(), default=str),
-        mimetype="application/json",
-        status_code=200,
+    return _state_response(values, next_nodes, metadata)
+
+
+async def handle_state_async(
+    req: func.HttpRequest,
+    reg: Any,
+    authorize: ThreadAuthorizer | None = None,
+) -> func.HttpResponse:
+    if not isinstance(reg.graph, AsyncStatefulGraph):
+        return _error_response(409, f"Graph {reg.name!r} does not support state retrieval")
+
+    thread_id = req.route_params.get("thread_id")
+    if not thread_id:
+        return _error_response(400, "Missing thread_id in URL path")
+    tid_err = validate_thread_id(thread_id)
+    if tid_err:
+        return _error_response(400, tid_err)
+    status = await authorization_status_async(
+        authorize,
+        AuthorizationContext(AuthorizationAction.STATE_READ, reg.name, thread_id, req),
     )
+    if status is not None:
+        return _error_response(status, "Access denied")
+
+    config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+    try:
+        snapshot = await reg.graph.aget_state(config)
+    except (KeyError, ValueError):
+        logger.warning("Graph %s: thread %s not found", reg.name, thread_id)
+        return _error_response(404, f"Thread {thread_id!r} not found")
+    except Exception:
+        logger.exception("Graph %s aget_state failed for thread %s", reg.name, thread_id)
+        return _error_response(500, "Internal error while retrieving thread state")
+
+    values = snapshot.values if isinstance(snapshot.values, dict) else {}
+    next_nodes: list[str] = list(snapshot.next) if hasattr(snapshot, "next") else []
+    metadata = (
+        dict(snapshot.metadata) if hasattr(snapshot, "metadata") and snapshot.metadata else None
+    )
+    return _state_response(values, next_nodes, metadata)
+
+
+def _state_response(
+    values: dict[str, Any], next_nodes: list[str], metadata: dict[str, Any] | None
+) -> func.HttpResponse:
+    response = StateResponse(values=values, next=next_nodes, metadata=metadata)
+    try:
+        body = dumps(response.model_dump(), allow_nan=False)
+    except (TypeError, ValueError):
+        logger.exception("Thread state could not be serialized as JSON")
+        return _error_response(500, "Thread state could not be serialized as JSON")
+    return func.HttpResponse(body=body, mimetype="application/json", status_code=200)

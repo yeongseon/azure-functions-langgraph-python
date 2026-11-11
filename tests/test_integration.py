@@ -10,7 +10,9 @@ Issue: #41
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator, Sequence
 from importlib.metadata import version as _pkg_version
+import inspect
 import json
 import logging
 import operator
@@ -18,12 +20,20 @@ import types
 from typing import Annotated, Any, TypedDict
 
 import azure.functions as func
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import (
+    ChannelVersions,
+    Checkpoint,
+    CheckpointMetadata,
+    CheckpointTuple,
+)
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 import pytest
 
 from azure_functions_langgraph._handlers import handle_stream, handle_stream_async
 from azure_functions_langgraph.app import LangGraphApp
+from azure_functions_langgraph.authorization import AuthorizationContext, ThreadAuthorizer
 from azure_functions_langgraph.locks import InProcessThreadLock
 from azure_functions_langgraph.observability import (
     LoggingRunObserver,
@@ -84,6 +94,66 @@ def _build_graph(*, checkpointer: Any = None) -> Any:
     builder.add_edge("greet", "count")
     builder.add_edge("count", END)
     return builder.compile(checkpointer=checkpointer)
+
+
+class AsyncOnlyMemorySaver(MemorySaver):
+    sync_calls = 0
+
+    def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        self.sync_calls += 1
+        raise NotImplementedError("synchronous checkpoint reads are unsupported")
+
+    def list(
+        self,
+        config: RunnableConfig | None,
+        *,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
+    ) -> Iterator[CheckpointTuple]:
+        self.sync_calls += 1
+        raise NotImplementedError("synchronous checkpoint history is unsupported")
+
+    def put(
+        self,
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> RunnableConfig:
+        self.sync_calls += 1
+        raise NotImplementedError("synchronous checkpoint writes are unsupported")
+
+    def put_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        self.sync_calls += 1
+        raise NotImplementedError("synchronous checkpoint writes are unsupported")
+
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
+        return MemorySaver.get_tuple(self, config)
+
+    async def aput(
+        self,
+        config: RunnableConfig,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata,
+        new_versions: ChannelVersions,
+    ) -> RunnableConfig:
+        return MemorySaver.put(self, config, checkpoint, metadata, new_versions)
+
+    async def aput_writes(
+        self,
+        config: RunnableConfig,
+        writes: Sequence[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        MemorySaver.put_writes(self, config, writes, task_id, task_path)
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +522,163 @@ class TestNativeErrors:
         resp = state_fn(req)
         # ValueError is caught by handle_state → 404 (thread not found)
         assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_async_state_uses_async_only_checkpointer(self) -> None:
+        saver = AsyncOnlyMemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = LangGraphApp()
+        app.register(graph, "agent", async_mode=True)
+        invoke_fn = _get_fn(app.function_app, "aflg_agent_invoke")
+        state_fn = _get_fn(app.function_app, "aflg_agent_state")
+
+        assert inspect.iscoroutinefunction(state_fn)
+        invoke_resp = await invoke_fn(
+            _post(
+                "/api/graphs/agent/invoke",
+                {
+                    "input": {"user_text": "Async", "history": [], "turn_count": 0},
+                    "config": {"configurable": {"thread_id": "async-state"}},
+                },
+            )
+        )
+        state_resp = await state_fn(
+            _get(
+                "/api/graphs/agent/threads/async-state/state",
+                thread_id="async-state",
+            )
+        )
+
+        assert invoke_resp.status_code == 200
+        assert state_resp.status_code == 200
+        assert json.loads(state_resp.get_body())["values"]["turn_count"] == 1
+        assert saver.sync_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_async_mode_get_state_only_graph_keeps_sync_state_handler(self) -> None:
+        class _SnapshotState:
+            values = {"turn_count": 3}
+            next = ()
+            config = {"configurable": {"thread_id": "t1"}}
+            metadata = None
+            created_at = None
+            parent_config = None
+            tasks = ()
+
+        class GetStateOnlyGraph:
+            def __init__(self) -> None:
+                self.get_state_calls = 0
+
+            def invoke(self, input: Any, config: Any = None) -> Any:
+                return input
+
+            async def ainvoke(self, input: Any, config: Any = None) -> Any:
+                return input
+
+            def get_state(self, config: dict[str, Any]) -> Any:
+                self.get_state_calls += 1
+                return _SnapshotState()
+
+        graph = GetStateOnlyGraph()
+        app = LangGraphApp()
+        app.register(graph, "agent", async_mode=True)
+        state_fn = _get_fn(app.function_app, "aflg_agent_state")
+
+        # Sync handler: Azure runs non-coroutine functions in its worker pool,
+        # keeping the blocking get_state() off the event loop.
+        assert not inspect.iscoroutinefunction(state_fn)
+        response = state_fn(_get("/api/graphs/agent/threads/t1/state", thread_id="t1"))
+
+        assert response.status_code == 200
+        assert json.loads(response.get_body())["values"]["turn_count"] == 3
+        assert graph.get_state_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_async_mode_prefers_aget_state_over_get_state(self) -> None:
+        saver = AsyncOnlyMemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        assert hasattr(graph, "get_state") and hasattr(graph, "aget_state")
+        app = LangGraphApp()
+        app.register(graph, "agent", async_mode=True)
+        state_fn = _get_fn(app.function_app, "aflg_agent_state")
+        assert inspect.iscoroutinefunction(state_fn)
+
+    def test_sync_state_keeps_sync_checkpointer_path(self) -> None:
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_app(graph)
+        invoke_fn = _get_fn(app.function_app, "aflg_agent_invoke")
+        state_fn = _get_fn(app.function_app, "aflg_agent_state")
+
+        invoke_fn(
+            _post(
+                "/api/graphs/agent/invoke",
+                {
+                    "input": {"user_text": "Sync", "history": [], "turn_count": 0},
+                    "config": {"configurable": {"thread_id": "sync-state"}},
+                },
+            )
+        )
+        response = state_fn(
+            _get(
+                "/api/graphs/agent/threads/sync-state/state",
+                thread_id="sync-state",
+            )
+        )
+
+        assert not inspect.iscoroutinefunction(state_fn)
+        assert response.status_code == 200
+        assert json.loads(response.get_body())["values"]["turn_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_invalid_async_state_thread_id_precedes_authorization_and_saver(self) -> None:
+        saver = AsyncOnlyMemorySaver()
+        graph = _build_graph(checkpointer=saver)
+
+        class CountingAuthorizer(ThreadAuthorizer):
+            calls = 0
+
+            def __call__(self, _context: AuthorizationContext) -> bool:
+                self.calls += 1
+                return True
+
+        authorizer = CountingAuthorizer()
+        app = LangGraphApp(authorize=authorizer)
+        app.register(graph, "agent", async_mode=True)
+        state_fn = _get_fn(app.function_app, "aflg_agent_state")
+
+        response = await state_fn(
+            _get(
+                "/api/graphs/agent/threads/invalid/state",
+                thread_id="invalid\nthread",
+            )
+        )
+
+        assert response.status_code == 400
+        assert authorizer.calls == 0
+        assert saver.sync_calls == 0
+
+    def test_state_rejects_non_finite_values(self) -> None:
+        saver = MemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        app = _make_app(graph)
+        state_fn = _get_fn(app.function_app, "aflg_agent_state")
+        graph.update_state(
+            {"configurable": {"thread_id": "non-finite"}},
+            {"turn_count": float("nan")},
+        )
+
+        response = state_fn(
+            _get(
+                "/api/graphs/agent/threads/non-finite/state",
+                thread_id="non-finite",
+            )
+        )
+
+        assert response.status_code == 500
+        assert json.loads(response.get_body())["detail"] == (
+            "Thread state could not be serialized as JSON"
+        )
 
 
 class TestNativeStreamState:
