@@ -12,7 +12,7 @@
 | **Production persistence — capstone** | [`production_persistent_agent`](production_persistent_agent/) ⭐ | **The durable-production delta after `tool_calling_agent`.** Real Azure OpenAI agent whose per-`thread_id` memory survives restarts and scale-out on an Azure Blob checkpointer; Managed Identity in prod, Azurite locally. Azurite-backed persistence test; fake-model fallback for CI. |
 | Platform SDK | [`platform_compat_sdk`](platform_compat_sdk/) ⭐ | `platform_compat=True` host driven by the official `langgraph-sdk` client. |
 | Persistent storage | [`persistent_agent_blob_table`](persistent_agent_blob_table/) | End-to-end Azure Blob checkpointer + Azure Table thread store, runnable on Azurite. |
-| DB checkpoint (local) | [`sqlite_checkpoint_local`](sqlite_checkpoint_local/) | LangGraph SQLite checkpointer wired via `create_sqlite_checkpointer()` for local dev. |
+| DB checkpoint (local) | [`sqlite_checkpoint_local`](sqlite_checkpoint_local/) | LangGraph SQLite checkpointer wired via `create_sqlite_checkpointer()` for local dev, with an offline two-invocation persistence demo. |
 | DB checkpoint (production) | [`postgres_checkpoint_production`](postgres_checkpoint_production/) | LangGraph Postgres checkpointer wired via `create_postgres_checkpointer()` for multi-instance prod. |
 | Cosmos DB checkpoint | [`cosmos_checkpoint_azure`](cosmos_checkpoint_azure/) | LangGraph Cosmos DB checkpointer wired via `create_cosmos_checkpointer()` with key-based auth. |
 | Managed Identity | [`managed_identity_storage`](managed_identity_storage/) | Same backends wired with `DefaultAzureCredential` for production, with Azurite fallback for local dev. |
