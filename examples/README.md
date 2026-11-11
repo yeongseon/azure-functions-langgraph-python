@@ -11,6 +11,7 @@
 | Tool-calling agent | [`tool_calling_agent`](tool_calling_agent/) ⭐ | **The tool-calling delta after `conversation_memory`.** Same agent plus a `ToolNode` loop; tools are your own code in `tools.py`. OpenAPI/Swagger bridge wired in. Deterministic scripted fake-model fallback for CI. |
 | **Production persistence — capstone** | [`production_persistent_agent`](production_persistent_agent/) ⭐ | **The durable-production delta after `tool_calling_agent`.** Real Azure OpenAI agent whose per-`thread_id` memory survives restarts and scale-out on an Azure Blob checkpointer; Managed Identity in prod, Azurite locally. Azurite-backed persistence test; fake-model fallback for CI. |
 | Platform SDK | [`platform_compat_sdk`](platform_compat_sdk/) ⭐ | `platform_compat=True` host driven by the official `langgraph-sdk` client. |
+| Platform thread isolation | [`platform_thread_isolation`](platform_thread_isolation/) | Same-thread continuity vs distinct-thread isolation through the `langgraph-sdk` client; deterministic, in-memory (state separation, not authenticated ownership). |
 | Persistent storage | [`persistent_agent_blob_table`](persistent_agent_blob_table/) | End-to-end Azure Blob checkpointer + Azure Table thread store, runnable on Azurite. |
 | DB checkpoint (local) | [`sqlite_checkpoint_local`](sqlite_checkpoint_local/) | LangGraph SQLite checkpointer wired via `create_sqlite_checkpointer()` for local dev. |
 | DB checkpoint (production) | [`postgres_checkpoint_production`](postgres_checkpoint_production/) | LangGraph Postgres checkpointer wired via `create_postgres_checkpointer()` for multi-instance prod. |
@@ -25,6 +26,7 @@
 | Curl helpers | [`local_curl`](local_curl/) | Shell scripts for hitting every Quick Start endpoint locally. |
 | Maintenance timer | [`maintenance_timer`](maintenance_timer/) | Timer Trigger that resets stale run locks on `AzureTableThreadStore`. |
 | Service Bus trigger | [`service_bus_agent`](service_bus_agent/) | Drive a graph from an Azure Service Bus **queue** message via `register_service_bus` — one `invoke` per message, exceptions not swallowed. |
+| Service Bus sessions | [`service_bus_sessions`](service_bus_sessions/) | Offline, synthetic-message demo of `register_service_bus(session=True)`: session id → checkpoint `thread_id`, rejected topologies, and broker ordering vs package locks vs at-least-once delivery. |
 | True HTTP streaming | [`true_streaming_agent`](true_streaming_agent/) | Opt into **true** incremental SSE with `StreamingLangGraphApp` — each `event: data` frame flushed as the graph produces it, over the FastAPI/ASGI transport (`streaming` extra, runtime 4.34.1+). |
 | Durable async runs | [`durable_async_agent`](durable_async_agent/) | Opt into an **experimental** Durable Functions-backed async run lifecycle with `LangGraphApp(async_runs="durable")` — `POST graphs/{name}/runs` returns `202` with a run id, `GET runs/{run_id}` polls status, `POST runs/{run_id}/cancel` requests termination. Graph runs in a Durable **activity** (never the orchestrator). `durable` extra. |
 
