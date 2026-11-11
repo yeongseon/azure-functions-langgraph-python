@@ -7,17 +7,21 @@
 
 Deploy [LangGraph](https://github.com/langchain-ai/langgraph) agents as **Azure Functions** HTTP endpoints with zero boilerplate.
 
-> **Rolling 0.x stability** — Core adapter APIs aim for backward compatibility,
-> while newer surfaces may evolve before 1.0. See the
-> [per-surface stability policy](https://github.com/yeongseon/azure-functions-langgraph-python#azure-functions-langgraph)
-> for details.
+> **Rolling 0.x, per surface** — the package is **Beta**. `LangGraphApp`, the
+> native invoke/stream/state endpoints and auth levels are Stable; checkpoint
+> backends, thread locks, the async runtime and `RunObserver` are Beta; Platform
+> compatibility, true HTTP streaming, Service Bus and Durable runs are
+> Experimental. See the
+> [stability table](https://github.com/yeongseon/azure-functions-langgraph-python#stability-rolling-0x-per-surface)
+> in the README for the full contract.
 
 ## What it does
 
 - **Zero-boilerplate deployment** — register a compiled graph, get HTTP endpoints automatically
 - **Invoke endpoint** — `POST /api/graphs/{name}/invoke` for synchronous execution
-- **Stream endpoint** — `POST /api/graphs/{name}/stream` for buffered SSE responses
+- **Stream endpoint** — `POST /api/graphs/{name}/stream` for buffered SSE responses (not incremental tokens; true streaming is the experimental `StreamingLangGraphApp`)
 - **Health endpoints** — anonymous `GET /api/health` liveness probe (`{"status": "ok"}`) plus protected `GET /api/health/details` listing registered graphs with checkpointer status
+- **Secure by default** — routes use the Azure Functions `FUNCTION` auth level (a function key); the `/api` prefix must match `routePrefix` in `host.json`
 - **Protocol-based** — works with any object that has `invoke()` and `stream()` methods
 - **Checkpointer pass-through** — thread-based conversation state via LangGraph's native config
 
@@ -56,13 +60,28 @@ This gives you:
 2. `POST /api/graphs/echo_agent/stream` — stream agent responses (buffered SSE)
 3. `GET /api/health` — anonymous liveness probe (`GET /api/health/details` for the protected graph inventory)
 
-## Next steps
+Python 3.11–3.14 is supported. Optional features (`azure-blob`, `azure-table`,
+`azure-identity`, `postgres`, `sqlite`, `cosmos`, `otel`, `streaming`, `durable`,
+`openapi`) are installed as extras, for example `pip install "azure-functions-langgraph[azure-blob]"`; the
+[adapter reference](adapter-reference.md) and [production guide](production-guide.md) name the extra each feature needs.
 
-- [Installation](installation.md) — install the package
-- [Quickstart](getting-started.md) — build your first agent endpoint
-- [Usage Guide](usage.md) — detailed endpoint reference
-- [API Reference](api.md) — full API documentation
-- [Roadmap](roadmap.md) — adoption-first rolling roadmap and current status
+## Start here
+
+Follow the pages in this order. You do not need anything under *Maintainers* to
+use the package.
+
+1. **Getting started** — [Installation](installation.md), then the [Quickstart](getting-started.md)
+2. **5-minute tutorial** — [local invoke and first Azure deployment](tutorial-5-min.md)
+3. **Deploy** — [choose a plan](choose-a-plan.md) and the [deployment guide](deployment.md) when you need more than the tutorial
+4. **Production checklist** — the [production guide](production-guide.md) and [security boundaries](security.md)
+5. **Reference** — [API](api.md), [configuration](configuration.md), [usage](usage.md), [architecture](architecture.md)
+6. **Troubleshooting** — [common issues](troubleshooting.md) and the [FAQ](faq.md)
+
+**Examples** are grouped in the navigation as Beginner, Production and Advanced;
+the [`simple_agent` walkthrough](examples/simple_agent.md) is the smallest one.
+
+Maintaining or contributing? See the **Maintainers** section in the navigation
+([contributing guidelines](contributing.md), [release process](release_process.md), and so on).
 
 ## Ecosystem
 
