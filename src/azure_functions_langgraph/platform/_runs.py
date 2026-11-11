@@ -4,7 +4,6 @@ from typing import Any
 
 import azure.functions as func
 
-from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph._validation import (
     validate_thread_id,
 )
@@ -37,6 +36,7 @@ from azure_functions_langgraph.platform._common import (
     _validate_run_io_structure,
     logger,
 )
+from azure_functions_langgraph.platform._serialization import dumps
 from azure_functions_langgraph.platform._sse import (
     format_data_event,
     format_end_event,
@@ -515,6 +515,12 @@ def register_run_routes(
         safe_observer_call(deps.observer, "on_run_started", ctx)
         try:
             result = exec_graph.invoke(graph_input, config=config, **context_kwargs)
+            output = result if isinstance(result, dict) else {"result": result}
+            response = func.HttpResponse(
+                body=dumps(output),
+                mimetype="application/json",
+                status_code=200,
+            )
         except Exception as exc:
             logger.exception(
                 "Graph %s invoke failed (threadless)",
@@ -523,14 +529,8 @@ def register_run_routes(
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             return _platform_error(500, "Graph execution failed", ctx.run_id)
 
-        output = result if isinstance(result, dict) else {"result": result}
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
-
-        return func.HttpResponse(
-            body=dumps(output),
-            mimetype="application/json",
-            status_code=200,
-        )
+        return response
 
     @app.function_name(name="aflg_platform_runs_stream_threadless")
     @app.route(route="runs/stream", methods=["POST"], auth_level=auth)
