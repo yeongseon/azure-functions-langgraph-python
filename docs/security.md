@@ -206,7 +206,50 @@ See [Azure Functions authentication](https://learn.microsoft.com/en-us/azure/azu
 
 Core Tools does not enforce function keys locally. A local real-host callback
 test proves only library admission behavior, never Azure host key enforcement.
-Per-graph overrides affect native routes only; Platform and Durable use app auth.
+Per-graph overrides affect native routes only; Platform and Durable routes are
+shared by every graph and are protected by the app-level `auth_level`.
+
+### Mixed per-graph auth with Platform or Durable routes
+
+A graph registered with an `auth_level` **stricter** than the app-level
+`auth_level` (order: `ANONYMOUS` < `FUNCTION` < `ADMIN`) would be reachable
+through the Platform (`platform_compat=True`) or Durable (`async_runs="durable"`)
+routes without its intended host key. Building the app now fails closed with a
+`ValueError` naming the graph and the unsafe configuration:
+
+```python
+app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS, platform_compat=True)
+app.register(graph, name="agent", auth_level=func.AuthLevel.FUNCTION)
+app.function_app  # ValueError: Graph 'agent' requires auth_level=FUNCTION ...
+```
+
+Safe options: raise the app-level `auth_level` to at least the strictest graph
+level, relax the graph override, or disable the optional routes. Graphs that are
+*looser* than the app level, and native-only apps with mixed levels, keep working.
+
+Registration after export is guarded the same way. Once `app.function_app` has
+exposed Platform or Durable routes, those handlers keep serving the app's live
+graph registry, so `register()` raises `ValueError` **before** mutating the
+registry when the new graph's `auth_level` is stricter than the app-level
+`auth_level`. Register such graphs before first accessing `app.function_app`, or
+raise the app-level `auth_level`. Looser or equal graphs, and native-only apps,
+can still register late.
+
+Platform run routes (`/runs/wait`, `/runs/stream`, `/threads/{id}/runs/*`) also
+call `authorize` a second time after `assistant_id` is resolved, with
+`AuthorizationContext.graph_name` set to the registered graph name, so a callback
+can deny per graph before the graph runs. Thread-scoped routes (`/threads/{id}/runs/wait|stream`) perform this graph-aware check before the thread lookup, so a denial is uniform for existing and missing threads and never reveals thread existence. Durable lifecycle routes rely on the host
+key only; they do not invoke `authorize` callbacks.
+
+### Shared-state topology
+
+Building the app also rejects configurations that declare a distributed
+deployment (`AZFUNC_LANGGRAPH_LOCK_BACKEND` / `AZFUNC_LANGGRAPH_THREAD_STORE`)
+while a process-local lock, Platform thread store or `InMemorySaver` checkpointer
+is wired, because per-instance state would silently diverge and the lock would
+exclude no other writer. Mixed per-graph auth above is the same single validation
+pass. Anything only suggesting scale-out (Azure host markers) warns rather than
+fails. See [Production Guide: Topology validation](production-guide.md#topology-validation-880).
 
 ## Local emulators and resource ownership
 

@@ -165,8 +165,33 @@ observer. Input/output payloads are **never** included in telemetry.
 
 ## Scope & caveats (experimental)
 
-- Activities are **at-least-once** — Durable may re-run an activity on host
-  restart. Graph runs should be idempotent (a checkpointer makes replays
-  converge on the same thread state).
+- Activities are **at-least-once**. If the Activity finishes but its result is not
+  durably recorded (host restart, lost result), Durable can deliver the same payload
+  again and the whole graph runs again. A checkpointer does **not** make that safe:
+  the adapter always invokes with the payload input, so a redelivery starts a new
+  graph run on the same thread and nodes that already ran (and their external
+  effects) can run again. Orchestrator replay is different: it re-drives only the
+  deterministic orchestrator and never re-executes the Activity. An explicit
+  application retry (a new `run_id`) is a third case and is not de-duplicated either.
+- Give every non-idempotent tool call (payment, email, ticket) an idempotency key
+  derived from something stable across deliveries, such as the `run_id`, and pass it
+  to a provider that honors it:
+
+  ```python
+  key = f"charge:{run_id}"          # stable across redeliveries of one run
+  receipt = payments.charge(key, amount)  # provider returns the first result for a repeated key
+  ```
+
+  This gives at-most-one effect per key **only if the provider enforces the key
+  atomically**. A key you check in your own store *after* the effect leaves a window
+  where a crash repeats the effect. A key minted per attempt (for example a random
+  UUID) does nothing. A new `run_id` is a new key, so de-duplicating deliberate
+  retries needs a business-level key. Prefer tool-level retries with the same key
+  over relying on Durable to retry the Activity.
+- The thread lock serializes concurrent attempts on a checkpointed thread (the loser
+  is reported as rejected and its tools do not run) but does not de-duplicate, and a
+  lock whose ownership is lost is not a fence. The deterministic contract is pinned in
+  `tests/test_durable_replay_idempotency.py`; behaviour on a real Azure host is not
+  covered there.
 - This example runs one activity per run. It does **not** re-express the graph
   topology as Durable activities; that is intentionally out of scope.

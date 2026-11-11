@@ -50,20 +50,26 @@ import warnings
 import azure.functions as func
 from pydantic import ValidationError
 
-from azure_functions_langgraph._handlers import (
-    _method_accepts_version,
-    _require_checkpoint_thread_id,
-    _serialize_graph_output,
+from azure_functions_langgraph._execution_plan import (
+    VERSION_UNSUPPORTED_STATUS,
+    admit_request_structure,
+    extract_thread_id,
+    negotiate_version,
+    plan_run_config,
+    validate_optional_model,
 )
+from azure_functions_langgraph._handlers import _serialize_graph_output
 from azure_functions_langgraph._json import dumps
+from azure_functions_langgraph._topology import (
+    build_topology_plan,
+    check_declared_lock_backend,
+    enforce_topology,
+)
 from azure_functions_langgraph._validation import (
     ValidationErrorDetail,
     sanitized_validation_errors,
     validate_body_size,
     validate_graph_name,
-    validate_input_structure,
-    validate_native_config,
-    validate_thread_id,
 )
 from azure_functions_langgraph.authorization import AuthorizationAction
 from azure_functions_langgraph.contracts import (
@@ -72,7 +78,6 @@ from azure_functions_langgraph.contracts import (
     InvokeRequest,
     InvokeResponse,
     StreamRequest,
-    _is_model_type,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
 from azure_functions_langgraph.locks._async import (
@@ -81,6 +86,7 @@ from azure_functions_langgraph.locks._async import (
     release_thread_lock,
     run_sync_retaining_ownership,
 )
+from azure_functions_langgraph.locks._scope import graph_lock_scope, scope_thread_lock
 from azure_functions_langgraph.locks.guard import (
     OwnershipGuard,
     check_ownership_guard,
@@ -161,9 +167,8 @@ class _StreamRegistration:
 
 
 def _validate_optional_model(model: type[Any] | None, label: str) -> None:
-    """Reject a non-``BaseModel`` *model* early (mirrors ``app._validate_optional_model``)."""
-    if model is not None and not _is_model_type(model):
-        raise TypeError(f"{label} must be a Pydantic BaseModel subclass, got {model!r}")
+    """Reject a non-``BaseModel`` *model* early (shared with ``LangGraphApp``)."""
+    validate_optional_model(model, label)
 
 
 # ------------------------------------------------------------------
@@ -213,53 +218,30 @@ def _validate_request(
         details = sanitized_validation_errors(exc)
         logger.debug("Streaming request validation failed: %s", details)
         return _JsonError(422, details)
-    structure_err = validate_input_structure(
-        request.input, max_depth=max_input_depth, max_nodes=max_input_nodes
+    rejection = admit_request_structure(
+        request,
+        max_depth=max_input_depth,
+        max_nodes=max_input_nodes,
+        allowed_configurable_keys=allowed_configurable_keys,
     )
-    if structure_err:
-        return _JsonError(400, structure_err)
-    if request.config:
-        config_err = validate_input_structure(
-            request.config, max_depth=max_input_depth, max_nodes=max_input_nodes
-        )
-        if config_err:
-            return _JsonError(400, config_err)
-        policy_err = validate_native_config(request.config, allowed_configurable_keys)
-        if policy_err:
-            return _JsonError(400, policy_err)
+    if rejection is not None:
+        return _JsonError(rejection.status, rejection.detail)
     return request
 
 
 def _extract_thread_id(config: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Extract ``thread_id`` from ``config.configurable`` (mirrors ``_handlers``)."""
-    configurable = config.get("configurable")
-    if configurable is None:
-        return None, None
-    if not isinstance(configurable, dict):
-        return None, "config.configurable must be an object"
-    thread_id = configurable.get("thread_id")
-    if thread_id is None:
-        return None, None
-    if not isinstance(thread_id, str):
-        return None, "config.configurable.thread_id must be a string"
-    tid_err = validate_thread_id(thread_id)
-    if tid_err:
-        return None, tid_err
-    return thread_id, None
+    """Extract ``thread_id`` from ``config.configurable`` (shared rules)."""
+    return extract_thread_id(config)
 
 
 def _resolve_version_kwarg(
     method: Any, version: str | None, graph_name: str
 ) -> dict[str, str] | _JsonError:
     """Resolve a caller ``version`` request into forwardable kwargs, or a 422."""
-    if version is None:
-        return {}
-    if not _method_accepts_version(method):
-        return _JsonError(
-            422,
-            f"Graph {graph_name!r} does not accept a 'version' argument (requires langgraph>=1.1)",
-        )
-    return {"version": version}
+    kwargs, error = negotiate_version(method, version, graph_name)
+    if error is not None:
+        return _JsonError(VERSION_UNSUPPORTED_STATUS, error)
+    return kwargs
 
 
 # ------------------------------------------------------------------
@@ -535,16 +517,7 @@ class StreamingLangGraphApp:
             self.thread_lock = InProcessThreadLock()
         if self.observer is None:
             self.observer = NoOpRunObserver()
-        env_backend = os.environ.get("AZFUNC_LANGGRAPH_LOCK_BACKEND", "").strip().lower()
-        if env_backend and env_backend not in ("", "inprocess"):
-            if isinstance(self.thread_lock, InProcessThreadLock):
-                raise RuntimeError(
-                    f"AZFUNC_LANGGRAPH_LOCK_BACKEND={env_backend!r} requires a "
-                    "distributed thread_lock backend (for example "
-                    "AzureBlobLeaseThreadLock), but the app is still using the "
-                    "default InProcessThreadLock. Pass thread_lock=... explicitly "
-                    "to StreamingLangGraphApp() or unset the env var for local dev."
-                )
+        check_declared_lock_backend("StreamingLangGraphApp", self.thread_lock, os.environ)
 
     def register(
         self,
@@ -642,7 +615,33 @@ class StreamingLangGraphApp:
     # Route building
     # ------------------------------------------------------------------
 
+    def _scoped_thread_lock(self) -> ThreadLock | None:
+        """Return ``thread_lock`` keyed by checkpoint-storage scope (see ``locks._scope``)."""
+        if self.thread_lock is None:
+            return None
+
+        def scope_of(name: str) -> str:
+            reg = self._registrations.get(name)
+            return graph_lock_scope(name, reg.graph) if reg else name
+
+        return scope_thread_lock(self.thread_lock, scope_of)
+
     def _build_function_app(self) -> func.FunctionApp:
+        # Same single validation pass as LangGraphApp, before any route exists (#880).
+        enforce_topology(
+            build_topology_plan(
+                app_label="StreamingLangGraphApp",
+                app_auth_level=self.auth_level,
+                platform_compat=False,
+                async_runs=False,
+                thread_store=None,
+                thread_lock=self.thread_lock,
+                registrations=self._registrations,
+                sb_registrations={},
+                environ=os.environ,
+            ),
+            stacklevel=4,
+        )
         ext = _import_fastapi_extension()
         Request = ext.Request
         JSONResponse = ext.JSONResponse
@@ -650,7 +649,7 @@ class StreamingLangGraphApp:
 
         app = func.FunctionApp(http_auth_level=self.auth_level)
         observer = self.observer or NoOpRunObserver()
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
 
@@ -792,17 +791,10 @@ class StreamingLangGraphApp:
             return self._reject(JSONResponse, observer, ctx, "invalid_request", parsed)
         request = parsed
 
-        config = request.config or {}
-        thread_id, cfg_err = _extract_thread_id(config)
-        if cfg_err:
+        config, thread_id, plan_err = plan_run_config(request.config, reg.graph)
+        if plan_err:
             return self._reject(
-                JSONResponse, observer, ctx, "invalid_config", _JsonError(400, cfg_err)
-            )
-        if thread_err := _require_checkpoint_thread_id(
-            getattr(reg.graph, "checkpointer", None), thread_id
-        ):
-            return self._reject(
-                JSONResponse, observer, ctx, "invalid_config", _JsonError(400, thread_err)
+                JSONResponse, observer, ctx, "invalid_config", _JsonError(400, plan_err)
             )
         status = await _authorization_status(
             self.authorize,
@@ -920,17 +912,10 @@ class StreamingLangGraphApp:
             return self._reject(JSONResponse, observer, ctx, "invalid_request", parsed)
         request = parsed
 
-        config = request.config or {}
-        thread_id, cfg_err = _extract_thread_id(config)
-        if cfg_err:
+        config, thread_id, plan_err = plan_run_config(request.config, reg.graph)
+        if plan_err:
             return self._reject(
-                JSONResponse, observer, ctx, "invalid_config", _JsonError(400, cfg_err)
-            )
-        if thread_err := _require_checkpoint_thread_id(
-            getattr(reg.graph, "checkpointer", None), thread_id
-        ):
-            return self._reject(
-                JSONResponse, observer, ctx, "invalid_config", _JsonError(400, thread_err)
+                JSONResponse, observer, ctx, "invalid_config", _JsonError(400, plan_err)
             )
         status = await _authorization_status(
             self.authorize,

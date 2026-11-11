@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import sys
 from typing import Any
 
 import azure.functions as func
 
-from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph._validation import (
     validate_thread_id,
 )
@@ -23,6 +21,7 @@ from azure_functions_langgraph.observability import (
 )
 from azure_functions_langgraph.platform._common import (
     PlatformRouteDeps,
+    _authorize_run_graph,
     _build_sse_response,
     _build_threaded_config,
     _build_threadless_config,
@@ -34,8 +33,10 @@ from azure_functions_langgraph.platform._common import (
     _platform_error,
     _resolve_context_kwarg,
     _resolve_run_graph,
+    _validate_run_io_structure,
     logger,
 )
+from azure_functions_langgraph.platform._serialization import dumps
 from azure_functions_langgraph.platform._sse import (
     format_data_event,
     format_end_event,
@@ -149,13 +150,17 @@ def register_run_routes(
             return parsed
         run_req = parsed
 
+        reg = _authorize_run_graph(run_req, deps, req, thread_id)
+        if isinstance(reg, func.HttpResponse):
+            return reg
+
         thread = deps.thread_store.get(thread_id)
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
 
-        reg = _resolve_run_graph(run_req, deps)
-        if isinstance(reg, func.HttpResponse):
-            return reg
+        io_err = _validate_run_io_structure(run_req, deps)
+        if io_err is not None:
+            return io_err
 
         context_kwargs = _resolve_context_kwarg(reg.graph.invoke, run_req.context, reg.name)
         if isinstance(context_kwargs, func.HttpResponse):
@@ -211,6 +216,7 @@ def register_run_routes(
         store_lock_token = locked.lock_token or lock_token
         status: ThreadStatus = "error"
         primary_error: Exception | None = None
+        release_error: Exception | None = None
         output = None
         try:
             _start_store_renewal(deps, thread_id, store_lock_token)
@@ -234,7 +240,6 @@ def register_run_routes(
                 body=dumps(output),
                 mimetype="application/json",
                 status_code=200,
-                headers={"Content-Location": f"/api/threads/{thread_id}/runs/{run_id}"},
             )
             status = "idle"
         except Exception as exc:
@@ -245,7 +250,7 @@ def register_run_routes(
                 thread_id,
             )
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
-            return _platform_error(500, "Graph execution failed", ctx.run_id)
+            response = _platform_error(500, "Graph execution failed", ctx.run_id)
         finally:
             release_error = _release_thread_run_lock(
                 deps,
@@ -256,19 +261,17 @@ def register_run_routes(
                 values=output if status == "idle" else None,
                 store_owner_token=store_lock_token,
             )
-            if release_error is not None and (
-                sys.exception() is None or isinstance(sys.exception(), Exception)
-            ):
-                if primary_error is None and status == "idle":
-                    safe_observer_call(
-                        deps.observer,
-                        "on_run_failed",
-                        finish_context(ctx),
-                        release_error,
-                    )
-                if primary_error is None:
-                    return _platform_error(500, "Run-lock release failed", ctx.run_id)
-        safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
+        if release_error is not None and primary_error is None:
+            if status == "idle":
+                safe_observer_call(
+                    deps.observer,
+                    "on_run_failed",
+                    finish_context(ctx),
+                    release_error,
+                )
+            response = _platform_error(500, "Run-lock release failed", ctx.run_id)
+        elif primary_error is None:
+            safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
         return response
 
     @app.function_name(name="aflg_platform_runs_stream")
@@ -290,6 +293,10 @@ def register_run_routes(
             return parsed
         run_req = parsed
 
+        reg = _authorize_run_graph(run_req, deps, req, thread_id)
+        if isinstance(reg, func.HttpResponse):
+            return reg
+
         thread = deps.thread_store.get(thread_id)
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
@@ -298,9 +305,9 @@ def register_run_routes(
         if mode_err is not None:
             return mode_err
 
-        reg = _resolve_run_graph(run_req, deps)
-        if isinstance(reg, func.HttpResponse):
-            return reg
+        io_err = _validate_run_io_structure(run_req, deps)
+        if io_err is not None:
+            return io_err
 
         if not isinstance(reg.graph, StreamableGraph):
             return _platform_error(
@@ -363,6 +370,7 @@ def register_run_routes(
         chunks: list[str] = []
         status: ThreadStatus = "error"
         primary_error: Exception | None = None
+        release_error: Exception | None = None
         try:
             _start_store_renewal(deps, thread_id, store_lock_token)
             config, guard = guard_run_config(
@@ -391,38 +399,40 @@ def register_run_routes(
                     finish_context(ctx),
                     RuntimeError("stream response exceeded max buffered size"),
                 )
-                return _build_sse_response(
+                run_response = _build_sse_response(
                     chunks,
-                    content_location=f"/api/threads/{thread_id}/runs/{run_id}",
                 )
-            for event in reg.graph.stream(
-                graph_input,
-                config=config,
-                stream_mode=stream_mode,
-                **context_kwargs,
-            ):
-                chunk = format_data_event(stream_mode, event)
-                chunk_bytes = len(chunk.encode())
-                if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
-                    safe_observer_call(
-                        deps.observer,
-                        "on_run_failed",
-                        finish_context(ctx),
-                        RuntimeError("stream response exceeded max buffered size"),
-                    )
-                    return _build_sse_response(
+            else:
+                overflowed = False
+                for event in reg.graph.stream(
+                    graph_input,
+                    config=config,
+                    stream_mode=stream_mode,
+                    **context_kwargs,
+                ):
+                    chunk = format_data_event(stream_mode, event)
+                    chunk_bytes = len(chunk.encode())
+                    if _check_stream_overflow(chunks, buffered_bytes, chunk_bytes, max_bytes):
+                        safe_observer_call(
+                            deps.observer,
+                            "on_run_failed",
+                            finish_context(ctx),
+                            RuntimeError("stream response exceeded max buffered size"),
+                        )
+                        run_response = _build_sse_response(
+                            chunks,
+                        )
+                        overflowed = True
+                        break
+                    chunks.append(chunk)
+                    buffered_bytes += chunk_bytes
+                if not overflowed:
+                    check_ownership_guard(guard)
+                    chunks.append(format_end_event())
+                    run_response = _build_sse_response(
                         chunks,
-                        content_location=f"/api/threads/{thread_id}/runs/{run_id}",
                     )
-                chunks.append(chunk)
-                buffered_bytes += chunk_bytes
-            check_ownership_guard(guard)
-            chunks.append(format_end_event())
-            response = _build_sse_response(
-                chunks,
-                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
-            )
-            status = "idle"
+                    status = "idle"
         except Exception as exc:
             primary_error = exc
             logger.exception(
@@ -432,13 +442,13 @@ def register_run_routes(
             )
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             if not chunks:
-                return _platform_error(500, "Graph execution failed", ctx.run_id)
-            chunks.append(format_error_event("stream processing failed", ctx.run_id))
-            chunks.append(format_end_event())
-            return _build_sse_response(
-                chunks,
-                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
-            )
+                run_response = _platform_error(500, "Graph execution failed", ctx.run_id)
+            else:
+                chunks.append(format_error_event("stream processing failed", ctx.run_id))
+                chunks.append(format_end_event())
+                run_response = _build_sse_response(
+                    chunks,
+                )
 
         finally:
             release_error = _release_thread_run_lock(
@@ -449,20 +459,19 @@ def register_run_routes(
                 status=status,
                 store_owner_token=store_lock_token,
             )
-            if release_error is not None and (
-                sys.exception() is None or isinstance(sys.exception(), Exception)
-            ):
-                if primary_error is None and status == "idle":
-                    safe_observer_call(
-                        deps.observer,
-                        "on_run_failed",
-                        finish_context(ctx),
-                        release_error,
-                    )
-                message = "Graph execution failed" if primary_error else "Run-lock release failed"
-                return _platform_error(500, message, ctx.run_id)
-        safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
-        return response
+        if release_error is not None:
+            if primary_error is None and status == "idle":
+                safe_observer_call(
+                    deps.observer,
+                    "on_run_failed",
+                    finish_context(ctx),
+                    release_error,
+                )
+            message = "Graph execution failed" if primary_error else "Run-lock release failed"
+            run_response = _platform_error(500, message, ctx.run_id)
+        elif status == "idle":
+            safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
+        return run_response
 
     @app.function_name(name="aflg_platform_runs_wait_threadless")
     @app.route(route="runs/wait", methods=["POST"], auth_level=auth)
@@ -474,7 +483,7 @@ def register_run_routes(
             return parsed
         run_req = parsed
 
-        reg = _resolve_run_graph(run_req, deps)
+        reg = _resolve_run_graph(run_req, deps, req)
         if isinstance(reg, func.HttpResponse):
             return reg
 
@@ -506,6 +515,12 @@ def register_run_routes(
         safe_observer_call(deps.observer, "on_run_started", ctx)
         try:
             result = exec_graph.invoke(graph_input, config=config, **context_kwargs)
+            output = result if isinstance(result, dict) else {"result": result}
+            response = func.HttpResponse(
+                body=dumps(output),
+                mimetype="application/json",
+                status_code=200,
+            )
         except Exception as exc:
             logger.exception(
                 "Graph %s invoke failed (threadless)",
@@ -514,15 +529,8 @@ def register_run_routes(
             safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
             return _platform_error(500, "Graph execution failed", ctx.run_id)
 
-        output = result if isinstance(result, dict) else {"result": result}
         safe_observer_call(deps.observer, "on_run_completed", finish_context(ctx))
-
-        return func.HttpResponse(
-            body=dumps(output),
-            mimetype="application/json",
-            status_code=200,
-            headers={"Content-Location": f"/api/runs/{run_id}"},
-        )
+        return response
 
     @app.function_name(name="aflg_platform_runs_stream_threadless")
     @app.route(route="runs/stream", methods=["POST"], auth_level=auth)
@@ -538,7 +546,7 @@ def register_run_routes(
         if mode_err is not None:
             return mode_err
 
-        reg = _resolve_run_graph(run_req, deps)
+        reg = _resolve_run_graph(run_req, deps, req)
         if isinstance(reg, func.HttpResponse):
             return reg
 
@@ -593,7 +601,6 @@ def register_run_routes(
             )
             return _build_sse_response(
                 chunks,
-                content_location=f"/api/runs/{run_id}",
             )
         try:
             for event in exec_graph.stream(
@@ -613,7 +620,6 @@ def register_run_routes(
                     )
                     return _build_sse_response(
                         chunks,
-                        content_location=f"/api/runs/{run_id}",
                     )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
@@ -627,7 +633,6 @@ def register_run_routes(
             chunks.append(format_end_event())
             return _build_sse_response(
                 chunks,
-                content_location=f"/api/runs/{run_id}",
             )
 
         chunks.append(format_end_event())
@@ -635,5 +640,4 @@ def register_run_routes(
 
         return _build_sse_response(
             chunks,
-            content_location=f"/api/runs/{run_id}",
         )

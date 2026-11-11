@@ -9,15 +9,21 @@ receives only the explicit dependencies it needs — no reference to
 from __future__ import annotations
 
 import dataclasses
-import inspect
 import json
 import logging
 from typing import Any, Protocol, TypeVar
 
 import azure.functions as func
-from langgraph.checkpoint.base import BaseCheckpointSaver
 from pydantic import ValidationError
 
+from azure_functions_langgraph._execution_plan import (
+    VERSION_UNSUPPORTED_STATUS,
+    admit_request_structure,
+    extract_thread_id,
+    method_accepts_version,
+    negotiate_version,
+    plan_run_config,
+)
 from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph._run_authorization import (
     native_authorization_status,
@@ -27,8 +33,6 @@ from azure_functions_langgraph._validation import (
     ValidationErrorDetail,
     sanitized_validation_errors,
     validate_body_size,
-    validate_input_structure,
-    validate_native_config,
     validate_thread_id,
 )
 from azure_functions_langgraph.authorization import (
@@ -36,6 +40,7 @@ from azure_functions_langgraph.authorization import (
     AuthorizationContext,
     ThreadAuthorizer,
     authorization_status,
+    authorization_status_async,
 )
 from azure_functions_langgraph.contracts import (
     ErrorResponse,
@@ -57,6 +62,7 @@ from azure_functions_langgraph.observability import (
     safe_observer_call,
 )
 from azure_functions_langgraph.protocols import (
+    AsyncStatefulGraph,
     AsyncStreamableGraph,
     StatefulGraph,
     StreamableGraph,
@@ -71,40 +77,8 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_thread_id(config: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Extract thread_id from config, returning (thread_id, error_message).
-
-    Returns ``(None, None)`` when configurable is absent or has no thread_id.
-    Returns ``(None, error_msg)`` when configurable or thread_id has a wrong type.
-    """
-    configurable = config.get("configurable")
-    if configurable is None:
-        return None, None
-    if not isinstance(configurable, dict):
-        return None, "config.configurable must be an object"
-    thread_id = configurable.get("thread_id")
-    if thread_id is None:
-        return None, None
-    if not isinstance(thread_id, str):
-        return None, "config.configurable.thread_id must be a string"
-    tid_err = validate_thread_id(thread_id)
-    if tid_err:
-        return None, tid_err
-    return thread_id, None
-
-
-def _require_checkpoint_thread_id(checkpointer: Any, thread_id: str | None) -> str | None:
-    if isinstance(checkpointer, BaseCheckpointSaver) and thread_id is None:
-        return "config.configurable.thread_id is required for checkpointed graphs"
-    return None
-
-
-def _validated_run_thread(
-    config: dict[str, Any], checkpointer: Any
-) -> tuple[str | None, str | None]:
-    thread_id, error = _extract_thread_id(config)
-    if error:
-        return None, error
-    return thread_id, _require_checkpoint_thread_id(checkpointer, thread_id)
+    """Extract thread_id from config, returning (thread_id, error_message)."""
+    return extract_thread_id(config)
 
 
 def _authorization_rejection(
@@ -148,42 +122,18 @@ def _reject(
 
 
 def _method_accepts_version(method: Any) -> bool:
-    """Return ``True`` if *method* accepts a ``version`` keyword argument.
-
-    Used to decide whether a caller-supplied ``version`` can be forwarded to a
-    structural graph. Matches an explicit ``version`` parameter or a
-    ``**kwargs`` catch-all; returns ``False`` when the signature cannot be
-    introspected (e.g. some C-level callables).
-    """
-    try:
-        sig = inspect.signature(method)
-    except (TypeError, ValueError):
-        return False
-    for param in sig.parameters.values():
-        if param.name == "version" or param.kind is inspect.Parameter.VAR_KEYWORD:
-            return True
-    return False
+    """Return ``True`` if *method* accepts a ``version`` keyword argument."""
+    return method_accepts_version(method)
 
 
 def _resolve_version_kwarg(
     method: Any, version: str | None, graph_name: str
 ) -> dict[str, str] | func.HttpResponse:
-    """Resolve the caller's ``version`` request into forwardable kwargs.
-
-    Returns ``{}`` when no version was requested, ``{"version": version}`` when
-    it can be forwarded, or a ``422`` error response when the caller asked for a
-    version but the target graph method does not accept one. Capability is
-    detected structurally so any ``LangGraphLike`` graph works without requiring
-    ``version`` on the base protocol.
-    """
-    if version is None:
-        return {}
-    if not _method_accepts_version(method):
-        return _error_response(
-            422,
-            f"Graph {graph_name!r} does not accept a 'version' argument (requires langgraph>=1.1)",
-        )
-    return {"version": version}
+    """Resolve the caller's ``version`` into forwardable kwargs or a ``422`` response."""
+    kwargs, error = negotiate_version(method, version, graph_name)
+    if error is not None:
+        return _error_response(VERSION_UNSUPPORTED_STATUS, error)
+    return kwargs
 
 
 async def _aclose_async_iterator(agen: Any) -> None:
@@ -248,24 +198,14 @@ def _parse_native_request(
         logger.debug("Native request validation failed: %s", details)
         return _error_response(422, details)
 
-    structure_err = validate_input_structure(
-        request.input,
+    rejection = admit_request_structure(
+        request,
         max_depth=max_input_depth,
         max_nodes=max_input_nodes,
+        allowed_configurable_keys=allowed_configurable_keys,
     )
-    if structure_err:
-        return _error_response(400, structure_err)
-    if request.config:
-        config_err = validate_input_structure(
-            request.config,
-            max_depth=max_input_depth,
-            max_nodes=max_input_nodes,
-        )
-        if config_err:
-            return _error_response(400, config_err)
-        policy_err = validate_native_config(request.config, allowed_configurable_keys)
-        if policy_err:
-            return _error_response(400, policy_err)
+    if rejection is not None:
+        return _error_response(rejection.status, rejection.detail)
     return request
 
 
@@ -341,8 +281,7 @@ def handle_invoke(
         return _reject(observer, ctx, "invalid_request", parsed)
     request = parsed
 
-    config = request.config or {}
-    thread_id, cfg_err = _validated_run_thread(config, getattr(reg.graph, "checkpointer", None))
+    config, thread_id, cfg_err = plan_run_config(request.config, reg.graph)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id)
@@ -451,8 +390,7 @@ def handle_stream(
         return _reject(observer, ctx, "invalid_request", parsed)
     request = parsed
 
-    config = request.config or {}
-    thread_id, cfg_err = _validated_run_thread(config, getattr(reg.graph, "checkpointer", None))
+    config, thread_id, cfg_err = plan_run_config(request.config, reg.graph)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
@@ -586,8 +524,7 @@ async def handle_invoke_async(
         return _reject(observer, ctx, "invalid_request", parsed)
     request = parsed
 
-    config = request.config or {}
-    thread_id, cfg_err = _validated_run_thread(config, getattr(reg.graph, "checkpointer", None))
+    config, thread_id, cfg_err = plan_run_config(request.config, reg.graph)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id)
@@ -692,8 +629,7 @@ async def handle_stream_async(
         return _reject(observer, ctx, "invalid_request", parsed)
     request = parsed
 
-    config = request.config or {}
-    thread_id, cfg_err = _validated_run_thread(config, getattr(reg.graph, "checkpointer", None))
+    config, thread_id, cfg_err = plan_run_config(request.config, reg.graph)
     if cfg_err:
         return _reject(observer, ctx, "invalid_config", _error_response(400, cfg_err))
     ctx = dataclasses.replace(ctx, thread_id=thread_id, stream_mode=request.stream_mode)
@@ -812,15 +748,15 @@ def handle_state(
     thread_id = req.route_params.get("thread_id")
     if not thread_id:
         return _error_response(400, "Missing thread_id in URL path")
+    tid_err = validate_thread_id(thread_id)
+    if tid_err:
+        return _error_response(400, tid_err)
     status = authorization_status(
         authorize,
         AuthorizationContext(AuthorizationAction.STATE_READ, reg.name, thread_id, req),
     )
     if status is not None:
         return _error_response(status, "Access denied")
-    tid_err = validate_thread_id(thread_id)
-    if tid_err:
-        return _error_response(400, tid_err)
 
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
 
@@ -839,9 +775,55 @@ def handle_state(
         dict(snapshot.metadata) if hasattr(snapshot, "metadata") and snapshot.metadata else None
     )
 
-    response = StateResponse(values=values, next=next_nodes, metadata=metadata)
-    return func.HttpResponse(
-        body=json.dumps(response.model_dump(), default=str),
-        mimetype="application/json",
-        status_code=200,
+    return _state_response(values, next_nodes, metadata)
+
+
+async def handle_state_async(
+    req: func.HttpRequest,
+    reg: Any,
+    authorize: ThreadAuthorizer | None = None,
+) -> func.HttpResponse:
+    if not isinstance(reg.graph, AsyncStatefulGraph):
+        return _error_response(409, f"Graph {reg.name!r} does not support state retrieval")
+
+    thread_id = req.route_params.get("thread_id")
+    if not thread_id:
+        return _error_response(400, "Missing thread_id in URL path")
+    tid_err = validate_thread_id(thread_id)
+    if tid_err:
+        return _error_response(400, tid_err)
+    status = await authorization_status_async(
+        authorize,
+        AuthorizationContext(AuthorizationAction.STATE_READ, reg.name, thread_id, req),
     )
+    if status is not None:
+        return _error_response(status, "Access denied")
+
+    config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+    try:
+        snapshot = await reg.graph.aget_state(config)
+    except (KeyError, ValueError):
+        logger.warning("Graph %s: thread %s not found", reg.name, thread_id)
+        return _error_response(404, f"Thread {thread_id!r} not found")
+    except Exception:
+        logger.exception("Graph %s aget_state failed for thread %s", reg.name, thread_id)
+        return _error_response(500, "Internal error while retrieving thread state")
+
+    values = snapshot.values if isinstance(snapshot.values, dict) else {}
+    next_nodes: list[str] = list(snapshot.next) if hasattr(snapshot, "next") else []
+    metadata = (
+        dict(snapshot.metadata) if hasattr(snapshot, "metadata") and snapshot.metadata else None
+    )
+    return _state_response(values, next_nodes, metadata)
+
+
+def _state_response(
+    values: dict[str, Any], next_nodes: list[str], metadata: dict[str, Any] | None
+) -> func.HttpResponse:
+    response = StateResponse(values=values, next=next_nodes, metadata=metadata)
+    try:
+        body = dumps(response.model_dump(), allow_nan=False)
+    except (TypeError, ValueError):
+        logger.exception("Thread state could not be serialized as JSON")
+        return _error_response(500, "Thread state could not be serialized as JSON")
+    return func.HttpResponse(body=body, mimetype="application/json", status_code=200)

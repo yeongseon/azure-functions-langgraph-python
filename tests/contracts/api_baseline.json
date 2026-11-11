@@ -1,0 +1,6538 @@
+{
+  "modules": {
+    "azure_functions_langgraph": {
+      "all": [
+        "AppMetadata",
+        "AsyncInvocableGraph",
+        "AsyncStreamableGraph",
+        "CloneableGraph",
+        "ErrorResponse",
+        "GraphInfo",
+        "HealthResponse",
+        "InvocableGraph",
+        "InvokeRequest",
+        "InvokeResponse",
+        "LangGraphApp",
+        "LangGraphLike",
+        "LoggingRunObserver",
+        "NoOpRunObserver",
+        "OTelRunObserver",
+        "RegisteredGraphMetadata",
+        "RouteMetadata",
+        "RunContext",
+        "RunObserver",
+        "RunRejectedReason",
+        "RunTransport",
+        "ServiceBusMessageLike",
+        "StateResponse",
+        "StatefulGraph",
+        "StreamRequest",
+        "StreamableGraph",
+        "StreamingLangGraphApp",
+        "ThreadContentionError",
+        "default_message_mapper",
+        "get_langgraph_metadata"
+      ],
+      "tier": "package"
+    },
+    "azure_functions_langgraph.app": {
+      "all": null,
+      "tier": "stable"
+    },
+    "azure_functions_langgraph.authorization": {
+      "all": null,
+      "tier": "stable"
+    },
+    "azure_functions_langgraph.checkpointers": {
+      "all": [
+        "AzureBlobCheckpointSaver",
+        "OrphanedValueCollectionResult",
+        "close_cosmos_checkpointer",
+        "create_cosmos_checkpointer",
+        "create_postgres_checkpointer",
+        "create_sqlite_checkpointer"
+      ],
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers.azure_blob": {
+      "all": null,
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers.cosmos": {
+      "all": [
+        "close_cosmos_checkpointer",
+        "create_cosmos_checkpointer"
+      ],
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers.postgres": {
+      "all": [
+        "create_postgres_checkpointer"
+      ],
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers.sqlite": {
+      "all": [
+        "create_sqlite_checkpointer"
+      ],
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.contracts": {
+      "all": null,
+      "tier": "stable"
+    },
+    "azure_functions_langgraph.durable": {
+      "all": [
+        "ACTIVITY_NAME",
+        "DurableClientLike",
+        "DurableRunPayload",
+        "DurableRunResult",
+        "DurableRunStatus",
+        "GraphRegistrationLike",
+        "OrchestrationContextLike",
+        "OrchestrationStatusLike",
+        "cancel_run_impl",
+        "create_run_impl",
+        "execute_langgraph_run_impl",
+        "get_run_impl",
+        "normalize_status",
+        "run_orchestration",
+        "runtime_status_str",
+        "serialize_error"
+      ],
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.locks": {
+      "all": [
+        "AzureBlobLeaseThreadLock",
+        "InProcessThreadLock",
+        "ThreadLock"
+      ],
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.locks.azure_blob": {
+      "all": null,
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.locks.base": {
+      "all": null,
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.locks.inprocess": {
+      "all": null,
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.observability": {
+      "all": null,
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.observability_otel": {
+      "all": null,
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.openapi": {
+      "all": null,
+      "tier": "stable"
+    },
+    "azure_functions_langgraph.platform": {
+      "all": null,
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts": {
+      "all": [
+        "Assistant",
+        "AssistantCount",
+        "AssistantSearch",
+        "Checkpoint",
+        "Interrupt",
+        "Json",
+        "MultitaskStrategy",
+        "Run",
+        "RunCreate",
+        "RunStatus",
+        "Thread",
+        "ThreadCount",
+        "ThreadCreate",
+        "ThreadHistoryRequest",
+        "ThreadSearch",
+        "ThreadState",
+        "ThreadStateUpdate",
+        "ThreadStatus",
+        "ThreadTask",
+        "ThreadUpdate"
+      ],
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.routes": {
+      "all": [
+        "PlatformRouteDeps",
+        "_get_threadless_graph",
+        "_platform_error",
+        "_preflight_run_create",
+        "_registration_to_assistant",
+        "_snapshot_to_thread_state",
+        "register_platform_routes"
+      ],
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.stores": {
+      "all": [
+        "InMemoryThreadStore",
+        "ThreadStore"
+      ],
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.protocols": {
+      "all": null,
+      "tier": "stable"
+    },
+    "azure_functions_langgraph.stores": {
+      "all": [
+        "AzureTableThreadStore"
+      ],
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.stores.azure_table": {
+      "all": [
+        "AzureTableThreadStore"
+      ],
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.streaming": {
+      "all": null,
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.streaming_authorization": {
+      "all": null,
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.triggers": {
+      "all": [
+        "InputMapper",
+        "ResultHandler",
+        "ServiceBusMessageLike",
+        "ThreadContentionError",
+        "ThreadIdFactory",
+        "default_message_mapper",
+        "process_service_bus_message",
+        "process_service_bus_message_async"
+      ],
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.triggers.service_bus": {
+      "all": null,
+      "tier": "experimental"
+    }
+  },
+  "package": "azure-functions-langgraph",
+  "provenance": {
+    "commit": "c79ea8331dfb4fe444f0c61ce54e049fc9cc3c9b",
+    "kind": "tag-source",
+    "note": "Generated from the v0.13.0 tag source because files.pythonhosted.org was unreachable from the generating host; the sha256 is the PyPI JSON API digest of the published wheel and was not re-verified against the tag source.",
+    "published_wheel_sha256": "4c4c924182861a1a0fdb47058a19611d448352be7eadcff7cca95e34aec71d91",
+    "ref": "v0.13.0"
+  },
+  "schema_version": 1,
+  "symbols": {
+    "azure_functions_langgraph.checkpointers.cosmos:close_cosmos_checkpointer": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.checkpointers.cosmos",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "CosmosDBSaver",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "saver",
+          "required": true
+        }
+      ],
+      "returns": "None",
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers.cosmos:create_cosmos_checkpointer": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.checkpointers.cosmos",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "endpoint",
+          "required": true
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "keyword_only",
+          "name": "key",
+          "required": false
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "keyword_only",
+          "name": "credential",
+          "required": false
+        },
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "database_name",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "container_name",
+          "required": true
+        }
+      ],
+      "returns": "CosmosDBSaver",
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers.postgres:create_postgres_checkpointer": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.checkpointers.postgres",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "conn_string",
+          "required": true
+        },
+        {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "keyword_only",
+          "name": "setup",
+          "required": false
+        },
+        {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "keyword_only",
+          "name": "autocommit",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": "0",
+          "kind": "keyword_only",
+          "name": "prepare_threshold",
+          "required": false
+        }
+      ],
+      "returns": "PostgresSaver",
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers.sqlite:create_sqlite_checkpointer": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.checkpointers.sqlite",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "conn_string",
+          "required": true
+        },
+        {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "keyword_only",
+          "name": "setup",
+          "required": false
+        },
+        {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "keyword_only",
+          "name": "check_same_thread",
+          "required": false
+        }
+      ],
+      "returns": "SqliteSaver",
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers:AzureBlobCheckpointSaver": {
+      "bases": [
+        "BaseCheckpointSaver[str]"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.checkpointers.azure_blob",
+      "kind": "class",
+      "members": {
+        "__init__": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "_ContainerClientProtocol",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "container_client",
+              "required": true
+            },
+            {
+              "annotation": "_AsyncContainerClientProtocol | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "aio_container_client",
+              "required": false
+            },
+            {
+              "annotation": "SerializerProtocol | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "serde",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        },
+        "adelete_thread": {
+          "async": true,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "aget_tuple": {
+          "async": true,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunnableConfig",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": true
+            }
+          ],
+          "returns": "CheckpointTuple | None"
+        },
+        "alist": {
+          "async": true,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunnableConfig | None",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "filter",
+              "required": false
+            },
+            {
+              "annotation": "RunnableConfig | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "before",
+              "required": false
+            },
+            {
+              "annotation": "int | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "limit",
+              "required": false
+            }
+          ],
+          "returns": "AsyncIterator[CheckpointTuple]"
+        },
+        "aput": {
+          "async": true,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunnableConfig",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": true
+            },
+            {
+              "annotation": "Checkpoint",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "checkpoint",
+              "required": true
+            },
+            {
+              "annotation": "CheckpointMetadata",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "metadata",
+              "required": true
+            },
+            {
+              "annotation": "ChannelVersions",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "new_versions",
+              "required": true
+            }
+          ],
+          "returns": "RunnableConfig"
+        },
+        "aput_writes": {
+          "async": true,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunnableConfig",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": true
+            },
+            {
+              "annotation": "Sequence[tuple[str, Any]]",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "writes",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "task_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": "''",
+              "kind": "positional_or_keyword",
+              "name": "task_path",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        },
+        "collect_orphaned_values": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "checkpoint_ns",
+              "required": false
+            },
+            {
+              "annotation": "bool",
+              "default": "True",
+              "kind": "keyword_only",
+              "name": "dry_run",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "300",
+              "kind": "keyword_only",
+              "name": "grace_period_seconds",
+              "required": false
+            }
+          ],
+          "returns": "OrphanedValueCollectionResult"
+        },
+        "delete_checkpoints_before": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "before_checkpoint_id",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "checkpoint_ns",
+              "required": false
+            }
+          ],
+          "returns": "int"
+        },
+        "delete_old_checkpoints": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "int",
+              "default": "20",
+              "kind": "keyword_only",
+              "name": "keep_last",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "checkpoint_ns",
+              "required": false
+            }
+          ],
+          "returns": "int"
+        },
+        "delete_thread": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "get_next_version": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "current",
+              "required": true
+            },
+            {
+              "annotation": "None",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "channel",
+              "required": true
+            }
+          ],
+          "returns": "str"
+        },
+        "get_tuple": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunnableConfig",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": true
+            }
+          ],
+          "returns": "CheckpointTuple | None"
+        },
+        "list": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunnableConfig | None",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "filter",
+              "required": false
+            },
+            {
+              "annotation": "RunnableConfig | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "before",
+              "required": false
+            },
+            {
+              "annotation": "int | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "limit",
+              "required": false
+            }
+          ],
+          "returns": "Iterator[CheckpointTuple]"
+        },
+        "put": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunnableConfig",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": true
+            },
+            {
+              "annotation": "Checkpoint",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "checkpoint",
+              "required": true
+            },
+            {
+              "annotation": "CheckpointMetadata",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "metadata",
+              "required": true
+            },
+            {
+              "annotation": "ChannelVersions",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "new_versions",
+              "required": true
+            }
+          ],
+          "returns": "RunnableConfig"
+        },
+        "put_writes": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunnableConfig",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": true
+            },
+            {
+              "annotation": "Sequence[tuple[str, Any]]",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "writes",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "task_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": "''",
+              "kind": "positional_or_keyword",
+              "name": "task_path",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers:OrphanedValueCollectionResult": {
+      "bases": [],
+      "class_kind": "dataclass",
+      "defined_in": "azure_functions_langgraph.checkpointers.azure_blob",
+      "kind": "class",
+      "members": {
+        "deleted": {
+          "annotation": "list[str]",
+          "default": "field(default_factory=list)",
+          "kind": "field",
+          "required": false
+        },
+        "dry_run": {
+          "annotation": "bool",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "skipped_namespaces": {
+          "annotation": "list[tuple[str, str]]",
+          "default": "field(default_factory=list)",
+          "kind": "field",
+          "required": false
+        },
+        "skipped_recent": {
+          "annotation": "list[str]",
+          "default": "field(default_factory=list)",
+          "kind": "field",
+          "required": false
+        },
+        "would_delete": {
+          "annotation": "list[str]",
+          "default": "field(default_factory=list)",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers:close_cosmos_checkpointer": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.checkpointers.cosmos",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "CosmosDBSaver",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "saver",
+          "required": true
+        }
+      ],
+      "returns": "None",
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers:create_cosmos_checkpointer": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.checkpointers.cosmos",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "endpoint",
+          "required": true
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "keyword_only",
+          "name": "key",
+          "required": false
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "keyword_only",
+          "name": "credential",
+          "required": false
+        },
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "database_name",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "container_name",
+          "required": true
+        }
+      ],
+      "returns": "CosmosDBSaver",
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers:create_postgres_checkpointer": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.checkpointers.postgres",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "conn_string",
+          "required": true
+        },
+        {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "keyword_only",
+          "name": "setup",
+          "required": false
+        },
+        {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "keyword_only",
+          "name": "autocommit",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": "0",
+          "kind": "keyword_only",
+          "name": "prepare_threshold",
+          "required": false
+        }
+      ],
+      "returns": "PostgresSaver",
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.checkpointers:create_sqlite_checkpointer": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.checkpointers.sqlite",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "conn_string",
+          "required": true
+        },
+        {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "keyword_only",
+          "name": "setup",
+          "required": false
+        },
+        {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "keyword_only",
+          "name": "check_same_thread",
+          "required": false
+        }
+      ],
+      "returns": "SqliteSaver",
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.durable:ACTIVITY_NAME": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.durable._orchestrator",
+      "kind": "variable",
+      "tier": "experimental",
+      "value": "'execute_langgraph_run'"
+    },
+    "azure_functions_langgraph.durable:DurableClientLike": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.durable._lifecycle",
+      "kind": "class",
+      "members": {
+        "get_status": {
+          "async": true,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "instance_id",
+              "required": true
+            }
+          ],
+          "returns": "OrchestrationStatusLike | None"
+        },
+        "start_new": {
+          "async": true,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "orchestration_function_name",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "positional_or_keyword",
+              "name": "instance_id",
+              "required": false
+            },
+            {
+              "annotation": "Any",
+              "default": "None",
+              "kind": "positional_or_keyword",
+              "name": "client_input",
+              "required": false
+            }
+          ],
+          "returns": "str"
+        },
+        "terminate": {
+          "async": true,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "instance_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:DurableRunPayload": {
+      "bases": [],
+      "class_kind": "dataclass",
+      "defined_in": "azure_functions_langgraph.durable._state",
+      "kind": "class",
+      "members": {
+        "assistant_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "config": {
+          "annotation": "dict[str, Any]",
+          "default": "field(default_factory=dict)",
+          "kind": "field",
+          "required": false
+        },
+        "correlation_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "from_dict": {
+          "async": false,
+          "decorators": [
+            "classmethod"
+          ],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "cls",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any]",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "data",
+              "required": true
+            }
+          ],
+          "returns": "DurableRunPayload"
+        },
+        "graph_name": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "input": {
+          "annotation": "Any",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "run_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "thread_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "to_dict": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "dict[str, Any]"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:DurableRunResult": {
+      "bases": [],
+      "class_kind": "dataclass",
+      "defined_in": "azure_functions_langgraph.durable._state",
+      "kind": "class",
+      "members": {
+        "activity_status": {
+          "annotation": "_ActivityStatus",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "error": {
+          "annotation": "dict[str, str] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "failure": {
+          "async": false,
+          "decorators": [
+            "classmethod"
+          ],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "cls",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "run_id",
+              "required": true
+            },
+            {
+              "annotation": "BaseException",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "exc",
+              "required": true
+            }
+          ],
+          "returns": "DurableRunResult"
+        },
+        "from_dict": {
+          "async": false,
+          "decorators": [
+            "classmethod"
+          ],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "cls",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any]",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "data",
+              "required": true
+            }
+          ],
+          "returns": "DurableRunResult"
+        },
+        "rejected": {
+          "async": false,
+          "decorators": [
+            "classmethod"
+          ],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "cls",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "run_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true
+            }
+          ],
+          "returns": "DurableRunResult"
+        },
+        "result": {
+          "annotation": "Any",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "run_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "success": {
+          "async": false,
+          "decorators": [
+            "classmethod"
+          ],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "cls",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "run_id",
+              "required": true
+            },
+            {
+              "annotation": "Any",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "result",
+              "required": true
+            }
+          ],
+          "returns": "DurableRunResult"
+        },
+        "to_dict": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "dict[str, Any]"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:DurableRunStatus": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.durable._state",
+      "kind": "variable",
+      "tier": "experimental",
+      "value": "Literal['pending', 'running', 'success', 'error', 'cancelled']"
+    },
+    "azure_functions_langgraph.durable:GraphRegistrationLike": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.durable._activity",
+      "kind": "class",
+      "members": {
+        "async_mode": {
+          "annotation": "bool",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "graph": {
+          "annotation": "Any",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "name": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:OrchestrationContextLike": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.durable._orchestrator",
+      "kind": "class",
+      "members": {
+        "call_activity": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "name",
+              "required": true
+            },
+            {
+              "annotation": "Any",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "input_",
+              "required": true
+            }
+          ],
+          "returns": "Any"
+        },
+        "get_input": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "Any"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:OrchestrationStatusLike": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.durable._lifecycle",
+      "kind": "class",
+      "members": {
+        "output": {
+          "annotation": "Any",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "runtime_status": {
+          "annotation": "Any",
+          "default": null,
+          "kind": "field",
+          "required": true
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:cancel_run_impl": {
+      "async": true,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.durable._lifecycle",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "DurableClientLike",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "client",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "run_id",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "default": "'cancelled by client'",
+          "kind": "keyword_only",
+          "name": "reason",
+          "required": false
+        }
+      ],
+      "returns": "tuple[int, dict[str, Any]]",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:create_run_impl": {
+      "async": true,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.durable._lifecycle",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "DurableClientLike",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "client",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "orchestrator_name",
+          "required": true
+        },
+        {
+          "annotation": "Mapping[str, Any]",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "body",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "graph_name",
+          "required": true
+        }
+      ],
+      "returns": "tuple[int, dict[str, Any]]",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:execute_langgraph_run_impl": {
+      "async": true,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.durable._activity",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "DurableRunPayload",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "payload",
+          "required": true
+        },
+        {
+          "annotation": "Mapping[str, GraphRegistrationLike]",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "registry",
+          "required": true
+        },
+        {
+          "annotation": "ThreadLock",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "thread_lock",
+          "required": true
+        },
+        {
+          "annotation": "RunObserver",
+          "default": "NOOP_OBSERVER",
+          "kind": "keyword_only",
+          "name": "observer",
+          "required": false
+        }
+      ],
+      "returns": "DurableRunResult",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:get_run_impl": {
+      "async": true,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.durable._lifecycle",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "DurableClientLike",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "client",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "run_id",
+          "required": true
+        }
+      ],
+      "returns": "tuple[int, dict[str, Any]]",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:normalize_status": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.durable._state",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "str | None",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "runtime_status",
+          "required": true
+        },
+        {
+          "annotation": "Mapping[str, Any] | None",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "name": "output",
+          "required": false
+        }
+      ],
+      "returns": "DurableRunStatus",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:run_orchestration": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.durable._orchestrator",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "OrchestrationContextLike",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "context",
+          "required": true
+        }
+      ],
+      "returns": "Generator[Any, Any, Any]",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:runtime_status_str": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.durable._lifecycle",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "OrchestrationStatusLike | None",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "status",
+          "required": true
+        }
+      ],
+      "returns": "str | None",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.durable:serialize_error": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.durable._state",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "BaseException",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "exc",
+          "required": true
+        }
+      ],
+      "returns": "dict[str, str]",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.locks:AzureBlobLeaseThreadLock": {
+      "bases": [],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.locks.azure_blob",
+      "kind": "class",
+      "members": {
+        "__init__": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "_ContainerClientProtocol",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "container_client",
+              "required": true
+            },
+            {
+              "annotation": "int",
+              "default": "_LEASE_DURATION_MAX",
+              "kind": "keyword_only",
+              "name": "lease_duration",
+              "required": false
+            },
+            {
+              "annotation": "str",
+              "default": "'thread-locks/'",
+              "kind": "keyword_only",
+              "name": "blob_prefix",
+              "required": false
+            },
+            {
+              "annotation": "bool",
+              "default": "True",
+              "kind": "keyword_only",
+              "name": "auto_renew",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        },
+        "acquire": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "graph_name",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "float",
+              "default": "0.0",
+              "kind": "positional_or_keyword",
+              "name": "timeout",
+              "required": false
+            }
+          ],
+          "returns": "str | None"
+        },
+        "close": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "release": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "graph_name",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "token",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.locks:InProcessThreadLock": {
+      "bases": [],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.locks.inprocess",
+      "kind": "class",
+      "members": {
+        "__init__": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "acquire": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "graph_name",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "float",
+              "default": "0.0",
+              "kind": "positional_or_keyword",
+              "name": "timeout",
+              "required": false
+            }
+          ],
+          "returns": "str | None"
+        },
+        "release": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "graph_name",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "token",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.locks:ThreadLock": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.locks.base",
+      "kind": "class",
+      "members": {
+        "acquire": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "graph_name",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "float",
+              "default": "0.0",
+              "kind": "positional_or_keyword",
+              "name": "timeout",
+              "required": false
+            }
+          ],
+          "returns": "str | None"
+        },
+        "release": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "graph_name",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "token",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph.platform.contracts:Assistant": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "assistant_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "config": {
+          "annotation": "dict[str, Any]",
+          "default": "Field(default_factory=dict)",
+          "kind": "field",
+          "required": false
+        },
+        "context": {
+          "annotation": "dict[str, Any]",
+          "default": "Field(default_factory=dict)",
+          "kind": "field",
+          "required": false
+        },
+        "created_at": {
+          "annotation": "datetime",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "description": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "graph_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "metadata": {
+          "annotation": "Json",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "name": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "updated_at": {
+          "annotation": "datetime",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "version": {
+          "annotation": "int",
+          "default": "1",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:AssistantCount": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "graph_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "metadata": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "model_config": {
+          "annotation": null,
+          "default": "ConfigDict(extra='ignore')",
+          "kind": "attribute",
+          "required": false
+        },
+        "name": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:AssistantSearch": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "graph_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "limit": {
+          "annotation": "int",
+          "default": "Field(default=10, ge=1)",
+          "kind": "field",
+          "required": false
+        },
+        "metadata": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "model_config": {
+          "annotation": null,
+          "default": "ConfigDict(extra='ignore')",
+          "kind": "attribute",
+          "required": false
+        },
+        "name": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "offset": {
+          "annotation": "int",
+          "default": "Field(default=0, ge=0)",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:Checkpoint": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "checkpoint_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "checkpoint_map": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "checkpoint_ns": {
+          "annotation": "str",
+          "default": "''",
+          "kind": "field",
+          "required": false
+        },
+        "thread_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:Interrupt": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "value": {
+          "annotation": "Any",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:Json": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "variable",
+      "tier": "experimental",
+      "value": "Union[dict[str, Any], None]"
+    },
+    "azure_functions_langgraph.platform.contracts:MultitaskStrategy": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "variable",
+      "tier": "experimental",
+      "value": "Literal['reject', 'interrupt', 'rollback', 'enqueue']"
+    },
+    "azure_functions_langgraph.platform.contracts:Run": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "assistant_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "created_at": {
+          "annotation": "datetime",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "metadata": {
+          "annotation": "Json",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "multitask_strategy": {
+          "annotation": "MultitaskStrategy",
+          "default": "'reject'",
+          "kind": "field",
+          "required": false
+        },
+        "run_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "status": {
+          "annotation": "RunStatus",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "thread_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "updated_at": {
+          "annotation": "datetime",
+          "default": null,
+          "kind": "field",
+          "required": true
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:RunCreate": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "after_seconds": {
+          "annotation": "float | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "assistant_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "checkpoint_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "command": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "config": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "context": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "feedback_keys": {
+          "annotation": "list[str] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "if_not_exists": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "input": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "interrupt_after": {
+          "annotation": "list[str] | Literal['*'] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "interrupt_before": {
+          "annotation": "list[str] | Literal['*'] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "metadata": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "model_config": {
+          "annotation": null,
+          "default": "ConfigDict(extra='ignore')",
+          "kind": "attribute",
+          "required": false
+        },
+        "multitask_strategy": {
+          "annotation": "MultitaskStrategy | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "on_completion": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "stream_mode": {
+          "annotation": "str | list[str]",
+          "default": "'values'",
+          "kind": "field",
+          "required": false
+        },
+        "thread_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "webhook": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:RunStatus": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "variable",
+      "tier": "experimental",
+      "value": "Literal['pending', 'running', 'error', 'success', 'timeout', 'interrupted']"
+    },
+    "azure_functions_langgraph.platform.contracts:Thread": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "assistant_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "created_at": {
+          "annotation": "datetime",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "interrupts": {
+          "annotation": "dict[str, list[Interrupt]]",
+          "default": "Field(default_factory=dict)",
+          "kind": "field",
+          "required": false
+        },
+        "lock_expires_at": {
+          "annotation": "datetime | None",
+          "default": "Field(default=None, exclude=True)",
+          "kind": "field",
+          "required": false
+        },
+        "lock_token": {
+          "annotation": "str | None",
+          "default": "Field(default=None, exclude=True)",
+          "kind": "field",
+          "required": false
+        },
+        "metadata": {
+          "annotation": "Json",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "status": {
+          "annotation": "ThreadStatus",
+          "default": "'idle'",
+          "kind": "field",
+          "required": false
+        },
+        "thread_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "updated_at": {
+          "annotation": "datetime",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "values": {
+          "annotation": "Json",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:ThreadCount": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "metadata": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "model_config": {
+          "annotation": null,
+          "default": "ConfigDict(extra='ignore')",
+          "kind": "attribute",
+          "required": false
+        },
+        "status": {
+          "annotation": "ThreadStatus | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:ThreadCreate": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "metadata": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "model_config": {
+          "annotation": null,
+          "default": "ConfigDict(extra='ignore')",
+          "kind": "attribute",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:ThreadHistoryRequest": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "before": {
+          "annotation": "str | dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "checkpoint": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "limit": {
+          "annotation": "int",
+          "default": "Field(default=10, ge=1)",
+          "kind": "field",
+          "required": false
+        },
+        "metadata": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "model_config": {
+          "annotation": null,
+          "default": "ConfigDict(extra='ignore')",
+          "kind": "attribute",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:ThreadSearch": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "limit": {
+          "annotation": "int",
+          "default": "Field(default=10, ge=1)",
+          "kind": "field",
+          "required": false
+        },
+        "metadata": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "model_config": {
+          "annotation": null,
+          "default": "ConfigDict(extra='ignore')",
+          "kind": "attribute",
+          "required": false
+        },
+        "offset": {
+          "annotation": "int",
+          "default": "Field(default=0, ge=0)",
+          "kind": "field",
+          "required": false
+        },
+        "status": {
+          "annotation": "ThreadStatus | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:ThreadState": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "checkpoint": {
+          "annotation": "Checkpoint",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "created_at": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "interrupts": {
+          "annotation": "list[Interrupt]",
+          "default": "Field(default_factory=list)",
+          "kind": "field",
+          "required": false
+        },
+        "metadata": {
+          "annotation": "Json",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "next": {
+          "annotation": "list[str]",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "parent_checkpoint": {
+          "annotation": "Checkpoint | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "tasks": {
+          "annotation": "list[ThreadTask]",
+          "default": "Field(default_factory=list)",
+          "kind": "field",
+          "required": false
+        },
+        "values": {
+          "annotation": "dict[str, Any] | list[dict[str, Any]]",
+          "default": null,
+          "kind": "field",
+          "required": true
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:ThreadStateUpdate": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "as_node": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "checkpoint": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "checkpoint_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "model_config": {
+          "annotation": null,
+          "default": "ConfigDict(extra='ignore')",
+          "kind": "attribute",
+          "required": false
+        },
+        "values": {
+          "annotation": "dict[str, Any] | list[dict[str, Any]]",
+          "default": null,
+          "kind": "field",
+          "required": true
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:ThreadStatus": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "variable",
+      "tier": "experimental",
+      "value": "Literal['idle', 'busy', 'interrupted', 'error']"
+    },
+    "azure_functions_langgraph.platform.contracts:ThreadTask": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "checkpoint": {
+          "annotation": "Checkpoint | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "error": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "interrupts": {
+          "annotation": "list[Interrupt]",
+          "default": "Field(default_factory=list)",
+          "kind": "field",
+          "required": false
+        },
+        "name": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "result": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "state": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.contracts:ThreadUpdate": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.contracts",
+      "kind": "class",
+      "members": {
+        "metadata": {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "model_config": {
+          "annotation": null,
+          "default": "ConfigDict(extra='ignore')",
+          "kind": "attribute",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.routes:PlatformRouteDeps": {
+      "bases": [],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform._common",
+      "kind": "class",
+      "members": {
+        "__init__": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any]",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "registrations",
+              "required": true
+            },
+            {
+              "annotation": "ThreadStore",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "thread_store",
+              "required": true
+            },
+            {
+              "annotation": "ThreadLock",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "thread_lock",
+              "required": true
+            },
+            {
+              "annotation": "RunObserver",
+              "default": "NOOP_OBSERVER",
+              "kind": "keyword_only",
+              "name": "observer",
+              "required": false
+            },
+            {
+              "annotation": "func.AuthLevel",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "auth_level",
+              "required": true
+            },
+            {
+              "annotation": "int",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "max_stream_response_bytes",
+              "required": true
+            },
+            {
+              "annotation": "int",
+              "default": "1024 * 1024",
+              "kind": "keyword_only",
+              "name": "max_request_body_bytes",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "32",
+              "kind": "keyword_only",
+              "name": "max_input_depth",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "10000",
+              "kind": "keyword_only",
+              "name": "max_input_nodes",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "100",
+              "kind": "keyword_only",
+              "name": "max_platform_result_limit",
+              "required": false
+            },
+            {
+              "annotation": "ThreadAuthorizer | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "authorize",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.routes:_get_threadless_graph": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.platform._common",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "Any",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "graph",
+          "required": true
+        }
+      ],
+      "returns": "Any | None",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.routes:_platform_error": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.platform._common",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "int",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "status_code",
+          "required": true
+        },
+        {
+          "annotation": "str | list[ValidationErrorDetail]",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "detail",
+          "required": true
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "name": "request_id",
+          "required": false
+        }
+      ],
+      "returns": "func.HttpResponse",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.routes:_preflight_run_create": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.platform._common",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "RunCreate",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "run",
+          "required": true
+        }
+      ],
+      "returns": "func.HttpResponse | None",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.routes:_registration_to_assistant": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.platform._common",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "name",
+          "required": true
+        },
+        {
+          "annotation": "Any",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "reg",
+          "required": true
+        }
+      ],
+      "returns": "Assistant",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.routes:_snapshot_to_thread_state": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.platform._common",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "Any",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "snapshot",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "thread_id",
+          "required": true
+        }
+      ],
+      "returns": "ThreadState",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.routes:register_platform_routes": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.platform.routes",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "func.FunctionApp",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "app",
+          "required": true
+        },
+        {
+          "annotation": "PlatformRouteDeps",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "deps",
+          "required": true
+        }
+      ],
+      "returns": "None",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.stores:InMemoryThreadStore": {
+      "bases": [],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.platform.stores",
+      "kind": "class",
+      "members": {
+        "__init__": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Callable[[], str] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "id_factory",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        },
+        "count": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            }
+          ],
+          "returns": "int"
+        },
+        "create": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        },
+        "delete": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "get": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "Thread | None"
+        },
+        "release_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "ThreadStatus",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "status",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "values",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "owner_token",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        },
+        "renew_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "owner_token",
+              "required": true
+            }
+          ],
+          "returns": "bool"
+        },
+        "search": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "10",
+              "kind": "keyword_only",
+              "name": "limit",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "0",
+              "kind": "keyword_only",
+              "name": "offset",
+              "required": false
+            }
+          ],
+          "returns": "list[Thread]"
+        },
+        "try_acquire_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "assistant_id",
+              "required": false
+            }
+          ],
+          "returns": "Thread | None"
+        },
+        "update": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "values",
+              "required": false
+            },
+            {
+              "annotation": "dict[str, list[Interrupt]] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "interrupts",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "assistant_id",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.platform.stores:ThreadStore": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.platform.stores",
+      "kind": "class",
+      "members": {
+        "count": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            }
+          ],
+          "returns": "int"
+        },
+        "create": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        },
+        "delete": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "get": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "Thread | None"
+        },
+        "release_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "ThreadStatus",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "status",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "values",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "owner_token",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        },
+        "renew_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "owner_token",
+              "required": true
+            }
+          ],
+          "returns": "bool"
+        },
+        "search": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "10",
+              "kind": "keyword_only",
+              "name": "limit",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "0",
+              "kind": "keyword_only",
+              "name": "offset",
+              "required": false
+            }
+          ],
+          "returns": "list[Thread]"
+        },
+        "try_acquire_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "assistant_id",
+              "required": false
+            }
+          ],
+          "returns": "Thread | None"
+        },
+        "update": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "values",
+              "required": false
+            },
+            {
+              "annotation": "dict[str, list[Interrupt]] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "interrupts",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "assistant_id",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.stores.azure_table:AzureTableThreadStore": {
+      "bases": [
+        "ThreadStore"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.stores.azure_table",
+      "kind": "class",
+      "members": {
+        "__init__": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "_TableClientProtocol",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "table_client",
+              "required": true
+            },
+            {
+              "annotation": "type[BaseException]",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "not_found_error",
+              "required": true
+            },
+            {
+              "annotation": "type[BaseException]",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "modified_error",
+              "required": true
+            },
+            {
+              "annotation": "Any",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "match_conditions",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "count": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            }
+          ],
+          "returns": "int"
+        },
+        "create": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        },
+        "delete": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "from_connection_string": {
+          "async": false,
+          "decorators": [
+            "classmethod"
+          ],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "cls",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "connection_string",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "table_name",
+              "required": true
+            }
+          ],
+          "returns": "AzureTableThreadStore"
+        },
+        "from_table_client": {
+          "async": false,
+          "decorators": [
+            "classmethod"
+          ],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "cls",
+              "required": true
+            },
+            {
+              "annotation": "_TableClientProtocol",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "table_client",
+              "required": true
+            }
+          ],
+          "returns": "AzureTableThreadStore"
+        },
+        "get": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "Thread | None"
+        },
+        "release_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "ThreadStatus",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "status",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "values",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "owner_token",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        },
+        "renew_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "owner_token",
+              "required": true
+            }
+          ],
+          "returns": "bool"
+        },
+        "reset_stale_locks": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "int",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "older_than_seconds",
+              "required": true
+            },
+            {
+              "annotation": "Literal['idle', 'error']",
+              "default": "'error'",
+              "kind": "positional_or_keyword",
+              "name": "status",
+              "required": false
+            }
+          ],
+          "returns": "int"
+        },
+        "search": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "10",
+              "kind": "keyword_only",
+              "name": "limit",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "0",
+              "kind": "keyword_only",
+              "name": "offset",
+              "required": false
+            }
+          ],
+          "returns": "list[Thread]"
+        },
+        "try_acquire_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "assistant_id",
+              "required": false
+            }
+          ],
+          "returns": "Thread | None"
+        },
+        "update": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "values",
+              "required": false
+            },
+            {
+              "annotation": "dict[str, list[Interrupt]] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "interrupts",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "assistant_id",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.stores:AzureTableThreadStore": {
+      "bases": [
+        "ThreadStore"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.stores.azure_table",
+      "kind": "class",
+      "members": {
+        "__init__": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "_TableClientProtocol",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "table_client",
+              "required": true
+            },
+            {
+              "annotation": "type[BaseException]",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "not_found_error",
+              "required": true
+            },
+            {
+              "annotation": "type[BaseException]",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "modified_error",
+              "required": true
+            },
+            {
+              "annotation": "Any",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "match_conditions",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "count": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            }
+          ],
+          "returns": "int"
+        },
+        "create": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        },
+        "delete": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "from_connection_string": {
+          "async": false,
+          "decorators": [
+            "classmethod"
+          ],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "cls",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "connection_string",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "table_name",
+              "required": true
+            }
+          ],
+          "returns": "AzureTableThreadStore"
+        },
+        "from_table_client": {
+          "async": false,
+          "decorators": [
+            "classmethod"
+          ],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "cls",
+              "required": true
+            },
+            {
+              "annotation": "_TableClientProtocol",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "table_client",
+              "required": true
+            }
+          ],
+          "returns": "AzureTableThreadStore"
+        },
+        "get": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            }
+          ],
+          "returns": "Thread | None"
+        },
+        "release_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "ThreadStatus",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "status",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "values",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "owner_token",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        },
+        "renew_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "owner_token",
+              "required": true
+            }
+          ],
+          "returns": "bool"
+        },
+        "reset_stale_locks": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "int",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "older_than_seconds",
+              "required": true
+            },
+            {
+              "annotation": "Literal['idle', 'error']",
+              "default": "'error'",
+              "kind": "positional_or_keyword",
+              "name": "status",
+              "required": false
+            }
+          ],
+          "returns": "int"
+        },
+        "search": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "10",
+              "kind": "keyword_only",
+              "name": "limit",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "0",
+              "kind": "keyword_only",
+              "name": "offset",
+              "required": false
+            }
+          ],
+          "returns": "list[Thread]"
+        },
+        "try_acquire_run_lock": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "assistant_id",
+              "required": false
+            }
+          ],
+          "returns": "Thread | None"
+        },
+        "update": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "thread_id",
+              "required": true
+            },
+            {
+              "annotation": "Mapping[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "metadata",
+              "required": false
+            },
+            {
+              "annotation": "ThreadStatus | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "status",
+              "required": false
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "values",
+              "required": false
+            },
+            {
+              "annotation": "dict[str, list[Interrupt]] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "interrupts",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "assistant_id",
+              "required": false
+            }
+          ],
+          "returns": "Thread"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.triggers:InputMapper": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "variable",
+      "tier": "experimental",
+      "value": "Callable[[ServiceBusMessageLike], Any]"
+    },
+    "azure_functions_langgraph.triggers:ResultHandler": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "variable",
+      "tier": "experimental",
+      "value": "Callable[[Any, ServiceBusMessageLike], None]"
+    },
+    "azure_functions_langgraph.triggers:ServiceBusMessageLike": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "class",
+      "members": {
+        "get_body": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "bytes"
+        },
+        "message_id": {
+          "async": false,
+          "decorators": [],
+          "kind": "property",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "str | None"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.triggers:ThreadContentionError": {
+      "bases": [
+        "RuntimeError"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "class",
+      "members": {},
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.triggers:ThreadIdFactory": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "variable",
+      "tier": "experimental",
+      "value": "Callable[[ServiceBusMessageLike], str | None]"
+    },
+    "azure_functions_langgraph.triggers:default_message_mapper": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "ServiceBusMessageLike",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "msg",
+          "required": true
+        }
+      ],
+      "returns": "dict[str, Any]",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.triggers:process_service_bus_message": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "_ServiceBusRegistration",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "reg",
+          "required": true
+        },
+        {
+          "annotation": "ServiceBusMessageLike",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "msg",
+          "required": true
+        },
+        {
+          "annotation": "ThreadLock",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "thread_lock",
+          "required": true
+        },
+        {
+          "annotation": "RunObserver",
+          "default": "NOOP_OBSERVER",
+          "kind": "keyword_only",
+          "name": "observer",
+          "required": false
+        }
+      ],
+      "returns": "Any",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph.triggers:process_service_bus_message_async": {
+      "async": true,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "_ServiceBusRegistration",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "reg",
+          "required": true
+        },
+        {
+          "annotation": "ServiceBusMessageLike",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "msg",
+          "required": true
+        },
+        {
+          "annotation": "ThreadLock",
+          "default": null,
+          "kind": "keyword_only",
+          "name": "thread_lock",
+          "required": true
+        },
+        {
+          "annotation": "RunObserver",
+          "default": "NOOP_OBSERVER",
+          "kind": "keyword_only",
+          "name": "observer",
+          "required": false
+        }
+      ],
+      "returns": "Any",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph:AppMetadata": {
+      "bases": [],
+      "class_kind": "dataclass",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "app_routes": {
+          "annotation": "tuple[RouteMetadata, ...]",
+          "default": "()",
+          "kind": "field",
+          "required": false
+        },
+        "graphs": {
+          "annotation": "Mapping[str, RegisteredGraphMetadata]",
+          "default": "field(default_factory=lambda: MappingProxyType({}))",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:AsyncInvocableGraph": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.protocols",
+      "kind": "class",
+      "members": {
+        "ainvoke": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any]",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "input",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "...",
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": false
+            }
+          ],
+          "returns": "Awaitable[Any]"
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:AsyncStreamableGraph": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.protocols",
+      "kind": "class",
+      "members": {
+        "astream": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any]",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "input",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "...",
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": false
+            },
+            {
+              "annotation": "str",
+              "default": "...",
+              "kind": "positional_or_keyword",
+              "name": "stream_mode",
+              "required": false
+            }
+          ],
+          "returns": "AsyncIterator[Any]"
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:CloneableGraph": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.protocols",
+      "kind": "class",
+      "members": {
+        "copy": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "...",
+              "kind": "keyword_only",
+              "name": "update",
+              "required": false
+            }
+          ],
+          "returns": "Any"
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:ErrorResponse": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "detail": {
+          "annotation": "str | list[ValidationErrorDetail] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "error": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "request_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:GraphInfo": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "description": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "has_checkpointer": {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "field",
+          "required": false
+        },
+        "name": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:HealthResponse": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "graphs": {
+          "annotation": "list[GraphInfo]",
+          "default": "Field(default_factory=list)",
+          "kind": "field",
+          "required": false
+        },
+        "status": {
+          "annotation": "str",
+          "default": "'ok'",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:InvocableGraph": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.protocols",
+      "kind": "class",
+      "members": {
+        "invoke": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any]",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "input",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "...",
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": false
+            }
+          ],
+          "returns": "Any"
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:InvokeRequest": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "config": {
+          "annotation": "dict[str, Any] | None",
+          "default": "Field(default=None, description=\"LangGraph config, e.g. {'configurable': {'thread_id': '...'}}\")",
+          "kind": "field",
+          "required": false
+        },
+        "input": {
+          "annotation": "dict[str, Any]",
+          "default": "Field(description='Input to the graph')",
+          "kind": "field",
+          "required": false
+        },
+        "version": {
+          "annotation": "LangGraphVersion | None",
+          "default": "Field(default=None, description=\"Optional LangGraph output version ('v1' or 'v2'). Forwarded to graph.invoke(..., version=...) only when set; requires langgraph>=1.1. 'v2' returns a GraphOutput {'value', 'interrupts'} shape.\")",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:InvokeResponse": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "output": {
+          "annotation": "dict[str, Any]",
+          "default": "Field(description='Graph output state')",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:LangGraphApp": {
+      "bases": [],
+      "class_kind": "dataclass",
+      "defined_in": "azure_functions_langgraph.app",
+      "kind": "class",
+      "members": {
+        "async_runs": {
+          "annotation": "AsyncRunsMode",
+          "default": "False",
+          "kind": "field",
+          "required": false
+        },
+        "auth_level": {
+          "annotation": "func.AuthLevel",
+          "default": "func.AuthLevel.FUNCTION",
+          "kind": "field",
+          "required": false
+        },
+        "authorize": {
+          "annotation": "ThreadAuthorizer | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "function_app": {
+          "async": false,
+          "decorators": [],
+          "kind": "property",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "func.FunctionApp"
+        },
+        "get_app_metadata": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "AppMetadata"
+        },
+        "health_auth_level": {
+          "annotation": "func.AuthLevel",
+          "default": "func.AuthLevel.ANONYMOUS",
+          "kind": "field",
+          "required": false
+        },
+        "health_details_auth_level": {
+          "annotation": "func.AuthLevel | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "max_input_depth": {
+          "annotation": "int",
+          "default": "32",
+          "kind": "field",
+          "required": false
+        },
+        "max_input_nodes": {
+          "annotation": "int",
+          "default": "10000",
+          "kind": "field",
+          "required": false
+        },
+        "max_platform_result_limit": {
+          "annotation": "int",
+          "default": "100",
+          "kind": "field",
+          "required": false
+        },
+        "max_request_body_bytes": {
+          "annotation": "int",
+          "default": "1024 * 1024",
+          "kind": "field",
+          "required": false
+        },
+        "max_stream_response_bytes": {
+          "annotation": "int",
+          "default": "1024 * 1024",
+          "kind": "field",
+          "required": false
+        },
+        "observer": {
+          "annotation": "RunObserver | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "platform_compat": {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "field",
+          "required": false
+        },
+        "readiness_auth_level": {
+          "annotation": "func.AuthLevel | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "readiness_checks": {
+          "annotation": "Mapping[str, Callable[[], bool | Awaitable[bool]]] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "readiness_timeout_seconds": {
+          "annotation": "float",
+          "default": "5.0",
+          "kind": "field",
+          "required": false
+        },
+        "register": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Any",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "graph",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "name",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "positional_or_keyword",
+              "name": "description",
+              "required": false
+            },
+            {
+              "annotation": "bool",
+              "default": "True",
+              "kind": "positional_or_keyword",
+              "name": "stream",
+              "required": false
+            },
+            {
+              "annotation": "func.AuthLevel | None",
+              "default": "None",
+              "kind": "positional_or_keyword",
+              "name": "auth_level",
+              "required": false
+            },
+            {
+              "annotation": "type[Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "request_model",
+              "required": false
+            },
+            {
+              "annotation": "type[Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "response_model",
+              "required": false
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "async_mode",
+              "required": false
+            },
+            {
+              "annotation": "frozenset[str]",
+              "default": "frozenset()",
+              "kind": "keyword_only",
+              "name": "allowed_configurable_keys",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        },
+        "register_service_bus": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Any",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "graph",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "name",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "keyword_only",
+              "name": "connection",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "queue_name",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "topic_name",
+              "required": false
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "subscription_name",
+              "required": false
+            },
+            {
+              "annotation": "Callable[[Any], Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "input_mapper",
+              "required": false
+            },
+            {
+              "annotation": "Callable[[Any], str | None] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "thread_id_factory",
+              "required": false
+            },
+            {
+              "annotation": "Callable[[Any, Any], None] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "result_handler",
+              "required": false
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "async_mode",
+              "required": false
+            },
+            {
+              "annotation": "float",
+              "default": "5.0",
+              "kind": "keyword_only",
+              "name": "lock_timeout",
+              "required": false
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "binding_kwargs",
+              "required": false
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "session",
+              "required": false
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "session_exclusive",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        },
+        "route_prefix": {
+          "annotation": "str",
+          "default": "_ROUTE_PREFIX",
+          "kind": "field",
+          "required": false
+        },
+        "thread_lock": {
+          "annotation": "ThreadLock | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "thread_store": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Any",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "store",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:LangGraphLike": {
+      "bases": [
+        "InvocableGraph",
+        "StreamableGraph",
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.protocols",
+      "kind": "class",
+      "members": {},
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:LoggingRunObserver": {
+      "bases": [],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.observability",
+      "kind": "class",
+      "members": {
+        "__init__": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "logging.Logger | None",
+              "default": "None",
+              "kind": "positional_or_keyword",
+              "name": "logger",
+              "required": false
+            },
+            {
+              "annotation": "int",
+              "default": "logging.INFO",
+              "kind": "keyword_only",
+              "name": "level",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_completed": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_failed": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            },
+            {
+              "annotation": "BaseException",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "exc",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_rejected": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            },
+            {
+              "annotation": "RunRejectedReason",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_started": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph:NoOpRunObserver": {
+      "bases": [],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.observability",
+      "kind": "class",
+      "members": {
+        "on_run_completed": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_failed": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            },
+            {
+              "annotation": "BaseException",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "exc",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_rejected": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            },
+            {
+              "annotation": "RunRejectedReason",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_started": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph:OTelRunObserver": {
+      "bases": [],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.observability_otel",
+      "kind": "class",
+      "members": {
+        "__init__": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Tracer | None",
+              "default": "None",
+              "kind": "positional_or_keyword",
+              "name": "tracer",
+              "required": false
+            },
+            {
+              "annotation": "str",
+              "default": "'langgraph.run'",
+              "kind": "keyword_only",
+              "name": "span_name_prefix",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_completed": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_failed": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            },
+            {
+              "annotation": "BaseException",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "exc",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_rejected": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            },
+            {
+              "annotation": "RunRejectedReason",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_started": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph:RegisteredGraphMetadata": {
+      "bases": [],
+      "class_kind": "dataclass",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "description": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "name": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "routes": {
+          "annotation": "tuple[RouteMetadata, ...]",
+          "default": "()",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:RouteMetadata": {
+      "bases": [],
+      "class_kind": "dataclass",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "description": {
+          "annotation": "str",
+          "default": "''",
+          "kind": "field",
+          "required": false
+        },
+        "method": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "parameters": {
+          "annotation": "tuple[Mapping[str, Any], ...]",
+          "default": "()",
+          "kind": "field",
+          "required": false
+        },
+        "path": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "request_model": {
+          "annotation": "type[Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "response_model": {
+          "annotation": "type[Any] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "summary": {
+          "annotation": "str",
+          "default": "''",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:RunContext": {
+      "bases": [],
+      "class_kind": "dataclass",
+      "defined_in": "azure_functions_langgraph.observability",
+      "kind": "class",
+      "members": {
+        "assistant_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "ended_at_ns": {
+          "annotation": "int | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "endpoint": {
+          "annotation": "EndpointName",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "execution_id": {
+          "annotation": "str",
+          "default": "dataclasses.field(default_factory=lambda: uuid4().hex)",
+          "kind": "field",
+          "required": false
+        },
+        "graph_name": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "has_checkpointer": {
+          "annotation": "bool | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "invocation_id": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "lock_backend": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "run_id": {
+          "annotation": "str",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "started_at_ns": {
+          "annotation": "int",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "stream_mode": {
+          "annotation": "str | tuple[str, ...] | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "thread_id": {
+          "annotation": "str | None",
+          "default": null,
+          "kind": "field",
+          "required": true
+        },
+        "transport": {
+          "annotation": "RunTransport",
+          "default": "'buffered'",
+          "kind": "field",
+          "required": false
+        },
+        "trigger_type": {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph:RunObserver": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.observability",
+      "kind": "class",
+      "members": {
+        "on_run_completed": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_failed": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            },
+            {
+              "annotation": "BaseException",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "exc",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_rejected": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            },
+            {
+              "annotation": "RunRejectedReason",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "reason",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        },
+        "on_run_started": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "RunContext",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "ctx",
+              "required": true
+            }
+          ],
+          "returns": "None"
+        }
+      },
+      "tier": "beta"
+    },
+    "azure_functions_langgraph:RunRejectedReason": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.observability",
+      "kind": "variable",
+      "tier": "beta",
+      "value": "Literal['invalid_request', 'invalid_config', 'unsupported_version', 'streaming_unsupported', 'lock_contention', 'authorization_denied']"
+    },
+    "azure_functions_langgraph:RunTransport": {
+      "annotation": null,
+      "defined_in": "azure_functions_langgraph.observability",
+      "kind": "variable",
+      "tier": "beta",
+      "value": "Literal['buffered', 'streaming']"
+    },
+    "azure_functions_langgraph:ServiceBusMessageLike": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "class",
+      "members": {
+        "get_body": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "bytes"
+        },
+        "message_id": {
+          "async": false,
+          "decorators": [],
+          "kind": "property",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "str | None"
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph:StateResponse": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "metadata": {
+          "annotation": "dict[str, Any] | None",
+          "default": "Field(default=None, description='State metadata')",
+          "kind": "field",
+          "required": false
+        },
+        "next": {
+          "annotation": "list[str]",
+          "default": "Field(default_factory=list, description='Next node(s) to execute')",
+          "kind": "field",
+          "required": false
+        },
+        "values": {
+          "annotation": "dict[str, Any]",
+          "default": "Field(description='Current state values')",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:StatefulGraph": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.protocols",
+      "kind": "class",
+      "members": {
+        "get_state": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any]",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": true
+            }
+          ],
+          "returns": "Any"
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:StreamRequest": {
+      "bases": [
+        "BaseModel"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.contracts",
+      "kind": "class",
+      "members": {
+        "config": {
+          "annotation": "dict[str, Any] | None",
+          "default": "Field(default=None, description=\"LangGraph config, e.g. {'configurable': {'thread_id': '...'}}\")",
+          "kind": "field",
+          "required": false
+        },
+        "input": {
+          "annotation": "dict[str, Any]",
+          "default": "Field(description='Input to the graph')",
+          "kind": "field",
+          "required": false
+        },
+        "stream_mode": {
+          "annotation": "str",
+          "default": "Field(default='values', description=\"Stream mode: 'values', 'updates', 'messages', or 'custom'\")",
+          "kind": "field",
+          "required": false
+        },
+        "version": {
+          "annotation": "LangGraphVersion | None",
+          "default": "Field(default=None, description=\"Optional LangGraph output version ('v1' or 'v2'). Forwarded to graph.stream(..., version=...) only when set; requires langgraph>=1.1. 'v2' emits unified StreamPart {'type','ns','data','interrupts'} events.\")",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:StreamableGraph": {
+      "bases": [
+        "Protocol"
+      ],
+      "class_kind": "protocol",
+      "defined_in": "azure_functions_langgraph.protocols",
+      "kind": "class",
+      "members": {
+        "stream": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any]",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "input",
+              "required": true
+            },
+            {
+              "annotation": "dict[str, Any] | None",
+              "default": "...",
+              "kind": "positional_or_keyword",
+              "name": "config",
+              "required": false
+            },
+            {
+              "annotation": "str",
+              "default": "...",
+              "kind": "positional_or_keyword",
+              "name": "stream_mode",
+              "required": false
+            }
+          ],
+          "returns": "Iterator[Any]"
+        }
+      },
+      "tier": "stable"
+    },
+    "azure_functions_langgraph:StreamingLangGraphApp": {
+      "bases": [],
+      "class_kind": "dataclass",
+      "defined_in": "azure_functions_langgraph.streaming",
+      "kind": "class",
+      "members": {
+        "auth_level": {
+          "annotation": "func.AuthLevel",
+          "default": "func.AuthLevel.FUNCTION",
+          "kind": "field",
+          "required": false
+        },
+        "authorize": {
+          "annotation": "StreamingThreadAuthorizer | None",
+          "default": "field(default=None, kw_only=True, repr=False)",
+          "kind": "field",
+          "required": false
+        },
+        "function_app": {
+          "async": false,
+          "decorators": [],
+          "kind": "property",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            }
+          ],
+          "returns": "func.FunctionApp"
+        },
+        "health_auth_level": {
+          "annotation": "func.AuthLevel",
+          "default": "func.AuthLevel.ANONYMOUS",
+          "kind": "field",
+          "required": false
+        },
+        "health_details_auth_level": {
+          "annotation": "func.AuthLevel | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "max_input_depth": {
+          "annotation": "int",
+          "default": "32",
+          "kind": "field",
+          "required": false
+        },
+        "max_input_nodes": {
+          "annotation": "int",
+          "default": "10000",
+          "kind": "field",
+          "required": false
+        },
+        "max_request_body_bytes": {
+          "annotation": "int",
+          "default": "1024 * 1024",
+          "kind": "field",
+          "required": false
+        },
+        "max_stream_events": {
+          "annotation": "int",
+          "default": "100000",
+          "kind": "field",
+          "required": false
+        },
+        "observer": {
+          "annotation": "RunObserver | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        },
+        "register": {
+          "async": false,
+          "decorators": [],
+          "kind": "function",
+          "params": [
+            {
+              "annotation": null,
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "self",
+              "required": true
+            },
+            {
+              "annotation": "Any",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "graph",
+              "required": true
+            },
+            {
+              "annotation": "str",
+              "default": null,
+              "kind": "positional_or_keyword",
+              "name": "name",
+              "required": true
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "kind": "positional_or_keyword",
+              "name": "description",
+              "required": false
+            },
+            {
+              "annotation": "bool",
+              "default": "True",
+              "kind": "positional_or_keyword",
+              "name": "stream",
+              "required": false
+            },
+            {
+              "annotation": "func.AuthLevel | None",
+              "default": "None",
+              "kind": "positional_or_keyword",
+              "name": "auth_level",
+              "required": false
+            },
+            {
+              "annotation": "type[Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "request_model",
+              "required": false
+            },
+            {
+              "annotation": "type[Any] | None",
+              "default": "None",
+              "kind": "keyword_only",
+              "name": "response_model",
+              "required": false
+            },
+            {
+              "annotation": "bool",
+              "default": "False",
+              "kind": "keyword_only",
+              "name": "async_mode",
+              "required": false
+            },
+            {
+              "annotation": "Iterable[str]",
+              "default": "frozenset()",
+              "kind": "keyword_only",
+              "name": "allowed_configurable_keys",
+              "required": false
+            }
+          ],
+          "returns": "None"
+        },
+        "route_prefix": {
+          "annotation": "str",
+          "default": "'/api'",
+          "kind": "field",
+          "required": false
+        },
+        "thread_lock": {
+          "annotation": "ThreadLock | None",
+          "default": "None",
+          "kind": "field",
+          "required": false
+        }
+      },
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph:ThreadContentionError": {
+      "bases": [
+        "RuntimeError"
+      ],
+      "class_kind": "other",
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "class",
+      "members": {},
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph:default_message_mapper": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.triggers.service_bus",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "ServiceBusMessageLike",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "msg",
+          "required": true
+        }
+      ],
+      "returns": "dict[str, Any]",
+      "tier": "experimental"
+    },
+    "azure_functions_langgraph:get_langgraph_metadata": {
+      "async": false,
+      "decorators": [],
+      "defined_in": "azure_functions_langgraph.app",
+      "kind": "function",
+      "params": [
+        {
+          "annotation": "Any",
+          "default": null,
+          "kind": "positional_or_keyword",
+          "name": "func",
+          "required": true
+        }
+      ],
+      "returns": "dict[str, Any] | None",
+      "tier": "stable"
+    }
+  },
+  "version": "0.13.0"
+}

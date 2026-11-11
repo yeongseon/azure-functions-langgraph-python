@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import builtins
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 import importlib
 import json
 import logging
 import random
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, TypeVar, cast
 from urllib.parse import quote, unquote
 
 from langchain_core.runnables import RunnableConfig
@@ -33,6 +34,47 @@ from azure_functions_langgraph.locks.guard import (
     check_ownership_guard,
     resolve_ownership_guard,
 )
+
+_MAX_CONCURRENT_BLOB_READS = 8
+"""Upper bound on in-flight blob downloads for one checkpoint read."""
+
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+
+
+def _map_bounded(func: Callable[[_T], _R], items: Sequence[_T]) -> builtins.list[_R]:
+    """Apply ``func`` to ``items`` with bounded thread concurrency, preserving order."""
+    if len(items) <= 1:
+        return [func(item) for item in items]
+    workers = min(_MAX_CONCURRENT_BLOB_READS, len(items))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(func, items))
+
+
+async def _amap_bounded(
+    func: Callable[[_T], Awaitable[_R]], items: Sequence[_T]
+) -> builtins.list[_R]:
+    """Await ``func`` over ``items`` with a bounded semaphore, preserving order.
+
+    If any call fails or the caller is cancelled, all sibling tasks are
+    cancelled and awaited before the exception propagates.
+    """
+    if len(items) <= 1:
+        return [await func(item) for item in items]
+    semaphore = asyncio.Semaphore(_MAX_CONCURRENT_BLOB_READS)
+
+    async def run(item: _T) -> _R:
+        async with semaphore:
+            return await func(item)
+
+    tasks = [asyncio.ensure_future(run(item)) for item in items]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 @dataclass
@@ -277,6 +319,25 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         # ``0000000000000.5``), which is inconsistent and non-deterministic. See #397.
         return f"{next_v:032}.{next_h:.16f}"
 
+    @property
+    def lock_scope_identity(self) -> str | None:
+        """Stable identity of the physical checkpoint storage, or ``None``.
+
+        ``"azure-blob:<account>/<container>"`` when the container client
+        reports both names (the real ``azure.storage.blob.ContainerClient``
+        does). Every saver, graph, app and process that writes the same
+        container reports the same string, so thread locks can be scoped to the
+        storage rather than to a graph name. Checkpoint blobs are not prefixed,
+        so the container is the whole collision scope.
+        """
+        account = getattr(self._container_client, "account_name", None)
+        container = getattr(self._container_client, "container_name", None)
+        if not isinstance(account, str) or not isinstance(container, str):
+            return None
+        if not account or not container:
+            return None
+        return f"azure-blob:{account}/{container}"
+
     def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Fetch a checkpoint tuple by config or latest checkpoint hint."""
         thread_id = self._config_thread_id(config)
@@ -326,6 +387,8 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         limit: int | None = None,
     ) -> Iterator[CheckpointTuple]:
         """List checkpoints matching config and optional metadata filters."""
+        if limit is not None and limit <= 0:
+            return
         remaining = limit
         config_checkpoint_ns = self._config_checkpoint_ns(config) if config else None
         config_checkpoint_id = get_checkpoint_id(config) if config else None
@@ -346,6 +409,24 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                     if before_checkpoint_id is not None and checkpoint_id >= before_checkpoint_id:
                         continue
 
+                    preloaded_metadata: tuple[str, bytes, dict[str, str]] | None = None
+                    if filter:
+                        # Read the small metadata blob first so non-matching
+                        # checkpoints skip channel-value and write downloads.
+                        preloaded_metadata = self._download_typed_blob(
+                            self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id)
+                        )
+                        if preloaded_metadata is None:
+                            continue
+                        prefetched: CheckpointMetadata = self.serde.loads_typed(
+                            (preloaded_metadata[0], preloaded_metadata[1])
+                        )
+                        if not all(
+                            query_value == prefetched.get(query_key)
+                            for query_key, query_value in filter.items()
+                        ):
+                            continue
+
                     checkpoint_tuple = self._build_tuple(
                         thread_id=thread_id,
                         checkpoint_ns=checkpoint_ns,
@@ -355,22 +436,18 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                             checkpoint_ns,
                             checkpoint_id,
                         ),
+                        preloaded_metadata=preloaded_metadata,
                     )
                     if checkpoint_tuple is None:
                         continue
 
-                    if filter and not all(
-                        query_value == checkpoint_tuple.metadata.get(query_key)
-                        for query_key, query_value in filter.items()
-                    ):
-                        continue
-
                     if remaining is not None:
-                        if remaining <= 0:
-                            return
                         remaining -= 1
 
                     yield checkpoint_tuple
+
+                    if remaining is not None and remaining <= 0:
+                        return
 
     def put(
         self,
@@ -823,6 +900,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_ns: str,
         checkpoint_id: str,
         return_config: RunnableConfig,
+        preloaded_metadata: tuple[str, bytes, dict[str, str]] | None = None,
     ) -> CheckpointTuple | None:
         checkpoint_blob_path = self._checkpoint_blob_path(thread_id, checkpoint_ns, checkpoint_id)
         checkpoint_blob_result = self._download_typed_blob(checkpoint_blob_path)
@@ -839,8 +917,12 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             channel_versions=checkpoint_data["channel_versions"],
         )
 
-        metadata_blob_result = self._download_typed_blob(
-            self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id)
+        metadata_blob_result = (
+            preloaded_metadata
+            if preloaded_metadata is not None
+            else self._download_typed_blob(
+                self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id)
+            )
         )
         if metadata_blob_result is None:
             return None
@@ -867,11 +949,15 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_ns: str,
         channel_versions: ChannelVersions,
     ) -> dict[str, Any]:
+        channels = builtins.list(channel_versions.items())
+        results = _map_bounded(
+            lambda item: self._download_typed_blob(
+                self._value_blob_path(thread_id, checkpoint_ns, item[0], item[1])
+            ),
+            channels,
+        )
         values: dict[str, Any] = {}
-        for channel, version in channel_versions.items():
-            typed_blob = self._download_typed_blob(
-                self._value_blob_path(thread_id, checkpoint_ns, channel, version)
-            )
+        for (channel, _version), typed_blob in zip(channels, results, strict=True):
             if typed_blob is None:
                 continue
             if typed_blob[0] == "empty":
@@ -887,6 +973,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
     ) -> builtins.list[tuple[str, str, Any]]:
         writes_prefix = self._writes_prefix(thread_id, checkpoint_ns, checkpoint_id)
         loaded: list[tuple[str, str, int, str, Any]] = []
+        candidates: list[tuple[str, str, int]] = []
 
         for blob in self._container_client.list_blobs(name_starts_with=writes_prefix):
             # Parse relative to writes_prefix: expect "{task_id}/{idx}.bin"
@@ -906,10 +993,17 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 write_index = int(unquote(file_name.removesuffix(".bin")))
             except ValueError:
                 continue
-            typed_blob_result = self._download_typed_blob(blob.name)
+            candidates.append((blob.name, task_id, write_index))
+
+        results = _map_bounded(
+            lambda candidate: self._download_typed_blob(candidate[0]),
+            candidates,
+        )
+        for (_blob_name, task_id, write_index), typed_blob_result in zip(
+            candidates, results, strict=True
+        ):
             if typed_blob_result is None:
                 continue
-
             # Use metadata from the download result (avoids extra API call)
             blob_meta = typed_blob_result[2]
             raw_channel = blob_meta.get("channel")
@@ -1269,11 +1363,15 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_ns: str,
         channel_versions: ChannelVersions,
     ) -> dict[str, Any]:
+        channels = builtins.list(channel_versions.items())
+        results = await _amap_bounded(
+            lambda item: self._adownload_typed_blob(
+                self._value_blob_path(thread_id, checkpoint_ns, item[0], item[1])
+            ),
+            channels,
+        )
         values: dict[str, Any] = {}
-        for channel, version in channel_versions.items():
-            typed_blob = await self._adownload_typed_blob(
-                self._value_blob_path(thread_id, checkpoint_ns, channel, version)
-            )
+        for (channel, _version), typed_blob in zip(channels, results, strict=True):
             if typed_blob is None:
                 continue
             if typed_blob[0] == "empty":
@@ -1286,6 +1384,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
     ) -> builtins.list[tuple[str, str, Any]]:
         writes_prefix = self._writes_prefix(thread_id, checkpoint_ns, checkpoint_id)
         loaded: list[tuple[str, str, int, str, Any]] = []
+        candidates: list[tuple[str, str, int]] = []
 
         for blob in await self._alist_blob_items(writes_prefix):
             if not blob.name.startswith(writes_prefix):
@@ -1304,10 +1403,17 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 write_index = int(unquote(file_name.removesuffix(".bin")))
             except ValueError:
                 continue
-            typed_blob_result = await self._adownload_typed_blob(blob.name)
+            candidates.append((blob.name, task_id, write_index))
+
+        results = await _amap_bounded(
+            lambda candidate: self._adownload_typed_blob(candidate[0]),
+            candidates,
+        )
+        for (_blob_name, task_id, write_index), typed_blob_result in zip(
+            candidates, results, strict=True
+        ):
             if typed_blob_result is None:
                 continue
-
             blob_meta = typed_blob_result[2]
             raw_channel = blob_meta.get("channel")
             raw_metadata_task_id = blob_meta.get("task_id")
@@ -1330,6 +1436,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_ns: str,
         checkpoint_id: str,
         return_config: RunnableConfig,
+        preloaded_metadata: tuple[str, bytes, dict[str, str]] | None = None,
     ) -> CheckpointTuple | None:
         checkpoint_blob_path = self._checkpoint_blob_path(thread_id, checkpoint_ns, checkpoint_id)
         checkpoint_blob_result = await self._adownload_typed_blob(checkpoint_blob_path)
@@ -1346,8 +1453,12 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             channel_versions=checkpoint_data["channel_versions"],
         )
 
-        metadata_blob_result = await self._adownload_typed_blob(
-            self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id)
+        metadata_blob_result = (
+            preloaded_metadata
+            if preloaded_metadata is not None
+            else await self._adownload_typed_blob(
+                self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id)
+            )
         )
         if metadata_blob_result is None:
             return None
@@ -1427,6 +1538,8 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 yield item
             return
 
+        if limit is not None and limit <= 0:
+            return
         remaining = limit
         config_checkpoint_ns = self._config_checkpoint_ns(config) if config else None
         config_checkpoint_id = get_checkpoint_id(config) if config else None
@@ -1447,6 +1560,24 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                     if before_checkpoint_id is not None and checkpoint_id >= before_checkpoint_id:
                         continue
 
+                    preloaded_metadata: tuple[str, bytes, dict[str, str]] | None = None
+                    if filter:
+                        # Read the small metadata blob first so non-matching
+                        # checkpoints skip channel-value and write downloads.
+                        preloaded_metadata = await self._adownload_typed_blob(
+                            self._metadata_blob_path(thread_id, checkpoint_ns, checkpoint_id)
+                        )
+                        if preloaded_metadata is None:
+                            continue
+                        prefetched: CheckpointMetadata = self.serde.loads_typed(
+                            (preloaded_metadata[0], preloaded_metadata[1])
+                        )
+                        if not all(
+                            query_value == prefetched.get(query_key)
+                            for query_key, query_value in filter.items()
+                        ):
+                            continue
+
                     checkpoint_tuple = await self._abuild_tuple(
                         thread_id=thread_id,
                         checkpoint_ns=checkpoint_ns,
@@ -1456,22 +1587,18 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                             checkpoint_ns,
                             checkpoint_id,
                         ),
+                        preloaded_metadata=preloaded_metadata,
                     )
                     if checkpoint_tuple is None:
                         continue
 
-                    if filter and not all(
-                        query_value == checkpoint_tuple.metadata.get(query_key)
-                        for query_key, query_value in filter.items()
-                    ):
-                        continue
-
                     if remaining is not None:
-                        if remaining <= 0:
-                            return
                         remaining -= 1
 
                     yield checkpoint_tuple
+
+                    if remaining is not None and remaining <= 0:
+                        return
 
     async def aput(
         self,

@@ -234,7 +234,7 @@ once.
 | Guarantee | Value |
 | --- | --- |
 | Content-Type | `text/event-stream` |
-| Headers | `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Platform thread streams also add `Content-Location: /api/threads/{thread_id}/runs/{run_id}`; threadless platform streams use `/api/runs/{run_id}`; the native `POST /api/graphs/{name}/stream` sets **no** `Content-Location`. |
+| Headers | `Cache-Control: no-cache`, `X-Accel-Buffering: no`. No `Content-Location` is set on Platform or native streams (the Platform router has no GET run resource to point at). |
 | Buffer limit | `max_stream_response_bytes` (see [configuration](configuration.md)) |
 | Terminal event | Always an `event: end` frame, on both success and failure |
 

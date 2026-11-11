@@ -184,6 +184,26 @@ The detailed health endpoint (`GET /api/health/details`, protected by default) r
 }
 ```
 
+## Topology validation
+
+When `app.function_app` is built, the final configuration (constructor arguments,
+registrations, thread store, thread lock, checkpointers and environment) is
+validated once, before any route exists. Unsafe combinations raise; combinations
+whose scale-out cannot be proven only warn. Valid local setups and stateless apps
+build without findings. No constructor parameter changed.
+
+| Environment variable | Value | Effect |
+| --- | --- | --- |
+| `AZFUNC_LANGGRAPH_LOCK_BACKEND` | `distributed` (any value except `inprocess`) | Declares multiple writers: rejects the default `InProcessThreadLock`, an in-memory Platform store and `InMemorySaver` checkpointers |
+| `AZFUNC_LANGGRAPH_THREAD_STORE` | `distributed` (any value except `inmemory`) | Declares a distributed Platform store: rejects the in-memory store and `InMemorySaver` checkpointers |
+| `AZFUNC_LANGGRAPH_LOCK_BACKEND` | `inprocess` | Explicit single-writer assertion; silences the hosted-only warnings for in-process locks and checkpointers |
+| `AZFUNC_LANGGRAPH_THREAD_STORE` | `inmemory` | Explicit single-instance assertion for the Platform store (same warning suppression) |
+| unset | | Local development: nothing is rejected |
+
+The full rule list, the reason Azure host detection only produces warnings, and
+the executable truth table are in
+[Production Guide: Topology validation](production-guide.md#topology-validation-880).
+
 ## Azure Functions host configuration
 
 The package works with the standard Azure Functions `host.json`:

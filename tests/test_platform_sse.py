@@ -10,7 +10,7 @@ from datetime import UTC
 import json
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph_sdk.sse import SSEDecoder
 import pytest
@@ -163,7 +163,7 @@ class TestFormatDataEvent:
         expected = 'event: values\ndata: {"key": "val"}\n\n'
         assert result == expected
 
-    def test_real_sdk_decoder_preserves_langchain_message_dict(self) -> None:
+    def test_real_sdk_decoder_preserves_sdk_message_wire_shape(self) -> None:
         builder = StateGraph(MessagesState)
         builder.add_node("answer", lambda _state: {"messages": [AIMessage(content="hello")]})
         builder.add_edge(START, "answer")
@@ -185,7 +185,74 @@ class TestFormatDataEvent:
 
         assert part is not None
         assert part.data["messages"][-1]["type"] == "ai"
-        assert part.data["messages"][-1]["data"]["content"] == "hello"
+        assert part.data["messages"][-1]["content"] == "hello"
+        assert "data" not in part.data["messages"][-1]
+
+    def test_nested_messages_match_flat_sdk_wire_shape(self) -> None:
+        messages = [
+            HumanMessage(content="weather?", id="human-1"),
+            AIMessage(
+                content="",
+                id="ai-1",
+                tool_calls=[
+                    {
+                        "name": "weather",
+                        "args": {"city": "Seoul"},
+                        "id": "call-1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            ToolMessage(content="sunny", tool_call_id="call-1", id="tool-1"),
+        ]
+
+        part = _decode_sse_frame(format_data_event("values", {"nested": {"messages": messages}}))
+
+        # langchain-core 0.3.x also emits a legacy ``example: false`` key on human and AI
+        # messages; 1.x dropped it. Compare the shape without that version-specific key.
+        actual = [
+            {key: value for key, value in message.items() if key != "example"}
+            for message in part.data["nested"]["messages"]
+        ]
+        assert actual == [
+            {
+                "content": "weather?",
+                "additional_kwargs": {},
+                "response_metadata": {},
+                "type": "human",
+                "name": None,
+                "id": "human-1",
+            },
+            {
+                "content": "",
+                "additional_kwargs": {},
+                "response_metadata": {},
+                "type": "ai",
+                "name": None,
+                "id": "ai-1",
+                "tool_calls": [
+                    {
+                        "name": "weather",
+                        "args": {"city": "Seoul"},
+                        "id": "call-1",
+                        "type": "tool_call",
+                    }
+                ],
+                "invalid_tool_calls": [],
+                "usage_metadata": None,
+            },
+            {
+                "content": "sunny",
+                "additional_kwargs": {},
+                "response_metadata": {},
+                "type": "tool",
+                "name": None,
+                "id": "tool-1",
+                "tool_call_id": "call-1",
+                "artifact": None,
+                "status": "success",
+            },
+        ]
 
 
 # ---------------------------------------------------------------------------

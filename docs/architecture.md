@@ -161,7 +161,7 @@ sequenceDiagram
 > **Streaming is buffered end-to-end; the SSE log is returned as a single
 > response.** The graph runs to completion and every event is accumulated, then
 > flushed as one `text/event-stream` response with `Cache-Control: no-cache` and
-> `X-Accel-Buffering: no` headers (the native stream endpoint sets no `Content-Location`).
+> `X-Accel-Buffering: no` headers (no `Content-Location` is set).
 > If the buffer would exceed `max_stream_response_bytes`, the run is halted and a
 > terminal `event: error` + `event: end` is injected in-band (still HTTP 200).
 
@@ -193,11 +193,11 @@ sequenceDiagram
     Graph-->>Routes: result dict
     Routes->>Store: release_run_lock (owner-token guarded)
     Routes->>Routes: Release shared ThreadLock
-    Routes-->>AzureFunctions: HttpResponse (200, final values JSON + Content-Location header)
+    Routes-->>AzureFunctions: HttpResponse (200, final values JSON)
     AzureFunctions-->>SDK: JSON response
 ```
 
-Successful run responses include `Content-Location: /api/threads/{thread_id}/runs/{run_id}`. Threadless runs use `/api/runs/{run_id}`.
+Platform run responses (wait and stream, threaded and threadless) set no `Content-Location` header: the Platform router registers no GET route for a run resource, so such a link would dangle.
 
 ### Platform: Thread lifecycle (state machine)
 
@@ -328,6 +328,19 @@ Standalone request handlers extracted from `LangGraphApp`:
 - `handle_stream()` — parses request, validates, calls `graph.stream()`, collects chunks into buffered SSE.
 - `handle_state()` — retrieves thread state via `graph.get_state()` for `StatefulGraph` instances.
 - `_error_response()` — consistent error response builder for native routes.
+
+### `_execution_plan.py`
+
+Private, transport-neutral request-to-execution planning shared by `_handlers.py` (classic `HttpRequest`/`HttpResponse`) and `streaming.py` (FastAPI true streaming). It owns the rules that must not drift between those adapters: `thread_id` extraction and checkpointed-graph thread requirement, `version` negotiation (a 422 when the graph method cannot accept it), `input`/`config` structure and config-policy admission, the run's execution-config/thread identity (`plan_run_config`) and optional request/response-model validation at `register()`. It returns plain values (`Rejection`, `RunPlan`, error strings) and imports no transport type; each adapter encodes them as its own error response. Nothing in it is public API.
+
+**What is deliberately not shared** (each stays in its adapter because the behavior is transport- or binding-specific):
+
+- Request decoding and response encoding: `HttpRequest.get_json()`/`HttpResponse` versus an ASGI `Request` body and `JSONResponse`/`StreamingResponse`.
+- Authorization invocation and ordering inside the adapter (sync versus awaited, and the streaming `StreamingAuthorizationContext`); the shared layer never calls an authorizer.
+- Lock acquisition/release lifecycle and cancellation handling (blocking thread lock versus `async_thread_lock`, and deferred stream ownership until ASGI execution).
+- SSE framing: native routes buffer the whole stream into one response; the streaming transport emits chunks incrementally and handles client disconnect and mid-stream errors.
+- Platform SDK routes (`platform/`): their own `RunCreate` parsing, thread-store CAS and run lock, and Platform response encoding. They only reuse the graph-clone helper below.
+- Per-registration caching of the threadless graph clone: `_get_threadless_graph` still clones per request. A cached clone would freeze the registration-time graph, whereas a per-request clone observes later mutation of the registered graph object, and copy immutability, absence of request-specific state and invalidation on re-registration cannot be shown for an arbitrary `CloneableGraph`. The copy is shallow and the source graph is not mutated.
 
 ### `_validation.py`
 

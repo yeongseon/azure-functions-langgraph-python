@@ -121,6 +121,30 @@ event: end
 data: {}
 ```
 
+## Output versions: v1 and v2
+
+Both `invoke` and `stream` accept an optional `version` field (`"v1"` or `"v2"`). It is
+forwarded to LangGraph's `graph.invoke(..., version=...)` / `graph.stream(..., version=...)`.
+Omit it and the default shape is unchanged; `"v2"` is opt-in per request and requires
+`langgraph>=1.1`.
+
+| | Default (v1) | `"version": "v2"` |
+|---|---|---|
+| `invoke` | `{"output": {"count": 4, "history": [2, 4]}}` | `{"output": {"value": {"count": 4, "history": [2, 4]}, "interrupts": []}}` |
+| `stream` event (`stream_mode: "values"`) | `data: {"count": 2, "history": [2]}` | `data: {"type": "values", "ns": [], "data": {"count": 2, "history": [2]}, "interrupts": []}` |
+
+Migration notes:
+
+- Read `output["value"]` instead of `output` for `invoke`, and `event["data"]` instead of the bare
+  snapshot for each `stream` event. The state inside is identical.
+- `LangGraphApp` `/stream` is still buffered SSE (`StreamingLangGraphApp` is the incremental option); `version` changes the event shape, not the delivery.
+- A graph whose `invoke`/`stream` does not accept `version` (e.g. `langgraph<1.1`) returns `422`; an
+  unknown value such as `"v9"` is also rejected with `422`.
+
+A runnable, offline comparison (no Azure host, network, credentials or model calls) is in
+[`examples/versioned_output_agent`](https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/versioned_output_agent):
+`python compare_shapes.py`.
+
 ## Health endpoint
 
 ### Request
@@ -170,6 +194,15 @@ GET /api/graphs/{name}/threads/{thread_id}/state
 ```
 
 Returns the current state of a thread for graphs compiled with a checkpointer (graphs satisfying the `StatefulGraph` protocol).
+Registrations with `async_mode=True` retrieve state with LangGraph's
+`aget_state`, so async-only checkpointers such as `AsyncPostgresSaver` do not
+fall back to synchronous checkpoint I/O. Sync registrations continue to use
+`get_state`. State values must be JSON-serializable and finite; serialization
+failures return HTTP 500 instead of emitting non-standard JSON.
+
+This async routing applies to the native state endpoint above. The experimental
+Platform-compatible state and history endpoints still use synchronous graph
+state methods; async-only Platform state/history support remains follow-up work.
 
 ### Response
 
@@ -187,6 +220,8 @@ Returns the current state of a thread for graphs compiled with a checkpointer (g
 | Status Code | Condition |
 |-------------|----------|
 | 200 | Thread state found |
+| 400 | Missing or invalid thread ID |
+| 409 | Registered graph does not expose the state method required by its mode |
 | 404 | Thread not found or graph is not stateful |
 | 500 | Internal error |
 

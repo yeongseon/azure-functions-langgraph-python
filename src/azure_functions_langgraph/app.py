@@ -16,10 +16,12 @@ from azure_functions_langgraph._endpoint import (
     build_endpoint_metadata,
     set_endpoint_metadata,
 )
+from azure_functions_langgraph._execution_plan import validate_optional_model
 from azure_functions_langgraph._handlers import (
     handle_invoke,
     handle_invoke_async,
     handle_state,
+    handle_state_async,
     handle_stream,
     handle_stream_async,
 )
@@ -29,6 +31,12 @@ from azure_functions_langgraph._metadata import (
     set_langgraph_metadata,
 )
 from azure_functions_langgraph._readiness import ReadinessRunner
+from azure_functions_langgraph._topology import (
+    build_topology_plan,
+    check_declared_lock_backend,
+    enforce_topology,
+    optional_route_auth_message,
+)
 from azure_functions_langgraph._validation import (
     validate_graph_name,
 )
@@ -41,15 +49,20 @@ from azure_functions_langgraph.contracts import (
     ReadinessResponse,
     RegisteredGraphMetadata,
     RouteMetadata,
-    _is_model_type,
     build_invoke_request_model,
     build_invoke_response_model,
     build_stream_request_model,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
+from azure_functions_langgraph.locks._scope import (
+    ensure_unambiguous_scope,
+    graph_lock_scope,
+    scope_thread_lock,
+)
 from azure_functions_langgraph.observability import NoOpRunObserver, RunObserver
 from azure_functions_langgraph.protocols import (
     AsyncInvocableGraph,
+    AsyncStatefulGraph,
     InvocableGraph,
     StatefulGraph,
 )
@@ -67,18 +80,6 @@ _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
 # surface; ``"durable"`` additionally wires the optional Durable Functions
 # create/get/cancel async-run lifecycle (requires the ``durable`` extra, #408).
 AsyncRunsMode = Literal[False, "durable"]
-
-
-# Environment markers set by the Azure Functions host at runtime. Their presence
-# means the process is running on a real Azure Function App (not local `func
-# start`, where these are absent), which is when a per-instance in-memory thread
-# store becomes a scale-out footgun.
-_AZURE_HOST_MARKERS = ("WEBSITE_INSTANCE_ID", "WEBSITE_SITE_NAME")
-
-
-def _is_azure_hosted() -> bool:
-    """Return ``True`` when Azure Functions host env markers are present."""
-    return any(os.environ.get(marker) for marker in _AZURE_HOST_MARKERS)
 
 
 @dataclass
@@ -143,16 +144,8 @@ def _resolve_endpoint_spec(reg: _GraphRegistration, endpoint: str) -> _EndpointS
 
 
 def _validate_optional_model(model: type[Any] | None, label: str) -> None:
-    """Reject a non-``BaseModel`` *model* early, unless it is ``None``.
-
-    ``request_model``/``response_model`` are wrapped in the transport envelope
-    for metadata generation (issue #349), and the wrapper silently falls back to
-    the generic envelope for non-model inputs. Validating here keeps the failure
-    fast and close to the caller's ``register()`` call instead of masking a bad
-    model as a generic envelope.
-    """
-    if model is not None and not _is_model_type(model):
-        raise TypeError(f"{label} must be a Pydantic BaseModel subclass, got {model!r}")
+    """Reject a non-``BaseModel`` *model* early, unless it is ``None``."""
+    validate_optional_model(model, label)
 
 
 @dataclass
@@ -246,6 +239,9 @@ class LangGraphApp:
     _registrations: dict[str, _GraphRegistration] = field(default_factory=dict)
     _sb_registrations: dict[str, Any] = field(default_factory=dict)
     _function_app: func.FunctionApp | None = field(default=None, init=False, repr=False)
+    # Set once a build has handed the live registry to Platform/Durable routes.
+    # Never reset: apps exported earlier keep serving that registry (#854).
+    _optional_routes_exported: bool = field(default=False, init=False, repr=False)
     _thread_store: Any = field(default=None, init=False, repr=False)
     _readiness_runner: ReadinessRunner | None = field(default=None, init=False, repr=False)
 
@@ -279,22 +275,11 @@ class LangGraphApp:
             self.thread_lock = InProcessThreadLock()
         if self.observer is None:
             self.observer = NoOpRunObserver()
-        # AZFUNC_LANGGRAPH_LOCK_BACKEND is a safety guard that keeps operators
-        # from accidentally deploying an in-process lock to a multi-instance
-        # Function App. Set it to ``distributed`` (or the exact backend class
-        # name) in Function App settings; if the wired backend is still
-        # InProcessThreadLock we raise at construction time so the mistake is
-        # visible before any request is served.
-        env_backend = os.environ.get("AZFUNC_LANGGRAPH_LOCK_BACKEND", "").strip().lower()
-        if env_backend and env_backend not in ("", "inprocess"):
-            if isinstance(self.thread_lock, InProcessThreadLock):
-                raise RuntimeError(
-                    f"AZFUNC_LANGGRAPH_LOCK_BACKEND={env_backend!r} requires a "
-                    "distributed thread_lock backend (for example "
-                    "AzureBlobLeaseThreadLock), but the app is still using the "
-                    "default InProcessThreadLock. Pass thread_lock=... explicitly "
-                    "to LangGraphApp() or unset the env var for local dev."
-                )
+        # AZFUNC_LANGGRAPH_LOCK_BACKEND keeps operators from accidentally deploying
+        # an in-process lock to a multi-instance Function App; it fails at
+        # construction so the mistake is visible before any request is served. The
+        # same rule is re-evaluated by the topology plan at build time (#880).
+        check_declared_lock_backend("LangGraphApp", self.thread_lock, os.environ)
 
     def register(
         self,
@@ -365,6 +350,7 @@ class LangGraphApp:
             raise ValueError(name_err)
         if name in self._registrations:
             raise ValueError(f"Graph {name!r} is already registered")
+        ensure_unambiguous_scope(name, graph, self._sb_registrations.get(name))
         if any(reg.session_exclusive for reg in self._sb_registrations.values()):
             raise ValueError("session-exclusive execution cannot expose HTTP graph routes")
         if auth_level == func.AuthLevel.ANONYMOUS:
@@ -374,6 +360,10 @@ class LangGraphApp:
                 UserWarning,
                 stacklevel=2,
             )
+        if self._optional_routes_exported:
+            # Previously exported handlers share the live registry, so an unsafe
+            # registration must be rejected before it mutates that registry.
+            self._check_optional_route_auth(name, auth_level, late=True)
         self._registrations[name] = _GraphRegistration(
             graph=graph,
             name=name,
@@ -475,6 +465,7 @@ class LangGraphApp:
             raise ValueError(name_err)
         if name in self._sb_registrations:
             raise ValueError(f"Service Bus trigger {name!r} is already registered")
+        ensure_unambiguous_scope(name, graph, self._registrations.get(name))
 
         is_queue = queue_name is not None
         is_topic = topic_name is not None or subscription_name is not None
@@ -577,37 +568,50 @@ class LangGraphApp:
     # Internal route builders
     # ------------------------------------------------------------------
 
-    def _build_function_app(self) -> func.FunctionApp:
-        if self.platform_compat:
-            from azure_functions_langgraph.platform.stores import InMemoryThreadStore
+    def _scoped_thread_lock(self) -> ThreadLock | None:
+        """Return ``thread_lock`` keyed by checkpoint-storage scope (see ``locks._scope``)."""
+        if self.thread_lock is None:
+            return None
 
-            if isinstance(self._thread_store, InMemoryThreadStore):
-                env_store = os.environ.get("AZFUNC_LANGGRAPH_THREAD_STORE", "").strip().lower()
-                env_lock = os.environ.get("AZFUNC_LANGGRAPH_LOCK_BACKEND", "").strip().lower()
-                distributed_required = bool(env_lock and env_lock != "inprocess")
-                if (env_store and env_store != "inmemory") or distributed_required:
-                    raise RuntimeError(
-                        "The configured scale-out safety guard requires a "
-                        "distributed thread store (for example AzureTableThreadStore), "
-                        "but the final configured store is InMemoryThreadStore. Set "
-                        "app.thread_store = ... before accessing app.function_app, or "
-                        "unset AZFUNC_LANGGRAPH_THREAD_STORE and "
-                        "AZFUNC_LANGGRAPH_LOCK_BACKEND for local dev."
-                    )
-                if _is_azure_hosted():
-                    warnings.warn(
-                        "platform_compat is enabled with the final configured "
-                        "in-memory thread store (InMemoryThreadStore) on an "
-                        "Azure-hosted Function App. "
-                        "InMemoryThreadStore is per-instance, so thread state will "
-                        "diverge across scaled-out instances.\n"
-                        "  Recommended: app.thread_store = AzureTableThreadStore(...)\n"
-                        "  Fail-fast:   set AZFUNC_LANGGRAPH_THREAD_STORE=distributed\n"
-                        "  See the 'Distributed thread locking' scale-out matrix in "
-                        "docs/production-guide.md",
-                        RuntimeWarning,
-                        stacklevel=2,
-                    )
+        def scope_of(name: str) -> str:
+            # A name resolves to one registration: cross-surface overlaps with
+            # different scopes are rejected at registration time.
+            reg = self._registrations.get(name) or self._sb_registrations.get(name)
+            return graph_lock_scope(name, getattr(reg, "graph", None)) if reg else name
+
+        return scope_thread_lock(self.thread_lock, scope_of)
+
+    def _check_optional_route_auth(
+        self, name: str, graph_level: func.AuthLevel | None, *, late: bool = False
+    ) -> None:
+        message = optional_route_auth_message(
+            name,
+            graph_level,
+            self.auth_level,
+            platform_compat=self.platform_compat,
+            async_runs=self.async_runs,
+            late=late,
+        )
+        if message:
+            raise ValueError(message)
+
+    def _build_function_app(self) -> func.FunctionApp:
+        # One validation pass over the immutable topology plan, before any route
+        # exists: a rejected configuration exports nothing and runs no graph (#880).
+        enforce_topology(
+            build_topology_plan(
+                app_label="LangGraphApp",
+                app_auth_level=self.auth_level,
+                platform_compat=self.platform_compat,
+                async_runs=self.async_runs,
+                thread_store=self._thread_store,
+                thread_lock=self.thread_lock,
+                registrations=self._registrations,
+                sb_registrations=self._sb_registrations,
+                environ=os.environ,
+            ),
+            stacklevel=4,
+        )
         app = self._new_function_app()
 
         # Health endpoints.
@@ -695,13 +699,17 @@ class LangGraphApp:
                     is_async=is_async,
                 )
             if self._has_state_route(reg):
+                state_is_async = self._uses_async_state_handler(reg)
                 self._register_route(
                     app,
                     reg,
                     endpoint="state",
                     route_template=_ROUTE_STATE,
                     methods=["GET"],
-                    handler_impl=self._handle_state,
+                    handler_impl=(
+                        self._handle_state_async if state_is_async else self._handle_state
+                    ),
+                    is_async=state_is_async,
                 )
 
         # Service Bus trigger routes (issue #409)
@@ -716,7 +724,7 @@ class LangGraphApp:
                 register_platform_routes,
             )
 
-            thread_lock = self.thread_lock
+            thread_lock = self._scoped_thread_lock()
             if thread_lock is None:
                 raise RuntimeError("thread lock is not initialized")
             deps = PlatformRouteDeps(
@@ -738,6 +746,8 @@ class LangGraphApp:
         if self.async_runs == "durable":
             self._register_durable_runtime(app)
 
+        if self.platform_compat or self.async_runs == "durable":
+            self._optional_routes_exported = True
         return app
 
     def _new_function_app(self) -> func.FunctionApp:
@@ -763,7 +773,7 @@ class LangGraphApp:
             register_durable_runtime,
         )
 
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
 
@@ -794,7 +804,7 @@ class LangGraphApp:
             process_service_bus_message_async,
         )
 
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
@@ -851,7 +861,18 @@ class LangGraphApp:
     @staticmethod
     def _has_state_route(reg: _GraphRegistration) -> bool:
         """Whether a graph exposes a thread-state endpoint (single source of truth)."""
-        return isinstance(reg.graph, StatefulGraph)
+        return isinstance(reg.graph, StatefulGraph) or (
+            LangGraphApp._is_async(reg) and isinstance(reg.graph, AsyncStatefulGraph)
+        )
+
+    @staticmethod
+    def _uses_async_state_handler(reg: _GraphRegistration) -> bool:
+        """Whether the state route awaits ``aget_state`` (preferred when async).
+
+        Graphs served async that only expose ``get_state`` keep the synchronous
+        handler, which Azure runs in its worker pool (off the event loop).
+        """
+        return LangGraphApp._is_async(reg) and isinstance(reg.graph, AsyncStatefulGraph)
 
     @staticmethod
     def _is_async(reg: _GraphRegistration) -> bool:
@@ -937,7 +958,7 @@ class LangGraphApp:
 
     def _handle_invoke(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a synchronous invoke request."""
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
@@ -956,7 +977,7 @@ class LangGraphApp:
         self, req: func.HttpRequest, reg: _GraphRegistration
     ) -> func.HttpResponse:
         """Handle an invoke request against an async graph via ``ainvoke``."""
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
@@ -973,7 +994,7 @@ class LangGraphApp:
 
     def _handle_stream(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a streaming request."""
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
@@ -993,7 +1014,7 @@ class LangGraphApp:
         self, req: func.HttpRequest, reg: _GraphRegistration
     ) -> func.HttpResponse:
         """Handle a streaming request against an async graph via ``astream``."""
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
@@ -1016,6 +1037,11 @@ class LangGraphApp:
             reg,
             self.authorize,
         )
+
+    async def _handle_state_async(
+        self, req: func.HttpRequest, reg: _GraphRegistration
+    ) -> func.HttpResponse:
+        return await handle_state_async(req, reg, self.authorize)
 
     # ------------------------------------------------------------------
     # Metadata API
