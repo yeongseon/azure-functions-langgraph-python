@@ -118,6 +118,12 @@ jobs:
       - name: Type check (mypy, strict)
         run: mypy src tests
 
+      - name: API and Native HTTP contract gate (offline, vs committed v0.13.0 baseline)
+        # Fails on an unclassified breaking change to the Stable/Beta Python API
+        # or Native HTTP contract; Experimental tiers are reported only. No
+        # network or secrets: the baseline is committed (tests/contracts/).
+        run: python tools/api_contract.py check --source src
+
   test:
     name: Test (Py ${{ matrix.python-version }})
     needs: changes
@@ -382,6 +388,12 @@ jobs:
           app.register(graph=builder.compile(), name="artifact-smoke", stream=False)
           assert builder.compile().invoke({"value": "wheel"}) == {"value": "wheel-ok"}
           PY
+
+      - name: API and Native HTTP contract gate against the built wheel
+        run: |
+          wheel=$(find compatibility-dist -maxdepth 1 -name '*.whl' -print -quit)
+          test -n "$wheel"
+          python tools/api_contract.py check --wheel "$wheel"
 
       - name: Run test suite against installed wheel
         run: |
