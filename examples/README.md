@@ -26,6 +26,7 @@
 | Curl helpers | [`local_curl`](local_curl/) | Shell scripts for hitting every Quick Start endpoint locally. |
 | Maintenance timer | [`maintenance_timer`](maintenance_timer/) | Timer Trigger that resets stale run locks on `AzureTableThreadStore`. |
 | Service Bus trigger | [`service_bus_agent`](service_bus_agent/) | Drive a graph from an Azure Service Bus **queue** message via `register_service_bus` — one `invoke` per message, exceptions not swallowed. |
+| Service Bus sessions | [`service_bus_sessions`](service_bus_sessions/) | Offline, synthetic-message demo of `register_service_bus(session=True)`: session id → checkpoint `thread_id`, rejected topologies, and broker ordering vs package locks vs at-least-once delivery. |
 | True HTTP streaming | [`true_streaming_agent`](true_streaming_agent/) | Opt into **true** incremental SSE with `StreamingLangGraphApp` — each `event: data` frame flushed as the graph produces it, over the FastAPI/ASGI transport (`streaming` extra, runtime 4.34.1+). |
 | Durable async runs | [`durable_async_agent`](durable_async_agent/) | Opt into an **experimental** Durable Functions-backed async run lifecycle with `LangGraphApp(async_runs="durable")` — `POST graphs/{name}/runs` returns `202` with a run id, `GET runs/{run_id}` polls status, `POST runs/{run_id}/cancel` requests termination. Graph runs in a Durable **activity** (never the orchestrator). `durable` extra. |
 
