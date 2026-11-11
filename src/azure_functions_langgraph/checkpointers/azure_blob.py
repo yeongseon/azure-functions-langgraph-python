@@ -35,6 +35,29 @@ from azure_functions_langgraph.locks.guard import (
     resolve_ownership_guard,
 )
 
+_LATEST_HINT_VERSION = 1
+"""The only ``latest.json`` hint ``version`` this release reads and writes."""
+
+
+class BlobCheckpointFormatError(RuntimeError):
+    """A stored object has a format version this release does not understand.
+
+    Raised by writers instead of replacing data they cannot interpret. Nothing
+    has been written when it is raised. The message never contains blob content.
+    """
+
+
+def _is_known_hint_version(value: object) -> bool:
+    # ``True == 1`` in Python, so require a real ``int``.
+    return type(value) is int and value == _LATEST_HINT_VERSION
+
+
+def _describe_unknown_version(value: object) -> str:
+    if type(value) is int and abs(value) < 1_000_000:
+        return f"version {value}"
+    return "an unrecognized version"
+
+
 _MAX_CONCURRENT_BLOB_READS = 8
 """Upper bound on in-flight blob downloads for one checkpoint read."""
 
@@ -466,7 +489,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         # Persist dirty intent first so a crash after the marker cannot hide it.
         # checkpoint.bin acts as the commit marker: if it exists, the checkpoint
         # is valid.  Partial failures before it leave harmless orphans.
-        current_latest = self._read_latest_checkpoint_id(thread_id, checkpoint_ns)
+        current_latest = self._read_latest_checkpoint_id(thread_id, checkpoint_ns, for_write=True)
         if current_latest is None or not self._blob_exists(
             self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
         ):
@@ -1061,15 +1084,28 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         return sorted(checkpoint_namespaces)
 
-    def _read_latest_checkpoint_id(self, thread_id: str, checkpoint_ns: str) -> str | None:
+    def _read_latest_checkpoint_id(
+        self, thread_id: str, checkpoint_ns: str, *, for_write: bool = False
+    ) -> str | None:
         latest_path = self._latest_blob_path(thread_id, checkpoint_ns)
         latest_payload = self._download_blob(latest_path)
         if latest_payload is None:
             return None
 
-        return self._parse_latest_checkpoint_id(latest_payload, latest_path)
+        return self._parse_latest_checkpoint_id(latest_payload, latest_path, for_write=for_write)
 
-    def _parse_latest_checkpoint_id(self, latest_payload: bytes, latest_path: str) -> str | None:
+    def _parse_latest_checkpoint_id(
+        self, latest_payload: bytes, latest_path: str, *, for_write: bool = False
+    ) -> str | None:
+        """Return the trusted hinted checkpoint id, or ``None`` when not trusted.
+
+        Readers ignore a hint they do not understand and scan instead. With
+        ``for_write=True`` (the pre-write read in ``put`` / ``aput``) a JSON
+        object whose ``version`` is present but not a version this release
+        understands raises :class:`BlobCheckpointFormatError`, because the
+        writer would otherwise replace it. Legacy (no ``version``), dirty,
+        malformed and non-object hints are still treated as "no usable hint".
+        """
 
         try:
             data = json.loads(latest_payload.decode())
@@ -1079,7 +1115,16 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
         if not isinstance(data, dict):
             return None
-        if data.get("version") != 1 or data.get("dirty") is not False:
+        if "version" in data and not _is_known_hint_version(data["version"]):
+            if for_write:
+                raise BlobCheckpointFormatError(
+                    "Refusing to overwrite the latest.json checkpoint hint: it was written in "
+                    f"{_describe_unknown_version(data['version'])}, but this release only "
+                    f"understands version {_LATEST_HINT_VERSION}. No data was modified. "
+                    "Upgrade azure-functions-langgraph or restore the hint before writing."
+                )
+            return None
+        if "version" not in data or data.get("dirty") is not False:
             return None
 
         checkpoint_id = data.get("checkpoint_id")
@@ -1308,12 +1353,14 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             items.append(blob)
         return items
 
-    async def _aread_latest_checkpoint_id(self, thread_id: str, checkpoint_ns: str) -> str | None:
+    async def _aread_latest_checkpoint_id(
+        self, thread_id: str, checkpoint_ns: str, *, for_write: bool = False
+    ) -> str | None:
         latest_path = self._latest_blob_path(thread_id, checkpoint_ns)
         latest_payload = await self._adownload_blob(latest_path)
         if latest_payload is None:
             return None
-        return self._parse_latest_checkpoint_id(latest_payload, latest_path)
+        return self._parse_latest_checkpoint_id(latest_payload, latest_path, for_write=for_write)
 
     async def _afind_latest_checkpoint_id(self, thread_id: str, checkpoint_ns: str) -> str | None:
         checkpoint_ids = await self._alist_checkpoint_ids(thread_id, checkpoint_ns)
@@ -1618,7 +1665,9 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_id = checkpoint["id"]
         parent_checkpoint_id = get_checkpoint_id(config)
 
-        current_latest = await self._aread_latest_checkpoint_id(thread_id, checkpoint_ns)
+        current_latest = await self._aread_latest_checkpoint_id(
+            thread_id, checkpoint_ns, for_write=True
+        )
         if current_latest is None or not await self._ablob_exists(
             self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
         ):
