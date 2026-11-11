@@ -1067,6 +1067,16 @@ reclaim left the thread at the status the update asked for, and a custom store
 that cannot say so is judged by the returned thread alone (see the adapter
 reference).
 
+A state update goes back to the thread's prior status (`idle`, `interrupted` or
+`error`), so it reads the thread **again after taking the shared lock** and before
+the store lock overwrites the status with `busy`. Under a distributed
+`ThreadLock` a run holds that lock for its whole duration, so the second read
+shows the status the run left and the update keeps it. With the process-local
+default lock a run in another instance does not hold it, and a run that starts
+and finishes between the second read and the store acquisition can still have its
+terminal status replaced; use a distributed lock when several instances write one
+thread. A thread that reads `busy` on either read is refused with `409`.
+
 - **Native-only:** choose a checkpointer and distributed `ThreadLock` for shared
   writers. A Platform `ThreadStore` is not required.
 - **Platform-only:** use a distributed store for shared thread metadata and its
