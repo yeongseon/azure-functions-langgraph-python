@@ -702,3 +702,173 @@ def test_ci_workflow_runs_the_gate_without_widening_permissions() -> None:
     assert workflow.count("permissions:") == 1
     assert "permissions:\n  contents: read" in workflow
     assert "secrets." not in workflow.replace("secrets.CODECOV_TOKEN", "")
+
+
+# ------------------------------------------------------- published-wheel verify
+
+_SHA = "a" * 64
+
+
+def _registry(digest: str = _SHA, kinds: tuple[str, ...] = ("bdist_wheel", "sdist")) -> bytes:
+    urls = [
+        {
+            "packagetype": kind,
+            "url": f"https://files.pythonhosted.org/packages/x/pkg-0.13.0-{kind}.whl",
+            "digests": {"sha256": digest},
+        }
+        for kind in kinds
+    ]
+    return json.dumps({"urls": urls}).encode()
+
+
+def test_registry_wheel_selects_the_single_wheel_digest() -> None:
+    url, digest = tool.registry_wheel("0.13.0", lambda *_: _registry())
+    assert url.startswith("https://files.pythonhosted.org/") and digest == _SHA
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [_registry(kinds=("sdist",)), _registry(digest="zz"), b"not json"],
+)
+def test_registry_wheel_rejects_unusable_metadata(payload: bytes) -> None:
+    with pytest.raises(tool.ContractError):
+        tool.registry_wheel("0.13.0", lambda *_: payload)
+
+
+def test_download_retries_then_verifies_digest(tmp_path: Path) -> None:
+    import hashlib
+
+    data = b"wheel-bytes"
+    digest = hashlib.sha256(data).hexdigest()
+    calls: list[str] = []
+
+    def fetch(url: str, timeout: float, limit: int) -> bytes:
+        calls.append(url)
+        if url.endswith("json"):
+            return _registry(digest)
+        if len([c for c in calls if not c.endswith("json")]) < 3:
+            raise OSError("flaky")
+        return data
+
+    path, got = tool.download_published_wheel("0.13.0", tmp_path, fetch, sleep=lambda _s: None)
+    assert got == digest and path.read_bytes() == data
+    assert len(calls) == 4
+
+
+def test_download_fails_closed_on_digest_mismatch_and_unreachable(tmp_path: Path) -> None:
+    def tampered(url: str, timeout: float, limit: int) -> bytes:
+        return _registry() if url.endswith("json") else b"other"
+
+    with pytest.raises(tool.ContractError, match="!= registry digest"):
+        tool.download_published_wheel("0.13.0", tmp_path, tampered, sleep=lambda _s: None)
+
+    def down(url: str, timeout: float, limit: int) -> bytes:
+        if url.endswith("json"):
+            return _registry()
+        raise OSError("unreachable")
+
+    with pytest.raises(tool.ContractError, match="unreachable after 2 attempts"):
+        tool.download_published_wheel("0.13.0", tmp_path, down, attempts=2, sleep=lambda _s: None)
+
+
+def test_fetch_refuses_non_pypi_hosts() -> None:
+    with pytest.raises(tool.ContractError, match="only https PyPI hosts"):
+        tool._http_get("https://example.com/x.whl", 1, 10)
+    with pytest.raises(tool.ContractError, match="only https PyPI hosts"):
+        tool._http_get("http://pypi.org/x", 1, 10)
+
+
+def test_verify_baseline_reports_match_and_differences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    header = {"schema_version": 1, "package": "p", "version": "1"}
+    api = {**header, "provenance": {"published_wheel_sha256": _SHA}, "modules": {}, "symbols": {}}
+    http = {**header, "provenance": {}, "routes": {}, "exchanges": {}}
+    api_path, http_path = tmp_path / "a.json", tmp_path / "h.json"
+    api_path.write_text(json.dumps(api))
+    http_path.write_text(json.dumps(http))
+    monkeypatch.setattr(tool, "API_BASELINE", api_path)
+    monkeypatch.setattr(tool, "HTTP_BASELINE", http_path)
+    same: tuple[dict[str, Any], dict[str, Any]] = (
+        {"modules": {}, "symbols": {}},
+        {"routes": {}, "exchanges": {}},
+    )
+    monkeypatch.setattr(tool, "current_snapshots", lambda _r: same)
+    assert tool.verify_baseline_against_wheel(tmp_path, _SHA, _SHA) == []
+    problems = tool.verify_baseline_against_wheel(tmp_path, "b" * 64, _SHA)
+    assert any("!= expected" in p for p in problems)
+    assert any("provenance" in p for p in problems)
+    drift: tuple[dict[str, Any], dict[str, Any]] = (
+        {"modules": {}, "symbols": {"x": {"tier": "stable", "kind": "function"}}},
+        {"routes": {}, "exchanges": {}},
+    )
+    monkeypatch.setattr(tool, "current_snapshots", lambda _r: drift)
+    found = tool.verify_baseline_against_wheel(tmp_path, _SHA, _SHA)
+    assert any("api_baseline.json differs" in p for p in found)
+
+
+def test_verify_baseline_cli_exit_codes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import hashlib
+
+    monkeypatch.setattr(tool, "load_json", lambda _p: {"version": "9.9.9"})
+
+    def unreachable(*_a: Any, **_k: Any) -> Any:
+        raise tool.ContractError("unreachable")
+
+    monkeypatch.setattr(tool, "download_published_wheel", unreachable)
+    assert tool.main(["verify-baseline"]) == 2
+    assert "unreachable" in capsys.readouterr().err
+    assert tool.main(["verify-baseline", "--wheel", str(tmp_path / "w.whl")]) == 2
+
+    wheel = tmp_path / "w.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(f"{PKG}/__init__.py", "")
+    digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    monkeypatch.setattr(tool, "verify_baseline_against_wheel", lambda *_a: [])
+    assert tool.main(["verify-baseline", "--wheel", str(wheel), "--expected-sha256", digest]) == 0
+    monkeypatch.setattr(tool, "verify_baseline_against_wheel", lambda *_a: ["boom"])
+    assert tool.main(["verify-baseline", "--wheel", str(wheel), "--expected-sha256", digest]) == 1
+    assert "does NOT match" in capsys.readouterr().out
+
+
+class _FakeResponse:
+    def __init__(self, status: int, body: bytes) -> None:
+        self.status, self._body = status, body
+
+    def read(self, amt: int) -> bytes:
+        return self._body[:amt]
+
+
+class _FakeConnection:
+    status = 200
+    body = b"payload"
+    seen: list[tuple[str, str]] = []
+
+    def __init__(self, host: str, timeout: float) -> None:
+        self.host = host
+
+    def request(self, method: str, path: str, headers: dict[str, str]) -> None:
+        type(self).seen.append((self.host, path))
+
+    def getresponse(self) -> _FakeResponse:
+        return _FakeResponse(type(self).status, type(self).body)
+
+    def close(self) -> None:
+        pass
+
+
+def test_http_get_reads_bounded_body_and_rejects_bad_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import http.client
+
+    monkeypatch.setattr(http.client, "HTTPSConnection", _FakeConnection)
+    assert tool._http_get("https://pypi.org/pypi/x/1/json?a=b", 1, 100) == b"payload"
+    assert _FakeConnection.seen[-1] == ("pypi.org", "/pypi/x/1/json?a=b")
+    with pytest.raises(tool.ContractError, match="exceeds 3 bytes"):
+        tool._http_get("https://pypi.org/x", 1, 3)
+    monkeypatch.setattr(_FakeConnection, "status", 503)
+    with pytest.raises(tool.ContractError, match="HTTP 503"):
+        tool._http_get("https://pypi.org/x", 1, 100)

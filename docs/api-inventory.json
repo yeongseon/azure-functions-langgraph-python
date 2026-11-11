@@ -2427,7 +2427,7 @@
         {
           "bases": [],
           "consumers": {
-            "docs": false,
+            "docs": true,
             "examples": false,
             "tests": true
           },
@@ -2731,7 +2731,7 @@
         {
           "bases": [],
           "consumers": {
-            "docs": false,
+            "docs": true,
             "examples": false,
             "tests": true
           },

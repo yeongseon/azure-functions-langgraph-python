@@ -7,6 +7,8 @@ has no ``azure.durable_functions`` dependency, so they run without the
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from azure_functions_langgraph.durable._state import (
@@ -18,9 +20,21 @@ from azure_functions_langgraph.durable._state import (
 
 
 class TestSerializeError:
-    def test_type_and_message_only(self) -> None:
+    def test_class_name_and_fixed_message_only(self) -> None:
         err = serialize_error(ValueError("boom"))
-        assert err == {"type": "ValueError", "message": "boom"}
+        assert err == {"type": "ValueError", "message": "The run failed."}
+
+    def test_exception_text_and_args_never_stored(self) -> None:
+        secret = "postgresql://user:secret@db.internal/app"
+        exc = RuntimeError(f"connect failed {secret}", {"token": "tok-123"})
+        blob = json.dumps(serialize_error(exc))
+        assert secret not in blob
+        assert "tok-123" not in blob
+        assert "connect failed" not in blob
+        assert serialize_error(exc) == {"type": "RuntimeError", "message": "The run failed."}
+
+    def test_message_independent_of_exception_text(self) -> None:
+        assert serialize_error(ValueError("a")) == serialize_error(ValueError("b"))
 
     def test_no_traceback_or_extra_keys(self) -> None:
         try:
@@ -78,7 +92,7 @@ class TestDurableRunResult:
         result = DurableRunResult.failure("r1", ValueError("nope"))
         assert result.activity_status == "error"
         assert result.result is None
-        assert result.error == {"type": "ValueError", "message": "nope"}
+        assert result.error == {"type": "ValueError", "message": "The run failed."}
 
     def test_rejected_factory(self) -> None:
         result = DurableRunResult.rejected("r1", "thread busy")

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import json
+import logging
 from typing import Any, Protocol, runtime_checkable
 
 from azure_functions_langgraph._json import dumps
@@ -41,6 +42,8 @@ __all__ = ["GraphRegistrationLike", "execute_langgraph_run_impl"]
 # The generic trigger label stamped onto every RunContext this adapter emits so
 # exporters can distinguish durable async runs from HTTP invoke/stream runs.
 TRIGGER_TYPE = "durable"
+
+logger = logging.getLogger(__name__)
 
 
 class _OutputSerializationError(ValueError):
@@ -96,6 +99,7 @@ async def execute_langgraph_run_impl(
 
     reg = registry.get(payload.graph_name)
     if reg is None:
+        logger.error("Durable run %r names an unregistered graph", payload.run_id)
         return DurableRunResult.failure(
             payload.run_id,
             KeyError(f"No graph registered under name {payload.graph_name!r}"),
@@ -148,6 +152,12 @@ async def execute_langgraph_run_impl(
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
             if not isinstance(exc, Exception):
                 raise
+            # Durable history keeps only a sanitized error (class name + fixed message); the
+            # raw exception stays server-side. Identifiers only: never the input, config or
+            # result.
+            logger.exception(
+                "Durable run failed: run_id=%s graph=%s", payload.run_id, reg.name, exc_info=exc
+            )
             return DurableRunResult.failure(payload.run_id, exc)
         else:
             safe_observer_call(observer, "on_run_completed", finish_context(ctx))
