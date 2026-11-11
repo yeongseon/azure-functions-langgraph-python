@@ -66,6 +66,10 @@ class _NotFound(Exception):
     pass
 
 
+class _Exists(Exception):
+    pass
+
+
 class _SyncBase:
     pass
 
@@ -86,7 +90,7 @@ def _load_generator() -> types.ModuleType:
 
 
 GEN = _load_generator()
-SyncContainer, AsyncContainer = GEN.make_containers(_SyncBase, _AsyncBase, _NotFound)
+SyncContainer, AsyncContainer = GEN.make_containers(_SyncBase, _AsyncBase, _NotFound, _Exists)
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +102,7 @@ def _fake_azure(monkeypatch: pytest.MonkeyPatch) -> None:
     setattr(blob_mod, "aio", aio_mod)
     exc_mod = types.ModuleType("azure.core.exceptions")
     setattr(exc_mod, "ResourceNotFoundError", _NotFound)
+    setattr(exc_mod, "ResourceExistsError", _Exists)
     for name, mod in (
         ("azure", types.ModuleType("azure")),
         ("azure.storage", types.ModuleType("azure.storage")),
@@ -245,10 +250,10 @@ def test_every_emitted_format_version_has_fixture_sets() -> None:
     )
     real_upload = saver._upload_blob
 
-    def spy(path: str, payload: bytes, metadata: dict[str, str]) -> None:
+    def spy(path: str, payload: bytes, metadata: dict[str, str], overwrite: bool = True) -> None:
         if path.endswith("/latest.json"):
             seen.add(_hint_version(payload))
-        real_upload(path, payload, metadata)
+        real_upload(path, payload, metadata, overwrite)
 
     saver._upload_blob = spy
     saver_state = random.getstate()

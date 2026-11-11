@@ -246,6 +246,10 @@ class FakeResourceNotFoundError(Exception):
     """Raised when a mock blob or table entity is not present."""
 
 
+class FakeResourceExistsError(Exception):
+    """Raised by a create-only upload (``overwrite=False``) onto an existing mock blob."""
+
+
 class FakeResourceModifiedError(Exception):
     """Raised when an ETag-based update fails optimistic concurrency."""
 
@@ -265,17 +269,20 @@ class _BlobItem:
     name: str
 
 
-class _MockDownloadStream:
-    def __init__(self, data: bytes) -> None:
-        self._data = data
-
-    def readall(self) -> bytes:
-        return self._data
-
-
 class _MockBlobProperties:
     def __init__(self, metadata: dict[str, str]) -> None:
         self.metadata = metadata
+
+
+class _MockDownloadStream:
+    """Mirrors ``StorageStreamDownloader``: ``properties.metadata`` comes with the body."""
+
+    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+        self._data = data
+        self.properties = _MockBlobProperties(dict(metadata))
+
+    def readall(self) -> bytes:
+        return self._data
 
 
 class MockBlobClient:
@@ -286,7 +293,7 @@ class MockBlobClient:
     def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
         with self._container.lock:
             if not overwrite and self._blob_name in self._container.blobs:
-                raise ValueError("Blob already exists")
+                raise FakeResourceExistsError(self._blob_name)
             self._container.blobs[self._blob_name] = _BlobRecord(data=data, metadata=dict(metadata))
 
     def download_blob(self) -> _MockDownloadStream:
@@ -294,7 +301,7 @@ class MockBlobClient:
             record = self._container.blobs.get(self._blob_name)
             if record is None:
                 raise FakeResourceNotFoundError(self._blob_name)
-            return _MockDownloadStream(record.data)
+            return _MockDownloadStream(record.data, record.metadata)
 
     def get_blob_properties(self) -> _MockBlobProperties:
         with self._container.lock:
@@ -439,6 +446,7 @@ def _install_fake_azure_modules() -> Callable[[], None]:
     azure_core_mod = types.ModuleType("azure.core")
     azure_core_exceptions_mod = types.ModuleType("azure.core.exceptions")
     setattr(azure_core_exceptions_mod, "ResourceNotFoundError", FakeResourceNotFoundError)
+    setattr(azure_core_exceptions_mod, "ResourceExistsError", FakeResourceExistsError)
 
     azure_data_tables_mod = types.ModuleType("azure.data.tables")
     setattr(azure_data_tables_mod, "TableClient", MockTableClient)

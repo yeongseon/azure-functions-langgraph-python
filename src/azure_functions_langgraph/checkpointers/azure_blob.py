@@ -58,6 +58,17 @@ def _describe_unknown_version(value: object) -> str:
     return "an unrecognized version"
 
 
+def _downloader_metadata(downloader: object) -> dict[str, str] | None:
+    """Return the blob metadata carried by a download response, or ``None`` if absent.
+
+    ``None`` (a downloader without ``properties`` or without a ``metadata`` mapping, for
+    example a duck-typed client) makes the caller fall back to a separate properties
+    request. A real, empty mapping is a valid answer: the blob has no metadata.
+    """
+    metadata = getattr(getattr(downloader, "properties", None), "metadata", None)
+    return dict(metadata) if isinstance(metadata, dict) else None
+
+
 _MAX_CONCURRENT_BLOB_READS = 8
 """Upper bound on in-flight blob downloads for one checkpoint read."""
 
@@ -146,6 +157,12 @@ class OrphanedValueCollectionResult:
 
 
 class _BlobDownloadProtocol(Protocol):
+    # ``StorageStreamDownloader.properties`` is a ``BlobProperties`` built from the
+    # response headers of the same GET that carries the body, so its ``metadata`` costs no
+    # extra request. Typed optional so duck-typed clients without it keep working.
+    @property
+    def properties(self) -> _BlobPropertiesProtocol | None: ...
+
     def readall(self) -> bytes: ...
 
 
@@ -175,6 +192,9 @@ class _ContainerClientProtocol(Protocol):
 
 
 class _AsyncBlobDownloadProtocol(Protocol):
+    @property
+    def properties(self) -> _BlobPropertiesProtocol | None: ...
+
     async def readall(self) -> bytes: ...
 
 
@@ -292,6 +312,9 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             resource_not_found_error = getattr(azure_core_exceptions, "ResourceNotFoundError", None)
             if resource_not_found_error is None:
                 raise ImportError("azure.core.exceptions.ResourceNotFoundError not found")
+            resource_exists_error = getattr(azure_core_exceptions, "ResourceExistsError", None)
+            if resource_exists_error is None:
+                raise ImportError("azure.core.exceptions.ResourceExistsError not found")
         except ImportError as exc:
             raise ImportError(
                 "AzureBlobCheckpointSaver requires 'azure-core'. "
@@ -300,6 +323,10 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         self._not_found_error: type[BaseException] = cast(
             type[BaseException],
             resource_not_found_error,
+        )
+        self._exists_error: type[BaseException] = cast(
+            type[BaseException],
+            resource_exists_error,
         )
 
         if aio_container_client is not None:
@@ -574,21 +601,20 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 write_index,
             )
 
-            if write_index >= 0 and self._blob_exists(write_blob_path):
-                continue
-
             serde_type, payload = self.serde.dumps_typed(value)
+            write_metadata = {
+                "serde_type": serde_type,
+                "channel": quote(channel, safe=""),
+                "task_id": quote(task_id, safe=""),
+                "task_path": quote(task_path, safe=""),
+            }
             check_ownership_guard(guard)
-            self._upload_blob(
-                write_blob_path,
-                payload,
-                {
-                    "serde_type": serde_type,
-                    "channel": quote(channel, safe=""),
-                    "task_id": quote(task_id, safe=""),
-                    "task_path": quote(task_path, safe=""),
-                },
-            )
+            if write_index >= 0:
+                # Write-once slot: one create-only request instead of an existence
+                # check plus upload. An existing blob (a retried write) is left as is.
+                self._create_blob(write_blob_path, payload, write_metadata)
+            else:
+                self._upload_blob(write_blob_path, payload, write_metadata)
 
     def delete_thread(self, thread_id: str) -> None:
         """Delete all blobs for a thread."""
@@ -1157,11 +1183,16 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
 
     def _download_typed_blob(self, blob_path: str) -> tuple[str, bytes, dict[str, str]] | None:
         """Download a blob and return ``(serde_type, payload, full_metadata)``."""
-        payload = self._download_blob(blob_path)
-        if payload is None:
+        try:
+            downloader = self._container_client.get_blob_client(blob_path).download_blob()
+            payload = downloader.readall()
+        except self._not_found_error:
             return None
 
-        metadata = self._blob_metadata(blob_path)
+        # Body and metadata come from one GET (the downloader's ``properties``).
+        metadata = _downloader_metadata(downloader)
+        if metadata is None:
+            metadata = self._blob_metadata(blob_path)
         serde_type = metadata.get("serde_type")
         if not serde_type:
             logger.warning("Blob missing serde_type metadata: %s", blob_path)
@@ -1190,12 +1221,26 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             return False
         return True
 
-    def _upload_blob(self, blob_path: str, payload: bytes, metadata: dict[str, str]) -> None:
+    def _upload_blob(
+        self, blob_path: str, payload: bytes, metadata: dict[str, str], overwrite: bool = True
+    ) -> None:
         self._container_client.get_blob_client(blob_path).upload_blob(
             payload,
             metadata=metadata,
-            overwrite=True,
+            overwrite=overwrite,
         )
+
+    def _create_blob(self, blob_path: str, payload: bytes, metadata: dict[str, str]) -> bool:
+        """Create ``blob_path`` only if absent; return ``False`` when it already exists.
+
+        ``overwrite=False`` makes the service evaluate the condition atomically
+        (``If-None-Match: *``), so two writers cannot both create the slot.
+        """
+        try:
+            self._upload_blob(blob_path, payload, metadata, overwrite=False)
+        except self._exists_error:
+            return False
+        return True
 
     def _thread_prefix(self, thread_id: str) -> str:
         return f"threads/{self._escape(thread_id)}/"
@@ -1322,11 +1367,16 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         self, blob_path: str
     ) -> tuple[str, bytes, dict[str, str]] | None:
         """Async twin of :meth:`_download_typed_blob`."""
-        payload = await self._adownload_blob(blob_path)
-        if payload is None:
+        client = self._require_aio_container_client().get_blob_client(blob_path)
+        try:
+            downloader = await client.download_blob()
+            payload = await downloader.readall()
+        except self._not_found_error:
             return None
 
-        metadata = await self._ablob_metadata(blob_path)
+        metadata = _downloader_metadata(downloader)
+        if metadata is None:
+            metadata = await self._ablob_metadata(blob_path)
         serde_type = metadata.get("serde_type")
         if not serde_type:
             logger.warning("Blob missing serde_type metadata: %s", blob_path)
@@ -1342,9 +1392,19 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             return False
         return True
 
-    async def _aupload_blob(self, blob_path: str, payload: bytes, metadata: dict[str, str]) -> None:
+    async def _aupload_blob(
+        self, blob_path: str, payload: bytes, metadata: dict[str, str], overwrite: bool = True
+    ) -> None:
         client = self._require_aio_container_client().get_blob_client(blob_path)
-        await client.upload_blob(payload, metadata=metadata, overwrite=True)
+        await client.upload_blob(payload, metadata=metadata, overwrite=overwrite)
+
+    async def _acreate_blob(self, blob_path: str, payload: bytes, metadata: dict[str, str]) -> bool:
+        """Async twin of :meth:`_create_blob`."""
+        try:
+            await self._aupload_blob(blob_path, payload, metadata, overwrite=False)
+        except self._exists_error:
+            return False
+        return True
 
     async def _alist_blob_items(self, prefix: str) -> builtins.list[_BlobItemProtocol]:
         container = self._require_aio_container_client()
@@ -1760,21 +1820,20 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 write_index,
             )
 
-            if write_index >= 0 and await self._ablob_exists(write_blob_path):
-                continue
-
             serde_type, payload = self.serde.dumps_typed(value)
+            write_metadata = {
+                "serde_type": serde_type,
+                "channel": quote(channel, safe=""),
+                "task_id": quote(task_id, safe=""),
+                "task_path": quote(task_path, safe=""),
+            }
             check_ownership_guard(guard)
-            await self._aupload_blob(
-                write_blob_path,
-                payload,
-                {
-                    "serde_type": serde_type,
-                    "channel": quote(channel, safe=""),
-                    "task_id": quote(task_id, safe=""),
-                    "task_path": quote(task_path, safe=""),
-                },
-            )
+            if write_index >= 0:
+                # Write-once slot: one create-only request instead of an existence
+                # check plus upload. An existing blob (a retried write) is left as is.
+                await self._acreate_blob(write_blob_path, payload, write_metadata)
+            else:
+                await self._aupload_blob(write_blob_path, payload, write_metadata)
 
     async def adelete_thread(self, thread_id: str) -> None:
         """Asynchronously delete all blobs for a thread (native aio when available)."""
