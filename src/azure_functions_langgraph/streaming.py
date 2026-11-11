@@ -60,7 +60,11 @@ from azure_functions_langgraph._execution_plan import (
 )
 from azure_functions_langgraph._handlers import _serialize_graph_output
 from azure_functions_langgraph._json import dumps
-from azure_functions_langgraph._topology import check_declared_lock_backend
+from azure_functions_langgraph._topology import (
+    build_topology_plan,
+    check_declared_lock_backend,
+    enforce_topology,
+)
 from azure_functions_langgraph._validation import (
     ValidationErrorDetail,
     sanitized_validation_errors,
@@ -623,6 +627,21 @@ class StreamingLangGraphApp:
         return scope_thread_lock(self.thread_lock, scope_of)
 
     def _build_function_app(self) -> func.FunctionApp:
+        # Same single validation pass as LangGraphApp, before any route exists (#880).
+        enforce_topology(
+            build_topology_plan(
+                app_label="StreamingLangGraphApp",
+                app_auth_level=self.auth_level,
+                platform_compat=False,
+                async_runs=False,
+                thread_store=None,
+                thread_lock=self.thread_lock,
+                registrations=self._registrations,
+                sb_registrations={},
+                environ=os.environ,
+            ),
+            stacklevel=4,
+        )
         ext = _import_fastapi_extension()
         Request = ext.Request
         JSONResponse = ext.JSONResponse
