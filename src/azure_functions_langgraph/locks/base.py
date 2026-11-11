@@ -29,9 +29,10 @@ class ThreadLock(Protocol):
         """Attempt to acquire an exclusive lock for ``(graph_name, thread_id)``.
 
         Args:
-            graph_name: Lock scope: the registered graph name, or, for graphs
-                that share a checkpointer object, the group's smallest graph name
-                (see the production guide, "Lock scope and shared checkpointers").
+            graph_name: Lock scope: the registered graph name, or, for a graph
+                whose checkpointer reports a ``lock_scope_identity``, a key derived
+                from that storage (see the production guide, "Lock scope and
+                shared checkpointers").
             thread_id: Thread ID drawn from ``config.configurable.thread_id``.
             timeout: Maximum seconds to wait for the lock. ``0.0`` (default)
                 is non-blocking — matches the pre-existing native-endpoint

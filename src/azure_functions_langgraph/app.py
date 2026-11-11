@@ -47,7 +47,11 @@ from azure_functions_langgraph.contracts import (
     build_stream_request_model,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
-from azure_functions_langgraph.locks._scope import resolve_lock_scope, scope_thread_lock
+from azure_functions_langgraph.locks._scope import (
+    ensure_unambiguous_scope,
+    graph_lock_scope,
+    scope_thread_lock,
+)
 from azure_functions_langgraph.observability import NoOpRunObserver, RunObserver
 from azure_functions_langgraph.protocols import (
     AsyncInvocableGraph,
@@ -366,6 +370,7 @@ class LangGraphApp:
             raise ValueError(name_err)
         if name in self._registrations:
             raise ValueError(f"Graph {name!r} is already registered")
+        ensure_unambiguous_scope(name, graph, self._sb_registrations.get(name))
         if any(reg.session_exclusive for reg in self._sb_registrations.values()):
             raise ValueError("session-exclusive execution cannot expose HTTP graph routes")
         if auth_level == func.AuthLevel.ANONYMOUS:
@@ -476,6 +481,7 @@ class LangGraphApp:
             raise ValueError(name_err)
         if name in self._sb_registrations:
             raise ValueError(f"Service Bus trigger {name!r} is already registered")
+        ensure_unambiguous_scope(name, graph, self._registrations.get(name))
 
         is_queue = queue_name is not None
         is_topic = topic_name is not None or subscription_name is not None
@@ -579,14 +585,15 @@ class LangGraphApp:
     # ------------------------------------------------------------------
 
     def _scoped_thread_lock(self) -> ThreadLock | None:
-        """Return ``thread_lock`` keyed so graphs sharing a checkpointer share one lock."""
+        """Return ``thread_lock`` keyed by checkpoint-storage scope (see ``locks._scope``)."""
         if self.thread_lock is None:
             return None
 
         def scope_of(name: str) -> str:
-            return resolve_lock_scope(
-                name, [*self._registrations.values(), *self._sb_registrations.values()]
-            )
+            # A name resolves to one registration: cross-surface overlaps with
+            # different scopes are rejected at registration time.
+            reg = self._registrations.get(name) or self._sb_registrations.get(name)
+            return graph_lock_scope(name, getattr(reg, "graph", None)) if reg else name
 
         return scope_thread_lock(self.thread_lock, scope_of)
 

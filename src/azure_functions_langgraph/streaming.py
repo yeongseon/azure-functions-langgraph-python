@@ -81,7 +81,7 @@ from azure_functions_langgraph.locks._async import (
     release_thread_lock,
     run_sync_retaining_ownership,
 )
-from azure_functions_langgraph.locks._scope import resolve_lock_scope, scope_thread_lock
+from azure_functions_langgraph.locks._scope import graph_lock_scope, scope_thread_lock
 from azure_functions_langgraph.locks.guard import (
     OwnershipGuard,
     check_ownership_guard,
@@ -644,12 +644,13 @@ class StreamingLangGraphApp:
     # ------------------------------------------------------------------
 
     def _scoped_thread_lock(self) -> ThreadLock | None:
-        """Return ``thread_lock`` keyed so graphs sharing a checkpointer share one lock."""
+        """Return ``thread_lock`` keyed by checkpoint-storage scope (see ``locks._scope``)."""
         if self.thread_lock is None:
             return None
 
         def scope_of(name: str) -> str:
-            return resolve_lock_scope(name, list(self._registrations.values()))
+            reg = self._registrations.get(name)
+            return graph_lock_scope(name, reg.graph) if reg else name
 
         return scope_thread_lock(self.thread_lock, scope_of)
 
