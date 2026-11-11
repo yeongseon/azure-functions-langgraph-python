@@ -60,6 +60,7 @@ from azure_functions_langgraph._execution_plan import (
 )
 from azure_functions_langgraph._handlers import _serialize_graph_output
 from azure_functions_langgraph._json import dumps
+from azure_functions_langgraph._topology import check_declared_lock_backend
 from azure_functions_langgraph._validation import (
     ValidationErrorDetail,
     sanitized_validation_errors,
@@ -512,16 +513,7 @@ class StreamingLangGraphApp:
             self.thread_lock = InProcessThreadLock()
         if self.observer is None:
             self.observer = NoOpRunObserver()
-        env_backend = os.environ.get("AZFUNC_LANGGRAPH_LOCK_BACKEND", "").strip().lower()
-        if env_backend and env_backend not in ("", "inprocess"):
-            if isinstance(self.thread_lock, InProcessThreadLock):
-                raise RuntimeError(
-                    f"AZFUNC_LANGGRAPH_LOCK_BACKEND={env_backend!r} requires a "
-                    "distributed thread_lock backend (for example "
-                    "AzureBlobLeaseThreadLock), but the app is still using the "
-                    "default InProcessThreadLock. Pass thread_lock=... explicitly "
-                    "to StreamingLangGraphApp() or unset the env var for local dev."
-                )
+        check_declared_lock_backend("StreamingLangGraphApp", self.thread_lock, os.environ)
 
     def register(
         self,

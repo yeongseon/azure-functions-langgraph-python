@@ -31,6 +31,12 @@ from azure_functions_langgraph._metadata import (
     set_langgraph_metadata,
 )
 from azure_functions_langgraph._readiness import ReadinessRunner
+from azure_functions_langgraph._topology import (
+    build_topology_plan,
+    check_declared_lock_backend,
+    enforce_topology,
+    optional_route_auth_message,
+)
 from azure_functions_langgraph._validation import (
     validate_graph_name,
 )
@@ -73,25 +79,7 @@ _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
 # Async-run mode selector. ``False`` (default) serves only the synchronous HTTP
 # surface; ``"durable"`` additionally wires the optional Durable Functions
 # create/get/cancel async-run lifecycle (requires the ``durable`` extra, #408).
-_AUTH_RANK: dict[func.AuthLevel, int] = {
-    func.AuthLevel.ANONYMOUS: 0,
-    func.AuthLevel.FUNCTION: 1,
-    func.AuthLevel.ADMIN: 2,
-}
-
 AsyncRunsMode = Literal[False, "durable"]
-
-
-# Environment markers set by the Azure Functions host at runtime. Their presence
-# means the process is running on a real Azure Function App (not local `func
-# start`, where these are absent), which is when a per-instance in-memory thread
-# store becomes a scale-out footgun.
-_AZURE_HOST_MARKERS = ("WEBSITE_INSTANCE_ID", "WEBSITE_SITE_NAME")
-
-
-def _is_azure_hosted() -> bool:
-    """Return ``True`` when Azure Functions host env markers are present."""
-    return any(os.environ.get(marker) for marker in _AZURE_HOST_MARKERS)
 
 
 @dataclass
@@ -287,22 +275,11 @@ class LangGraphApp:
             self.thread_lock = InProcessThreadLock()
         if self.observer is None:
             self.observer = NoOpRunObserver()
-        # AZFUNC_LANGGRAPH_LOCK_BACKEND is a safety guard that keeps operators
-        # from accidentally deploying an in-process lock to a multi-instance
-        # Function App. Set it to ``distributed`` (or the exact backend class
-        # name) in Function App settings; if the wired backend is still
-        # InProcessThreadLock we raise at construction time so the mistake is
-        # visible before any request is served.
-        env_backend = os.environ.get("AZFUNC_LANGGRAPH_LOCK_BACKEND", "").strip().lower()
-        if env_backend and env_backend not in ("", "inprocess"):
-            if isinstance(self.thread_lock, InProcessThreadLock):
-                raise RuntimeError(
-                    f"AZFUNC_LANGGRAPH_LOCK_BACKEND={env_backend!r} requires a "
-                    "distributed thread_lock backend (for example "
-                    "AzureBlobLeaseThreadLock), but the app is still using the "
-                    "default InProcessThreadLock. Pass thread_lock=... explicitly "
-                    "to LangGraphApp() or unset the env var for local dev."
-                )
+        # AZFUNC_LANGGRAPH_LOCK_BACKEND keeps operators from accidentally deploying
+        # an in-process lock to a multi-instance Function App; it fails at
+        # construction so the mistake is visible before any request is served. The
+        # same rule is re-evaluated by the topology plan at build time (#880).
+        check_declared_lock_backend("LangGraphApp", self.thread_lock, os.environ)
 
     def register(
         self,
@@ -607,73 +584,34 @@ class LangGraphApp:
     def _check_optional_route_auth(
         self, name: str, graph_level: func.AuthLevel | None, *, late: bool = False
     ) -> None:
-        surfaces: list[str] = []
-        if self.platform_compat:
-            surfaces.append("platform_compat=True")
-        if self.async_runs == "durable":
-            surfaces.append('async_runs="durable"')
-        if not surfaces or graph_level is None:
-            return
-        if _AUTH_RANK[graph_level] <= _AUTH_RANK[self.auth_level]:
-            return
-        when = (
-            " Registering it after the optional routes were already exported would let "
-            "the exported handlers run it without its host key."
-            if late
-            else ""
+        message = optional_route_auth_message(
+            name,
+            graph_level,
+            self.auth_level,
+            platform_compat=self.platform_compat,
+            async_runs=self.async_runs,
+            late=late,
         )
-        raise ValueError(
-            f"Graph {name!r} requires auth_level={graph_level.name} but "
-            f"{' and '.join(surfaces)} expose it through routes protected only by "
-            f"the app-level auth_level={self.auth_level.name}, which would bypass "
-            f"the graph's host key.{when} Raise the app-level auth_level to at least "
-            f"{graph_level.name}, relax the graph's auth_level, or disable the "
-            "optional routes."
-        )
-
-    def _validate_optional_route_auth(self) -> None:
-        """Fail closed when optional routes would weaken a graph's host auth (#854).
-
-        Platform and Durable HTTP routes are registered with the app-level
-        ``auth_level`` and are shared by every graph. A graph registered with a
-        *stricter* per-graph ``auth_level`` would therefore be reachable through
-        those routes without its intended host key.
-        """
-        for name, reg in self._registrations.items():
-            self._check_optional_route_auth(name, reg.auth_level)
+        if message:
+            raise ValueError(message)
 
     def _build_function_app(self) -> func.FunctionApp:
-        self._validate_optional_route_auth()
-        if self.platform_compat:
-            from azure_functions_langgraph.platform.stores import InMemoryThreadStore
-
-            if isinstance(self._thread_store, InMemoryThreadStore):
-                env_store = os.environ.get("AZFUNC_LANGGRAPH_THREAD_STORE", "").strip().lower()
-                env_lock = os.environ.get("AZFUNC_LANGGRAPH_LOCK_BACKEND", "").strip().lower()
-                distributed_required = bool(env_lock and env_lock != "inprocess")
-                if (env_store and env_store != "inmemory") or distributed_required:
-                    raise RuntimeError(
-                        "The configured scale-out safety guard requires a "
-                        "distributed thread store (for example AzureTableThreadStore), "
-                        "but the final configured store is InMemoryThreadStore. Set "
-                        "app.thread_store = ... before accessing app.function_app, or "
-                        "unset AZFUNC_LANGGRAPH_THREAD_STORE and "
-                        "AZFUNC_LANGGRAPH_LOCK_BACKEND for local dev."
-                    )
-                if _is_azure_hosted():
-                    warnings.warn(
-                        "platform_compat is enabled with the final configured "
-                        "in-memory thread store (InMemoryThreadStore) on an "
-                        "Azure-hosted Function App. "
-                        "InMemoryThreadStore is per-instance, so thread state will "
-                        "diverge across scaled-out instances.\n"
-                        "  Recommended: app.thread_store = AzureTableThreadStore(...)\n"
-                        "  Fail-fast:   set AZFUNC_LANGGRAPH_THREAD_STORE=distributed\n"
-                        "  See the 'Distributed thread locking' scale-out matrix in "
-                        "docs/production-guide.md",
-                        RuntimeWarning,
-                        stacklevel=2,
-                    )
+        # One validation pass over the immutable topology plan, before any route
+        # exists: a rejected configuration exports nothing and runs no graph (#880).
+        enforce_topology(
+            build_topology_plan(
+                app_label="LangGraphApp",
+                app_auth_level=self.auth_level,
+                platform_compat=self.platform_compat,
+                async_runs=self.async_runs,
+                thread_store=self._thread_store,
+                thread_lock=self.thread_lock,
+                registrations=self._registrations,
+                sb_registrations=self._sb_registrations,
+                environ=os.environ,
+            ),
+            stacklevel=4,
+        )
         app = self._new_function_app()
 
         # Health endpoints.
