@@ -240,3 +240,10 @@ security-runtime-audit:
 	@$(SECURITY_PYTHON) -m tools.audit_candidate --wheel "$(WHEEL)" --profile "$(PROFILE)" --output "$(SECURITY_OUTPUT)/runtime-audit"
 security-runtime-report:
 	@$(SECURITY_PYTHON) -m tools.runtime_audit "$(REPORT)" --exit-status "$(AUDIT_EXIT)" --output "$(SECURITY_OUTPUT)/runtime-audit"
+
+.PHONY: example-sse-client-check example-sse-client
+example-sse-client-check:
+	$(PYTHON) -m unittest discover -s examples/true_streaming_agent -p test_client.py -v
+
+example-sse-client:
+	$(PYTHON) examples/true_streaming_agent/client.py $(CLIENT_ARGS)
