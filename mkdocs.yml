@@ -18,32 +18,58 @@ nav:
       - Installation: installation.md
       - Quickstart: getting-started.md
       - 5-Minute Tutorial: tutorial-5-min.md
-      - Configuration: configuration.md
-  - User Guide:
-      - Usage: usage.md
-      - Adapter Reference & Migration: adapter-reference.md
-      - Architecture: architecture.md
-      - Operations & APIs: ops-and-apis.md
-  - Deployment:
+  - Deploy:
       - Choose a Plan: choose-a-plan.md
       - Deploy to Azure: deployment.md
+  - Production Checklist:
       - Production Guide: production-guide.md
+      - Security: security.md
   - Examples:
-      - Simple Agent: examples/simple_agent.md
-  - API Reference: api.md
-  - Roadmap: roadmap.md
-  - Contributing:
+      - Beginner:
+          - Simple Agent (walkthrough): examples/simple_agent.md
+          - Azure OpenAI agent: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/azure_openai_agent
+          - Conversation memory: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/conversation_memory
+          - Tool calling agent: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/tool_calling_agent
+          - Curl helpers: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/local_curl
+      - Production:
+          - Persistent production agent: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/production_persistent_agent
+          - Per-graph auth: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/production_auth
+          - Managed Identity storage: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/managed_identity_storage
+          - Blob + Table persistence: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/persistent_agent_blob_table
+          - Postgres checkpointer: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/postgres_checkpoint_production
+          - App Insights telemetry: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/observability_app_insights
+      - Advanced:
+          - True HTTP streaming: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/true_streaming_agent
+          - Streaming authorization: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/streaming_authorization
+          - Platform SDK compatibility: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/platform_compat_sdk
+          - Durable async runs: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/durable_async_agent
+          - Service Bus agent: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/service_bus_agent
+          - Service Bus sessions: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/service_bus_sessions
+          - Versioned output (v2): https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/versioned_output_agent
+          - Async agent: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/async_agent
+          - Run observer: https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/run_observer
+  - Reference:
+      - API Reference: api.md
+      - Configuration: configuration.md
+      - Usage: usage.md
+      - Adapter Reference & Migration: adapter-reference.md
+      - Operations & APIs: ops-and-apis.md
+      - Architecture: architecture.md
+      - Release Status (PyPI): release-status.md
+      - Changelog: changelog.md
+      - Roadmap: roadmap.md
+  - Troubleshooting:
+      - Troubleshooting: troubleshooting.md
+      - FAQ: faq.md
+  - Maintainers:
+      - Contributing Guidelines: contributing.md
       - Development: development.md
       - Testing: testing.md
-      - Guidelines: contributing.md
       - Release Process: release_process.md
-      - Agent Playbook: agent-playbook.md
       - Review Evidence Policy: review-evidence-policy.md
-  - Troubleshooting: troubleshooting.md
-  - FAQ: faq.md
-  - Security: security.md
-  - Changelog: changelog.md
-  - Release Status: release-status.md
+      - Hardening Status: hardening-status.md
+      - Deferred Edge Triage: deferred-edge-triage.md
+      - Agent Playbook: agent-playbook.md
 
 markdown_extensions:
   - admonition
