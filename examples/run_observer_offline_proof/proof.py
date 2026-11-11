@@ -125,11 +125,17 @@ def main() -> int:
 
 
 def assert_payload_free(result: dict[str, Any]) -> None:
+    """Raise ``AssertionError`` if the canary is missing from the app or present in observer output.
+
+    Uses explicit ``raise`` rather than ``assert`` so the check also runs under ``python -O``.
+    """
     output = render(result)
     # The canary really flowed through the app (it is echoed in the success response)...
-    assert CANARY in result["responses"]["success"].get_body().decode()
+    if CANARY not in result["responses"]["success"].get_body().decode():
+        raise AssertionError("canary did not reach the app; the proof would be vacuous")
     # ...yet none of the observer's output contains it.
-    assert CANARY not in output, "payload leaked into observer output"
+    if CANARY in output:
+        raise AssertionError("payload leaked into observer output")
 
 
 if __name__ == "__main__":
