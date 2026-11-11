@@ -4,15 +4,19 @@ Shape::
 
     START -> enter -> hold -> effect -> END
 
-* ``enter`` records one *attempt marker* blob per Activity execution, so the test can count how
-  many times the single Activity actually ran (a host restart may or may not redeliver it; the
-  test records what happened and never assumes either outcome).
-* ``hold`` blocks for ``hold_seconds`` (from the run input) so a restart / terminate can be
-  injected while the Activity is in flight, then records a ``completed`` marker. This shows when
-  an Activity really finishes after a terminate (Durable terminate does not interrupt it).
-* ``effect`` is a non-idempotent-tool substitute guarded by an idempotency key: every call is
-  logged, but only the first call per key "applies" (create-if-absent blob). Calls minus applied
-  = effects the key suppressed.
+Evidence is recorded at two separate boundaries:
+
+* **Activity boundary** (``EvidenceObserver``, a ``RunObserver`` wired into the app): one
+  ``attempt`` marker per Activity *delivery*, including deliveries rejected because a previous
+  Blob lease is still valid (those never reach a graph node). ``started`` / ``rejected`` label the
+  two outcomes. ``activity-finished`` is emitted only after graph invocation has returned (so after
+  the ``effect`` node and checkpointing), with its wall-clock finish time in the blob name. A test
+  must wait on that marker, never on the in-graph hold marker.
+* **Graph-node boundary**: ``enter`` records ``node-enter`` (executions of the first node, kept
+  separate from attempts); ``hold`` blocks for ``hold_seconds`` and then records ``hold-finished``
+  (the hold elapsing, NOT the Activity completing); ``effect`` is a non-idempotent-tool substitute
+  guarded by an idempotency key: every call is logged, but only the first call per key "applies"
+  (create-if-absent blob).
 
 Evidence lives in a blob container in the app's own storage account (``AzureWebJobsStorage``) so
 it survives host restarts. No secrets, request bodies or hostnames are stored: instance ids are
@@ -32,6 +36,7 @@ from azure.storage.blob import ContainerClient
 from langgraph.graph import END, START, StateGraph
 
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
+from azure_functions_langgraph.observability import RunContext, RunRejectedReason
 
 EVIDENCE_CONTAINER = os.environ.get("E2E_EVIDENCE_CONTAINER", "e2e-durable-evidence")
 CHECKPOINT_CONTAINER = os.environ.get("E2E_CHECKPOINT_CONTAINER", "langgraph-checkpoints")
@@ -75,13 +80,13 @@ def _mark(prefix: str, key: str) -> None:
 
 def enter(state: DurableE2EState) -> dict[str, Any]:
     run_id = state["run_id"]
-    _mark("attempt", run_id)
+    _mark("node-enter", run_id)
     return {"entered": run_id}
 
 
 def hold(state: DurableE2EState) -> dict[str, Any]:
     time.sleep(min(float(state.get("hold_seconds", 0)), MAX_HOLD_SECONDS))
-    _mark("completed", state["run_id"])
+    _mark("hold-finished", state["run_id"])
     return {"completed": state["run_id"]}
 
 
@@ -99,10 +104,34 @@ def effect(state: DurableE2EState) -> dict[str, Any]:
     return {"effect_applied": applied}
 
 
+class EvidenceObserver:
+    """Records Activity-boundary evidence (see module docstring). Must not raise."""
+
+    def on_run_started(self, ctx: RunContext) -> None:
+        _mark("attempt", ctx.run_id)
+        _mark("started", ctx.run_id)
+
+    def on_run_rejected(self, ctx: RunContext, reason: RunRejectedReason) -> None:
+        _mark("attempt", ctx.run_id)
+        _mark("rejected", ctx.run_id)
+
+    def on_run_completed(self, ctx: RunContext) -> None:
+        _mark("activity-finished", ctx.run_id)
+
+    def on_run_failed(self, ctx: RunContext, exc: BaseException) -> None:
+        _mark("activity-finished", ctx.run_id)
+
+
 def count_markers(prefix: str, key: str) -> list[str]:
     """Instance tags of every marker under ``prefix/key`` (one entry per marker)."""
     blobs = evidence_container().list_blobs(name_starts_with=f"{prefix}/{key}/")
     return [evidence_container().download_blob(b.name).readall().decode() for b in blobs]
+
+
+def marker_times_ms(prefix: str, key: str) -> list[int]:
+    """Wall-clock epoch milliseconds of every marker under ``prefix/key``, sorted."""
+    blobs = evidence_container().list_blobs(name_starts_with=f"{prefix}/{key}/")
+    return sorted(int(b.name.rsplit("/", 1)[1].split("-", 1)[0]) for b in blobs)
 
 
 def effect_applied_count(key: str) -> int:

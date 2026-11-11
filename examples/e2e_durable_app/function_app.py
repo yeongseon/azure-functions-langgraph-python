@@ -8,7 +8,7 @@ Durable lifecycle routes and a small evidence endpoint:
     POST /api/runs/{run_id}/cancel             request termination
     GET  /api/e2e/health
     GET  /api/e2e/runtime
-    GET  /api/e2e/evidence/{run_id}            attempt / completion / effect counts for a run
+    GET  /api/e2e/evidence/{run_id}            attempt / node-entry / completion / effect evidence
 
 The app is ANONYMOUS because it is a throwaway host holding no sensitive data (as in
 ``examples/e2e_app``). Evidence endpoints expose counts and short instance tags only.
@@ -23,7 +23,13 @@ import platform
 from azure.core.exceptions import ResourceExistsError
 import azure.functions as func
 from azure.storage.blob import ContainerClient
-from graph import build_graph, count_markers, effect_applied_count
+from graph import (
+    EvidenceObserver,
+    build_graph,
+    count_markers,
+    effect_applied_count,
+    marker_times_ms,
+)
 
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.locks import AzureBlobLeaseThreadLock
@@ -34,7 +40,9 @@ _lock_container = ContainerClient.from_connection_string(
 with contextlib.suppress(ResourceExistsError):  # Bicep pre-creates it; other errors propagate
     _lock_container.create_container()
 
-langgraph_app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS, async_runs="durable")
+langgraph_app = LangGraphApp(
+    auth_level=func.AuthLevel.ANONYMOUS, async_runs="durable", observer=EvidenceObserver()
+)
 langgraph_app.thread_lock = AzureBlobLeaseThreadLock(container_client=_lock_container)
 langgraph_app.register(graph=build_graph(), name="e2e_durable")
 
@@ -68,8 +76,15 @@ def e2e_evidence(req: func.HttpRequest) -> func.HttpResponse:
     return _json(
         {
             "run_id": run_id,
+            # Activity deliveries (started + rejected); node entries are counted separately.
             "attempts": count_markers("attempt", run_id),
-            "completions": count_markers("completed", run_id),
+            "started": count_markers("started", run_id),
+            "rejected": count_markers("rejected", run_id),
+            "node_entries": count_markers("node-enter", run_id),
+            "hold_finished": count_markers("hold-finished", run_id),
+            # Emitted after graph invocation returned (effect + checkpointing done).
+            "completions": count_markers("activity-finished", run_id),
+            "completion_times_ms": marker_times_ms("activity-finished", run_id),
             "effect_calls": count_markers("effect-call", run_id),
             "effects_applied": effect_applied_count(run_id),
         }

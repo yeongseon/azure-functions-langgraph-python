@@ -1,8 +1,10 @@
 """Offline check of the evidence graph in ``examples/e2e_durable_app`` (#811).
 
 The real-Azure lane (``tests/e2e_durable``) cannot run in CI, so this verifies locally, against an
-in-memory blob container, the parts it relies on: one attempt marker per node run, and an
-idempotency key that applies the effect once however often the tool is called.
+in-memory blob container, the parts it relies on: Activity-boundary
+attempt evidence (kept separate from graph-node entries, including lock rejections), completion
+markers emitted only after graph invocation returns, and an idempotency key that applies the
+effect once however often the tool is called.
 """
 
 from __future__ import annotations
@@ -40,11 +42,13 @@ class _Download:
 class FakeContainer:
     def __init__(self) -> None:
         self.blobs: dict[str, bytes] = {}
+        self.order: list[str] = []  # upload order, for marker-ordering assertions
 
     def upload_blob(self, name: str, data: bytes, overwrite: bool = True) -> None:
         if not overwrite and name in self.blobs:
             raise ResourceExistsError("exists")
         self.blobs[name] = data
+        self.order.append(name)
 
     def list_blobs(self, name_starts_with: str = "") -> list[_Blob]:
         return [_Blob(n) for n in sorted(self.blobs) if n.startswith(name_starts_with)]
@@ -89,7 +93,7 @@ def test_effect_is_applied_once_per_idempotency_key(
     assert module.effect_applied_count("r1") == 1
 
 
-def test_attempt_and_completion_markers_are_counted_per_run(
+def test_node_markers_are_counted_per_run_and_separate_from_attempts(
     graph_module: tuple[ModuleType, FakeContainer],
 ) -> None:
     module, _ = graph_module
@@ -97,9 +101,110 @@ def test_attempt_and_completion_markers_are_counted_per_run(
     module.enter({"run_id": "r2"})
     module.hold({"run_id": "r2", "hold_seconds": 0})
     module.enter({"run_id": "other"})
-    assert len(module.count_markers("attempt", "r2")) == 2
-    assert len(module.count_markers("completed", "r2")) == 1
-    assert all(len(tag) == 8 for tag in module.count_markers("attempt", "r2"))
+    assert len(module.count_markers("node-enter", "r2")) == 2
+    assert len(module.count_markers("hold-finished", "r2")) == 1
+    # Graph nodes never write Activity-boundary evidence.
+    assert module.count_markers("attempt", "r2") == []
+    assert module.count_markers("activity-finished", "r2") == []
+    assert all(len(tag) == 8 for tag in module.count_markers("node-enter", "r2"))
+
+
+class _Reg:
+    def __init__(self, graph: Any) -> None:
+        self.graph = graph
+        self.name = "e2e_durable"
+        self.async_mode = False
+
+
+def _checkpointed_graph(module: ModuleType) -> Any:
+    from langgraph.checkpoint.memory import MemorySaver
+
+    return module.builder.compile(checkpointer=MemorySaver())
+
+
+async def _run(module: ModuleType, lock: Any, run_id: str, **input_extra: Any) -> Any:
+    from azure_functions_langgraph.durable._activity import execute_langgraph_run_impl
+    from azure_functions_langgraph.durable._state import DurableRunPayload
+
+    payload = DurableRunPayload(
+        run_id=run_id,
+        graph_name="e2e_durable",
+        input={"run_id": run_id, "hold_seconds": 0, **input_extra},
+        thread_id=f"t-{run_id}",
+        config={},
+    )
+    return await execute_langgraph_run_impl(
+        payload,
+        registry={"e2e_durable": _Reg(_checkpointed_graph(module))},
+        thread_lock=lock,
+        observer=module.EvidenceObserver(),
+    )
+
+
+async def test_rejected_delivery_counts_as_attempt_but_not_node_entry(
+    graph_module: tuple[ModuleType, FakeContainer],
+) -> None:
+    from azure_functions_langgraph.locks import InProcessThreadLock
+
+    module, _ = graph_module
+    lock = InProcessThreadLock()
+    assert lock.acquire("e2e_durable", "t-r4")  # an older delivery still holds the lease
+    result = await _run(module, lock, "r4")
+    assert result.activity_status == "rejected"
+    assert len(module.count_markers("attempt", "r4")) == 1
+    assert len(module.count_markers("rejected", "r4")) == 1
+    assert module.count_markers("started", "r4") == []
+    assert module.count_markers("node-enter", "r4") == []
+    assert module.count_markers("activity-finished", "r4") == []
+
+
+async def test_attempts_and_node_entries_diverge_on_redelivery(
+    graph_module: tuple[ModuleType, FakeContainer],
+) -> None:
+    from azure_functions_langgraph.locks import InProcessThreadLock
+
+    module, _ = graph_module
+    lock = InProcessThreadLock()
+    token = lock.acquire("e2e_durable", "t-r5")
+    assert token
+    await _run(module, lock, "r5")  # rejected redelivery while the old lease is valid
+    lock.release("e2e_durable", "t-r5", token)
+    result = await _run(module, lock, "r5")  # the redelivery that finally runs
+    assert result.activity_status == "success"
+    assert len(module.count_markers("attempt", "r5")) == 2
+    assert len(module.count_markers("node-enter", "r5")) == 1
+    assert len(module.marker_times_ms("attempt", "r5")) == 2
+
+
+async def test_activity_finished_is_emitted_after_all_graph_work(
+    graph_module: tuple[ModuleType, FakeContainer],
+) -> None:
+    from azure_functions_langgraph.locks import InProcessThreadLock
+
+    module, fake = graph_module
+    result = await _run(module, InProcessThreadLock(), "r6")
+    assert result.activity_status == "success"
+    kinds = [n.split("/", 1)[0] for n in fake.order]
+    assert kinds[0] == "attempt"
+    assert kinds.index("hold-finished") < kinds.index("effect-call")
+    assert kinds.index("effect-call") < kinds.index("effect-applied")
+    # the completion signal is the very last evidence written, after the effect node finished
+    assert kinds[-1] == "activity-finished" and kinds.count("activity-finished") == 1
+    assert kinds.index("hold-finished") < kinds.index("activity-finished")
+    (finished_ms,) = module.marker_times_ms("activity-finished", "r6")
+    assert finished_ms >= max(module.marker_times_ms("effect-call", "r6"))
+
+
+async def test_failed_activity_still_emits_finish_marker_after_effect_node_raised(
+    graph_module: tuple[ModuleType, FakeContainer],
+) -> None:
+    from azure_functions_langgraph.locks import InProcessThreadLock
+
+    module, fake = graph_module
+    result = await _run(module, InProcessThreadLock(), "r7", fail=True)
+    assert result.activity_status == "error"
+    assert [n.split("/", 1)[0] for n in fake.order][-1] == "activity-finished"
+    assert module.effect_applied_count("r7") == 0
 
 
 def test_fail_flag_raises_before_any_effect(

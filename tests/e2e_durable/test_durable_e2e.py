@@ -32,6 +32,13 @@ import uuid
 import pytest
 import requests
 
+from ._contracts import (
+    check_create_response,
+    check_public_error,
+    check_success_evidence,
+    create_body,
+)
+
 BASE_URL = os.environ.get("E2E_DURABLE_BASE_URL", "").rstrip("/")
 RESTART_CMD = os.environ.get("E2E_DURABLE_RESTART_CMD", "")
 EVIDENCE_PATH = os.environ.get("E2E_DURABLE_EVIDENCE", "")
@@ -60,15 +67,10 @@ def _record(name: str, data: dict[str, Any]) -> None:
 def _create(
     run_id: str, *, hold: float = 0, thread_id: str | None = None, fail: bool = False
 ) -> None:
-    body: dict[str, Any] = {
-        "run_id": run_id,
-        "input": {"run_id": run_id, "hold_seconds": hold, "fail": fail},
-    }
-    if thread_id:
-        body["thread_id"] = thread_id
+    body = create_body(run_id, hold=hold, thread_id=thread_id, fail=fail)
     r = requests.post(f"{BASE_URL}/api/graphs/{GRAPH}/runs", json=body, timeout=60)
     assert r.status_code == 202, r.text
-    assert r.json() == {"run_id": run_id, "status": "pending"}
+    check_create_response(r.json(), run_id)
 
 
 def _get(run_id: str) -> dict[str, Any]:
@@ -108,7 +110,7 @@ def _wait_entered(run_id: str, timeout: float = 180) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            if _evidence_for(run_id)["attempts"]:
+            if _evidence_for(run_id)["started"]:
                 return
         except (requests.RequestException, AssertionError):
             pass
@@ -141,17 +143,21 @@ def test_create_poll_success_with_idempotent_effect() -> None:
     assert final["output"]["activity_status"] == "success"
     assert final["output"]["result"]["completed"] == run_id
     ev = _evidence_for(run_id)
-    assert len(ev["attempts"]) == 1 and ev["effects_applied"] == 1
-    _record("success", {"statuses": seen, "attempts": len(ev["attempts"])})
+    # Durable Activity delivery is at-least-once even without a restart: a duplicate delivery whose
+    # effect the idempotency key suppressed is valid. Keep the real attempt count as evidence.
+    attempts = check_success_evidence(ev)
+    _record(
+        "success",
+        {"statuses": seen, "attempts": attempts, "node_entries": len(ev["node_entries"])},
+    )
 
 
 def test_failure_is_reported_as_error() -> None:
     run_id = f"d-fail-{uuid.uuid4().hex[:12]}"
     _create(run_id, fail=True)
     final = _wait_terminal(run_id, 300)
-    assert final["status"] == "error", final
-    assert final["output"]["activity_status"] == "error"
-    assert final["output"]["error"]["type"] == "RuntimeError"
+    # get_run_impl sanitizes Activity errors; the raw exception type is asserted offline.
+    check_public_error(final)
 
 
 def test_same_thread_contention_rejects_second_run() -> None:
@@ -165,8 +171,17 @@ def test_same_thread_contention_rejects_second_run() -> None:
     assert rejected["output"]["activity_status"] == "rejected"
     assert _wait_terminal(first, 300)["status"] == "success"
     ev2 = _evidence_for(second)
-    assert ev2["attempts"] == [] and ev2["effects_applied"] == 0, ev2
-    _record("contention", {"second_activity_status": "rejected"})
+    # A rejected delivery is an attempt at the Activity boundary, but never starts or enters a node.
+    assert ev2["started"] == [] and ev2["node_entries"] == [], ev2
+    assert ev2["effects_applied"] == 0, ev2
+    _record(
+        "contention",
+        {
+            "second_activity_status": "rejected",
+            "second_attempts": len(ev2["attempts"]),
+            "second_rejected": len(ev2["rejected"]),
+        },
+    )
 
 
 def test_cancel_during_work_records_when_activity_finishes() -> None:
@@ -182,6 +197,8 @@ def test_cancel_during_work_records_when_activity_finishes() -> None:
     assert final["status"] == "cancelled", final
     cancelled_after = time.time() - t0
     # Observe, do not assume: does the already-running Activity still finish after terminate?
+    # "completions" is emitted only after graph invocation returned (effect + checkpointing done),
+    # not at the in-graph hold marker.
     deadline = time.time() + hold + 90
     completions = 0
     while time.time() < deadline:
@@ -196,6 +213,8 @@ def test_cancel_during_work_records_when_activity_finishes() -> None:
             "cancelled_after_seconds": round(cancelled_after, 1),
             "activity_completed_after_terminate": bool(completions),
             "attempts": len(ev["attempts"]),
+            "node_entries": len(ev["node_entries"]),
+            "hold_finished": len(ev["hold_finished"]),
             "effects_applied": ev["effects_applied"],
         },
     )
@@ -222,8 +241,13 @@ def test_host_restart_during_activity() -> None:
             "final_status": final["status"],
             "final_activity_status": (final.get("output") or {}).get("activity_status"),
             "activity_attempts": len(ev["attempts"]),
+            "activity_started": len(ev["started"]),
+            "activity_rejected": len(ev["rejected"]),
+            "graph_node_entries": len(ev["node_entries"]),
+            "hold_finished": len(ev["hold_finished"]),
             "attempt_instance_tags": sorted(set(ev["attempts"])),
             "activity_completions": len(ev["completions"]),
+            "activity_completion_times_ms": ev["completion_times_ms"],
             "effect_calls": len(ev["effect_calls"]),
             "effects_applied": ev["effects_applied"],
         },
