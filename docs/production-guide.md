@@ -339,6 +339,16 @@ only what it observed:
   tool call that is in flight, and Activity delivery is at-least-once. Give
   side-effecting tools an idempotency key or deduplicate them in the application;
   do not use cancellation as a safeguard against a duplicate or unwanted effect.
+- **Redelivery, replay and retries.** These are three different things. A *redelivery*
+  re-runs the Activity (and so the whole graph) with the same `run_id` and payload; a
+  checkpointer does not stop it, because the adapter always invokes with the payload
+  input and nodes' external effects can repeat. *Orchestrator replay* re-drives
+  only the deterministic orchestrator and does not re-run the Activity. An
+  *application retry* is a new run with a new `run_id`. Use an idempotency key derived
+  from the stable `run_id` with a provider that enforces it atomically; see
+  [`examples/durable_async_agent/`](../examples/durable_async_agent/) and
+  `tests/test_durable_replay_idempotency.py` for the pattern and its limits.
+
 - **Migration.** Earlier releases answered `202 {"status": "cancelled"}` at once.
   A client that treated that body as final must now poll `GET` until the status is
   terminal, and one that accepted only `202` must also accept `200` (the run had

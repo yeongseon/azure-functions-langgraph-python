@@ -217,6 +217,7 @@ jobs:
             "azure-functions==1.21.0" \
             "langgraph==1.0.0" \
             "langgraph-sdk==0.2.2" \
+            "langchain-core==0.3.67" \
             "pydantic==2.7.4" \
             "coverage" \
             "opentelemetry-api>=1.20,<2" \
@@ -230,7 +231,7 @@ jobs:
 
       - name: Report and assert resolved dependency floors
         run: |
-          python -m pip show azure-functions langgraph langgraph-sdk pydantic
+          python -m pip show azure-functions langgraph langgraph-sdk langchain-core pydantic
           python - <<'PY'
           from importlib.metadata import version
 
@@ -238,6 +239,7 @@ jobs:
               "azure-functions": version("azure-functions"),
               "langgraph": version("langgraph"),
               "langgraph-sdk": version("langgraph-sdk"),
+              "langchain-core": version("langchain-core"),
               "pydantic": version("pydantic"),
           }
           print(f"resolved dependencies={resolved}")
@@ -245,6 +247,7 @@ jobs:
               "azure-functions": "1.21.0",
               "langgraph": "1.0.0",
               "langgraph-sdk": "0.2.2",
+              "langchain-core": "0.3.67",
               "pydantic": "2.7.4",
           }
           PY
