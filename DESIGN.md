@@ -14,8 +14,9 @@ This project follows a **rolling 0.x** development model: core adapter APIs aim
 for backward compatibility across minor releases while newer surfaces may still
 evolve. The canonical **per-surface stability table** (Stable / Beta /
 Experimental) lives near the top of [`README.md`](README.md) and is the single
-source of truth; the `Development Status :: 3 - Alpha` classifier reflects the
-youngest surfaces, not the stable core.
+source of truth. The package-level `Development Status :: 4 - Beta` classifier
+in `pyproject.toml` is a coarse label only; it does not promise that every
+surface is Beta. Each surface keeps its own Stable / Beta / Experimental rating.
 
 ## Architecture
 
@@ -74,12 +75,19 @@ flowchart TB
 ### 1. Compiled graphs as intended input
 Registration enforces only the `InvocableGraph` protocol (requiring `invoke()`), so any object satisfying the protocol works. In practice, users call `.compile()` before registering because compiled graphs carry configured checkpointers and validated graph structure. The library does not import or check for `CompiledStateGraph` directly.
 
-### 2. SSE streaming as buffered response
-This adapter buffers all stream events and returns them as a single SSE-formatted response. This is **the adapter's current implementation choice** given its classic `HttpRequest`/`HttpResponse` model — not an Azure Functions platform limitation. This is functional but not truly streaming.
+### 2. Classic SSE is buffered; true streaming is a separate experimental app
+`LangGraphApp` registers classic `HttpRequest`/`HttpResponse` routes, so its
+`/stream` endpoints collect every event and return one `text/event-stream`
+response after the run completes. This is a property of the classic model, not
+an Azure Functions platform limitation. `max_stream_response_bytes` only caps
+the in-memory buffer.
 
-Future versions may adopt the app-wide FastAPI/ASGI streaming model (`azurefunctions-extensions-http-fastapi`, runtime 4.34.1+) to enable true streaming; because that mode cannot be mixed with the classic-model routes this package uses today, it is a dedicated architecture spike rather than a drop-in.
-
-**⚠️ User expectation**: The SSE endpoints use "stream" in their path names and return `text/event-stream` content type, but responses are **buffered end-to-end**. Users should expect complete SSE-formatted responses delivered at once, not incremental token-by-token delivery. True incremental streaming exists on Azure Functions Python v2 but requires the app-wide FastAPI/streaming model, which is incompatible with the current classic-model surface — so it is tracked as a separate architecture spike, not a platform blocker.
+True incremental streaming is shipped as the separate **experimental**
+`StreamingLangGraphApp` (`streaming.py`, `streaming` extra,
+`azurefunctions-extensions-http-fastapi`, runtime 4.34.1+). It switches the
+whole function app to the FastAPI/ASGI model, so it cannot be mixed with
+`LangGraphApp` routes in one app. See
+[Streaming](#streaming-buffered-sse-and-true-streaming).
 
 ### 3. Thread ID in request body config (native routes)
 For native routes (`/graphs/{name}/invoke`, etc.), `thread_id` is passed in `config.configurable.thread_id`, not as a URL path parameter. This keeps the native API surface minimal and compatible with LangGraph's client patterns. Platform-compatible routes use path parameters (`/threads/{thread_id}/...`) to match the LangGraph Platform REST API.
@@ -358,27 +366,46 @@ Reproduction: the probe is a small script that runs `AzureBlobLeaseThreadLock` a
 
 ## Module Structure
 
+Navigational overview; see [`docs/architecture.md`](docs/architecture.md) for
+the per-module responsibilities and import edges.
+
 ```
 src/azure_functions_langgraph/
-├── __init__.py              # Package init, lazy imports, __version__
-├── app.py                   # LangGraphApp class, route registration
+├── __init__.py              # Lazy public re-exports, __version__
+├── app.py                   # LangGraphApp, route registration, metadata
+├── streaming.py             # StreamingLangGraphApp (experimental true streaming)
+├── streaming_authorization.py  # Opt-in RUN authorization for the ASGI transport
+├── _stream_response.py      # Deferred stream ownership for ASGI responses
 ├── _handlers.py             # Native route handlers (invoke, stream, state)
 ├── _validation.py           # Transport-agnostic request validators
-├── contracts.py             # Pydantic request/response models
+├── _json.py                 # JSON serialization of graph output (langchain-core messages)
+├── _run_authorization.py    # Fail-closed policy evaluation at the native run boundary
+├── _readiness.py            # Bounded execution of readiness callbacks
+├── _metadata.py, _endpoint.py  # Cross-package metadata / endpoint namespaces
+├── authorization.py         # ThreadAuthorizer protocol, AuthorizationContext/Action
+├── contracts.py             # Pydantic request/response models + metadata dataclasses
 ├── protocols.py             # Protocol interfaces (LangGraphLike, StatefulGraph, etc.)
+├── observability.py         # RunObserver contract and logging observer
+├── observability_otel.py    # Optional OpenTelemetry RunObserver (otel extra)
+├── openapi.py               # Bridge to azure-functions-openapi (openapi extra)
 ├── py.typed                 # PEP 561 marker
+├── locks/                   # ThreadLock protocol, in-process and Azure Blob lease locks, ownership guard
+├── durable/                 # Optional Durable async-run control plane (durable extra)
+├── triggers/                # Service Bus trigger adapter
 ├── platform/                # LangGraph Platform API compatibility layer (v0.3+)
-│   ├── __init__.py
 │   ├── contracts.py         # Platform API Pydantic models (Thread, Run, Assistant, etc.)
-│   ├── routes.py            # SDK-compatible HTTP route handlers
+│   ├── routes.py            # Route registration
+│   ├── _assistants.py, _threads.py, _runs.py  # Route handlers by resource
+│   ├── _common.py           # Shared handler helpers
+│   ├── _store_renewal.py    # Platform run-lock renewal
 │   ├── stores.py            # ThreadStore protocol + InMemoryThreadStore
 │   └── _sse.py              # SSE event formatting
-├── checkpointers/           # Persistent checkpoint storage (v0.4+)
-│   ├── __init__.py          # Lazy-loading package
-│   └── azure_blob.py        # AzureBlobCheckpointSaver (Azure Blob Storage)
+├── checkpointers/           # Checkpoint storage and DX helpers
+│   ├── azure_blob.py        # AzureBlobCheckpointSaver (azure-blob extra)
+│   └── postgres.py, sqlite.py, cosmos.py  # Helpers over optional LangGraph checkpoint packages
 └── stores/                  # Persistent thread storage (v0.4+)
-    ├── __init__.py          # Lazy-loading package
-    └── azure_table.py       # AzureTableThreadStore (Azure Table Storage)
+    ├── azure_table.py       # AzureTableThreadStore (azure-table extra)
+    └── _errors.py, _table_json.py  # Run-lock errors, versioned Table JSON helpers
 ```
 
 ## Testing Strategy
@@ -398,54 +425,28 @@ identity verification or claim host-key enforcement under local Core Tools.
 - Coverage threshold enforced at 95% (`fail_under = 95`)
 
 
-## Streaming: buffered SSE and the true-streaming migration (#378)
+## Streaming: buffered SSE and true streaming
 
-The `/stream` endpoints — native `POST /api/graphs/{name}/stream` and the
-Platform-compatible `POST /threads/{id}/runs/stream` and `POST /runs/stream` —
-return **buffered** SSE. Chunks emitted by the graph are collected during
-execution and flushed as SSE events *after the run completes*; clients never
-receive partial tokens incrementally. This is a deliberate design choice, not a
-bug and not an Azure platform limitation. It is tracked for future migration in
-[issue #378](https://github.com/yeongseon/azure-functions-langgraph-python/issues/378).
+Two transports exist; they are not interchangeable and cannot share a function app.
 
-### Why buffered today
+- **Classic (`LangGraphApp`) — buffered.** The native `POST /api/graphs/{name}/stream`
+  and the Platform-compatible `POST /threads/{id}/runs/stream` and `POST /runs/stream`
+  collect graph chunks during execution and return them as SSE events *after the run
+  completes*. This is the contract of the classic `HttpRequest`/`HttpResponse` model
+  (a handler returns one fully formed response), not an Azure platform limitation.
+  `max_stream_response_bytes` is a safety cap on that buffer; it does not enable
+  incremental delivery.
+- **`StreamingLangGraphApp` — experimental true streaming.** Uses
+  `azurefunctions-extensions-http-fastapi` (Azure Functions runtime **4.34.1+**,
+  `streaming` extra) and an async generator to flush native SSE frames as the graph
+  produces them. That extension switches the **entire function app** to the
+  FastAPI/ASGI model, so it cannot be mixed with classic `LangGraphApp` routes. The
+  real-Azure e2e certification measures first-frame arrival before completion; see
+  `COMPATIBILITY.md` for what is and is not certified.
 
-This package registers **classic** `HttpRequest`/`HttpResponse` routes via the
-Azure Functions Python v2 `FunctionApp` programming model. In that model a
-handler returns a single, fully-formed `HttpResponse`, so the SSE body must be
-assembled in memory before it is returned. `max_stream_response_bytes` is only a
-safety cap on that in-memory buffer — it does not enable incremental delivery.
-
-### The concrete constraint
-
-Azure Functions Python *does* support true HTTP streaming (runtime **4.34.1+**)
-through the `azurefunctions-extensions-http-fastapi` extension. That extension
-switches the **entire function app** to the FastAPI/ASGI model: routes become
-ASGI routes served by a FastAPI/Starlette app rather than classic
-`HttpRequest`/`HttpResponse` handlers. The two models **cannot be mixed** within
-one function app, so adopting true streaming is an app-wide architectural change,
-not a per-endpoint toggle.
-
-### Design questions for the migration (tracked in #378)
-
-- **Opt-in coexistence.** Can true streaming be offered as an opt-in — e.g. a
-  dedicated ASGI sub-app or a separate streaming entrypoint — without forcing
-  every consumer of this package onto the ASGI model? If not, the migration is a
-  breaking change gated on a major version.
-- **Breaking-change surface.** Moving to ASGI re-touches route registration,
-  per-graph `auth_level` handling (Functions auth vs. ASGI middleware), the
-  health endpoints, and the native-endpoint per-thread locking — each must be
-  re-established under the FastAPI/ASGI model.
-- **Streaming semantics.** Under true streaming, `stream_mode`, backpressure, and
-  the meaning of `max_stream_response_bytes` (a hard buffer cap today) all need
-  redefinition — likely a soft flush threshold or removal.
-- **Release promise.** Core (classic, buffered) vs. Platform-compat streaming
-  guarantees must stay separable so the buffered contract does not silently
-  change under existing users.
-
-Actual implementation of the ASGI migration is **out of scope for #378** — that
-issue establishes the tracker and the design constraints; implementation follows
-in a dedicated issue/PR once an approach is agreed.
+The classic buffered contract stays unchanged for existing users; choosing true
+streaming is an explicit app-level choice. Background on the original design
+questions is tracked in [issue #378](https://github.com/yeongseon/azure-functions-langgraph-python/issues/378).
 
 ## Sources
 
