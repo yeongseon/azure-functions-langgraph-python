@@ -81,6 +81,7 @@ from azure_functions_langgraph.locks._async import (
     release_thread_lock,
     run_sync_retaining_ownership,
 )
+from azure_functions_langgraph.locks._scope import graph_lock_scope, scope_thread_lock
 from azure_functions_langgraph.locks.guard import (
     OwnershipGuard,
     check_ownership_guard,
@@ -642,6 +643,17 @@ class StreamingLangGraphApp:
     # Route building
     # ------------------------------------------------------------------
 
+    def _scoped_thread_lock(self) -> ThreadLock | None:
+        """Return ``thread_lock`` keyed by checkpoint-storage scope (see ``locks._scope``)."""
+        if self.thread_lock is None:
+            return None
+
+        def scope_of(name: str) -> str:
+            reg = self._registrations.get(name)
+            return graph_lock_scope(name, reg.graph) if reg else name
+
+        return scope_thread_lock(self.thread_lock, scope_of)
+
     def _build_function_app(self) -> func.FunctionApp:
         ext = _import_fastapi_extension()
         Request = ext.Request
@@ -650,7 +662,7 @@ class StreamingLangGraphApp:
 
         app = func.FunctionApp(http_auth_level=self.auth_level)
         observer = self.observer or NoOpRunObserver()
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
 

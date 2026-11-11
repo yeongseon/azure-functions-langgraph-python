@@ -319,6 +319,25 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         # ``0000000000000.5``), which is inconsistent and non-deterministic. See #397.
         return f"{next_v:032}.{next_h:.16f}"
 
+    @property
+    def lock_scope_identity(self) -> str | None:
+        """Stable identity of the physical checkpoint storage, or ``None``.
+
+        ``"azure-blob:<account>/<container>"`` when the container client
+        reports both names (the real ``azure.storage.blob.ContainerClient``
+        does). Every saver, graph, app and process that writes the same
+        container reports the same string, so thread locks can be scoped to the
+        storage rather than to a graph name. Checkpoint blobs are not prefixed,
+        so the container is the whole collision scope.
+        """
+        account = getattr(self._container_client, "account_name", None)
+        container = getattr(self._container_client, "container_name", None)
+        if not isinstance(account, str) or not isinstance(container, str):
+            return None
+        if not account or not container:
+            return None
+        return f"azure-blob:{account}/{container}"
+
     def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Fetch a checkpoint tuple by config or latest checkpoint hint."""
         thread_id = self._config_thread_id(config)

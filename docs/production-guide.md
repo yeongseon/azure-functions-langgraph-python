@@ -690,12 +690,28 @@ and the [trigger example](../examples/service_bus_agent/). A plain queue with a
 
 ### Distributed thread locking
 
-The native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) guard checkpointed runs with a thread ID using a **per-thread lock** keyed by `(graph_name, thread_id)`. The default `InProcessThreadLock` is single-process only: separate workers, even on one instance, have separate locks.
+The native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) guard checkpointed runs with a thread ID using a **per-thread lock** keyed by `(lock scope, thread_id)`, where the lock scope is the graph name unless the graph's checkpointer reports a storage identity (see [Lock scope and shared checkpointers](#lock-scope-and-shared-checkpointers)). The default `InProcessThreadLock` is single-process only: separate workers, even on one instance, have separate locks.
 
 For shared writers across processes, `LangGraphApp` accepts any object satisfying the [`ThreadLock`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/src/azure_functions_langgraph/locks/base.py) protocol via `thread_lock`. `AzureBlobLeaseThreadLock` is the shipped low-cost distributed choice, requiring only a Blob container rather than an additional database or broker. It is not universally required: a custom backend or an explicitly single-writer topology may fit your deployment. Finite leases naturally expire (15–60 s) after renewal stops; infinite leases require explicit recovery.
 
 > ℹ️ **Background renewal.** `AzureBlobLeaseThreadLock` renews leases in the background by default: a per-instance daemon thread renews every active lease at `lease_duration / 3` intervals until `close()` (or process exit). Pass `auto_renew=False` to opt out — a finite lease then silently expires mid-execution as it did before renewal support, and construction emits a `UserWarning` so the trade-off is visible. Infinite leases (`lease_duration=-1`) never need renewal but must be broken manually if a host crashes.
 >
+#### Lock scope and shared checkpointers
+
+Two graphs that write the same checkpoint storage collide on a `thread_id` (and checkpoint namespace), so they must not run at once. The thread lock is therefore keyed by a *lock scope* derived from the graph's **own checkpointer**, never from which graphs happen to be registered:
+
+- A checkpointer may expose an optional `lock_scope_identity` string naming its physical storage. The bundled `AzureBlobCheckpointSaver` reports `azure-blob:<account>/<container>` (checkpoint blobs are not prefixed, so the container is the collision scope). Every graph on that storage gets the scope `storage-<hash of the identity>`, regardless of graph name, of other registrations, of the app (`LangGraphApp` or `StreamingLangGraphApp`) and of the process. Registering another graph later cannot change an existing graph's scope.
+- A graph with no checkpointer, a LangGraph sentinel (`True`/`False`), or a checkpointer that exposes no `lock_scope_identity` (SQLite, Postgres, Cosmos DB and custom savers today) keeps its **graph name** as the scope, exactly as before. Sharing between such graphs **cannot be detected**: do not rely on the lock to serialize two such graphs that write the same database or file; share one graph, or serialize them another way. Custom savers may opt in by exposing a deterministic `lock_scope_identity` property.
+- HTTP graphs and Service Bus triggers resolve a lock by name. Registering the same name on both surfaces with checkpointers on *different* storage raises `ValueError`, because one name cannot map to two scopes. Use distinct names.
+- Each acquired token is bound to the scope it was acquired under; release and ownership guards always use that scope.
+- The same scope is used by every surface that takes the thread lock: native invoke/stream, `StreamingLangGraphApp`, Platform runs and state updates, Service Bus and Durable activities. Platform `ThreadStore` CAS is unchanged and remains additional to the thread lock.
+- The lock is per thread, so it also covers every checkpoint namespace of that thread (a superset of the physical collision scope).
+- Owner-token release and `OwnershipGuardProvider` behave as before; only the `graph_name` argument handed to the backend is the scope. `AzureBlobLeaseThreadLock` therefore sees the scope in its key (marker blob `thread-locks/<scope>/<thread_id>`).
+
+Limits: this adds no storage-side fencing. The lease-loss limits described below still apply and nothing here provides exactly-once checkpoint writes. A checkpointer that does not report an identity, or two storages that alias the same data under different account/container names, are not detected.
+
+> ⚠️ **Rolling deployments and mixed fleets.** The lock key changes for **every graph whose checkpointer reports an identity** (today: every graph using `AzureBlobCheckpointSaver`), even a graph that shared nothing: before, writers locked `<graph>`; now they lock `storage-<hash>`. Graphs without an identity keep their key. During a rollout, an old instance locks `<graph>` while a new instance locks `storage-<hash>`, so **previously serialized writes to the same thread can overlap** between old and new instances, including for a single graph, and old instances still do not exclude each other across graphs. For the Blob backend the marker blob also differs. Mixed old/new fleets (or a rollback) have the same exposure in reverse. Drain or pause writes for the affected threads while rolling out, or stop all old instances before starting new ones. After the rollout every instance agrees. Changing which checkpointer a graph uses later changes its scope the same way.
+
 #### Lease lifecycle (AzureBlobLeaseThreadLock)
 
 ```mermaid

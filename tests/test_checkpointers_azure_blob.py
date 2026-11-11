@@ -1986,3 +1986,23 @@ async def test_adelete_thread_fallback_warns_once(
     assert not any("t-del-fb" in name for name in container.blobs)
     warnings = [r for r in caplog.records if "aio_container_client" in r.getMessage()]
     assert len(warnings) == 1
+
+
+def test_lock_scope_identity_is_account_and_container() -> None:
+    container = MockContainerClient()
+    setattr(container, "account_name", "acct")
+    setattr(container, "container_name", "ckpts")
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    saver = getattr(module, "AzureBlobCheckpointSaver")(container_client=container)
+    other = getattr(module, "AzureBlobCheckpointSaver")(container_client=container)
+    assert saver.lock_scope_identity == "azure-blob:acct/ckpts" == other.lock_scope_identity
+
+
+def test_lock_scope_identity_is_none_when_the_client_reports_no_names() -> None:
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    for account, name in [(None, "c"), ("a", None), ("", "c"), ("a", ""), (1, "c")]:
+        container = MockContainerClient()
+        setattr(container, "account_name", account)
+        setattr(container, "container_name", name)
+        saver = getattr(module, "AzureBlobCheckpointSaver")(container_client=container)
+        assert saver.lock_scope_identity is None
