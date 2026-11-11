@@ -241,6 +241,16 @@ call `authorize` a second time after `assistant_id` is resolved, with
 can deny per graph before the graph runs. Thread-scoped routes (`/threads/{id}/runs/wait|stream`) perform this graph-aware check before the thread lookup, so a denial is uniform for existing and missing threads and never reveals thread existence. Durable lifecycle routes rely on the host
 key only; they do not invoke `authorize` callbacks.
 
+### Shared-state topology
+
+Building the app also rejects configurations that declare a distributed
+deployment (`AZFUNC_LANGGRAPH_LOCK_BACKEND` / `AZFUNC_LANGGRAPH_THREAD_STORE`)
+while a process-local lock, Platform thread store or `InMemorySaver` checkpointer
+is wired, because per-instance state would silently diverge and the lock would
+exclude no other writer. Mixed per-graph auth above is the same single validation
+pass. Anything only suggesting scale-out (Azure host markers) warns rather than
+fails. See [Production Guide: Topology validation](production-guide.md#topology-validation-880).
+
 ## Local emulators and resource ownership
 
 The Compose files bind published emulator ports to loopback. Run-owned cleanup
