@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 import azure.functions as func
+from langchain_core.messages import AIMessage, HumanMessage
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp
@@ -1578,6 +1579,87 @@ class TestRunsWait:
         updated = store.get(thread.thread_id)
         assert updated is not None
         assert updated.status == "error"
+
+    def test_non_finite_output_returns_controlled_error(self, store: InMemoryThreadStore) -> None:
+        class NonFiniteGraph:
+            def invoke(
+                self, input: dict[str, Any], config: dict[str, Any] | None = None
+            ) -> dict[str, Any]:
+                return {"score": float("nan")}
+
+        app = _build_platform_app(graphs={"agent": NonFiniteGraph()}, store=store)
+        thread = store.create()
+        fn = _get_fn(app.function_app, "aflg_platform_runs_wait")
+
+        response = fn(
+            _post_request(
+                f"/api/threads/{thread.thread_id}/runs/wait",
+                {"assistant_id": "agent", "input": {}},
+                thread_id=thread.thread_id,
+            )
+        )
+
+        assert response.status_code == 500
+        assert json.loads(response.get_body())["detail"] == "Graph execution failed"
+        assert b"NaN" not in response.get_body()
+
+    def test_wait_messages_use_flat_sdk_wire_shape(self, store: InMemoryThreadStore) -> None:
+        class MessageGraph:
+            def invoke(
+                self, input: dict[str, Any], config: dict[str, Any] | None = None
+            ) -> dict[str, Any]:
+                return {
+                    "messages": [
+                        HumanMessage(content="hello", id="human-1"),
+                        AIMessage(content="hi", id="ai-1"),
+                    ]
+                }
+
+        app = _build_platform_app(graphs={"agent": MessageGraph()}, store=store)
+        thread = store.create()
+        fn = _get_fn(app.function_app, "aflg_platform_runs_wait")
+
+        response = fn(
+            _post_request(
+                f"/api/threads/{thread.thread_id}/runs/wait",
+                {"assistant_id": "agent", "input": {}},
+                thread_id=thread.thread_id,
+            )
+        )
+        payload = json.loads(
+            response.get_body(),
+            parse_constant=lambda value: pytest.fail(f"non-standard JSON constant: {value}"),
+        )
+
+        assert response.status_code == 200
+        assert payload["messages"][0]["type"] == "human"
+        assert payload["messages"][0]["content"] == "hello"
+        assert payload["messages"][1]["type"] == "ai"
+        assert payload["messages"][1]["content"] == "hi"
+        assert "data" not in payload["messages"][0]
+
+    def test_threadless_non_finite_output_returns_controlled_error(
+        self, store: InMemoryThreadStore
+    ) -> None:
+        class NonFiniteGraph:
+            def invoke(
+                self, input: dict[str, Any], config: dict[str, Any] | None = None
+            ) -> dict[str, Any]:
+                return {"score": float("inf")}
+
+        app = _build_platform_app(graphs={"agent": NonFiniteGraph()}, store=store)
+        fn = _get_fn(app.function_app, "aflg_platform_runs_wait_threadless")
+
+        response = fn(
+            _post_request(
+                "/api/runs/wait",
+                {"assistant_id": "agent", "input": {}},
+            )
+        )
+
+        assert response.status_code == 500
+        assert json.loads(response.get_body())["detail"] == "Graph execution failed"
+        assert b"Infinity" not in response.get_body()
 
     def test_with_user_config(self, store: InMemoryThreadStore) -> None:
         g = FakeCompiledGraph()
