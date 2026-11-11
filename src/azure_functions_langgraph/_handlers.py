@@ -347,12 +347,12 @@ def handle_stream(
 ) -> func.HttpResponse:
     """Handle a streaming request.
 
-    Returns a **buffered** SSE-formatted response.  All stream chunks are
-    collected first, then returned in a single HTTP response.  This is a
-    known v0.1 limitation, tracked in issue #378 — true chunked streaming will
-    follow once Azure Functions Python HTTP streaming is fully stable. See the
-    "Streaming: buffered SSE and the true-streaming migration" section of
-    ``DESIGN.md`` for the constraints and migration path.
+    Returns a **buffered** SSE-formatted response: all stream chunks are
+    collected first, then returned in a single HTTP response. This is the
+    classic ``HttpRequest``/``HttpResponse`` contract of ``LangGraphApp``, not
+    a platform limit. Incrementally flushed streaming is served by the
+    separate experimental ``StreamingLangGraphApp`` (``streaming`` extra); see
+    "Streaming: buffered SSE and true streaming" in ``DESIGN.md``.
     """
     has_cp = getattr(reg.graph, "checkpointer", None) is not None
     ctx = new_run_context(

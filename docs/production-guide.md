@@ -63,7 +63,7 @@ app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYM
 Use per-graph overrides to keep a strict default while exposing narrowly scoped public routes.
 
 ⚠️ **Scope**: Per-graph `auth_level` overrides apply only to **native routes** (`/api/graphs/{name}/invoke`, `/api/graphs/{name}/stream`).
-When `platform_compat=True` is enabled, all platform-compatible routes (`/api/threads/...`, `/api/runs/...`) use the **app-level** `auth_level` regardless of per-graph overrides.
+When `platform_compat=True` is enabled, all platform-compatible routes (`/api/threads/...`, `/api/runs/...`) use the **app-level** `auth_level` regardless of per-graph overrides. Because a stricter per-graph key would otherwise be bypassed through those shared routes, building an app with a graph *stricter* than the app-level `auth_level` while Platform or Durable routes are enabled raises `ValueError` (`mixed-auth` in the [topology table](#topology-validation-880)); looser graphs and native-only apps are unaffected.
 
 ### API Management integration pattern
 
@@ -284,6 +284,13 @@ The graph executes inside a Durable **activity**, never the orchestrator, so
 replay determinism is preserved. Durable history is not a replacement for
 LangGraph checkpoints. See the README "Durable async run lifecycle" section and
 [`examples/durable_async_agent/`](../examples/durable_async_agent/).
+
+Durable removes the **HTTP request-response** ceiling, not the Function execution
+timeout: the activity running the graph is subject to the same `functionTimeout`
+as any other function (Consumption maximum 10 minutes; see
+[timeout limits](#azure-functions-timeout-limits)), and a timeout is recorded as
+a failed activity ([Azure docs](https://learn.microsoft.com/en-us/azure/azure-functions/durable-functions/durable-functions-perf-and-scale#function-timeouts)). A single
+long graph run must still fit that limit.
 
 This is an **execution and polling** choice, not a concurrency workaround.
 Activities acquire the app's `ThreadLock` only for checkpointed graphs with a
