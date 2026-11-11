@@ -113,7 +113,8 @@ def run_demo() -> dict[str, Any]:
     # 5. The package thread lock is separate from the broker session lock.
     contended = _app(build_graph(), session=True, lock_timeout=0.0)
     token = lock.acquire("agent", "order-1")
-    assert token is not None
+    if token is None:
+        raise RuntimeError("demo lock was unexpectedly held")
     try:
         process_service_bus_message(
             contended, message("x", session_id="order-1", message_id="m6"), thread_lock=lock
@@ -127,7 +128,7 @@ def run_demo() -> dict[str, Any]:
     #    so the application lock is skipped (it is never touched here).
     class ForbiddenLock(InProcessThreadLock):
         def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> str | None:
-            raise AssertionError("exclusive sessions must not use the application lock")
+            raise RuntimeError("exclusive sessions must not use the application lock")
 
     exclusive = _app(build_graph(), session=True, session_exclusive=True)
     out["exclusive"] = process_service_bus_message(
