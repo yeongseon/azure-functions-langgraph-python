@@ -106,8 +106,38 @@ def run_proof(observer: RunObserver | None = None) -> dict[str, Any]:
     }
 
 
+def _record_texts(record: logging.LogRecord) -> list[str]:
+    """Every textual surface of one record, including exception and extra fields."""
+    # A standard formatter renders the message *and* the traceback / stack.
+    texts = [logging.Formatter("%(levelname)s %(name)s %(message)s").format(record)]
+    texts.append(record.getMessage())
+    texts.append(repr(record.args))
+    if record.exc_info:
+        exc_type, exc_value, _tb = record.exc_info
+        texts.append(f"{exc_type!r} {exc_value!r} {exc_value}")
+    texts.append(str(record.exc_text))
+    texts.append(str(record.stack_info))
+    # Every attribute, including arbitrary ``extra=`` fields (not only ``langgraph_run``).
+    for key, value in sorted(record.__dict__.items()):
+        texts.append(f"{key}={value!r}")
+        texts.append(json.dumps(value, sort_keys=True, default=str))
+    return texts
+
+
 def render(result: dict[str, Any]) -> str:
-    """Return the observer output as text: rendered messages plus structured fields."""
+    """Return everything the observer logger emitted, as text.
+
+    Covers the formatted message with traceback, ``args``, ``exc_info`` /
+    ``exc_text`` / ``stack_info`` and every attribute in ``record.__dict__``.
+    """
+    lines: list[str] = []
+    for record in result["all_records"]:
+        lines.extend(_record_texts(record))
+    return "\n".join(lines)
+
+
+def summary(result: dict[str, Any]) -> str:
+    """Readable per-record lines: message plus the structured ``langgraph_run`` fields."""
     lines: list[str] = []
     for record in result["all_records"]:
         lines.append(record.getMessage())
@@ -117,10 +147,12 @@ def render(result: dict[str, Any]) -> str:
 
 def main() -> int:
     result = run_proof()
-    output = render(result)
-    print(output)
+    print(summary(result))
     assert_payload_free(result)
-    print(f"\nOK: {len(result['records'])} observer records, canary absent from all of them.")
+    print(
+        f"\nOK: {len(result['records'])} observer records, canary absent from "
+        "full records, extras and formatted tracebacks."
+    )
     return 0
 
 

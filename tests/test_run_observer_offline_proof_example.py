@@ -84,3 +84,32 @@ def test_canary_check_fails_for_a_leaky_observer(proof: ModuleType) -> None:
 
     with pytest.raises(AssertionError, match="payload leaked"):
         proof.assert_payload_free(result)
+
+
+class _ExcInfoLeakyObserver(_LeakyObserver):
+    """Mutation: constant message, canary only in ``exc_info`` (traceback)."""
+
+    def on_run_failed(self, ctx: RunContext, exc: BaseException) -> None:
+        self._log.error("run failed", exc_info=exc, extra={"langgraph_run": {"run_id": ctx.run_id}})
+
+
+class _ExtraLeakyObserver(_LeakyObserver):
+    """Mutation: constant message, canary only in an extra attribute outside langgraph_run."""
+
+    def on_run_failed(self, ctx: RunContext, exc: BaseException) -> None:
+        self._log.error(
+            "run failed",
+            extra={"langgraph_run": {"run_id": ctx.run_id}, "detail": str(exc)},
+        )
+
+
+@pytest.mark.parametrize("observer_cls", [_ExcInfoLeakyObserver, _ExtraLeakyObserver])
+def test_canary_check_rejects_exc_info_and_extra_field_leaks(
+    proof: ModuleType, observer_cls: type[_LeakyObserver]
+) -> None:
+    result = proof.run_proof(observer=observer_cls())
+    # The message alone is constant, so the old message-only check would pass.
+    assert all(proof.CANARY not in r.getMessage() for r in result["all_records"])
+
+    with pytest.raises(AssertionError, match="payload leaked"):
+        proof.assert_payload_free(result)

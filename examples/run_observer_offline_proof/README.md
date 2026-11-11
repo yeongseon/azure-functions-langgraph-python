@@ -23,7 +23,7 @@ canary string as the user message:
 | rejected (malformed body containing the canary) | `fake-request-rejected` | `rejected` (`reason=invalid_request`), no `started` |
 
 It then asserts the canary reached the app (it is echoed in the success
-response) yet appears in **no** observer log message or structured field.
+response) yet appears in **no** observer log message, `args`, `exc_info`/traceback, or extra field.
 
 ## Run it
 
@@ -48,8 +48,8 @@ langgraph.run.rejected {'graph_name': 'run_observer_offline_proof', 'endpoint': 
 OK: 5 observer records, canary absent from all of them.
 ```
 
-The smoke test that enforces this, including a mutation check proving it fails
-for an observer that logs the exception message:
+The smoke test that enforces this, including mutation checks proving it fails
+for observers that leak the exception via its message, `exc_info`, or an extra field:
 
 ```bash
 pytest tests/test_run_observer_offline_proof_example.py
@@ -57,11 +57,19 @@ pytest tests/test_run_observer_offline_proof_example.py
 
 ## Observer fields vs. model payload logging
 
-The observer receives a `RunContext` of correlation identifiers (graph name,
-endpoint, run id, thread id, assistant/invocation id, stream mode, transport,
-checkpointer / lock backend) and timings. For failures it records only the
-exception **class name**. It never receives request input, model output,
-`config`, headers, or secrets.
+The `RunContext` passed to observers and the fields the built-in
+`LoggingRunObserver` exports are payload-free: correlation identifiers (graph
+name, endpoint, run id, thread id, assistant/invocation id, stream mode,
+transport, checkpointer / lock backend) and timings. `RunContext` carries no
+request input, model output, `config`, headers, or secrets. For failures the
+built-in observer exports only the exception **class name**.
+
+The observer API itself is **not** a payload-isolation boundary: failure
+callbacks (`on_run_failed`) receive the raw graph exception, which can carry
+user data (this example deliberately puts the canary in it). A custom observer
+must not log or export that exception verbatim (message, `exc_info`,
+traceback). The proof inspects complete log records, extra fields and
+formatted tracebacks to show the built-in observer does not.
 
 Non-goals / what this does **not** prove:
 
