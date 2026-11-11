@@ -339,6 +339,16 @@ only what it observed:
   tool call that is in flight, and Activity delivery is at-least-once. Give
   side-effecting tools an idempotency key or deduplicate them in the application;
   do not use cancellation as a safeguard against a duplicate or unwanted effect.
+- **Redelivery, replay and retries.** These are three different things. A *redelivery*
+  re-runs the Activity (and so the whole graph) with the same `run_id` and payload; a
+  checkpointer does not stop it, because the adapter always invokes with the payload
+  input and nodes' external effects can repeat. *Orchestrator replay* re-drives
+  only the deterministic orchestrator and does not re-run the Activity. An
+  *application retry* is a new run with a new `run_id`. Use an idempotency key derived
+  from the stable `run_id` with a provider that enforces it atomically; see
+  [`examples/durable_async_agent/`](../examples/durable_async_agent/) and
+  `tests/test_durable_replay_idempotency.py` for the pattern and its limits.
+
 - **Migration.** Earlier releases answered `202 {"status": "cancelled"}` at once.
   A client that treated that body as final must now poll `GET` until the status is
   terminal, and one that accepted only `202` must also accept `200` (the run had
@@ -1066,6 +1076,16 @@ itself is not rolled back. The bundled stores report this exactly, even when the
 reclaim left the thread at the status the update asked for, and a custom store
 that cannot say so is judged by the returned thread alone (see the adapter
 reference).
+
+A state update goes back to the thread's prior status (`idle`, `interrupted` or
+`error`), so it reads the thread **again after taking the shared lock** and before
+the store lock overwrites the status with `busy`. Under a distributed
+`ThreadLock` a run holds that lock for its whole duration, so the second read
+shows the status the run left and the update keeps it. With the process-local
+default lock a run in another instance does not hold it, and a run that starts
+and finishes between the second read and the store acquisition can still have its
+terminal status replaced; use a distributed lock when several instances write one
+thread. A thread that reads `busy` on either read is refused with `409`.
 
 - **Native-only:** choose a checkpointer and distributed `ThreadLock` for shared
   writers. A Platform `ThreadStore` is not required.
