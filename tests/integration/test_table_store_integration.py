@@ -36,6 +36,10 @@ from tests.test_platform_state_stale_busy_read import (
     check_a_stale_busy_read_is_refused_before_anything_changes,
     check_the_thread_can_be_updated_once_the_stale_read_is_gone,
 )
+from tests.test_platform_state_stale_terminal_read import (
+    STALE_PAIRS,
+    check_a_stale_terminal_read_does_not_replace_the_status_the_run_left,
+)
 from tests.test_table_renew_retry import _App, _race_the_renewal, _wait_for_one_renewal
 from tests.test_thread_metadata_merge import App as MetadataApp
 
@@ -817,6 +821,17 @@ def test_a_stale_busy_read_over_the_real_table_is_refused_before_anything_change
     # the terminal status and carries no lock token.
     check_a_stale_busy_read_is_refused_before_anything_changes(
         _real_state_harness(azurite_table_client, prior_status)
+    )
+
+
+@pytest.mark.parametrize(("reported", "left"), STALE_PAIRS)
+def test_a_stale_terminal_read_over_the_real_table_keeps_the_status_the_run_left(
+    reported: ThreadStatus, left: ThreadStatus, azurite_table_client: _TableClientProtocol
+) -> None:
+    # A real row that a finished run left terminal while the handler's first read saw another
+    # terminal status (#849): the update is applied and the real row keeps what the run left.
+    check_a_stale_terminal_read_does_not_replace_the_status_the_run_left(
+        _real_state_harness(azurite_table_client, left), reported
     )
 
 
