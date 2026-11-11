@@ -18,6 +18,7 @@ production deployments, use:
 
 - `function_app.py` — wires `SqliteSaver` via the bundled DX helper
 - `graph.py` — turn-counting echo agent
+- `persistence_demo.py` — offline two-invocation persistence demo
 - `host.json`, `local.settings.json.example`, `requirements.txt`
 
 ## Run locally
@@ -51,6 +52,37 @@ curl -s -X POST "http://localhost:7071/api/threads/$THREAD/runs/wait" \
 
 The second response shows `[turn 2]`. Restart `func start` and the
 counter still increments because state lives in the SQLite file.
+
+## Persistence demo (offline)
+
+`persistence_demo.py` runs the echo graph twice on one thread against a
+temporary SQLite file. Between the runs it closes the checkpointer's
+connection and rebuilds the graph, the checkpointer and the `LangGraphApp`
+from scratch, so only the file can carry the state forward. It needs no
+Azure resources, credentials, model API keys or network access.
+
+```bash
+pip install -e ".[sqlite]"   # from the repository root
+cd examples/sqlite_checkpoint_local
+python persistence_demo.py
+```
+
+Expected output (the second invocation reports `turn` 2 and continues step
+numbering because it read the first one's checkpoint from the file):
+
+```console
+first invocation output: {"output":{"messages":[{"role":"human","content":"first"},{"role":"assistant","content":"[turn 1] Echo: first"}],"turn":1}}
+first invocation state : {"values":{"messages":[{"role":"human","content":"first"},{"role":"assistant","content":"[turn 1] Echo: first"}],"turn":1},"next":[],"metadata":{"source":"loop","step":1,"parents":{}}}
+second invocation output: {"output":{"messages":[{"role":"human","content":"second"},{"role":"assistant","content":"[turn 2] Echo: second"}],"turn":2}}
+second invocation state : {"values":{"messages":[{"role":"human","content":"second"},{"role":"assistant","content":"[turn 2] Echo: second"}],"turn":2},"next":[],"metadata":{"source":"loop","step":4,"parents":{}}}
+```
+
+This is a local-development demonstration only. SQLite is a single-file,
+local store: it is not a multi-instance Azure Functions store, and this demo
+does not add any consistency guarantee for concurrent writers or several
+instances. For those, use the production backends listed above. The test is
+`tests/test_sqlite_persistence_demo.py`; it is skipped when the `sqlite`
+extra is not installed.
 
 ## Walkthrough output
 
