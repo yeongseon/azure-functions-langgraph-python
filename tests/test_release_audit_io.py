@@ -159,3 +159,32 @@ def test_release_status_table_matches_registry() -> None:
             rows[match[1]] = (int(match[2]), match[3], "likely" not in line)
     # Then: tags, run evidence, successors and uncertainty cannot drift independently.
     assert rows == {e.tag: (e.run_id, e.successor, e.confirmed) for e in registry.exceptions}
+
+
+_REASON_PHRASE = {
+    "publish-config": "invalid-publisher",
+    "tag-version-gate": "does not match git tag",
+    "publish-failed": "cannot be confirmed",
+    "wheel-tests": "Installed-wheel tests",
+    "azure-certification": "Real-Azure certification",
+}
+
+
+def test_registry_reasons_and_release_note_annotations_match_release_status() -> None:
+    # Given: the page, the release-note annotations (#892) and the registry (#834).
+    page = (ROOT / "docs/release-status.md").read_text()
+    notes = json.loads((ROOT / ".github/release-notes.json").read_text())["annotations"]
+    registry = parse_registry(load((ROOT / ".github/release-audit-exceptions.json").read_text()))
+    rows = {
+        line.split("|")[1].strip(): line
+        for line in page.splitlines()
+        if re.match(r"\| v\d+\.\d+\.\d+ \|", line)
+    }
+    # Then: the same ten tags carry identical run ids, successors and failure causes everywhere.
+    assert set(notes) == set(rows) == {e.tag for e in registry.exceptions}
+    for entry in registry.exceptions:
+        note = " ".join(notes[entry.tag]["notes"])
+        assert re.findall(r"actions/runs/(\d+)", note) == [str(entry.run_id)], entry.tag
+        assert re.findall(r"successor: \*\*([\d.]+)\*\*", note) == [entry.successor], entry.tag
+        assert _REASON_PHRASE[entry.reason] in rows[entry.tag], entry.tag
+        assert ("likely" in rows[entry.tag]) == (not entry.confirmed), entry.tag
