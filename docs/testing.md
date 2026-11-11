@@ -46,11 +46,11 @@ Choose the cheapest level that can actually prove the claim. A mocked test never
 | --- | --- | --- | --- |
 | Mocked app contracts | HTTP status codes, request validation, response shapes, route registration and error handling of `LangGraphApp`, using the fake graphs described below | Real graph execution, real storage, Azure behavior | `tests/test_app.py`, `tests/test_streaming_*.py`, `tests/test_native_*.py` via `make test` |
 | Deterministic storage tests | Checkpointer, thread-store and lock logic against in-memory fakes of the Azure SDK clients (for example `tests/test_checkpointers_azure_blob.py`, `tests/test_stores_azure_table.py`, `tests/test_locks_*.py`) | Real service semantics: latency, throttling, lease timing, eventual consistency | `make test` |
-| Emulator / service-backed integration | The same stores against Cosmos DB or Azurite. Opt-in (`-m integration`); `COSMOS_REQUIRED` / `AZURITE_REQUIRED` make a missing service a failure instead of a skip | Real Azure Storage or Cosmos DB | `make test-cosmos`, `make test-table` (`tests/integration/`) |
+| Emulator / service-backed integration | The same stores against Cosmos DB or Azurite. Service-dependent (`-m integration`): `make test` selects these tests (its default marker expression excludes only `e2e`), so they run when the service is reachable and skip otherwise. The dedicated targets start the service, set `COSMOS_REQUIRED` / `AZURITE_REQUIRED` to `true` and fail on a skip | Real Azure Storage or Cosmos DB | `make test-cosmos`, `make test-table` (`tests/integration/`) |
 | Functions host smoke | The real Azure Functions Core Tools host starts and serves a native graph route from `tests/host_smoke/` | Every example, or any cloud behavior | `make host-smoke` (CI `host-smoke` job) |
-| Azure / Durable certification | The release candidate deployed to real Azure and exercised over live HTTP (`tests/e2e/`, marker `e2e`); the only level that certifies real Azure recovery | Anything not covered by the e2e routes | `make e2e-azure` and the `azure-e2e` gate in `.github/workflows/publish-pypi.yml` |
+| Azure / Durable certification | The release candidate deployed to real Azure and exercised over live HTTP (`tests/e2e/`, marker `e2e`); exercises native routes (health, invoke, stream), cross-app lock and checkpoint persistence, and true streaming | Durable replay and recovery after a host interruption (neither is exercised), or anything else outside those e2e routes | `make e2e-azure` and the `azure-e2e` gate in `.github/workflows/publish-pypi.yml` |
 
-Negative-path tests (invalid JSON, a graph that raises, a missing graph state) use `FakeFailingGraph`, `FakeFailingStatefulGraph`, `FakeNotFoundStatefulGraph` and `FakeFailingUpdateStateGraph` at the mocked-contract level. Stateful tests (`get_state`, `update_state`, state history) use `FakeStatefulGraph`. These fakes return configured values; they do not execute a graph, so they cannot verify replay or checkpoint-resume semantics. Replay and recovery claims belong to the storage and e2e levels above.
+Negative-path tests (invalid JSON, a graph that raises, a missing graph state) use `FakeFailingGraph`, `FakeFailingStatefulGraph`, `FakeNotFoundStatefulGraph` and `FakeFailingUpdateStateGraph` at the mocked-contract level. Stateful tests (`get_state`, `update_state`, state history) use `FakeStatefulGraph`. These fakes return configured values; they do not execute a graph, so they cannot verify replay or checkpoint-resume semantics. No level currently certifies Durable replay or interruption recovery; do not claim them from these tests.
 
 The Azure Table benchmark (`tools/benchmark_table_store.py`) is a measurement tool, not a test level. Its `fake` backend models no network or service latency, and its `azurite` backend measures SDK plus emulator latency only. Neither is Azure Storage: do not quote those numbers as Azure measurements or derive a supported thread count from them. The optional real-Azure mode measures only the endpoint and network path where you run it.
 
@@ -64,7 +64,7 @@ tests/
 ├── test_contracts.py      # Pydantic model tests
 ├── test_protocols.py      # Protocol interface tests
 ├── test_public_api.py     # Public API surface tests
-├── integration/           # Opt-in emulator / service-backed tests (-m integration)
+├── integration/           # Service-dependent emulator tests (-m integration)
 ├── host_smoke/            # Function app used by the Functions host smoke
 └── e2e/                   # Real-Azure tests (-m e2e)
 ```
