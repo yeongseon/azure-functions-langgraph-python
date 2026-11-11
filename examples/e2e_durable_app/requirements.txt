@@ -1,0 +1,14 @@
+# Do not include azure-functions-worker in this file
+# The Python Worker is managed by the Azure Functions platform.
+#
+# NOTE: azure-functions-langgraph is intentionally NOT listed here.
+# The e2e-azure-durable workflow builds a wheel from the ref under test and
+# injects a local path (./wheels/azure_functions_langgraph-<version>-py3-none-any.whl,
+# with the [durable] extra) into this file before `func azure functionapp publish`,
+# so the deployed app runs the EXACT candidate source, never the PyPI release.
+
+azure-functions
+azure-functions-durable>=1.2,<2.0
+langgraph>=1.0,<2.0
+langchain-core>=1.0,<2.0
+azure-storage-blob>=12.0,<13
