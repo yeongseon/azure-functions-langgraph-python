@@ -3,9 +3,23 @@
     {
       "documented": true,
       "modules": [
+        "azure_functions_langgraph._topology"
+      ],
+      "name": "AZFUNC_LANGGRAPH_LOCK_BACKEND"
+    },
+    {
+      "documented": true,
+      "modules": [
         "azure_functions_langgraph.platform._common"
       ],
       "name": "AZFUNC_LANGGRAPH_PLATFORM_STRICT"
+    },
+    {
+      "documented": true,
+      "modules": [
+        "azure_functions_langgraph._topology"
+      ],
+      "name": "AZFUNC_LANGGRAPH_THREAD_STORE"
     },
     {
       "documented": true,

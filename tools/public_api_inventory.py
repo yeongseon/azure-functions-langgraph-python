@@ -583,6 +583,13 @@ def routes_inventory(
     )
 
 
+# ``environ`` / ``env`` are the conventional names of an injected environment mapping
+# (e.g. ``read_env(environ)`` in ``_topology``); matching them keeps variables that are
+# read through a parameter instead of ``os.environ`` in the inventory.
+_ENV_MAPPINGS = {"os.environ", "environ", "env"}
+_ENV_READERS = {"os.getenv"} | {f"{m}.{fn}" for m in _ENV_MAPPINGS for fn in ("get", "pop")}
+
+
 def env_inventory(modules: dict[str, Module], consumers: Consumers) -> list[dict[str, Any]]:
     users: dict[str, set[str]] = {}
 
@@ -598,9 +605,9 @@ def env_inventory(modules: dict[str, Module], consumers: Consumers) -> list[dict
             name: str | None = None
             if isinstance(node, ast.Call) and node.args:
                 text = ast.unparse(node.func)
-                if text in {"os.environ.get", "os.getenv", "os.environ.pop"}:
+                if text in _ENV_READERS:
                     name = resolve(mod, node.args[0])
-            elif isinstance(node, ast.Subscript) and ast.unparse(node.value) == "os.environ":
+            elif isinstance(node, ast.Subscript) and ast.unparse(node.value) in _ENV_MAPPINGS:
                 name = resolve(mod, node.slice)
             if name and _ENV_NAME.match(name):
                 users.setdefault(name, set()).add(mod.name)
