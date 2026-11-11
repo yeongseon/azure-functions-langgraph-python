@@ -82,6 +82,7 @@ EXAMPLE_DIRS = (
     "service_bus_sessions",
     "true_streaming_agent",
     "durable_async_agent",
+    "sqlite_checkpoint_local",
 )
 
 
