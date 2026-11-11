@@ -208,7 +208,13 @@ class TestFormatDataEvent:
 
         part = _decode_sse_frame(format_data_event("values", {"nested": {"messages": messages}}))
 
-        assert part.data["nested"]["messages"] == [
+        # langchain-core 0.3.x also emits a legacy ``example: false`` key on human and AI
+        # messages; 1.x dropped it. Compare the shape without that version-specific key.
+        actual = [
+            {key: value for key, value in message.items() if key != "example"}
+            for message in part.data["nested"]["messages"]
+        ]
+        assert actual == [
             {
                 "content": "weather?",
                 "additional_kwargs": {},
