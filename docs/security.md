@@ -206,7 +206,32 @@ See [Azure Functions authentication](https://learn.microsoft.com/en-us/azure/azu
 
 Core Tools does not enforce function keys locally. A local real-host callback
 test proves only library admission behavior, never Azure host key enforcement.
-Per-graph overrides affect native routes only; Platform and Durable use app auth.
+Per-graph overrides affect native routes only; Platform and Durable routes are
+shared by every graph and are protected by the app-level `auth_level`.
+
+### Mixed per-graph auth with Platform or Durable routes
+
+A graph registered with an `auth_level` **stricter** than the app-level
+`auth_level` (order: `ANONYMOUS` < `FUNCTION` < `ADMIN`) would be reachable
+through the Platform (`platform_compat=True`) or Durable (`async_runs="durable"`)
+routes without its intended host key. Building the app now fails closed with a
+`ValueError` naming the graph and the unsafe configuration:
+
+```python
+app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS, platform_compat=True)
+app.register(graph, name="agent", auth_level=func.AuthLevel.FUNCTION)
+app.function_app  # ValueError: Graph 'agent' requires auth_level=FUNCTION ...
+```
+
+Safe options: raise the app-level `auth_level` to at least the strictest graph
+level, relax the graph override, or disable the optional routes. Graphs that are
+*looser* than the app level, and native-only apps with mixed levels, keep working.
+
+Platform run routes (`/runs/wait`, `/runs/stream`, `/threads/{id}/runs/*`) also
+call `authorize` a second time after `assistant_id` is resolved, with
+`AuthorizationContext.graph_name` set to the registered graph name, so a callback
+can deny per graph before the graph runs. Durable lifecycle routes rely on the host
+key only; they do not invoke `authorize` callbacks.
 
 ## Local emulators and resource ownership
 

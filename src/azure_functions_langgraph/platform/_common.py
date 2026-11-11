@@ -19,7 +19,12 @@ from azure_functions_langgraph._validation import (
     validate_graph_name,
     validate_input_structure,
 )
-from azure_functions_langgraph.authorization import ThreadAuthorizer
+from azure_functions_langgraph.authorization import (
+    AuthorizationAction,
+    AuthorizationContext,
+    ThreadAuthorizer,
+    authorization_status,
+)
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.observability import NOOP_OBSERVER, RunObserver
 from azure_functions_langgraph.platform._sse import format_end_event, format_error_event
@@ -373,15 +378,26 @@ def _validate_run_io_structure(
 def _resolve_run_graph(
     run_req: RunCreate,
     deps: PlatformRouteDeps,
+    req: func.HttpRequest,
+    thread_id: str | None = None,
 ) -> Any:
     """Look up the assistant registration and validate its run I/O structure.
 
+    Authorization is re-checked here with the resolved registration name so
+    ``authorize`` callbacks see the actual graph (#854).
+
     Returns the registration on success, or an ``HttpResponse`` when the
-    assistant is unknown (404) or the input/config structure is invalid (400).
+    assistant is unknown (404), access is denied, or the input/config structure is invalid (400).
     """
     reg = deps.registrations.get(run_req.assistant_id)
     if reg is None:
         return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
+    status = authorization_status(
+        deps.authorize,
+        AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req),
+    )
+    if status is not None:
+        return _platform_error(status, "Access denied")
     io_err = _validate_run_io_structure(run_req, deps)
     if io_err is not None:
         return io_err

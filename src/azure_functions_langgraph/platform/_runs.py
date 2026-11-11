@@ -153,7 +153,7 @@ def register_run_routes(
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
 
-        reg = _resolve_run_graph(run_req, deps)
+        reg = _resolve_run_graph(run_req, deps, req, thread_id)
         if isinstance(reg, func.HttpResponse):
             return reg
 
@@ -298,7 +298,7 @@ def register_run_routes(
         if mode_err is not None:
             return mode_err
 
-        reg = _resolve_run_graph(run_req, deps)
+        reg = _resolve_run_graph(run_req, deps, req, thread_id)
         if isinstance(reg, func.HttpResponse):
             return reg
 
@@ -474,7 +474,7 @@ def register_run_routes(
             return parsed
         run_req = parsed
 
-        reg = _resolve_run_graph(run_req, deps)
+        reg = _resolve_run_graph(run_req, deps, req)
         if isinstance(reg, func.HttpResponse):
             return reg
 
@@ -538,7 +538,7 @@ def register_run_routes(
         if mode_err is not None:
             return mode_err
 
-        reg = _resolve_run_graph(run_req, deps)
+        reg = _resolve_run_graph(run_req, deps, req)
         if isinstance(reg, func.HttpResponse):
             return reg
 

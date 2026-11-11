@@ -66,6 +66,12 @@ _ROUTE_STATE = "graphs/{name}/threads/{{thread_id}}/state"
 # Async-run mode selector. ``False`` (default) serves only the synchronous HTTP
 # surface; ``"durable"`` additionally wires the optional Durable Functions
 # create/get/cancel async-run lifecycle (requires the ``durable`` extra, #408).
+_AUTH_RANK: dict[func.AuthLevel, int] = {
+    func.AuthLevel.ANONYMOUS: 0,
+    func.AuthLevel.FUNCTION: 1,
+    func.AuthLevel.ADMIN: 2,
+}
+
 AsyncRunsMode = Literal[False, "durable"]
 
 
@@ -577,7 +583,35 @@ class LangGraphApp:
     # Internal route builders
     # ------------------------------------------------------------------
 
+    def _validate_optional_route_auth(self) -> None:
+        """Fail closed when optional routes would weaken a graph's host auth (#854).
+
+        Platform and Durable HTTP routes are registered with the app-level
+        ``auth_level`` and are shared by every graph. A graph registered with a
+        *stricter* per-graph ``auth_level`` would therefore be reachable through
+        those routes without its intended host key.
+        """
+        surfaces: list[str] = []
+        if self.platform_compat:
+            surfaces.append("platform_compat=True")
+        if self.async_runs == "durable":
+            surfaces.append('async_runs="durable"')
+        if not surfaces:
+            return
+        app_rank = _AUTH_RANK[self.auth_level]
+        for name, reg in self._registrations.items():
+            if reg.auth_level is not None and _AUTH_RANK[reg.auth_level] > app_rank:
+                raise ValueError(
+                    f"Graph {name!r} requires auth_level={reg.auth_level.name} but "
+                    f"{' and '.join(surfaces)} expose it through routes protected only by "
+                    f"the app-level auth_level={self.auth_level.name}, which would bypass "
+                    "the graph's host key. Raise the app-level auth_level to at least "
+                    f"{reg.auth_level.name}, relax the graph's auth_level, or disable the "
+                    "optional routes."
+                )
+
     def _build_function_app(self) -> func.FunctionApp:
+        self._validate_optional_route_auth()
         if self.platform_compat:
             from azure_functions_langgraph.platform.stores import InMemoryThreadStore
 
