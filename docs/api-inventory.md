@@ -290,7 +290,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `bind_ownership_guard` | function | no | `-T-` |
 | `check_ownership_guard` | function | no | `-T-` |
 | `config_with_ownership_guard` | function | no | `-T-` |
-| `guard_run_config` | function | no | `-T-` |
+| `guard_run_config` | function | no | `-TD` |
 | `ownership_guard_for` | function | no | `-T-` |
 | `resolve_ownership_guard` | function | no | `-T-` |
 
@@ -315,7 +315,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `RunTransport` | alias | no | `-TD` |
 | `finish_context` | function | no | `-T-` |
 | `logger` | alias | no | `ETD` |
-| `new_run_context` | function | no | `-T-` |
+| `new_run_context` | function | no | `-TD` |
 | `request_id_from_headers` | function | no | `---` |
 | `safe_observer_call` | function | no | `---` |
 
