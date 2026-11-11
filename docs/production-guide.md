@@ -925,7 +925,7 @@ with the lock; drain graph work before closing the lock and then its clients.
 | `AzureBlobLeaseThreadLock` | Yes — Azure Blob lease CAS | One Blob container | Finite expiry after renewal stops; renewal loss can admit another writer while old work continues | Shared writers across processes/hosts; default finite lease is 60 seconds with renewal, not a graph deadline |
 | Custom `ThreadLock` implementation | Yours to design | Yours to provision | Yours to reason about | Redis, Cosmos DB, Postgres advisory locks, etc. |
 
-**Safety guard — `AZFUNC_LANGGRAPH_LOCK_BACKEND`.** In multi-instance environments, set this environment variable to `distributed` (or any non-empty value other than `inprocess`). When the value indicates a distributed backend is required and `thread_lock` resolves to the default `InProcessThreadLock`, `LangGraphApp.__post_init__` raises `RuntimeError` at construction — turning a silent-race deployment mistake into a fail-fast startup error. Set the value to `inprocess` (or leave it unset) in single-instance environments; the guard passes for any wired custom backend regardless of the environment value.
+**Safety guard — `AZFUNC_LANGGRAPH_LOCK_BACKEND`.** In multi-instance environments, set this environment variable to `distributed` (or any non-empty value other than `inprocess`). When the value indicates a distributed backend is required and `thread_lock` resolves to the default `InProcessThreadLock`, `LangGraphApp.__post_init__` raises `RuntimeError` at construction — turning a silent-race deployment mistake into a fail-fast startup error. Set the value to `inprocess` (or leave it unset) in single-instance environments; the guard passes for any wired custom backend regardless of the environment value. The same rule is re-evaluated when `app.function_app` is built, so a lock or variable changed after construction is still caught; see [Topology validation](#topology-validation-880).
 
 **Safety guard — `AZFUNC_LANGGRAPH_THREAD_STORE` (platform-compat).** The thread *store* has the same scale-out footgun as the lock: when `platform_compat=True` and no store is supplied, `LangGraphApp` defaults to the per-instance `InMemoryThreadStore`, so on Azure scale-out (Consumption / Elastic Premium) each worker keeps its own threads and state diverges across instances. Two layered guards mirror the lock-backend precedent:
 
@@ -946,6 +946,78 @@ supported after an earlier access as well: it invalidates the cached
 store and rebuilds all routes against it. Keep the exported module-level
 Functions app assignment last so Azure never receives the superseded route
 object.
+
+#### Topology validation (#880)
+
+`LangGraphApp` and `StreamingLangGraphApp` derive one immutable internal plan from the *final* configuration (constructor arguments, registrations, the thread store and lock actually wired, and the environment) and validate it once when `app.function_app` is built, before any route exists. A rejected configuration exports no routes and runs no graph. No constructor parameter or public import changed; the plan is private.
+
+Hard errors are limited to configurations that are unsafe by construction or by the operator's own declaration. Anything that only *suggests* scale-out is a `RuntimeWarning`, because the instance count cannot be proven.
+
+| Rule | Severity | Raised when | Evidence |
+| --- | --- | --- | --- |
+| `mixed-auth` | `ValueError` | Platform or Durable routes are enabled and a graph's `auth_level` is stricter than the app-level one | Those routes are protected only by the app-level key, so the graph's key is bypassed (#854) |
+| `lock-backend-declared` | `RuntimeError` | `AZFUNC_LANGGRAPH_LOCK_BACKEND` declares a distributed backend but `thread_lock` is the default `InProcessThreadLock` | The operator declared several writers; a process-local lock excludes none of them. Also raised at construction |
+| `thread-store-declared` | `RuntimeError` | `platform_compat=True`, a distributed deployment is declared (either variable), and the store is the per-instance `InMemoryThreadStore` | Thread records would diverge per instance; a distributed lock does not share them (#742) |
+| `process-local-checkpointer-declared` | `RuntimeError` | A distributed deployment is declared and any registered graph (HTTP, Service Bus, Durable) uses an `InMemorySaver` checkpointer | Checkpoints live in one process: other instances, restarts and Durable activities on another worker never see them |
+| `thread-store-hosted` | `RuntimeWarning` | `platform_compat=True`, in-memory store, Azure host markers present | As above, but scale-out is only suspected |
+| `process-local-checkpointer-hosted` | `RuntimeWarning` | Azure host markers present and a graph uses `InMemorySaver` | State is lost on restart and diverges if the app scales out |
+| `inprocess-lock-hosted` | `RuntimeWarning` | Azure host markers present and a checkpointed graph is serialized only by the default `InProcessThreadLock` | One Azure instance may run several worker processes, and the plan may scale out |
+
+**Override and local development.** There is no new setting. Leave both variables unset for local development, where nothing is rejected and nothing warns. To assert a single-writer deployment on Azure, set `AZFUNC_LANGGRAPH_LOCK_BACKEND=inprocess` (or `AZFUNC_LANGGRAPH_THREAD_STORE=inmemory`): this suppresses the two new hosted warnings (`process-local-checkpointer-hosted`, `inprocess-lock-hosted`). The existing `thread-store-hosted` warning is unchanged and still follows the host markers. To clear a hard error, wire the shared backend or unset the declaration.
+
+**Why deployment detection is not a hard guard.** `WEBSITE_INSTANCE_ID` and `WEBSITE_SITE_NAME` are App Service platform variables: present on a single-instance plan (so they do not prove scale-out) and absent on container-based hosts (so absence does not prove local). `AZURE_FUNCTIONS_ENVIRONMENT` defaults to `Production` when unset, is set to `Development` by Core Tools locally but is an ordinary app setting in Azure, and `FUNCTIONS_WORKER_RUNTIME` is also set by `local.settings.json`. None identifies local development reliably, so detection only drives warnings, and the explicit declarations above remain the only hard-guard trigger.
+
+Not changed: lock scope semantics, route-prefix and `Content-Location` semantics, and the late-registration rejection (#868). Statelessness is never rejected: stateless graphs, native-only apps and valid local examples build without findings.
+
+Expected outcomes (checked by `tests/test_topology_truth_table.py`, which builds each row and fails if this table drifts). *Declaration* is the environment setting; *Checkpointer* `shared` is any non-`InMemorySaver` saver; *mixed* auth is an `ANONYMOUS` app with a `FUNCTION` graph.
+
+<!-- topology-truth-table:start -->
+| Surface | Hosting | Declaration | Checkpointer | Lock | Platform store | Auth | Outcome |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| native | local | none | none | in-process | n/a | uniform | OK |
+| native | local | none | shared | in-process | n/a | uniform | OK |
+| native | local | none | process-local | in-process | n/a | uniform | OK |
+| native | hosted | none | none | in-process | n/a | uniform | OK |
+| native | hosted | none | shared | in-process | n/a | uniform | Warning `inprocess-lock-hosted` |
+| native | hosted | none | shared | distributed | n/a | uniform | OK |
+| native | hosted | none | process-local | in-process | n/a | uniform | Warning `process-local-checkpointer-hosted` |
+| native | hosted | inprocess | shared | in-process | n/a | uniform | OK |
+| native | hosted | inprocess | process-local | in-process | n/a | uniform | OK |
+| native | local | lock=distributed | none | in-process | n/a | uniform | **Error** `lock-backend-declared` |
+| native | local | lock=distributed | shared | distributed | n/a | uniform | OK |
+| native | local | lock=distributed | process-local | distributed | n/a | uniform | **Error** `process-local-checkpointer-declared` |
+| native | local | store=distributed | shared | in-process | n/a | uniform | OK |
+| native | hosted | none | shared | in-process | n/a | mixed | Warning `inprocess-lock-hosted` |
+| platform | local | none | shared | in-process | in-memory | uniform | OK |
+| platform | hosted | none | none | in-process | in-memory | uniform | Warning `thread-store-hosted` |
+| platform | hosted | none | shared | in-process | in-memory | uniform | Warning `thread-store-hosted`, `inprocess-lock-hosted` |
+| platform | hosted | none | shared | distributed | distributed | uniform | OK |
+| platform | hosted | none | shared | in-process | distributed | uniform | Warning `inprocess-lock-hosted` |
+| platform | local | lock=distributed | shared | distributed | in-memory | uniform | **Error** `thread-store-declared` |
+| platform | local | store=distributed | none | in-process | in-memory | uniform | **Error** `thread-store-declared` |
+| platform | local | store=distributed | process-local | in-process | distributed | uniform | **Error** `process-local-checkpointer-declared` |
+| platform | local | none | shared | in-process | in-memory | mixed | **Error** `mixed-auth` |
+| platform | local | store=distributed | shared | in-process | in-memory | mixed | **Error** `mixed-auth` |
+| durable | local | none | shared | in-process | n/a | uniform | OK |
+| durable | hosted | none | process-local | in-process | n/a | uniform | Warning `process-local-checkpointer-hosted` |
+| durable | hosted | none | shared | distributed | n/a | uniform | OK |
+| durable | local | lock=distributed | shared | in-process | n/a | uniform | **Error** `lock-backend-declared` |
+| durable | local | store=distributed | process-local | in-process | n/a | uniform | **Error** `process-local-checkpointer-declared` |
+| durable | local | store=distributed | shared | in-process | n/a | uniform | OK |
+| durable | local | none | shared | in-process | n/a | mixed | **Error** `mixed-auth` |
+| service_bus | local | none | shared | in-process | n/a | uniform | OK |
+| service_bus | hosted | none | none | in-process | n/a | uniform | OK |
+| service_bus | hosted | none | shared | in-process | n/a | uniform | Warning `inprocess-lock-hosted` |
+| service_bus | hosted | none | process-local | in-process | n/a | uniform | Warning `process-local-checkpointer-hosted` |
+| service_bus | local | lock=distributed | process-local | distributed | n/a | uniform | **Error** `process-local-checkpointer-declared` |
+| streaming | local | none | shared | in-process | n/a | uniform | OK |
+| streaming | hosted | none | shared | in-process | n/a | uniform | Warning `inprocess-lock-hosted` |
+| streaming | local | lock=distributed | none | in-process | n/a | uniform | **Error** `lock-backend-declared` |
+| streaming | local | store=distributed | process-local | in-process | n/a | uniform | **Error** `process-local-checkpointer-declared` |
+| streaming | hosted | inprocess | process-local | in-process | n/a | uniform | OK |
+<!-- topology-truth-table:end -->
+
+Only one error is raised per build; a rejection also precedes every warning, so a rejected row lists a single rule (for example, `mixed-auth` wins over `thread-store-declared`).
 
 #### Opt-in guard for Blob checkpoint writes (#790)
 
