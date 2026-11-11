@@ -438,7 +438,7 @@ outcome matches. The documented release gate itself is not weakened or replaced.
 4. Metadata correction: add a short, factual status note at the top of the GitHub Release
    of the unpublished version (a maintainer action; the audit never edits releases). Keep the
    change summary. Suggested text: "Status: this tag's `Publish to PyPI` run failed
-   ([run N](URL)), so <version> was not published to PyPI. First published successor:
+   ``([run N](URL))``, so <version> was not published to PyPI. First published successor:
    <successor>. See [Release status](https://yeongseon.github.io/azure-functions-langgraph-python/release-status/)."
    State only what the records show; do not claim a cause that was not verified, and do not
    describe a version as available unless PyPI lists its files.
