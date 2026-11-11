@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +13,12 @@ EXAMPLE_DIR = Path(__file__).resolve().parents[1] / "examples" / "sqlite_checkpo
 
 @pytest.fixture
 def demo() -> Any:
-    pytest.importorskip(
-        "langgraph.checkpoint.sqlite",
-        reason="SQLite extra is unavailable: pip install azure-functions-langgraph[sqlite]",
-    )
+    # ImportError (not only ModuleNotFoundError): at the minimum langgraph floor the installed
+    # sqlite package can be present yet fail to import against the older langgraph.
+    try:
+        importlib.import_module("langgraph.checkpoint.sqlite")
+    except ImportError as exc:
+        pytest.skip(f"SQLite extra is unavailable or incompatible: {exc}")
     return load_example_file(EXAMPLE_DIR / "persistence_demo.py", "_sqlite_persistence_demo")
 
 
