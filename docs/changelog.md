@@ -31,7 +31,7 @@ HTTP 400 or a startup `RuntimeError`. Who is affected and how to migrate:
 
 ### Changed
 
-- README banner across all locales (`README.md`, `README.ko.md`, `README.ja.md`, `README.zh-CN.md`) now says **Alpha Notice** to match the existing `Development Status :: 3 - Alpha` classifier in `pyproject.toml`. Documentation now explicitly points at the classifier as the source of truth for maturity. (#242)
+- README banner across all locales (`README.md`, `README.ko.md`, `README.ja.md`, `README.zh-CN.md`) now says **Alpha Notice** to match the existing `Development Status :: 3 - Alpha` classifier in `pyproject.toml`. Documentation now explicitly points at the classifier as the source of truth for maturity. (#242) *Historical: the package classifier is now `Development Status :: 4 - Beta`, and the per-surface Stable/Beta/Experimental table in the README is the source of truth for maturity.*
 - `docs/{security,production-guide,configuration,faq,installation}.md` updated to reflect the FUNCTION default and the ANONYMOUS opt-in warning. (#240)
 - `examples/openapi_bridge`, `examples/platform_compat_sdk`, `examples/sqlite_checkpoint_local`, `examples/persistent_agent_blob_table` now include inline comments explaining the ANONYMOUS opt-in and its unconditional warning. (#240)
 - `handle_invoke` / `handle_stream` in `_handlers.py` now require an explicit `thread_lock: ThreadLock` keyword argument (previously module-level `_thread_locks`); `LangGraphApp` wires this automatically. External callers that invoked handlers directly must pass `thread_lock=self.thread_lock`. (#241)

@@ -281,8 +281,10 @@ Azure Table Storage, Durable Functions or Service Bus.
 `azure_functions_langgraph.locks`: `acquire(graph_name, thread_id, timeout=0.0)`
 returns an owner token (or `None` on contention), and `release(...)` receives
 that token. The default `InProcessThreadLock` guards checkpointed native
-invoke/stream runs for the same `(graph_name, thread_id)` **inside one Python
-process only**. Even one Function App instance can have multiple worker
+invoke/stream runs for the same `(lock scope, thread_id)` **inside one Python
+process only**; the lock scope is the graph name unless the graph's checkpointer
+reports a storage identity, in which case graphs on the same storage share a lock
+(see [Lock scope and shared checkpointers](production-guide.md#lock-scope-and-shared-checkpointers)). Even one Function App instance can have multiple worker
 processes; local locking is not distributed exclusion.
 
 Before sharing checkpoint state across workers or apps, follow the
@@ -654,7 +656,9 @@ app.register(graph=private_graph, name="private", auth_level=func.AuthLevel.FUNC
 ```
 
 > **Important:** Per-graph overrides apply only to native graph routes. Platform-compatible
-> and Durable routes use the app-level `auth_level`; see the
+> and Durable routes use the app-level `auth_level`, and a graph stricter than the app level
+> is rejected with `ValueError` when those routes are enabled; see
+> [security](security.md#mixed-per-graph-auth-with-platform-or-durable-routes) and the
 > [production guide](production-guide.md) before exposing them.
 
 Example request using a function key:

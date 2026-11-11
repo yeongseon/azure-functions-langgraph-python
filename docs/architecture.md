@@ -73,7 +73,10 @@ broker or Durable orchestration is needed for that path.
 
 `thread_lock` accepts the `ThreadLock` protocol (`azure_functions_langgraph.locks`):
 `acquire(graph_name, thread_id, timeout=0.0)` returns an opaque owner token or
-`None` on contention; `release(graph_name, thread_id, token)` relinquishes that
+`None` on contention (the `graph_name` argument is a *lock scope*: the graph name, or a
+key derived from the checkpointer's storage when it reports one, so graphs sharing
+checkpoint storage share one lock; see
+[Lock scope and shared checkpointers](production-guide.md#lock-scope-and-shared-checkpointers)); `release(graph_name, thread_id, token)` relinquishes that
 ownership. Native invoke/stream use it for checkpointed graphs with a thread ID.
 The default `InProcessThreadLock` excludes concurrent writers for that key
 **inside one Python process only**, not across workers on one instance or
@@ -324,9 +327,9 @@ This module lazily imports `azure-functions-openapi-python` and raises `ImportEr
 
 Standalone request handlers extracted from `LangGraphApp`:
 
-- `handle_invoke()` — parses request, validates, calls `graph.invoke()`, returns JSON.
-- `handle_stream()` — parses request, validates, calls `graph.stream()`, collects chunks into buffered SSE.
-- `handle_state()` — retrieves thread state via `graph.get_state()` for `StatefulGraph` instances.
+- `handle_invoke()` / `handle_invoke_async()` — parse request, validate, call `graph.invoke()` / `graph.ainvoke()`, return JSON.
+- `handle_stream()` / `handle_stream_async()` — parse request, validate, call `graph.stream()` / `graph.astream()`, collect chunks into buffered SSE.
+- `handle_state()` / `handle_state_async()` — retrieve thread state via `graph.get_state()` (sync registrations) or `graph.aget_state()` (`async_mode=True` registrations whose graph exposes it) for `StatefulGraph` instances.
 - `_error_response()` — consistent error response builder for native routes.
 
 ### `_execution_plan.py`
@@ -342,6 +345,10 @@ Private, transport-neutral request-to-execution planning shared by `_handlers.py
 - Platform SDK routes (`platform/`): their own `RunCreate` parsing, thread-store CAS and run lock, and Platform response encoding. They only reuse the graph-clone helper below.
 - Per-registration caching of the threadless graph clone: `_get_threadless_graph` still clones per request. A cached clone would freeze the registration-time graph, whereas a per-request clone observes later mutation of the registered graph object, and copy immutability, absence of request-specific state and invalidation on re-registration cannot be shown for an arbitrary `CloneableGraph`. The copy is shallow and the source graph is not mutated.
 
+### `_topology.py`
+
+Private, immutable hosting-topology plan and its single build-time validation pass. `LangGraphApp` and `StreamingLangGraphApp` derive one frozen `TopologyPlan` from the final configuration (constructor arguments, registrations, the thread store and lock actually wired, and the environment) when `app.function_app` is built, before any route exists. Hard errors cover only configurations that are unsafe by construction or by the operator's declaration (a graph with a stricter `auth_level` than the app on Platform/Durable routes; `AZFUNC_LANGGRAPH_LOCK_BACKEND` / `AZFUNC_LANGGRAPH_THREAD_STORE` declaring a distributed deployment while a process-local lock, thread store or `InMemorySaver` is wired); anything that merely suggests scale-out is a `RuntimeWarning`. Rule table and override guidance: [production guide](production-guide.md#topology-validation-880). Nothing in it is public API.
+
 ### `_validation.py`
 
 Transport-agnostic input validators (pure functions returning error message or `None`):
@@ -351,7 +358,7 @@ Transport-agnostic input validators (pure functions returning error message or `
 
 ### `_json.py`
 
-JSON serialization of graph output. Imports `langchain_core.messages` directly to serialize LangChain message objects, which is why `langchain-core` is a declared runtime dependency.
+JSON serialization of graph output for the native routes, Table JSON and Durable activities. Imports `langchain_core.messages` directly to serialize LangChain message objects, which is why `langchain-core` is a declared runtime dependency. Platform routes use their own encoder, `platform/_serialization.py`, which emits flat SDK-shaped message objects and rejects `NaN`/infinities instead of emitting non-standard JSON; native serialization is unchanged.
 
 ### `contracts.py`
 
@@ -394,6 +401,7 @@ Per-thread writer exclusion for native, streaming, Durable and trigger runs:
 - `azure_blob.py` — `AzureBlobLeaseThreadLock`, a distributed lock built on Blob leases with bounded renewal (`azure-blob` extra).
 - `guard.py` — opt-in ownership guard (`OwnershipGuard`, `guard_checkpoint_writes`) so a checkpoint saver can reject writes after the lock *detects* loss; not fencing.
 - `_async.py` — cancellation-safe adaptation of synchronous locks for async callers.
+- `_scope.py` — lock-scope resolution: a checkpointer that exposes `lock_scope_identity` (today `AzureBlobCheckpointSaver`) maps every graph on that storage to one scope; other graphs keep their name.
 
 ### `durable/`
 
@@ -411,7 +419,8 @@ Event-driven adapters. `service_bus.py` drives a graph from an Azure Service Bus
 
 LangGraph Platform API compatibility layer (v0.3+), registered only when `platform_compat=True`:
 
-- `routes.py` — route registration. Handlers live in `_threads.py`, `_runs.py` and `_assistants.py` (threads, runs, assistants, state operations), with shared helpers in `_common.py` and run-lock renewal in `_store_renewal.py`.
+- `routes.py` — route registration. Handlers live in `_threads.py`, `_runs.py` and `_assistants.py` (threads, runs, assistants, state operations), with shared helpers in `_common.py` (including the graph-aware `authorize` check) and run-lock renewal in `_store_renewal.py`.
+- `_serialization.py` — Platform JSON encoding (flat SDK message shapes, strict finite JSON).
 - `contracts.py` — Platform API Pydantic models (Thread, Run, Assistant, Interrupt, etc.).
 - `stores.py` — `ThreadStore` protocol + `InMemoryThreadStore` default implementation.
 - `_sse.py` — SSE event formatting for platform streaming endpoints.
@@ -512,7 +521,7 @@ before sharing checkpoint state across routes or apps.
 
 ### Per-graph auth override (v0.2)
 
-Each graph registration can override the app-level `auth_level`, enabling mixed-auth deployments.
+Each graph registration can override the app-level `auth_level` for that graph's **native** routes, enabling mixed-auth deployments. Platform-compatible and Durable routes are shared by every graph and are protected by the app-level `auth_level` only, so building an app (or registering late after `function_app` was exported) with a graph *stricter* than the app level while those routes are enabled raises `ValueError`. Looser graphs and native-only apps are unaffected. See [Mixed per-graph auth](security.md#mixed-per-graph-auth-with-platform-or-durable-routes).
 
 ### Thread ID in request body (native routes)
 
