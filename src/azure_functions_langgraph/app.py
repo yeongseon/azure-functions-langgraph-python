@@ -47,6 +47,7 @@ from azure_functions_langgraph.contracts import (
     build_stream_request_model,
 )
 from azure_functions_langgraph.locks import InProcessThreadLock, ThreadLock
+from azure_functions_langgraph.locks._scope import resolve_lock_scope, scope_thread_lock
 from azure_functions_langgraph.observability import NoOpRunObserver, RunObserver
 from azure_functions_langgraph.protocols import (
     AsyncInvocableGraph,
@@ -577,6 +578,18 @@ class LangGraphApp:
     # Internal route builders
     # ------------------------------------------------------------------
 
+    def _scoped_thread_lock(self) -> ThreadLock | None:
+        """Return ``thread_lock`` keyed so graphs sharing a checkpointer share one lock."""
+        if self.thread_lock is None:
+            return None
+
+        def scope_of(name: str) -> str:
+            return resolve_lock_scope(
+                name, [*self._registrations.values(), *self._sb_registrations.values()]
+            )
+
+        return scope_thread_lock(self.thread_lock, scope_of)
+
     def _build_function_app(self) -> func.FunctionApp:
         if self.platform_compat:
             from azure_functions_langgraph.platform.stores import InMemoryThreadStore
@@ -716,7 +729,7 @@ class LangGraphApp:
                 register_platform_routes,
             )
 
-            thread_lock = self.thread_lock
+            thread_lock = self._scoped_thread_lock()
             if thread_lock is None:
                 raise RuntimeError("thread lock is not initialized")
             deps = PlatformRouteDeps(
@@ -763,7 +776,7 @@ class LangGraphApp:
             register_durable_runtime,
         )
 
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
 
@@ -794,7 +807,7 @@ class LangGraphApp:
             process_service_bus_message_async,
         )
 
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
@@ -937,7 +950,7 @@ class LangGraphApp:
 
     def _handle_invoke(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a synchronous invoke request."""
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
@@ -956,7 +969,7 @@ class LangGraphApp:
         self, req: func.HttpRequest, reg: _GraphRegistration
     ) -> func.HttpResponse:
         """Handle an invoke request against an async graph via ``ainvoke``."""
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
@@ -973,7 +986,7 @@ class LangGraphApp:
 
     def _handle_stream(self, req: func.HttpRequest, reg: _GraphRegistration) -> func.HttpResponse:
         """Handle a streaming request."""
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
@@ -993,7 +1006,7 @@ class LangGraphApp:
         self, req: func.HttpRequest, reg: _GraphRegistration
     ) -> func.HttpResponse:
         """Handle a streaming request against an async graph via ``astream``."""
-        thread_lock = self.thread_lock
+        thread_lock = self._scoped_thread_lock()
         if thread_lock is None:  # pragma: no cover - invariant set in __post_init__
             raise RuntimeError("thread_lock is None; __post_init__ did not run")
         observer = self.observer or NoOpRunObserver()
