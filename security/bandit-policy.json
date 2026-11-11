@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inline_suppressions": [
-    {"id":"B311","file":"src/azure_functions_langgraph/checkpointers/azure_blob.py","line":316,"kind":"reviewed-static","reason":"Random suffix orders checkpoint versions; not a credential or security token","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B311","file":"src/azure_functions_langgraph/checkpointers/azure_blob.py","line":344,"kind":"reviewed-static","reason":"Random suffix orders checkpoint versions; not a credential or security token","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B110","file":"src/azure_functions_langgraph/locks/azure_blob.py","line":814,"kind":"reviewed-static","reason":"Existing destructor best-effort cleanup; explicit close retains diagnostics","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B105","file":"src/azure_functions_langgraph/platform/stores.py","line":478,"kind":"reviewed-static","reason":"None clears a lease token; no password literal","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"}
   ],
