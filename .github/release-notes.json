@@ -1,0 +1,14 @@
+{
+  "repo": "yeongseon/azure-functions-langgraph-python",
+  "owner_login": "yeongseon",
+  "legacy_repos": [],
+  "non_human_logins": [
+    "sisyphus-dev-ai"
+  ],
+  "protected": {
+    "v0.13.0": [
+      "three breaking changes",
+      "Blob marker leases do not fence checkpoint writes after lease loss"
+    ]
+  }
+}
