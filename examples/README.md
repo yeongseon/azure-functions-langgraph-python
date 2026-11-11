@@ -18,7 +18,7 @@
 | Managed Identity | [`managed_identity_storage`](managed_identity_storage/) | Same backends wired with `DefaultAzureCredential` for production, with Azurite fallback for local dev. |
 | OpenAPI bridge (isolated) | [`openapi_bridge`](openapi_bridge/) | Minimal echo graph showing `register_with_openapi` wiring in isolation. For the bridge on a **real agent**, see `tool_calling_agent`. |
 | Per-graph auth | [`production_auth`](production_auth/) | Public health + anonymous demo graph alongside a function-key-protected graph. |
-| Versioned output | [`versioned_output_agent`](versioned_output_agent/) | Opt into LangGraph's `version="v2"` unified `GraphOutput` / `StreamPart` shapes via the request contract. |
+| Versioned output | [`versioned_output_agent`](versioned_output_agent/) | Opt into LangGraph's `version="v2"` unified `GraphOutput` / `StreamPart` shapes via the request contract; `compare_shapes.py` prints v1 vs v2 side by side offline. |
 | Async agent | [`async_agent`](async_agent/) | Serve a graph with `async def` nodes through the native async path (`async_mode=True` → `await ainvoke`/`astream`). |
 | Run observability | [`run_observer`](run_observer/) | Wire a pluggable `RunObserver` into `LangGraphApp(observer=...)` — logs run started/completed/failed/rejected with correlation ids and timing only (no payloads). |
 | App Insights telemetry | [`observability_app_insights`](observability_app_insights/) | Ship run telemetry to Azure Application Insights with the built-in `LoggingRunObserver` — structured safe fields plus copy-pasteable KQL queries for run count, latency, error rate, and thread correlation. |

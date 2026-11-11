@@ -24,6 +24,36 @@ pip install -r requirements.txt
 func start
 ```
 
+## Compare v1 and v2 offline
+
+`compare_shapes.py` drives the real `invoke` and `stream` handlers in-process and
+prints the default (v1) and `version="v2"` responses side by side. It needs no
+Azure Functions host, no network, no credentials and no model calls (the graph
+is a deterministic counter):
+
+```bash
+cd examples/versioned_output_agent
+pip install -r requirements.txt
+python compare_shapes.py
+```
+
+```
+invoke v1: {"output": {"count": 4, "history": [2, 4]}}
+invoke v2: {"output": {"value": {"count": 4, "history": [2, 4]}, "interrupts": []}}
+stream v1: [{"count": 1, "history": []}, {"count": 2, "history": [2]}, {"count": 4, "history": [2, 4]}]
+stream v2: [{"type": "values", "ns": [], "data": {"count": 1, "history": []}, "interrupts": []}, ...]
+```
+
+(The `stream v2` line is truncated here; it has one `StreamPart` per snapshot.)
+From a repository checkout without the package installed, prefix with
+`PYTHONPATH=../../src`. The same comparison is asserted by
+`tests/test_versioned_output_example.py`, which skips cleanly on `langgraph<1.1`.
+
+**Client migration:** with `version="v2"` read `output["value"]` instead of
+`output` for `invoke`, and read `event["data"]` (plus `event["type"]`) instead
+of the bare snapshot for each `stream` event. The state inside is unchanged.
+Omitting `version` keeps the default shape; nothing changes unless you opt in.
+
 ## Test
 
 ### Default (no `version`) — legacy output
