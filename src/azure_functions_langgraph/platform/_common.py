@@ -257,6 +257,16 @@ def _get_threadless_graph(graph: Any) -> Any | None:
     The graph must satisfy the :class:`CloneableGraph` protocol (i.e. have a
     ``copy(*, update)`` method).  If it does not, or ``copy()`` raises, return
     ``None`` — threadless runs are not safe for this graph.
+
+    Deliberately **not cached per registration** (#861). A cached clone would
+    freeze whatever the graph looked like at registration, but registrations
+    hold the caller's live graph object and ``copy()`` is delegated to that
+    object, so a per-request clone observes later mutation/re-registration while
+    a cache would silently serve stale state. Immutability of the copy, the
+    absence of request-specific state and an invalidation hook on
+    re-registration cannot be established for an arbitrary ``CloneableGraph``,
+    so the clone stays per-request (it is a shallow, cheap ``copy``; the source
+    graph is never mutated). See ``tests/test_threadless_graph_clone.py``.
     """
     checkpointer = getattr(graph, "checkpointer", None)
     if checkpointer is None:
