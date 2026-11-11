@@ -1,0 +1,367 @@
+{
+ "label": "0.8.2",
+ "native_async_writer": false,
+ "task_path_persisted": true,
+ "writes": [
+  {
+   "checkpoint_ns": "",
+   "checkpoints": [
+    {
+     "channel_values": {
+      "counter": 1,
+      "messages": [
+       "m0",
+       {
+        "n": 0,
+        "role": "ai"
+       }
+      ]
+     },
+     "id": "1f000000-0000-6000-8000-000000000001",
+     "metadata": {
+      "parents": {},
+      "source": "input",
+      "step": -1
+     },
+     "parent_id": null,
+     "pending_writes": [
+      [
+       "task-a",
+       "counter",
+       10
+      ],
+      [
+       "task-a",
+       "messages",
+       "w-a0"
+      ],
+      [
+       "task-b",
+       "messages",
+       "w-b0"
+      ]
+     ]
+    },
+    {
+     "channel_values": {
+      "counter": 2,
+      "messages": [
+       "m1",
+       {
+        "n": 1,
+        "role": "ai"
+       }
+      ]
+     },
+     "id": "1f000000-0000-6000-8000-000000000002",
+     "metadata": {
+      "parents": {},
+      "source": "loop",
+      "step": 0
+     },
+     "parent_id": "1f000000-0000-6000-8000-000000000001",
+     "pending_writes": [
+      [
+       "task-a",
+       "counter",
+       11
+      ],
+      [
+       "task-a",
+       "messages",
+       "w-a1"
+      ],
+      [
+       "task-b",
+       "messages",
+       "w-b1"
+      ]
+     ]
+    },
+    {
+     "channel_values": {
+      "counter": 3,
+      "messages": [
+       "m1",
+       {
+        "n": 1,
+        "role": "ai"
+       }
+      ]
+     },
+     "id": "1f000000-0000-6000-8000-000000000003",
+     "metadata": {
+      "parents": {},
+      "source": "loop",
+      "step": 1
+     },
+     "parent_id": "1f000000-0000-6000-8000-000000000002",
+     "pending_writes": [
+      [
+       "task-i",
+       "__interrupt__",
+       "pause-2"
+      ],
+      [
+       "task-a",
+       "counter",
+       12
+      ],
+      [
+       "task-a",
+       "messages",
+       "w-a2"
+      ],
+      [
+       "task-b",
+       "messages",
+       "w-b2"
+      ]
+     ]
+    }
+   ],
+   "thread_id": "thread-sync",
+   "writer": "sync"
+  },
+  {
+   "checkpoint_ns": "sub|child:1",
+   "checkpoints": [
+    {
+     "channel_values": {
+      "counter": 1,
+      "messages": [
+       "m0",
+       {
+        "n": 0,
+        "role": "ai"
+       }
+      ]
+     },
+     "id": "1f000000-0000-6000-8000-000000000001",
+     "metadata": {
+      "parents": {},
+      "source": "input",
+      "step": -1
+     },
+     "parent_id": null,
+     "pending_writes": [
+      [
+       "task-a",
+       "counter",
+       10
+      ],
+      [
+       "task-a",
+       "messages",
+       "w-a0"
+      ],
+      [
+       "task-b",
+       "messages",
+       "w-b0"
+      ]
+     ]
+    },
+    {
+     "channel_values": {
+      "counter": 2,
+      "messages": [
+       "m1",
+       {
+        "n": 1,
+        "role": "ai"
+       }
+      ]
+     },
+     "id": "1f000000-0000-6000-8000-000000000002",
+     "metadata": {
+      "parents": {},
+      "source": "loop",
+      "step": 0
+     },
+     "parent_id": "1f000000-0000-6000-8000-000000000001",
+     "pending_writes": [
+      [
+       "task-a",
+       "counter",
+       11
+      ],
+      [
+       "task-a",
+       "messages",
+       "w-a1"
+      ],
+      [
+       "task-b",
+       "messages",
+       "w-b1"
+      ]
+     ]
+    },
+    {
+     "channel_values": {
+      "counter": 3,
+      "messages": [
+       "m1",
+       {
+        "n": 1,
+        "role": "ai"
+       }
+      ]
+     },
+     "id": "1f000000-0000-6000-8000-000000000003",
+     "metadata": {
+      "parents": {},
+      "source": "loop",
+      "step": 1
+     },
+     "parent_id": "1f000000-0000-6000-8000-000000000002",
+     "pending_writes": [
+      [
+       "task-i",
+       "__interrupt__",
+       "pause-2"
+      ],
+      [
+       "task-a",
+       "counter",
+       12
+      ],
+      [
+       "task-a",
+       "messages",
+       "w-a2"
+      ],
+      [
+       "task-b",
+       "messages",
+       "w-b2"
+      ]
+     ]
+    }
+   ],
+   "thread_id": "thread-sync",
+   "writer": "sync"
+  },
+  {
+   "checkpoint_ns": "",
+   "checkpoints": [
+    {
+     "channel_values": {
+      "counter": 1,
+      "messages": [
+       "m0",
+       {
+        "n": 0,
+        "role": "ai"
+       }
+      ]
+     },
+     "id": "1f000000-0000-6000-8000-000000000001",
+     "metadata": {
+      "parents": {},
+      "source": "input",
+      "step": -1
+     },
+     "parent_id": null,
+     "pending_writes": [
+      [
+       "task-a",
+       "counter",
+       10
+      ],
+      [
+       "task-a",
+       "messages",
+       "w-a0"
+      ],
+      [
+       "task-b",
+       "messages",
+       "w-b0"
+      ]
+     ]
+    },
+    {
+     "channel_values": {
+      "counter": 2,
+      "messages": [
+       "m1",
+       {
+        "n": 1,
+        "role": "ai"
+       }
+      ]
+     },
+     "id": "1f000000-0000-6000-8000-000000000002",
+     "metadata": {
+      "parents": {},
+      "source": "loop",
+      "step": 0
+     },
+     "parent_id": "1f000000-0000-6000-8000-000000000001",
+     "pending_writes": [
+      [
+       "task-a",
+       "counter",
+       11
+      ],
+      [
+       "task-a",
+       "messages",
+       "w-a1"
+      ],
+      [
+       "task-b",
+       "messages",
+       "w-b1"
+      ]
+     ]
+    },
+    {
+     "channel_values": {
+      "counter": 3,
+      "messages": [
+       "m1",
+       {
+        "n": 1,
+        "role": "ai"
+       }
+      ]
+     },
+     "id": "1f000000-0000-6000-8000-000000000003",
+     "metadata": {
+      "parents": {},
+      "source": "loop",
+      "step": 1
+     },
+     "parent_id": "1f000000-0000-6000-8000-000000000002",
+     "pending_writes": [
+      [
+       "task-i",
+       "__interrupt__",
+       "pause-2"
+      ],
+      [
+       "task-a",
+       "counter",
+       12
+      ],
+      [
+       "task-a",
+       "messages",
+       "w-a2"
+      ],
+      [
+       "task-b",
+       "messages",
+       "w-b2"
+      ]
+     ]
+    }
+   ],
+   "thread_id": "user/42 \u00e9",
+   "writer": "sync"
+  }
+ ]
+}

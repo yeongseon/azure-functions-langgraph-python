@@ -55,6 +55,7 @@ nav:
       - Adapter Reference & Migration: adapter-reference.md
       - Operations & APIs: ops-and-apis.md
       - Architecture: architecture.md
+      - Blob Checkpoint Format: blob-checkpoint-format.md
       - Release Status (PyPI): release-status.md
       - Changelog: changelog.md
       - Roadmap: roadmap.md
