@@ -554,6 +554,55 @@ class TestNativeErrors:
         assert json.loads(state_resp.get_body())["values"]["turn_count"] == 1
         assert saver.sync_calls == 0
 
+    @pytest.mark.asyncio
+    async def test_async_mode_get_state_only_graph_keeps_sync_state_handler(self) -> None:
+        class _SnapshotState:
+            values = {"turn_count": 3}
+            next = ()
+            config = {"configurable": {"thread_id": "t1"}}
+            metadata = None
+            created_at = None
+            parent_config = None
+            tasks = ()
+
+        class GetStateOnlyGraph:
+            def __init__(self) -> None:
+                self.get_state_calls = 0
+
+            def invoke(self, input: Any, config: Any = None) -> Any:
+                return input
+
+            async def ainvoke(self, input: Any, config: Any = None) -> Any:
+                return input
+
+            def get_state(self, config: dict[str, Any]) -> Any:
+                self.get_state_calls += 1
+                return _SnapshotState()
+
+        graph = GetStateOnlyGraph()
+        app = LangGraphApp()
+        app.register(graph, "agent", async_mode=True)
+        state_fn = _get_fn(app.function_app, "aflg_agent_state")
+
+        # Sync handler: Azure runs non-coroutine functions in its worker pool,
+        # keeping the blocking get_state() off the event loop.
+        assert not inspect.iscoroutinefunction(state_fn)
+        response = state_fn(_get("/api/graphs/agent/threads/t1/state", thread_id="t1"))
+
+        assert response.status_code == 200
+        assert json.loads(response.get_body())["values"]["turn_count"] == 3
+        assert graph.get_state_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_async_mode_prefers_aget_state_over_get_state(self) -> None:
+        saver = AsyncOnlyMemorySaver()
+        graph = _build_graph(checkpointer=saver)
+        assert hasattr(graph, "get_state") and hasattr(graph, "aget_state")
+        app = LangGraphApp()
+        app.register(graph, "agent", async_mode=True)
+        state_fn = _get_fn(app.function_app, "aflg_agent_state")
+        assert inspect.iscoroutinefunction(state_fn)
+
     def test_sync_state_keeps_sync_checkpointer_path(self) -> None:
         saver = MemorySaver()
         graph = _build_graph(checkpointer=saver)

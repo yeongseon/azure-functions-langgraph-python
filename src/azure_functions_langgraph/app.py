@@ -697,7 +697,7 @@ class LangGraphApp:
                     is_async=is_async,
                 )
             if self._has_state_route(reg):
-                state_is_async = self._is_async(reg)
+                state_is_async = self._uses_async_state_handler(reg)
                 self._register_route(
                     app,
                     reg,
@@ -857,8 +857,18 @@ class LangGraphApp:
     @staticmethod
     def _has_state_route(reg: _GraphRegistration) -> bool:
         """Whether a graph exposes a thread-state endpoint (single source of truth)."""
-        protocol = AsyncStatefulGraph if LangGraphApp._is_async(reg) else StatefulGraph
-        return isinstance(reg.graph, protocol)
+        return isinstance(reg.graph, StatefulGraph) or (
+            LangGraphApp._is_async(reg) and isinstance(reg.graph, AsyncStatefulGraph)
+        )
+
+    @staticmethod
+    def _uses_async_state_handler(reg: _GraphRegistration) -> bool:
+        """Whether the state route awaits ``aget_state`` (preferred when async).
+
+        Graphs served async that only expose ``get_state`` keep the synchronous
+        handler, which Azure runs in its worker pool (off the event loop).
+        """
+        return LangGraphApp._is_async(reg) and isinstance(reg.graph, AsyncStatefulGraph)
 
     @staticmethod
     def _is_async(reg: _GraphRegistration) -> bool:
