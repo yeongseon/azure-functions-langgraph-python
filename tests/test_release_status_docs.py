@@ -158,3 +158,29 @@ def test_page_and_entry_points_avoid_statements_that_were_wrong_or_are_not_polic
     for phrase in FORBIDDEN:
         for text in texts:
             assert phrase not in text, phrase
+
+
+def test_release_notes_annotations_cover_exactly_the_recorded_unpublished_tags() -> None:
+    import json
+
+    annotations = json.loads((ROOT / ".github" / "release-notes.json").read_text())["annotations"]
+    assert set(annotations) == set(RECORDED)
+    for tag, (_, run, successor) in RECORDED.items():
+        (note,) = annotations[tag]["notes"]
+        assert note.startswith("**Status: not published to PyPI.**")
+        assert f"/actions/runs/{run})" in note
+        assert f"First published successor: **{successor}**." in note
+        assert f"{tag} has no files on PyPI" in note
+        assert "docs/release-status.md" in note
+        # pip can also install from source or another index, so the claim is scoped to PyPI.
+        assert "cannot be installed from PyPI with pip." in note
+        assert "cannot be installed with pip" not in note
+
+
+def test_repo_text_does_not_repeat_the_broader_pip_claim() -> None:
+    for path in (
+        ROOT / ".github" / "release-notes.json",
+        ROOT / "docs" / "release-status.md",
+        ROOT / "docs" / "release_process.md",
+    ):
+        assert "cannot be installed with pip" not in " ".join(path.read_text().split()), path
