@@ -1034,6 +1034,12 @@ after detected loss is not reported as a success.
 a check can pass an instant before the upload it protects, and nothing stops the
 stale graph or its side effects outside the checkpoint store.
 
+A pending write whose slot already exists (a retried `put_writes` / `aput_writes`)
+is also checked first: ordinary write slots are created with one create-only upload
+(`overwrite=False`), and a slot that already exists is left untouched by the service.
+A writer that has *detected* loss therefore gets `ThreadLeaseLostError` for a retry
+too, instead of the earlier silent skip; the stored data is the same either way.
+
 ```python
 lock = AzureBlobLeaseThreadLock(
     container_client=lock_container,
