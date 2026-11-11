@@ -28,6 +28,7 @@ nav:
       - Choose a Plan: choose-a-plan.md
       - Deploy to Azure: deployment.md
       - Production Guide: production-guide.md
+      - Blob Checkpoint Format: blob-checkpoint-format.md
   - Examples:
       - Simple Agent: examples/simple_agent.md
   - API Reference: api.md
