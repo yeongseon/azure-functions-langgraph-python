@@ -23,6 +23,7 @@ Real host recycling / Activity attempts in Azure are out of scope (#811).
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import threading
 from typing import Any, TypedDict
@@ -68,8 +69,10 @@ class _Observer:
 
     def __init__(self) -> None:
         self.events: list[tuple[str, str, str | None, str]] = []
+        self.contexts: list[RunContext] = []  # complete, unprojected contexts
 
     def _rec(self, kind: str, ctx: RunContext) -> None:
+        self.contexts.append(ctx)
         self.events.append((kind, ctx.run_id, ctx.thread_id, ctx.execution_id))
 
     def on_run_started(self, ctx: RunContext) -> None:
@@ -284,7 +287,10 @@ class TestCheckpointBoundaries:
         r1 = await host.deliver(p, record=False)
         assert r1.activity_status == "error"
         persisted = saver.get_tuple({"configurable": {"thread_id": "t1"}})
-        assert persisted is not None  # node 'a' state was committed
+        assert persisted is not None
+        # Input checkpoint alone would also be non-None: require a's output
+        # (1 + 1) to be the persisted channel value.
+        assert persisted.checkpoint["channel_values"]["value"] == 2
         assert effects.log == ["a"]
 
         r2 = await host.deliver(p)
@@ -465,10 +471,12 @@ class _PaymentService:
     """Fake non-idempotent external system that can honor an idempotency key."""
 
     def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []  # every call, incl. deduplicated
         self.charges: list[tuple[str, int]] = []
         self._by_key: dict[str, str] = {}
 
     def charge(self, key: str, amount: int) -> str:
+        self.calls.append((key, amount))
         if key in self._by_key:  # provider-side idempotency-key reconciliation
             return self._by_key[key]
         self.charges.append((key, amount))
@@ -497,10 +505,14 @@ class TestIdempotencyPattern:
         host = _Host(_payment_graph(service, key_from_run_id=True))
         p = _payload(config={"configurable": {"app_run_id": "run-1"}})
 
-        await host.deliver(p, record=False)
-        await host.deliver(p)
+        r1 = await host.deliver(p, record=False)
+        r2 = await host.deliver(p)
 
-        assert service.charges == [("charge:run-1", 5)]  # exactly one charge
+        assert r1.activity_status == r2.activity_status == "success"
+        # The graph really called the provider twice with the same key...
+        assert service.calls == [("charge:run-1", 5), ("charge:run-1", 5)]
+        # ...and the provider recorded only one effect.
+        assert service.charges == [("charge:run-1", 5)]
 
     async def test_per_attempt_random_key_does_not_dedupe(self) -> None:
         """What the pattern does NOT give you: a key minted per attempt."""
@@ -559,9 +571,20 @@ class TestObservabilityAndErrors:
         effects = _Effects()
         host = _Host(_graph(effects, crash_in_a_after_effect=True, checkpointer=MemorySaver()))
         await host.deliver(_payload(input={"value": 1, "token": "tok-123"}))
-        blob = json.dumps(host.observer.events)
-        assert "tok-123" not in blob
-        assert _SECRET not in blob
+        observer: _Observer = host.observer
+        assert observer.contexts
+        allowed = {
+            "graph_name", "endpoint", "run_id", "thread_id", "started_at_ns",
+            "ended_at_ns", "execution_id", "assistant_id", "invocation_id",
+            "stream_mode", "transport", "has_checkpointer", "lock_backend",
+            "trigger_type",
+        }  # fmt: skip
+        for ctx in observer.contexts:
+            # Inspect the complete context, not the three-id projection.
+            assert {f.name for f in dataclasses.fields(ctx)} <= allowed
+            blob = json.dumps(dataclasses.asdict(ctx), default=str) + repr(ctx)
+            assert "tok-123" not in blob
+            assert _SECRET not in blob
         assert host.observer.events[0][1:3] == ("run-1", "t1")
 
     async def test_terminal_signal_exactly_one_per_delivery(self) -> None:
