@@ -14,11 +14,13 @@ The app is ANONYMOUS because it is a throwaway host holding no sensitive data (a
 ``examples/e2e_app``). Evidence endpoints expose counts and short instance tags only.
 """
 
+import contextlib
 import importlib.metadata
 import json
 import os
 import platform
 
+from azure.core.exceptions import ResourceExistsError
 import azure.functions as func
 from azure.storage.blob import ContainerClient
 from graph import build_graph, count_markers, effect_applied_count
@@ -29,10 +31,8 @@ from azure_functions_langgraph.locks import AzureBlobLeaseThreadLock
 _lock_container = ContainerClient.from_connection_string(
     os.environ["AzureWebJobsStorage"], os.environ.get("E2E_LOCK_CONTAINER", "langgraph-locks")
 )
-try:
+with contextlib.suppress(ResourceExistsError):  # Bicep pre-creates it; other errors propagate
     _lock_container.create_container()
-except Exception:  # noqa: BLE001  # pragma: no cover - already exists
-    pass
 
 langgraph_app = LangGraphApp(auth_level=func.AuthLevel.ANONYMOUS, async_runs="durable")
 langgraph_app.thread_lock = AzureBlobLeaseThreadLock(container_client=_lock_container)

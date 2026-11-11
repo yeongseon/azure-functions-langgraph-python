@@ -8,15 +8,20 @@ idempotency key that applies the effect once however often the tool is called.
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+import types
 from types import ModuleType
 from typing import Any
 
-from azure.core.exceptions import ResourceExistsError
 import pytest
 
 from tests.example_imports import load_example_file
 
 GRAPH = Path(__file__).resolve().parents[1] / "examples" / "e2e_durable_app" / "graph.py"
+
+
+class ResourceExistsError(Exception):
+    """Stand-in for azure.core.exceptions.ResourceExistsError (azure-core is not a core dep)."""
 
 
 class _Blob:
@@ -50,6 +55,21 @@ class FakeContainer:
 
 @pytest.fixture
 def graph_module(monkeypatch: pytest.MonkeyPatch) -> tuple[ModuleType, FakeContainer]:
+    # The example imports azure.core / azure.storage.blob at module level, which the core CI
+    # lanes do not install. Stub them for the import only; monkeypatch restores sys.modules.
+    core = types.ModuleType("azure.core")
+    exceptions = types.ModuleType("azure.core.exceptions")
+    exceptions.ResourceExistsError = ResourceExistsError  # type: ignore[attr-defined]
+    storage = types.ModuleType("azure.storage")
+    blob = types.ModuleType("azure.storage.blob")
+    blob.ContainerClient = object  # type: ignore[attr-defined]
+    for name, mod in {
+        "azure.core": core,
+        "azure.core.exceptions": exceptions,
+        "azure.storage": storage,
+        "azure.storage.blob": blob,
+    }.items():
+        monkeypatch.setitem(sys.modules, name, mod)
     module = load_example_file(GRAPH, "e2e_durable_graph")
     fake = FakeContainer()
     monkeypatch.setattr(module, "evidence_container", lambda: fake)
