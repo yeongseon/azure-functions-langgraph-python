@@ -22,6 +22,7 @@ from azure_functions_langgraph.observability import (
 )
 from azure_functions_langgraph.platform._common import (
     PlatformRouteDeps,
+    _authorize_run_graph,
     _build_sse_response,
     _build_threaded_config,
     _build_threadless_config,
@@ -33,6 +34,7 @@ from azure_functions_langgraph.platform._common import (
     _platform_error,
     _resolve_context_kwarg,
     _resolve_run_graph,
+    _validate_run_io_structure,
     logger,
 )
 from azure_functions_langgraph.platform._sse import (
@@ -148,13 +150,17 @@ def register_run_routes(
             return parsed
         run_req = parsed
 
+        reg = _authorize_run_graph(run_req, deps, req, thread_id)
+        if isinstance(reg, func.HttpResponse):
+            return reg
+
         thread = deps.thread_store.get(thread_id)
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
 
-        reg = _resolve_run_graph(run_req, deps)
-        if isinstance(reg, func.HttpResponse):
-            return reg
+        io_err = _validate_run_io_structure(run_req, deps)
+        if io_err is not None:
+            return io_err
 
         context_kwargs = _resolve_context_kwarg(reg.graph.invoke, run_req.context, reg.name)
         if isinstance(context_kwargs, func.HttpResponse):
@@ -287,6 +293,10 @@ def register_run_routes(
             return parsed
         run_req = parsed
 
+        reg = _authorize_run_graph(run_req, deps, req, thread_id)
+        if isinstance(reg, func.HttpResponse):
+            return reg
+
         thread = deps.thread_store.get(thread_id)
         if thread is None:
             return _platform_error(404, f"Thread {thread_id!r} not found")
@@ -295,9 +305,9 @@ def register_run_routes(
         if mode_err is not None:
             return mode_err
 
-        reg = _resolve_run_graph(run_req, deps)
-        if isinstance(reg, func.HttpResponse):
-            return reg
+        io_err = _validate_run_io_structure(run_req, deps)
+        if io_err is not None:
+            return io_err
 
         if not isinstance(reg.graph, StreamableGraph):
             return _platform_error(
@@ -473,7 +483,7 @@ def register_run_routes(
             return parsed
         run_req = parsed
 
-        reg = _resolve_run_graph(run_req, deps)
+        reg = _resolve_run_graph(run_req, deps, req)
         if isinstance(reg, func.HttpResponse):
             return reg
 
@@ -536,7 +546,7 @@ def register_run_routes(
         if mode_err is not None:
             return mode_err
 
-        reg = _resolve_run_graph(run_req, deps)
+        reg = _resolve_run_graph(run_req, deps, req)
         if isinstance(reg, func.HttpResponse):
             return reg
 
