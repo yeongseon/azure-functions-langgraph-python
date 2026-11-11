@@ -30,6 +30,7 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("service_bus_agent", "compiled_graph"),
     ("service_bus_sessions", "compiled_graph"),
     ("true_streaming_agent", "compiled_graph"),
+    ("streaming_authorization", "compiled_graph"),
     ("durable_async_agent", "compiled_graph"),
 )
 
@@ -83,7 +84,9 @@ EXAMPLE_DIRS = (
     "service_bus_agent",
     "service_bus_sessions",
     "true_streaming_agent",
+    "streaming_authorization",
     "durable_async_agent",
+    "sqlite_checkpoint_local",
 )
 
 
