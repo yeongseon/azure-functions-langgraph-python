@@ -161,7 +161,7 @@ sequenceDiagram
 > **Streaming is buffered end-to-end; the SSE log is returned as a single
 > response.** The graph runs to completion and every event is accumulated, then
 > flushed as one `text/event-stream` response with `Cache-Control: no-cache` and
-> `X-Accel-Buffering: no` headers (the native stream endpoint sets no `Content-Location`).
+> `X-Accel-Buffering: no` headers (no `Content-Location` is set).
 > If the buffer would exceed `max_stream_response_bytes`, the run is halted and a
 > terminal `event: error` + `event: end` is injected in-band (still HTTP 200).
 
@@ -193,11 +193,11 @@ sequenceDiagram
     Graph-->>Routes: result dict
     Routes->>Store: release_run_lock (owner-token guarded)
     Routes->>Routes: Release shared ThreadLock
-    Routes-->>AzureFunctions: HttpResponse (200, final values JSON + Content-Location header)
+    Routes-->>AzureFunctions: HttpResponse (200, final values JSON)
     AzureFunctions-->>SDK: JSON response
 ```
 
-Successful run responses include `Content-Location: /api/threads/{thread_id}/runs/{run_id}`. Threadless runs use `/api/runs/{run_id}`.
+Platform run responses (wait and stream, threaded and threadless) set no `Content-Location` header: the Platform router registers no GET route for a run resource, so such a link would dangle.
 
 ### Platform: Thread lifecycle (state machine)
 
@@ -231,8 +231,26 @@ flowchart TD
     CON["contracts.py\nPydantic + metadata dataclasses"]
     PRO["protocols.py\nProtocol interfaces"]
 
+    STRM["streaming.py\nStreamingLangGraphApp (experimental)"]
+    OBS["observability.py\nRunObserver contract"]
+
+    subgraph locks ["locks/"]
+        LBASE["base.py\nThreadLock protocol"]
+        LIMP["inprocess.py / azure_blob.py\nLock backends"]
+        LGRD["guard.py\nOwnership guard"]
+    end
+
+    subgraph durable ["durable/"]
+        DRT["_runtime.py\nDurable wiring (lazy SDK import)"]
+        DLIF["_lifecycle.py / _activity.py / _orchestrator.py\nAsync-run lifecycle"]
+    end
+
+    subgraph triggers ["triggers/"]
+        SBUS["service_bus.py\nService Bus adapter"]
+    end
+
     subgraph platform ["platform/"]
-        PRTE["routes.py\nSDK-compatible handlers"]
+        PRTE["routes.py\nRoute registration + handlers"]
         PCON["contracts.py\nPlatform API models"]
         PSTR["stores.py\nThreadStore protocol + InMemoryThreadStore"]
         PSSE["_sse.py\nSSE event formatting"]
@@ -255,6 +273,18 @@ flowchart TD
     APP --> PRO
     APP --> PRTE
     APP --> PSTR
+    APP --> LBASE
+    APP --> OBS
+    APP -.-> DRT
+    APP -.-> SBUS
+    STRM --> HDL
+    STRM --> LBASE
+    STRM --> OBS
+    DRT --> DLIF
+    DRT --> LBASE
+    SBUS --> LBASE
+    LIMP --> LBASE
+    LGRD --> LBASE
     OBR --> APP
     OBR --> CON
     HDL --> VAL
@@ -306,6 +336,10 @@ Transport-agnostic input validators (pure functions returning error message or `
 - `validate_graph_name()`, `validate_body_size()`, `validate_input_structure()`, `validate_thread_id()`.
 - Shared by both native handlers and platform routes.
 
+### `_json.py`
+
+JSON serialization of graph output. Imports `langchain_core.messages` directly to serialize LangChain message objects, which is why `langchain-core` is a declared runtime dependency.
+
 ### `contracts.py`
 
 Pydantic v2 models for request/response validation:
@@ -334,11 +368,37 @@ Stdlib metadata dataclasses (v0.5+):
 
 Using protocols avoids a hard import dependency on `langgraph` at the library level. Any object with the right methods works.
 
+### `streaming.py`
+
+`StreamingLangGraphApp` — the separate **experimental** true-streaming transport (`streaming` extra, `azurefunctions-extensions-http-fastapi`). It reuses the native handlers' validation and the `locks/` and `observability` contracts, but serves async-generator SSE and cannot be mixed with `LangGraphApp` routes in one function app. `streaming_authorization.py` holds its opt-in RUN authorization and `_stream_response.py` defers stream ownership until ASGI execution.
+
+### `locks/`
+
+Per-thread writer exclusion for native, streaming, Durable and trigger runs:
+
+- `base.py` — `ThreadLock` protocol (`acquire(graph_name, thread_id, timeout)` returns an opaque token or `None`; `release(..., token)`).
+- `inprocess.py` — `InProcessThreadLock`, the default; single Python process only.
+- `azure_blob.py` — `AzureBlobLeaseThreadLock`, a distributed lock built on Blob leases with bounded renewal (`azure-blob` extra).
+- `guard.py` — opt-in ownership guard (`OwnershipGuard`, `guard_checkpoint_writes`) so a checkpoint saver can reject writes after the lock *detects* loss; not fencing.
+- `_async.py` — cancellation-safe adaptation of synchronous locks for async callers.
+
+### `durable/`
+
+Optional Durable Functions async-run control plane (`durable` extra, enabled with `async_runs="durable"`): create/get/cancel handlers (`_lifecycle.py`), a deterministic orchestrator (`_orchestrator.py`) and an activity that executes the graph (`_activity.py`), with pure state models in `_state.py`. Only `_runtime.py` touches `azure.durable_functions`, imported lazily. Graphs run inside activities, never orchestrators.
+
+### `triggers/`
+
+Event-driven adapters. `service_bus.py` drives a graph from an Azure Service Bus trigger (`ServiceBusMessageLike`, `default_message_mapper`, `ThreadContentionError`); `_session_topology.py` validates the session-exclusive topology.
+
+### `observability.py` and `observability_otel.py`
+
+`RunObserver` / `RunContext` run-lifecycle contract with no-op and logging observers; `observability_otel.py` adds an optional OpenTelemetry observer (`otel` extra).
+
 ### `platform/`
 
-LangGraph Platform API compatibility layer (v0.3+):
+LangGraph Platform API compatibility layer (v0.3+), registered only when `platform_compat=True`:
 
-- `routes.py` — SDK-compatible HTTP route handlers for threads, runs, assistants, state operations.
+- `routes.py` — route registration. Handlers live in `_threads.py`, `_runs.py` and `_assistants.py` (threads, runs, assistants, state operations), with shared helpers in `_common.py` and run-lock renewal in `_store_renewal.py`.
 - `contracts.py` — Platform API Pydantic models (Thread, Run, Assistant, Interrupt, etc.).
 - `stores.py` — `ThreadStore` protocol + `InMemoryThreadStore` default implementation.
 - `_sse.py` — SSE event formatting for platform streaming endpoints.
@@ -347,7 +407,8 @@ LangGraph Platform API compatibility layer (v0.3+):
 
 Persistent checkpoint storage (v0.4+):
 
-- `azure_blob.py` — `AzureBlobCheckpointSaver` (optional extra: `azure-functions-langgraph[azure-blob]`). Stores checkpoints as blob hierarchies: `{thread_id}/{checkpoint_ns}/{checkpoint_id}/checkpoint.bin`.
+- `azure_blob.py` — `AzureBlobCheckpointSaver` (optional extra: `azure-functions-langgraph[azure-blob]`). Stores checkpoints as blob hierarchies under `threads/{thread_id}/ns/{checkpoint_ns}/checkpoints/{checkpoint_id}/`, with `checkpoint.bin` as the commit marker.
+- `postgres.py`, `sqlite.py`, `cosmos.py` — DX helpers over the optional LangGraph checkpoint packages (`postgres`, `sqlite`, `cosmos` extras).
 
 ### `stores/`
 
@@ -363,12 +424,15 @@ Exported symbols (via `__all__`, all lazy-loaded via `__getattr__`):
 - `__version__` — package version string
 - `InvokeRequest`, `InvokeResponse`, `StreamRequest` — request/response contracts
 - `HealthResponse`, `GraphInfo`, `ErrorResponse`, `StateResponse` — endpoint models
-- `RouteMetadata`, `RegisteredGraphMetadata`, `AppMetadata` — metadata dataclasses (v0.5+)
-- `InvocableGraph`, `StreamableGraph`, `LangGraphLike`, `StatefulGraph` — protocol interfaces
+- `RouteMetadata`, `RegisteredGraphMetadata`, `AppMetadata`, `get_langgraph_metadata` — metadata dataclasses and toolkit metadata accessor
+- `InvocableGraph`, `AsyncInvocableGraph`, `StreamableGraph`, `AsyncStreamableGraph`, `LangGraphLike`, `StatefulGraph`, `CloneableGraph` — protocol interfaces
+- `RunObserver`, `RunContext`, `NoOpRunObserver`, `LoggingRunObserver`, `OTelRunObserver`, `RunRejectedReason`, `RunTransport` — run observability
+- `StreamingLangGraphApp` — experimental true-streaming app (`streaming` extra)
+- `default_message_mapper`, `ServiceBusMessageLike`, `ThreadContentionError` — Service Bus trigger helpers
 
 Lazy imports via `__getattr__` are a deliberate design choice: importing the package does not require `azure-functions` or `langgraph` to be installed, enabling use in environments where only contracts or protocols are needed.
 
-Everything else (handlers, validators, platform internals, storage implementations) is implementation detail.
+Everything else (handlers, validators, platform internals, storage implementations) is implementation detail. Lock backends are imported from `azure_functions_langgraph.locks`, the checkpointer and thread store from `.checkpointers` / `.stores`.
 
 ## Key Design Decisions
 

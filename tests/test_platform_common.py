@@ -22,22 +22,19 @@ class TestBuildSSEResponse:
     def test_builds_event_stream_response_with_headers(self) -> None:
         resp = _build_sse_response(
             ["event: end\ndata: {}\n\n"],
-            content_location="/api/runs/abc",
         )
         assert resp.status_code == 200
         assert resp.mimetype == "text/event-stream"
         assert resp.headers["Cache-Control"] == "no-cache"
         assert resp.headers["X-Accel-Buffering"] == "no"
-        assert resp.headers["Content-Location"] == "/api/runs/abc"
+        assert "Content-Location" not in resp.headers
         assert resp.get_body() == b"event: end\ndata: {}\n\n"
 
     def test_joins_multiple_chunks_in_order(self) -> None:
         resp = _build_sse_response(
             ["a", "b", "c"],
-            content_location="/api/threads/t1/runs/r1",
         )
         assert resp.get_body() == b"abc"
-        assert resp.headers["Content-Location"] == "/api/threads/t1/runs/r1"
 
 
 class TestNormalizeStreamMode:

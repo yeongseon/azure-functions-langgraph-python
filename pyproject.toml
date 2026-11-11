@@ -36,6 +36,12 @@ dependencies = [
     "azure-functions>=1.21.0,<2.0.0; python_version < '3.13'",
     "azure-functions>=1.21.0,<3.0.0; python_version >= '3.13'",
     "langgraph>=1.0,<2.0",
+    # Imported directly (``_json.py``, ``checkpointers/azure_blob.py``). The floor
+    # mirrors what langgraph 1.0.0 already requires transitively
+    # (langgraph-prebuilt>=1.0.0 -> langchain-core>=0.3.67); the ceiling matches
+    # langgraph's own ``langchain-core<2``. The minimum-dependencies CI job pins
+    # the floor exactly.
+    "langchain-core>=0.3.67,<2.0",
     "pydantic>=2.7.4,<3.0",
 ]
 

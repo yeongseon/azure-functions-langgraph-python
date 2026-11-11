@@ -234,7 +234,6 @@ def register_run_routes(
                 body=dumps(output),
                 mimetype="application/json",
                 status_code=200,
-                headers={"Content-Location": f"/api/threads/{thread_id}/runs/{run_id}"},
             )
             status = "idle"
         except Exception as exc:
@@ -393,7 +392,6 @@ def register_run_routes(
                 )
                 return _build_sse_response(
                     chunks,
-                    content_location=f"/api/threads/{thread_id}/runs/{run_id}",
                 )
             for event in reg.graph.stream(
                 graph_input,
@@ -412,7 +410,6 @@ def register_run_routes(
                     )
                     return _build_sse_response(
                         chunks,
-                        content_location=f"/api/threads/{thread_id}/runs/{run_id}",
                     )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
@@ -420,7 +417,6 @@ def register_run_routes(
             chunks.append(format_end_event())
             response = _build_sse_response(
                 chunks,
-                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
             )
             status = "idle"
         except Exception as exc:
@@ -437,7 +433,6 @@ def register_run_routes(
             chunks.append(format_end_event())
             return _build_sse_response(
                 chunks,
-                content_location=f"/api/threads/{thread_id}/runs/{run_id}",
             )
 
         finally:
@@ -521,7 +516,6 @@ def register_run_routes(
             body=dumps(output),
             mimetype="application/json",
             status_code=200,
-            headers={"Content-Location": f"/api/runs/{run_id}"},
         )
 
     @app.function_name(name="aflg_platform_runs_stream_threadless")
@@ -593,7 +587,6 @@ def register_run_routes(
             )
             return _build_sse_response(
                 chunks,
-                content_location=f"/api/runs/{run_id}",
             )
         try:
             for event in exec_graph.stream(
@@ -613,7 +606,6 @@ def register_run_routes(
                     )
                     return _build_sse_response(
                         chunks,
-                        content_location=f"/api/runs/{run_id}",
                     )
                 chunks.append(chunk)
                 buffered_bytes += chunk_bytes
@@ -627,7 +619,6 @@ def register_run_routes(
             chunks.append(format_end_event())
             return _build_sse_response(
                 chunks,
-                content_location=f"/api/runs/{run_id}",
             )
 
         chunks.append(format_end_event())
@@ -635,5 +626,4 @@ def register_run_routes(
 
         return _build_sse_response(
             chunks,
-            content_location=f"/api/runs/{run_id}",
         )
