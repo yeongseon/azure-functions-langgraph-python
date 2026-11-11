@@ -125,7 +125,8 @@ use native async-generator cancellation and do not use this thread bridge.
 
 From the repository root, `make example-sse-client` calls the local host above
 with a standard-library client (Python 3.11+). It uses a 30-second socket timeout,
-checks the SSE content type, bounds each frame to 1 MiB and closes the response
+checks the SSE content type, bounds each frame to 1 MiB of UTF-8 bytes (including
+line delimiters; a CR reserves both CRLF bytes conservatively) and closes the response
 on normal completion, an error, or Ctrl+C. No keys or cloud credentials are used.
 This local demonstration is not a production retry/authentication policy.
 

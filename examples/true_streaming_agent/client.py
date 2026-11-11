@@ -7,7 +7,6 @@ import codecs
 from collections.abc import Iterable, Iterator
 from contextlib import closing
 from http.client import HTTPConnection
-from itertools import chain
 import json
 import re
 
@@ -26,17 +25,19 @@ def events(chunks: Iterable[bytes]) -> Iterator[tuple[str, object]]:
     event = "message"
     data: list[str] = []
     frame_size = 0
-    for chunk in chain(chunks, [None]):
-        if chunk is None:
-            if not buffer.endswith("\r"):
-                break
-            chunk = b"\n"  # Complete a final CR line ending at EOF.
-        buffer += decoder.decode(chunk)
+    skip_lf = False
+    for chunk in chunks:
+        text = decoder.decode(chunk)
+        if skip_lf and text:
+            text = text.removeprefix("\n")
+            skip_lf = False
+        buffer += text
         while match := re.search(r"\r\n|\r|\n", buffer):
-            if match.group() == "\r" and match.end() == len(buffer):
-                break  # A following chunk may begin with LF.
+            skip_lf = match.group() == "\r" and match.end() == len(buffer)
             line, buffer = buffer[: match.start()], buffer[match.end() :]
-            frame_size += len(line) + 1
+            # Reserve both CRLF bytes for CR, allowing immediate CR dispatch.
+            terminator_size = 2 if "\r" in match.group() else 1
+            frame_size += len(line.encode("utf-8")) + terminator_size
             if frame_size > 1024 * 1024:
                 raise StreamError("SSE frame exceeds 1 MiB")
             if not line:
@@ -58,7 +59,7 @@ def events(chunks: Iterable[bytes]) -> Iterator[tuple[str, object]]:
                     event = value
                 elif field == "data":
                     data.append(value)
-        if len(buffer) + frame_size > 1024 * 1024:
+        if len(buffer.encode("utf-8")) + frame_size > 1024 * 1024:
             raise StreamError("SSE frame exceeds 1 MiB")
     decoder.decode(b"", final=True)
     raise StreamError("Connection closed before end event")
@@ -71,6 +72,7 @@ def main() -> None:
     args = parser.parse_args()
     body = {
         "input": {"messages": [{"role": "human", "content": "hello world"}], "tokens": []},
+        "config": {"configurable": {"thread_id": "local-sse-client"}},
         "stream_mode": "updates",
     }
     try:
