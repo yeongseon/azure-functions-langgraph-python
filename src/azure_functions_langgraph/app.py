@@ -175,18 +175,19 @@ class LangGraphApp:
         hard import dependency on ``langgraph`` at the library level.
 
     Note:
-        All ``/stream`` responses are **buffered SSE** — chunks emitted by the
-        graph are collected during execution and flushed as SSE events after the
-        run completes, so clients do not receive partial tokens incrementally.
-        This is a deliberate consequence of the classic
-        ``HttpRequest``/``HttpResponse`` routing model this package is built on,
-        not a platform limitation. Azure Functions Python v2 *does* support true
-        HTTP streaming (runtime 4.34.1+) via the
-        ``azurefunctions-extensions-http-fastapi`` ASGI extension, but enabling
-        it switches the entire function app to the FastAPI/ASGI model, which
-        cannot be mixed with the classic routes used here — an app-wide
-        architectural change tracked in issue #378 (see the "Streaming:
-        buffered SSE and the true-streaming migration" section of ``DESIGN.md``).
+        On this classic app every ``/stream`` response is **buffered SSE** —
+        chunks emitted by the graph are collected during execution and flushed
+        as SSE events after the run completes, so clients do not receive
+        partial tokens incrementally. This is a consequence of the classic
+        ``HttpRequest``/``HttpResponse`` routing model, not a limitation of
+        Azure Functions: Python v2 supports true HTTP streaming (runtime
+        4.34.1+) through the ``azurefunctions-extensions-http-fastapi`` ASGI
+        extension, which switches the whole function app to the FastAPI/ASGI
+        model and so cannot be mixed with the classic routes used here. For
+        incrementally flushed ``text/event-stream`` responses use the separate,
+        experimental :class:`~azure_functions_langgraph.streaming.StreamingLangGraphApp`
+        (``streaming`` extra); see "Streaming: buffered SSE and true
+        streaming" in ``DESIGN.md``.
 
     Note:
         The default ``auth_level`` is :attr:`~azure.functions.AuthLevel.FUNCTION`,

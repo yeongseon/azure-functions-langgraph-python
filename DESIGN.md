@@ -100,7 +100,7 @@ inside activities, never orchestrators; checkpoints and writer exclusion remain
 separate responsibilities.
 
 ### 5. Per-graph auth override (v0.2)
-Each graph registration can override the app-level `auth_level`. This enables mixed-auth deployments where public-facing graphs use `ANONYMOUS` while admin graphs require `FUNCTION` keys. The override is stored per-registration and applied at route creation time.
+Each graph registration can override the app-level `auth_level`. This enables mixed-auth deployments where public-facing graphs use `ANONYMOUS` while admin graphs require `FUNCTION` keys. The override is stored per-registration and applied at route creation time to that graph's **native** routes only. Platform and Durable routes are shared by every graph and use the app-level `auth_level`; building an app whose graph is *stricter* than the app level while those routes are enabled raises `ValueError` rather than silently bypassing the graph's key (see `docs/security.md`).
 
 ### 6. State endpoint via StatefulGraph protocol (v0.2)
 Graphs that implement `get_state(config)` (i.e., graphs compiled with a checkpointer) expose a `GET /graphs/{name}/threads/{thread_id}/state` endpoint. This uses a new `StatefulGraph` protocol added to `protocols.py`, keeping the protocol-based design consistent.
@@ -376,7 +376,9 @@ src/azure_functions_langgraph/
 ├── streaming.py             # StreamingLangGraphApp (experimental true streaming)
 ├── streaming_authorization.py  # Opt-in RUN authorization for the ASGI transport
 ├── _stream_response.py      # Deferred stream ownership for ASGI responses
-├── _handlers.py             # Native route handlers (invoke, stream, state)
+├── _handlers.py             # Native route handlers (invoke, stream, state; sync and async)
+├── _execution_plan.py       # Transport-neutral request-to-execution planning shared by native and streaming adapters
+├── _topology.py             # Immutable hosting-topology plan and build-time validation (auth, lock, store, checkpointer)
 ├── _validation.py           # Transport-agnostic request validators
 ├── _json.py                 # JSON serialization of graph output (langchain-core messages)
 ├── _run_authorization.py    # Fail-closed policy evaluation at the native run boundary
@@ -389,14 +391,15 @@ src/azure_functions_langgraph/
 ├── observability_otel.py    # Optional OpenTelemetry RunObserver (otel extra)
 ├── openapi.py               # Bridge to azure-functions-openapi (openapi extra)
 ├── py.typed                 # PEP 561 marker
-├── locks/                   # ThreadLock protocol, in-process and Azure Blob lease locks, ownership guard
+├── locks/                   # ThreadLock protocol, in-process and Azure Blob lease locks, ownership guard, storage-identity lock scope (_scope.py)
 ├── durable/                 # Optional Durable async-run control plane (durable extra)
 ├── triggers/                # Service Bus trigger adapter
 ├── platform/                # LangGraph Platform API compatibility layer (v0.3+)
 │   ├── contracts.py         # Platform API Pydantic models (Thread, Run, Assistant, etc.)
 │   ├── routes.py            # Route registration
 │   ├── _assistants.py, _threads.py, _runs.py  # Route handlers by resource
-│   ├── _common.py           # Shared handler helpers
+│   ├── _common.py           # Shared handler helpers (graph-aware authorize, app-level auth reuse)
+│   ├── _serialization.py    # SDK wire-shape JSON encoding (flat messages, no NaN/Infinity)
 │   ├── _store_renewal.py    # Platform run-lock renewal
 │   ├── stores.py            # ThreadStore protocol + InMemoryThreadStore
 │   └── _sse.py              # SSE event formatting
