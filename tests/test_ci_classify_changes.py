@@ -28,6 +28,7 @@ def classify(files: list[str]) -> dict[str, str]:
         ["CHANGELOG.md", "CONTRIBUTING.md"],
         ["docs/guide.md", "docs/assets/shot.png"],
         ["docs/index.md", "docs/diagram.svg"],
+        ["docs/api-contract-gate.md"],
     ],
 )
 def test_documentation_only_changes_skip_the_matrix(files: list[str]) -> None:
@@ -54,6 +55,9 @@ def test_documentation_only_changes_skip_the_matrix(files: list[str]) -> None:
         [".github/workflows/ci-test.yml"],
         [".github/PULL_REQUEST_TEMPLATE.md"],
         ["tools/lint.py"],
+        ["tools/api_contract.py"],
+        ["tests/contracts/api_baseline.json"],
+        ["tests/contracts/classifications.json"],
         ["scripts/run.sh"],
         ["llms.txt"],
         ["llms-full.txt"],
