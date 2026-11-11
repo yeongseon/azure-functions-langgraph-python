@@ -7,6 +7,7 @@ from collections import Counter
 from collections.abc import Iterator
 import importlib
 import sys
+import threading
 import types
 from typing import Any
 
@@ -41,6 +42,16 @@ class _Store:
         self.in_flight = 0
         self.max_in_flight = 0
         self.fail_download_suffix: str | None = None
+        self.lock = threading.Lock()
+        # Sync overlap gate: downloads wait until ``gate_threshold`` are in
+        # flight at once (bounded wait so a regression cannot hang CI).
+        self.gate_threshold: int | None = None
+        self.gate = threading.Event()
+        # Async sibling gate (created inside the running loop by the test).
+        self.sibling_block: asyncio.Event | None = None
+        self.siblings_started: asyncio.Event | None = None
+        self.sibling_target = 0
+        self.started = 0
 
 
 class _SyncClient:
@@ -55,15 +66,29 @@ class _SyncClient:
         self._s.blobs[self._n] = (data, dict(metadata))
 
     def download_blob(self) -> _Stream:
-        self._s.ops["download"] += 1
-        self._s.in_flight += 1
-        self._s.max_in_flight = max(self._s.max_in_flight, self._s.in_flight)
+        store = self._s
+        gated = store.gate_threshold is not None and "values" in self._n
+        with store.lock:
+            store.ops["download"] += 1
+            store.in_flight += 1
+            store.max_in_flight = max(store.max_in_flight, store.in_flight)
+            if (
+                store.gate_threshold is not None
+                and gated
+                and store.in_flight >= store.gate_threshold
+            ):
+                store.gate.set()
         try:
-            if self._n not in self._s.blobs:
+            if gated and not store.gate.wait(timeout=2.0):
+                # Reads never overlapped; release everyone so the test fails on
+                # its assertion instead of stalling on every download.
+                store.gate.set()
+            if self._n not in store.blobs:
                 raise _NotFound(self._n)
-            return _Stream(self._s.blobs[self._n][0])
+            return _Stream(store.blobs[self._n][0])
         finally:
-            self._s.in_flight -= 1
+            with store.lock:
+                store.in_flight -= 1
 
     def get_blob_properties(self) -> _Props:
         self._s.ops["properties"] += 1
@@ -116,6 +141,18 @@ class _AsyncClient:
         self._s.max_in_flight = max(self._s.max_in_flight, self._s.in_flight)
         try:
             await asyncio.sleep(0.001)
+            if self._s.sibling_block is not None and self._s.siblings_started is not None:
+                is_failing = bool(
+                    self._s.fail_download_suffix and self._n.endswith(self._s.fail_download_suffix)
+                )
+                if is_failing:
+                    # Fail only once every sibling has started and is blocked.
+                    await asyncio.wait_for(self._s.siblings_started.wait(), timeout=5.0)
+                elif "values" in self._n:
+                    self._s.started += 1
+                    if self._s.started >= self._s.sibling_target:
+                        self._s.siblings_started.set()
+                    await asyncio.wait_for(self._s.sibling_block.wait(), timeout=5.0)
             if self._s.fail_download_suffix and self._n.endswith(self._s.fail_download_suffix):
                 raise RuntimeError("boom")
             if self._n not in self._s.blobs:
@@ -234,8 +271,12 @@ def test_sync_reads_are_concurrent_but_bounded() -> None:
     saver, store = _saver()
     _seed(saver, 1, channels=40, writes=0)
     module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    store.max_in_flight = 0
+    store.gate_threshold = 2
     assert saver.get_tuple(_cfg("cp-000")) is not None
-    assert store.max_in_flight <= module._MAX_CONCURRENT_BLOB_READS
+    # Downloads block until at least two overlap, so sequential reads cannot
+    # reach this point with max_in_flight > 1.
+    assert 1 < store.max_in_flight <= module._MAX_CONCURRENT_BLOB_READS
 
 
 async def test_async_reads_are_concurrent_bounded_and_ordered() -> None:
@@ -258,9 +299,13 @@ async def test_async_read_failure_cancels_sibling_downloads() -> None:
     saver, store = _saver()
     _seed(saver, 1, channels=20, writes=0)
     store.fail_download_suffix = next(n for n in store.blobs if "ch3" in n and "values" in n)
+    store.sibling_block = asyncio.Event()  # never set: siblings only end via cancellation
+    store.siblings_started = asyncio.Event()
+    store.sibling_target = 3
     with pytest.raises(RuntimeError, match="boom"):
         await saver.aget_tuple(_cfg("cp-000"))
-    await asyncio.sleep(0.01)
+    # No sleep: cancellation must have been awaited before the error propagated.
+    assert store.started >= store.sibling_target
     assert store.in_flight == 0
 
 
