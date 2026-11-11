@@ -40,7 +40,7 @@ Normalized statuses returned by `GET /runs/{run_id}`:
 | `pending` | run accepted, orchestration not yet scheduled |
 | `running` | orchestration/activity in flight |
 | `success` | graph completed; `output.result` holds the graph output |
-| `error` | graph raised, or the run was rejected (e.g. thread-lock contention) |
+| `error` | graph raised, or the run was rejected (e.g. thread-lock contention); the response carries only `{"code": "run_failed", "message": "The run failed."}`, and the raw exception is in the host log |
 | `cancelled` | the orchestration was terminated (it does not prove the graph or its tools stopped) |
 
 `cancel_requested` is **not** one of these: it is only the acknowledgement of the cancel endpoint.
