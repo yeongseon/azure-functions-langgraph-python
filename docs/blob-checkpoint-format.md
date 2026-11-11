@@ -7,7 +7,8 @@ releases (see [Evidence](#evidence)). Nothing here is a claim about real Azure B
 fixtures and tests use in-memory containers.
 
 !!! note "Scope"
-    The saver's on-blob format is **unchanged by the work that produced this page**. No migration
+    The saver's on-blob format is **unchanged**; the only runtime change since this page was introduced is
+    that writers refuse to replace a hint of an unknown version (see Known gaps). No migration
     exists, and no stored data is ever rewritten or re-serialized by a read. A format change is
     proposed, not shipped, in [Proposal](#proposal-versioned-format-marker-not-implemented).
 
@@ -140,16 +141,54 @@ between releases (see the Production Guide's rolling-deployment warning). On top
   `get_tuple` without a checkpoint id keeps returning it. The newer checkpoint exists and is visible
   through `list` and by id. This is a known gap, pinned by a strict `xfail` test; drain old writers
   for a thread before a current writer touches it.
+* A hint written in an unknown **newer** version makes the current writer refuse (see Known gaps).
+
+#### Why the stale hint is not mitigated on the read path
+
+Detecting it needs a cross-check that no checkpoint newer than the hinted one exists. Without a lower
+bound that is a listing of the namespace's whole `checkpoints/` prefix, which is exactly the scan the hint
+exists to avoid (Azure lists in ascending name order, so the newest id is only found by enumerating every
+checkpoint; the cost grows with history length). A bounded listing would need the `start_from` option of
+`ContainerClient.list_blobs`, and that is not safe to rely on here: the package supports
+`azure-storage-blob>=12.0,<13`, older versions of which do not have the keyword; the SDK documents it as
+"Only one entity level is supported", and its behavior on a flat (non-hierarchical) account cannot be
+verified without a real service, which this work does not use. Even if it worked it adds a request to every
+`get_tuple`, which conflicts with the Blob I/O reduction tracked in #860, and the "only when needed" variant
+has no reliable trigger because the stale hint is a perfectly valid clean hint. The gap only affects a mixed
+old/new fleet that is already unsupported. It therefore stays documented and pinned. A format change that
+lets a current reader detect an old writer (for example the adapter-owned marker in the Proposal below) is
+the way to close it.
 
 ## Known gaps
 
 These are current behavior, not guarantees; each is pinned by a strict `xfail` test so a fix flips the
 test and forces this page to change.
 
-* **Unknown future hint version is overwritten by writers.** A hint with a `version` other than `1`
-  is ignored by reads (the scan is used and the hint file is left untouched), but the next `put` /
-  `aput` replaces it with a version-1 hint. A future format must make writers refuse instead.
-* **Stale clean hint after an old writer's crash** (above).
+* **Stale clean hint after an old writer's crash** (see Mixed fleets). Not fixed; see
+  [Why the stale hint is not mitigated on the read path](#why-the-stale-hint-is-not-mitigated-on-the-read-path).
+* **Concurrent writers.** Two savers writing one thread at once, without the thread lock, can leave a
+  clean hint that points at the lower of two committed checkpoints (the writer that publishes last
+  computes `max(hint it read before the other commit, its own id)`). Both checkpoints are committed
+  and visible through `list` and by id. Pinned by a strict `xfail`; the thread lock (and, opt-in, the
+  ownership guard) is the protection, not the saver.
+
+Resolved: **a hint of an unknown version is no longer overwritten.** `put` / `aput` raise
+`BlobCheckpointFormatError` (a `RuntimeError`, importable from
+`azure_functions_langgraph.checkpointers.azure_blob`) before uploading anything when `latest.json` is a JSON object
+whose `version` is present but is not the integer `1` (for example `2`, `"1"`, `null`, `true`). The
+message names an integer version (or says "unrecognized") and never includes blob content, thread ids or
+paths. Reads (`get_tuple`, `list`, async twins) still ignore such a hint and use the prefix scan, and leave it
+untouched; `collect_orphaned_values` skips the namespace. Hints that are missing, legacy (no `version`),
+dirty, malformed JSON or not a JSON object are still treated as "no usable hint" and replaced as before.
+`put_writes` / `aput_writes` do not consult the hint and are unaffected.
+
+!!! warning "Behavior change for downgrade scenarios only"
+    A release that does not understand a newer hint version now refuses to write to that namespace instead
+    of silently replacing the hint. No behavior changes for data written by this or any earlier release,
+    because no published release has written a hint with another version. The refusal can only occur after a
+    newer release wrote such a hint and an older one is then run on the same data (a downgrade, which this
+    page already treats as unsupported). Recovery: run the newer release again, or restore the pre-upgrade
+    backup (see Rollback and backup guidance).
 
 Unknown or malformed *data* blobs already fail loudly: an unknown `serde_type` or invalid payload
 raises (`NotImplementedError` / `ValueError` from the serializer) from `get_tuple`, `list` and their
@@ -208,7 +247,8 @@ version strings) is a stored-format change. It must, in the same pull request:
    if the current writer emits a stored hint version that has none;
 2. keep every existing fixture set byte-for-byte and keep `test_old_writer_to_current_reader` green
    for all of them (never regenerate or edit a past set);
-3. define behavior for unknown versions (reject, do not overwrite) and for the legacy path, with tests;
+3. define behavior for unknown versions (reject, do not overwrite; for the hint this is
+   `BlobCheckpointFormatError`) and for the legacy path, with tests;
 4. record a downgrade probe result in this page;
 5. be classified for breaking-change impact per
    [CONTRIBUTING.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CONTRIBUTING.md#breaking-change-classification);
@@ -223,8 +263,9 @@ versioned object, the hint, is already self-describing. When a change to the lay
   **new** writers on the blobs they create (absent means legacy format `0`), so existing blobs are
   never rewritten and legacy reads stay explicit;
 * readers accept `0` and the versions they know, and fail closed on a greater value;
-* writers refuse to write into a namespace whose hint or marker is of an unknown greater version
-  (the missing guard behind the first known gap), instead of overwriting it;
+* writers refuse to write into a namespace whose hint or marker is of an unknown greater version,
+  instead of overwriting it (implemented for the `latest.json` hint only, see Known gaps; a new marker
+  would need the same guard);
 * gate the change with a new fixture set per the rules above.
 
-This needs its own issue and review; this pull request changes no runtime code.
+This needs its own issue and review.

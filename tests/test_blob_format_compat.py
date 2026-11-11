@@ -35,6 +35,12 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 import pytest
 
+from azure_functions_langgraph.locks.guard import (
+    OWNERSHIP_GUARD_CONFIG_KEY,
+    ThreadLeaseLostError,
+)
+from tests.ownership_guard_support import ScriptedGuard
+
 ROOT = Path(__file__).parent / "fixtures" / "blob_compat"
 SETS_DIR = ROOT / "sets"
 SET_NAMES = sorted(p.name for p in SETS_DIR.iterdir() if p.is_dir())
@@ -619,27 +625,204 @@ def test_future_hint_version_is_not_trusted_for_reads() -> None:
     assert blobs[_hint()][0] == future, "reads must leave a future-version hint untouched"
 
 
+_UNKNOWN_VERSIONS: list[Any] = [2, 99, 0, -1, "1", "2", 1.0, True, None, [1], {"v": 1}]
+
+
+async def _put_next(kind: str, saver: Any, prev: Any, guard: Any = None) -> Any:
+    cp, nv = _next_checkpoint(prev, NEXT)
+    config = prev.config
+    if guard is not None:
+        config = {"configurable": {**config["configurable"], OWNERSHIP_GUARD_CONFIG_KEY: guard}}
+    metadata = {"source": "loop", "step": 2, "parents": {}}
+    if kind == "sync":
+        return saver.put(config, cp, metadata, nv)
+    return await saver.aput(config, cp, metadata, nv)
+
+
+@pytest.mark.parametrize("kind", READERS)
+@pytest.mark.parametrize("version", _UNKNOWN_VERSIONS, ids=repr)
+async def test_writer_refuses_to_overwrite_hint_of_unknown_version(kind: str, version: Any) -> None:
+    blobs, _ = _load_set("current")
+    future = json.dumps({"version": version, "dirty": False, "checkpoint_id": NEWEST}).encode()
+    blobs[_hint()] = (future, {})
+    before = _snapshot(blobs)
+    saver = _saver(blobs, native_async=kind == "async-native")
+    prev = saver.get_tuple(_cfg("thread-sync", ""))
+    module = importlib.import_module(GRAPH_MODULE)
+    with pytest.raises(module.BlobCheckpointFormatError) as excinfo:
+        await _put_next("sync" if kind == "sync" else "async", saver, prev)
+    message = str(excinfo.value)
+    # Sanitized: no thread id, checkpoint id, path or hint content in the message.
+    for secret in ("thread-sync", NEWEST, "latest.json/", "checkpoint_id", "threads/"):
+        assert secret not in message
+    assert "No data was modified" in message
+    assert blobs == before, "a refused write must not upload, replace or delete any blob"
+    # Reads keep working through the authoritative scan and leave the hint alone.
+    got = await _read_all(kind, blobs, "thread-sync", "")
+    assert got[0]["id"] == NEWEST
+    assert blobs == before
+
+
+async def test_refusal_names_a_plain_integer_version_only() -> None:
+    blobs, _ = _load_set("current")
+    saver = _saver(blobs)
+    prev = saver.get_tuple(_cfg("thread-sync", ""))
+    module = importlib.import_module(GRAPH_MODULE)
+    for raw, expected in (
+        (b'{"version": 2}', "version 2"),
+        (b'{"version": "<x>"}', "unrecognized"),
+    ):
+        blobs[_hint()] = (raw, {})
+        with pytest.raises(module.BlobCheckpointFormatError, match=expected) as excinfo:
+            await _put_next("sync", saver, prev)
+        assert "<x>" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("kind", ["sync", "async"])
+@pytest.mark.parametrize(
+    "hint",
+    [
+        b'{"checkpoint_id": "' + PREV.encode() + b'"}',  # legacy 0.8.2-0.12.2
+        b'{"version":1,"dirty":true}',  # intent marker
+        b'{"version":1,"dirty":false,"checkpoint_id":"' + PREV.encode() + b'"}',
+        b"not json",
+        b"[]",
+        b'"x"',
+    ],
+    ids=["legacy", "dirty", "stale-v1", "malformed", "array", "string"],
+)
+async def test_writer_still_replaces_hints_it_understands_or_that_are_unusable(
+    kind: str, hint: bytes
+) -> None:
+    blobs, _ = _load_set("current")
+    blobs[_hint()] = (hint, {})
+    saver = _saver(blobs)
+    prev = saver.get_tuple(_cfg("thread-sync", ""))
+    await _put_next(kind, saver, prev)
+    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": False, "checkpoint_id": NEXT}
+
+
+async def test_unknown_hint_leaves_orphan_collection_fail_closed() -> None:
+    blobs, _ = _load_set("current")
+    blobs[_hint()] = (b'{"version":2,"dirty":false,"checkpoint_id":"x"}', {})
+    saver = _saver(blobs)
+    before = _snapshot(blobs)
+    result = saver.collect_orphaned_values(
+        "thread-sync", checkpoint_ns="", dry_run=False, grace_period_seconds=0
+    )
+    assert result.skipped_namespaces == [("thread-sync", "")]
+    assert result.deleted == []
+    assert blobs == before
+
+
+# --------------------------------------------------------------------------
+# ownership guard and two savers on one thread (offline, in-memory only)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", ["sync", "async"])
+async def test_refusal_happens_before_any_ownership_check_or_upload(kind: str) -> None:
+    blobs, _ = _load_set("current")
+    blobs[_hint()] = (b'{"version":2}', {})
+    before = _snapshot(blobs)
+    saver = _saver(blobs)
+    prev = saver.get_tuple(_cfg("thread-sync", ""))
+    guard = ScriptedGuard()
+    module = importlib.import_module(GRAPH_MODULE)
+    with pytest.raises(module.BlobCheckpointFormatError):
+        await _put_next(kind, saver, prev, guard)
+    assert guard.checks == 0
+    assert blobs == before
+
+
+@pytest.mark.parametrize("kind", ["sync", "async"])
+async def test_stale_owner_after_dirty_marker_cannot_commit_and_new_owner_wins(kind: str) -> None:
+    """Writer A loses its lease right after publishing the dirty intent.
+
+    A's guard raises before any value, metadata or commit-marker blob is
+    written, so B (the new owner, a second saver on the same container)
+    commits cleanly and readers see only B's checkpoint.
+    """
+    blobs, _ = _load_set("current")
+    saver_a, saver_b = _saver(blobs), _saver(blobs)
+    prev = saver_a.get_tuple(_cfg("thread-sync", ""))
+    guard_a = ScriptedGuard(trip_on=2)  # check 1: dirty marker; check 2: first value blob
+    with pytest.raises(ThreadLeaseLostError):
+        await _put_next(kind, saver_a, prev, guard_a)
+    assert guard_a.checks == 2
+    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": True}
+    assert _ckpt("thread-sync", "", NEXT, "checkpoint.bin") not in blobs
+    assert (
+        saver_b.get_tuple(_cfg("thread-sync", "")).config["configurable"]["checkpoint_id"] == NEWEST
+    ), "a dirty hint is never trusted: readers scan"
+
+    guard_b = ScriptedGuard()
+    await _put_next(kind, saver_b, prev, guard_b)
+    assert guard_b.checks >= 5
+    got = await _read_all(kind, blobs, "thread-sync", "")
+    assert got[0]["id"] == NEXT and got[0]["parent_id"] == NEWEST
+    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": False, "checkpoint_id": NEXT}
+
+
+def _race(blobs: Blobs, first_id: str, second_id: str) -> tuple[Any, Any]:
+    """A begins ``put`` (id ``first_id``), B runs a whole ``put`` (``second_id``) inside A's window.
+
+    The interleave point is A's dirty-marker upload, the first thing a writer
+    does; no threads are needed, so the outcome is deterministic.
+    """
+    saver_a, saver_b = _saver(blobs), _saver(blobs)
+    prev = saver_a.get_tuple(_cfg("thread-sync", ""))
+    cp_a, nv_a = _next_checkpoint(prev, first_id)
+    cp_b, nv_b = _next_checkpoint(prev, second_id)
+    meta = {"source": "loop", "step": 2, "parents": {}}
+    real_upload = saver_a._upload_blob
+    fired: list[bool] = []
+
+    def hook(path: str, payload: bytes, metadata: dict[str, str]) -> None:
+        real_upload(path, payload, metadata)
+        if path.endswith("/latest.json") and not fired:
+            fired.append(True)
+            saver_b.put(prev.config, cp_b, meta, nv_b)
+
+    saver_a._upload_blob = hook
+    saver_a.put(prev.config, cp_a, meta, nv_a)
+    assert fired
+    return saver_a, saver_b
+
+
+def test_two_savers_racing_commit_both_checkpoints_and_never_lose_data() -> None:
+    blobs, _ = _load_set("current")
+    low, high = "1f000000-0000-6000-8000-000000000004", "1f000000-0000-6000-8000-000000000005"
+    saver, _ = _race(blobs, low, high)
+    ids = [t.checkpoint["id"] for t in saver.list(_cfg("thread-sync", ""))]
+    assert ids[:2] == [high, low], "both commits exist; neither writer's data was overwritten"
+    for cp_id in (low, high):
+        assert saver.get_tuple(_cfg("thread-sync", "", cp_id)) is not None
+
+
+def test_two_savers_racing_where_the_later_commit_has_the_higher_id() -> None:
+    blobs, _ = _load_set("current")
+    low, high = "1f000000-0000-6000-8000-000000000004", "1f000000-0000-6000-8000-000000000005"
+    saver, _ = _race(blobs, high, low)  # A (id=high) publishes last
+    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": False, "checkpoint_id": high}
+    assert saver.get_tuple(_cfg("thread-sync", "")).config["configurable"]["checkpoint_id"] == high
+
+
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "Known gap (docs/blob-checkpoint-format.md, 'Known gaps'): put() treats a hint with an "
-        "unknown version like a missing one and overwrites it with a version-1 hint. A future "
-        "format owner should make writers refuse; this test then starts passing and the "
-        "xfail must be removed."
+        "Known gap (docs/blob-checkpoint-format.md, 'Concurrent writers'): the adapter assumes one "
+        "writer per thread. A writer whose own id is lower publishes a clean hint computed from "
+        "the hint it read before a concurrent writer committed a higher id, so get_tuple() "
+        "without a checkpoint id returns the lower one. The thread lock (and, opt-in, the "
+        "ownership guard) is what prevents this; it is not enforced by the saver."
     ),
 )
-def test_writer_does_not_overwrite_hint_of_unknown_future_version() -> None:
+def test_two_savers_racing_do_not_hide_the_higher_checkpoint_behind_the_hint() -> None:
     blobs, _ = _load_set("current")
-    future = json.dumps({"version": 2, "dirty": False, "checkpoint_id": NEWEST}).encode()
-    blobs[_hint()] = (future, {})
-    saver = _saver(blobs)
-    prev = saver.get_tuple(_cfg("thread-sync", ""))
-    cp, nv = _next_checkpoint(prev, NEXT)
-    try:
-        saver.put(prev.config, cp, {"source": "loop", "step": 2, "parents": {}}, nv)
-    except Exception:  # noqa: BLE001 - refusing the write is the desired outcome
-        pass
-    assert blobs[_hint()][0] == future
+    low, high = "1f000000-0000-6000-8000-000000000004", "1f000000-0000-6000-8000-000000000005"
+    saver, _ = _race(blobs, low, high)  # A (id=low) publishes last
+    assert saver.get_tuple(_cfg("thread-sync", "")).config["configurable"]["checkpoint_id"] == high
 
 
 @pytest.mark.xfail(

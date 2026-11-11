@@ -24,7 +24,7 @@ per distinct module is committed: first release with the saver (`0.8.2`), the as
 be downloaded in the session that produced these files (repeated read timeouts from
 `files.pythonhosted.org`). Instead the generator was run once against the `v0.13.0` **tag source**: its
 output was byte-identical to `current`, but that run is not committed as its own set because it is not a
-published artifact. Re-add a `0.13.0` set from the wheel when it can be fetched. The ten tags missing
+published artifact. Re-add a `0.13.0` set from the wheel when it can be fetched (retried in the #899 follow-up: `pip download`, run with `-i https://pypi.org/simple` in a Python 3.12 venv, and `curl -4`/`-6` still timed out or got no response from `files.pythonhosted.org`, so no wheel was obtained and no set was added). The ten tags missing
 from PyPI (`docs/release-status.md`) cannot be fixtured.
 
 All four sets were written with the same `langgraph`/`langgraph-checkpoint` so that differences between
