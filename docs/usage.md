@@ -170,6 +170,15 @@ GET /api/graphs/{name}/threads/{thread_id}/state
 ```
 
 Returns the current state of a thread for graphs compiled with a checkpointer (graphs satisfying the `StatefulGraph` protocol).
+Registrations with `async_mode=True` retrieve state with LangGraph's
+`aget_state`, so async-only checkpointers such as `AsyncPostgresSaver` do not
+fall back to synchronous checkpoint I/O. Sync registrations continue to use
+`get_state`. State values must be JSON-serializable and finite; serialization
+failures return HTTP 500 instead of emitting non-standard JSON.
+
+This async routing applies to the native state endpoint above. The experimental
+Platform-compatible state and history endpoints still use synchronous graph
+state methods; async-only Platform state/history support remains follow-up work.
 
 ### Response
 
@@ -187,6 +196,8 @@ Returns the current state of a thread for graphs compiled with a checkpointer (g
 | Status Code | Condition |
 |-------------|----------|
 | 200 | Thread state found |
+| 400 | Missing or invalid thread ID |
+| 409 | Registered graph does not expose the state method required by its mode |
 | 404 | Thread not found or graph is not stateful |
 | 500 | Internal error |
 

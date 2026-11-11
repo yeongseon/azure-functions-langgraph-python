@@ -19,7 +19,12 @@ from azure_functions_langgraph._validation import (
     validate_graph_name,
     validate_input_structure,
 )
-from azure_functions_langgraph.authorization import ThreadAuthorizer
+from azure_functions_langgraph.authorization import (
+    AuthorizationAction,
+    AuthorizationContext,
+    ThreadAuthorizer,
+    authorization_status,
+)
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.observability import NOOP_OBSERVER, RunObserver
 from azure_functions_langgraph.platform._sse import format_end_event, format_error_event
@@ -137,15 +142,12 @@ def _merge_thread_metadata(
     return store.update(thread_id, metadata={**(current or {}), **patch})
 
 
-def _build_sse_response(
-    chunks: list[str],
-    *,
-    content_location: str,
-) -> func.HttpResponse:
+def _build_sse_response(chunks: list[str]) -> func.HttpResponse:
     """Build the buffered SSE ``HttpResponse`` shared by all streaming routes.
 
     Every platform streaming exit path emits the same ``text/event-stream``
-    response with identical headers, differing only in ``Content-Location``.
+    response with identical headers. No ``Content-Location`` is set because the
+    Platform router registers no GET route for a run resource.
     """
     return func.HttpResponse(
         body="".join(chunks),
@@ -154,7 +156,6 @@ def _build_sse_response(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Content-Location": content_location,
         },
     )
 
@@ -370,18 +371,47 @@ def _validate_run_io_structure(
     return None
 
 
-def _resolve_run_graph(
+def _authorize_run_graph(
     run_req: RunCreate,
     deps: PlatformRouteDeps,
+    req: func.HttpRequest,
+    thread_id: str | None = None,
 ) -> Any:
-    """Look up the assistant registration and validate its run I/O structure.
+    """Resolve the assistant registration and authorize it graph-aware (#854).
 
-    Returns the registration on success, or an ``HttpResponse`` when the
-    assistant is unknown (404) or the input/config structure is invalid (400).
+    Authorization runs with the resolved registration name so ``authorize``
+    callbacks see the actual graph. Threaded routes call this *before* any
+    thread lookup so a graph-level denial cannot reveal thread existence.
+
+    Returns the registration, or an ``HttpResponse`` (404 unknown assistant,
+    401/403 denied).
     """
     reg = deps.registrations.get(run_req.assistant_id)
     if reg is None:
         return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
+    status = authorization_status(
+        deps.authorize,
+        AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req),
+    )
+    if status is not None:
+        return _platform_error(status, "Access denied")
+    return reg
+
+
+def _resolve_run_graph(
+    run_req: RunCreate,
+    deps: PlatformRouteDeps,
+    req: func.HttpRequest,
+    thread_id: str | None = None,
+) -> Any:
+    """Authorize the assistant's graph and validate its run I/O structure.
+
+    Returns the registration on success, or an ``HttpResponse`` when the
+    assistant is unknown (404), access is denied, or the input/config structure is invalid (400).
+    """
+    reg = _authorize_run_graph(run_req, deps, req, thread_id)
+    if isinstance(reg, func.HttpResponse):
+        return reg
     io_err = _validate_run_io_structure(run_req, deps)
     if io_err is not None:
         return io_err
