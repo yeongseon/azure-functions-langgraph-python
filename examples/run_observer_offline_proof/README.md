@@ -45,7 +45,7 @@ langgraph.run.started {'graph_name': 'run_observer_offline_proof', 'endpoint': '
 langgraph.run.failed {'graph_name': 'run_observer_offline_proof', 'endpoint': 'invoke', 'run_id': 'fake-request-failure', 'status': 'failed', 'error_type': 'RuntimeError'}
 langgraph.run.rejected {'graph_name': 'run_observer_offline_proof', 'endpoint': 'invoke', 'run_id': 'fake-request-rejected', 'status': 'rejected', 'reason': 'invalid_request'}
 
-OK: 5 observer records, canary absent from all of them.
+OK: 5 observer records, canary absent from full records, extras and formatted tracebacks.
 ```
 
 The smoke test that enforces this, including mutation checks proving it fails
