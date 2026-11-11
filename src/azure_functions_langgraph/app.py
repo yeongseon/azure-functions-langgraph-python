@@ -16,6 +16,7 @@ from azure_functions_langgraph._endpoint import (
     build_endpoint_metadata,
     set_endpoint_metadata,
 )
+from azure_functions_langgraph._execution_plan import validate_optional_model
 from azure_functions_langgraph._handlers import (
     handle_invoke,
     handle_invoke_async,
@@ -42,7 +43,6 @@ from azure_functions_langgraph.contracts import (
     ReadinessResponse,
     RegisteredGraphMetadata,
     RouteMetadata,
-    _is_model_type,
     build_invoke_request_model,
     build_invoke_response_model,
     build_stream_request_model,
@@ -156,16 +156,8 @@ def _resolve_endpoint_spec(reg: _GraphRegistration, endpoint: str) -> _EndpointS
 
 
 def _validate_optional_model(model: type[Any] | None, label: str) -> None:
-    """Reject a non-``BaseModel`` *model* early, unless it is ``None``.
-
-    ``request_model``/``response_model`` are wrapped in the transport envelope
-    for metadata generation (issue #349), and the wrapper silently falls back to
-    the generic envelope for non-model inputs. Validating here keeps the failure
-    fast and close to the caller's ``register()`` call instead of masking a bad
-    model as a generic envelope.
-    """
-    if model is not None and not _is_model_type(model):
-        raise TypeError(f"{label} must be a Pydantic BaseModel subclass, got {model!r}")
+    """Reject a non-``BaseModel`` *model* early, unless it is ``None``."""
+    validate_optional_model(model, label)
 
 
 @dataclass
