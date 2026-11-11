@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 import azure.functions as func
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp
@@ -4726,3 +4726,97 @@ class TestRunsContextAndMetadata:
         resp = fn(req)
 
         assert resp.status_code == 200
+
+
+class _Opaque:
+    def __repr__(self) -> str:
+        return "<opaque artifact>"
+
+    __str__ = __repr__
+
+
+def _opaque_tool_message() -> ToolMessage:
+    return ToolMessage(content="ok", tool_call_id="call-1", id="tool-1", artifact=_Opaque())
+
+
+class TestNonJsonToolMessageArtifact:
+    """Arbitrary ToolMessage.artifact values fall back to str, not HTTP 500."""
+
+    def test_wait(self, store: InMemoryThreadStore) -> None:
+        class G:
+            def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> Any:
+                return {"messages": [_opaque_tool_message()]}
+
+        app = _build_platform_app(graphs={"agent": G()}, store=store)
+        thread = store.create()
+        fn = _get_fn(app.function_app, "aflg_platform_runs_wait")
+        resp = fn(
+            _post_request(
+                f"/api/threads/{thread.thread_id}/runs/wait",
+                {"assistant_id": "agent", "input": {}},
+                thread_id=thread.thread_id,
+            )
+        )
+        assert resp.status_code == 200
+        msg = json.loads(resp.get_body())["messages"][0]
+        assert msg["type"] == "tool"
+        assert msg["artifact"] == "<opaque artifact>"
+
+    def test_buffered_stream(self, store: InMemoryThreadStore) -> None:
+        class G:
+            def invoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> Any:
+                return {}
+
+            def stream(
+                self,
+                input: dict[str, Any],
+                config: dict[str, Any] | None = None,
+                stream_mode: str = "values",
+            ) -> Iterator[dict[str, Any]]:
+                yield {"messages": [_opaque_tool_message()]}
+
+        app = _build_platform_app(graphs={"agent": G()}, store=store)
+        thread = store.create()
+        fn = _get_fn(app.function_app, "aflg_platform_runs_stream")
+        resp = fn(
+            _post_request(
+                f"/api/threads/{thread.thread_id}/runs/stream",
+                {"assistant_id": "agent", "input": {}},
+                thread_id=thread.thread_id,
+            )
+        )
+        body = resp.get_body().decode()
+        assert "event: error" not in body
+        assert "<opaque artifact>" in body
+        assert "event: end" in body
+
+    def test_state_and_history(self, store: InMemoryThreadStore) -> None:
+        from tests.conftest import _FakeStateSnapshot
+
+        snap = _FakeStateSnapshot(values={"messages": [_opaque_tool_message()]})
+        graph = FakeStatefulGraph(state_snapshot=snap, state_history=[snap])
+        app = _build_platform_app(graphs={"agent": graph}, store=store)
+        thread = store.create()
+        store.update(thread.thread_id, assistant_id="agent")
+
+        state_fn = _get_fn(app.function_app, "aflg_platform_threads_state_get")
+        resp = state_fn(
+            _get_request(f"/api/threads/{thread.thread_id}/state", thread_id=thread.thread_id)
+        )
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body())["values"]["messages"][0]["artifact"] == (
+            "<opaque artifact>"
+        )
+
+        hist_fn = _get_fn(app.function_app, "aflg_platform_threads_history")
+        resp = hist_fn(
+            _post_request(
+                f"/api/threads/{thread.thread_id}/history",
+                {"limit": 10},
+                thread_id=thread.thread_id,
+            )
+        )
+        assert resp.status_code == 200
+        assert json.loads(resp.get_body())[0]["values"]["messages"][0]["artifact"] == (
+            "<opaque artifact>"
+        )

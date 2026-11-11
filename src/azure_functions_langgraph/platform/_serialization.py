@@ -12,10 +12,12 @@ def dumps(value: Any) -> str:
 
 
 def _default(value: Any) -> Any:
+    # Python-mode dump keeps arbitrary nested values (e.g. ToolMessage.artifact)
+    # intact so this encoder's ``str`` fallback still applies to them.
     if isinstance(value, BaseMessage):
-        return value.model_dump(mode="json")
+        return value.model_dump()
     if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
+        return value.model_dump()
     return str(value)
 
 
