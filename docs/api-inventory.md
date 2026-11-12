@@ -241,7 +241,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `CANCEL_REQUESTED` | constant | yes | `-T-` |
 | `DurableClientLike` | protocol | yes | `---` |
 | `DurableRunPayload` | dataclass | yes | `-T-` |
-| `DurableRunResult` | dataclass | yes | `-T-` |
+| `DurableRunResult` | dataclass | yes | `-TD` |
 | `DurableRunStatus` | alias | yes | `---` |
 | `GraphRegistrationLike` | protocol | yes | `---` |
 | `OrchestrationContextLike` | protocol | yes | `---` |
@@ -444,7 +444,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `InputMapper` | alias | no | `---` |
 | `ResultHandler` | alias | no | `---` |
 | `ServiceBusMessageLike` | protocol | no | `-TD` |
-| `TRIGGER_TYPE` | constant | no | `---` |
+| `TRIGGER_TYPE` | constant | no | `-T-` |
 | `ThreadContentionError` | class | no | `ETD` |
 | `ThreadIdFactory` | alias | no | `---` |
 | `default_message_mapper` | function | no | `ETD` |
@@ -575,7 +575,7 @@ Names found in no example, test or doc (name match only, so a name shared by two
 | `platform.routes` | `register_platform_routes` |
 | `protocols` | `AsyncStatefulGraph` |
 | `triggers` | `InputMapper`, `ResultHandler`, `ThreadIdFactory` |
-| `triggers.service_bus` | `InputMapper`, `ResultHandler`, `TRIGGER_TYPE`, `ThreadIdFactory` |
+| `triggers.service_bus` | `InputMapper`, `ResultHandler`, `ThreadIdFactory` |
 
 ## Root exports without an in-repo consumer
 

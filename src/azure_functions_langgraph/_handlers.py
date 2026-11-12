@@ -20,6 +20,7 @@ from azure_functions_langgraph._execution_plan import (
     VERSION_UNSUPPORTED_STATUS,
     admit_request_structure,
     extract_thread_id,
+    has_checkpointer,
     method_accepts_version,
     negotiate_version,
     plan_run_config,
@@ -261,7 +262,7 @@ def handle_invoke(
     authorize: ThreadAuthorizer | None = None,
 ) -> func.HttpResponse:
     """Handle a synchronous invoke request."""
-    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    has_cp = has_checkpointer(reg.graph)
     ctx = new_run_context(
         reg.name,
         "invoke",
@@ -354,7 +355,7 @@ def handle_stream(
     separate experimental ``StreamingLangGraphApp`` (``streaming`` extra); see
     "Streaming: buffered SSE and true streaming" in ``DESIGN.md``.
     """
-    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    has_cp = has_checkpointer(reg.graph)
     ctx = new_run_context(
         reg.name,
         "stream",
@@ -504,7 +505,7 @@ async def handle_invoke_async(
     thread-lock calls to a worker thread so a blocking lock backend (e.g. the
     Azure Blob lease) never stalls the event loop.
     """
-    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    has_cp = has_checkpointer(reg.graph)
     ctx = new_run_context(
         reg.name,
         "invoke",
@@ -593,7 +594,7 @@ async def handle_stream_async(
     ``async for``. The byte-size cap is enforced mid-stream, and the thread
     lock is released in ``finally`` even when the async generator raises.
     """
-    has_cp = getattr(reg.graph, "checkpointer", None) is not None
+    has_cp = has_checkpointer(reg.graph)
     ctx = new_run_context(
         reg.name,
         "stream",
