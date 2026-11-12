@@ -438,7 +438,10 @@ def test_committed_baselines_record_their_provenance() -> None:
         assert provenance["ref"] == "v0.13.0"
         assert len(provenance["commit"]) == 40
         assert len(provenance["published_wheel_sha256"]) == 64
-        assert provenance["kind"] == "tag-source"
+        # Regenerated from the published wheel (#879); the digest of the unpacked wheel
+        # is recorded and must equal the registry-reported one.
+        assert provenance["kind"] == "published-wheel"
+        assert provenance["wheel_sha256"] == provenance["published_wheel_sha256"]
     api = committed("api_baseline.json")
     assert f"{PKG}:LangGraphApp" in api["symbols"]
     assert api["modules"][PKG]["all"] is not None

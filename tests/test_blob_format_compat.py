@@ -2,7 +2,7 @@
 
 The fixture sets under ``tests/fixtures/blob_compat/sets`` hold blob names,
 metadata and bytes written by *real* published releases of this package
-(``0.8.2``, ``0.9.4``, ``0.12.2``) and by the current saver. They are produced
+(``0.8.2``, ``0.9.4``, ``0.12.2``, ``0.13.0``) and by the current saver. They are produced
 by ``tests/fixtures/blob_compat/generate_fixtures.py``; see the README next to
 it for versions and provenance.
 
@@ -47,16 +47,16 @@ SET_NAMES = sorted(p.name for p in SETS_DIR.iterdir() if p.is_dir())
 
 # Stored ``latest.json`` hint format -> fixture sets that carry it.
 #   None : unversioned ``{"checkpoint_id": ...}`` written by 0.8.2-0.12.2
-#   1    : ``{"version": 1, "dirty": bool, ["checkpoint_id": ...]}``, current writer
+#   1    : ``{"version": 1, "dirty": bool, ["checkpoint_id": ...]}``, 0.13.0 and the current writer
 # A new stored format version MUST add its key here together with a fixture set
 # produced by the real writer of that format (see the README), and the suite
 # below must pass over it before the format ships.
 STORED_HINT_FORMATS: dict[int | None, list[str]] = {
     None: ["0.8.2", "0.9.4", "0.12.2"],
-    1: ["current"],
+    1: ["0.13.0", "current"],
 }
 LEGACY_SETS = STORED_HINT_FORMATS[None]
-ASYNC_WRITER_SETS = ["0.9.4", "0.12.2", "current"]  # 0.8.2 predates native async (#440)
+ASYNC_WRITER_SETS = ["0.9.4", "0.12.2", "0.13.0", "current"]  # 0.8.2 predates native async (#440)
 
 GRAPH_MODULE = "azure_functions_langgraph.checkpointers.azure_blob"
 Blobs = dict[str, tuple[bytes, dict[str, str]]]
@@ -486,7 +486,7 @@ def test_legacy_write_without_task_path_metadata_replays_by_task_id_then_index()
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("set_name", ["0.12.2", "current"])
+@pytest.mark.parametrize("set_name", ["0.12.2", "0.13.0", "current"])
 def test_crash_after_dirty_intent_marker_only(set_name: str) -> None:
     blobs, expected = _load_set(set_name)
     blobs[_hint()] = (b'{"version":1,"dirty":true}', {})
@@ -497,7 +497,7 @@ def test_crash_after_dirty_intent_marker_only(set_name: str) -> None:
     assert got == _expected_newest_first(entry)
 
 
-@pytest.mark.parametrize("set_name", ["0.12.2", "current"])
+@pytest.mark.parametrize("set_name", ["0.12.2", "0.13.0", "current"])
 @pytest.mark.parametrize("native_async", [False, True])
 async def test_crash_before_commit_marker_leaves_previous_checkpoint_current(
     set_name: str, native_async: bool
@@ -528,7 +528,7 @@ async def test_crash_before_commit_marker_leaves_previous_checkpoint_current(
     assert orphan_metadata[0]
 
 
-@pytest.mark.parametrize("set_name", ["0.12.2", "current"])
+@pytest.mark.parametrize("set_name", ["0.12.2", "0.13.0", "current"])
 def test_crash_after_commit_marker_before_clean_hint_exposes_committed_checkpoint(
     set_name: str,
 ) -> None:
@@ -558,6 +558,85 @@ def test_retry_after_crash_before_commit_marker_completes_cleanly() -> None:
 
 
 # --------------------------------------------------------------------------
+# the hinted-checkpoint existence probe in put()/aput() (#860)
+# --------------------------------------------------------------------------
+# ``put`` reads the clean hint and probes (one HEAD) that the hinted checkpoint exists
+# before folding it into the hint it publishes (``max(hint, new id)``). The probe looks
+# removable (one request per put) but is not: ``delete_checkpoints_before`` /
+# ``delete_old_checkpoints`` leave ``latest.json`` untouched, so a clean hint can name a
+# deleted checkpoint through the public API. These tests pin what the probe buys; they fail
+# if it is dropped or only run when the hint is above the new id.
+
+LOW = "1f000000-0000-6000-8000-000000000000"
+SURVIVOR = "1f000000-0000-6000-8000-000000000009"
+WRITERS = ["sync", "async-native", "async-fallback"]
+
+
+async def _put_via(kind: str, blobs: Blobs, prev: Any, new_id: str) -> None:
+    saver = _saver(blobs, native_async=kind == "async-native")
+    cp, new_versions = _next_checkpoint(prev, new_id)
+    metadata = {"source": "loop", "step": 9, "parents": {}}
+    if kind == "sync":
+        saver.put(prev.config, cp, metadata, new_versions)
+    else:
+        await saver.aput(prev.config, cp, metadata, new_versions)
+
+
+@pytest.mark.parametrize("kind", WRITERS)
+async def test_put_probes_the_hinted_checkpoint_before_trusting_it(kind: str) -> None:
+    """Hint names a deleted checkpoint *above* the id being written: it must not be republished."""
+    blobs, _ = _load_set("current")
+    thread, ns = "thread-sync", ""
+    saver = _saver(blobs)
+    prev = saver.get_tuple(_cfg(thread, ns))
+    assert prev.config["configurable"]["checkpoint_id"] == NEWEST
+    # Public API: remove every checkpoint; the clean hint still names NEWEST.
+    assert saver.delete_checkpoints_before(thread, before_checkpoint_id=NEXT, checkpoint_ns=ns) == 3
+    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": False, "checkpoint_id": NEWEST}
+    assert _ckpt(thread, ns, NEWEST, "checkpoint.bin") not in blobs
+
+    await _put_via(kind, blobs, prev, LOW)  # an id *below* the dangling hint
+
+    # Without the probe this would stay ``NEWEST`` (max of the dangling hint and LOW).
+    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": False, "checkpoint_id": LOW}
+    assert _saver(blobs).get_tuple(_cfg(thread, ns)).config["configurable"]["checkpoint_id"] == LOW
+
+
+@pytest.mark.parametrize("kind", WRITERS)
+async def test_put_probe_stops_a_dangling_hint_from_hiding_a_newer_committed_checkpoint(
+    kind: str,
+) -> None:
+    """Hint names a deleted checkpoint *below* the id being written, a newer one exists.
+
+    The scan the probe triggers is what finds ``SURVIVOR``; a "skip the probe when the
+    hint is below the new id" shortcut would publish ``NEXT`` and hide it.
+    """
+    blobs, _ = _load_set("current")
+    thread, ns = "thread-sync", ""
+    saver = _saver(blobs)
+    prev = saver.get_tuple(_cfg(thread, ns))
+    for leaf in ("checkpoint.bin", "metadata.bin"):
+        blobs[_ckpt(thread, ns, SURVIVOR, leaf)] = blobs[_ckpt(thread, ns, NEWEST, leaf)]
+    # Public API: drop everything below SURVIVOR, including the hinted NEWEST.
+    assert (
+        saver.delete_checkpoints_before(thread, before_checkpoint_id=SURVIVOR, checkpoint_ns=ns)
+        == 3
+    )
+    assert json.loads(blobs[_hint()][0])["checkpoint_id"] == NEWEST
+    assert _ckpt(thread, ns, NEWEST, "checkpoint.bin") not in blobs
+
+    await _put_via(kind, blobs, prev, NEXT)  # NEWEST < NEXT < SURVIVOR
+
+    assert json.loads(blobs[_hint()][0]) == {
+        "version": 1,
+        "dirty": False,
+        "checkpoint_id": SURVIVOR,
+    }
+    latest = _saver(blobs).get_tuple(_cfg(thread, ns))
+    assert latest.config["configurable"]["checkpoint_id"] == SURVIVOR
+
+
+# --------------------------------------------------------------------------
 # malformed / unknown data fails safely and is not overwritten
 # --------------------------------------------------------------------------
 
@@ -573,7 +652,7 @@ def _newest_counter_value_blob(blobs: Blobs) -> str:
     return sorted(n for n in blobs if n.startswith("threads/thread-sync/ns//values/counter/"))[-1]
 
 
-@pytest.mark.parametrize("set_name", ["0.12.2", "current"])
+@pytest.mark.parametrize("set_name", ["0.12.2", "0.13.0", "current"])
 @pytest.mark.parametrize("kind", ["checkpoint", "metadata", "write", "value"])
 @pytest.mark.parametrize("corruption", ["unknown-serde-type", "invalid-msgpack-bytes"])
 def test_unknown_or_malformed_blob_raises_and_nothing_is_overwritten(

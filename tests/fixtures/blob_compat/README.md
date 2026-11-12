@@ -11,6 +11,7 @@ document is described in `docs/blob-checkpoint-format.md`.
 | `0.8.2` | published release | PyPI wheel, sha256 `69be6102...79cb` | 3.12.16 | 1.2.11 | 4.2.0 | 12.31.1 | yes | no (predates native async, #440) | legacy `{"checkpoint_id"}` |
 | `0.9.4` | published release | PyPI wheel, sha256 `3a6e2fe1...2ab0` | 3.12.16 | 1.2.11 | 4.2.0 | 12.31.1 | yes | yes | legacy |
 | `0.12.2` | published release | PyPI wheel, sha256 `16c4b754...8faa` | 3.12.16 | 1.2.11 | 4.2.0 | 12.31.1 | yes | yes | legacy |
+| `0.13.0` | published release | PyPI wheel, sha256 `4c4c9241...1d91` | 3.12.16 | 1.2.11 | 4.2.0 | 12.31.1 | yes | yes | `{"version":1,"dirty":false,...}` |
 | `current` | this repository (`environment.json` has the commit) | source tree, `PYTHONPATH=src` | 3.14.4 | 1.2.11 | 4.2.0 | 12.30.1 | yes | yes | `{"version":1,"dirty":false,...}` |
 
 Full hashes are in each set's `environment.json` (`source_ref`). Each wheel's SHA-256 was compared with
@@ -20,14 +21,19 @@ Why these versions. Of the 20 versions on PyPI, wheels `0.5.x`-`0.8.1` contain n
 `*.dist-info`), so they cannot have written Blob data. Of the 14 versions that do contain the saver,
 `0.9.0`-`0.9.4` share one `azure_blob.py` and `0.10.0`-`0.12.2` share another (identical MD5), so one set
 per distinct module is committed: first release with the saver (`0.8.2`), the async generation
-(`0.9.4`), the latest release before the version-1 hint (`0.12.2`). The published `0.13.0` wheel could not
-be downloaded in the session that produced these files (repeated read timeouts from
-`files.pythonhosted.org`). Instead the generator was run once against the `v0.13.0` **tag source**: its
-output was byte-identical to `current`, but that run is not committed as its own set because it is not a
-published artifact. Re-add a `0.13.0` set from the wheel when it can be fetched (retried in the #899 follow-up: `pip download`, run with `-i https://pypi.org/simple` in a Python 3.12 venv, and `curl -4`/`-6` still timed out or got no response from `files.pythonhosted.org`, so no wheel was obtained and no set was added). The ten tags missing
+(`0.9.4`), the latest release before the version-1 hint (`0.12.2`), and the first release that writes the
+version-1 hint (`0.13.0`). The `0.13.0` set was produced from the published wheel (it could not be
+downloaded in the earlier sessions that produced the other sets because of read timeouts from
+`files.pythonhosted.org`; it was later fetched from a PyPI mirror and the bytes were checked against the
+sha256 the PyPI JSON API reports for that file, `4c4c924182861a1a0fdb47058a19611d448352be7eadcff7cca95e34aec71d91`). The earlier
+run against the `v0.13.0` **tag source** had matched `current` byte for byte; the wheel run does too
+(`blobs.json` and `expected.json` differ from `current` only in the `label` field), which is the evidence
+that the published artifact and the tag source wrote the same bytes. The `0.13.0` environment is the
+`0.12.2` environment with the wheel replaced (same Python 3.12.16, `azure-storage-blob` 12.31.1,
+`langgraph` 1.2.11, `langgraph-checkpoint` 4.2.0, `langchain-core` 1.6.2). The ten tags missing
 from PyPI (`docs/release-status.md`) cannot be fixtured.
 
-All four sets were written with the same `langgraph`/`langgraph-checkpoint` so that differences between
+All five sets were written with the same `langgraph`/`langgraph-checkpoint` so that differences between
 them can only come from this adapter. Their non-`latest.json` blobs are byte-identical, which
 `test_only_the_hint_differs_between_fixture_generations` asserts.
 
