@@ -301,6 +301,13 @@ def test_a_table_client_without_the_index_methods_is_refused_only_when_opted_in(
 def test_from_table_client_and_from_connection_string_pass_the_options_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        AzureTableThreadStore,
+        "_load_azure_core_symbols",
+        staticmethod(
+            lambda: (FakeResourceNotFoundError, FakeResourceModifiedError, FakeMatchConditions)
+        ),
+    )
     store = AzureTableThreadStore.from_table_client(
         FakeTable(),
         status_index=True,
