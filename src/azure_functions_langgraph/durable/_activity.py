@@ -23,6 +23,7 @@ import json
 import logging
 from typing import Any, Protocol, runtime_checkable
 
+from azure_functions_langgraph._execution_plan import has_checkpointer
 from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph.durable._state import DurableRunPayload, DurableRunResult
 from azure_functions_langgraph.locks import ThreadLock
@@ -65,12 +66,6 @@ class GraphRegistrationLike(Protocol):
     async_mode: bool
 
 
-def _has_checkpointer(graph: Any) -> bool:
-    """Whether a compiled graph has a checkpointer attached."""
-
-    return getattr(graph, "checkpointer", None) is not None
-
-
 def _is_async(reg: GraphRegistrationLike) -> bool:
     """Whether a graph should be invoked through ``ainvoke``.
 
@@ -106,7 +101,7 @@ async def execute_langgraph_run_impl(
         )
 
     thread_id = payload.thread_id
-    has_ckpt = _has_checkpointer(reg.graph)
+    has_ckpt = has_checkpointer(reg.graph)
     ctx = new_run_context(
         reg.name,
         "invoke",

@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, Protocol, runtime_checkable
 
+from azure_functions_langgraph._execution_plan import has_checkpointer
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.locks._async import async_thread_lock
 from azure_functions_langgraph.locks.guard import check_ownership_guard, guard_run_config
@@ -143,11 +144,6 @@ class _ServiceBusRegistration:
         return self.topic_name is not None
 
 
-def _has_checkpointer(graph: Any) -> bool:
-    """Whether a compiled graph has a checkpointer attached."""
-    return getattr(graph, "checkpointer", None) is not None
-
-
 def _message_thread_id(reg: _ServiceBusRegistration, msg: ServiceBusMessageLike) -> str | None:
     thread_id = reg.thread_id_factory(msg) if reg.thread_id_factory is not None else None
     if not reg.session:
@@ -196,13 +192,13 @@ def process_service_bus_message(
         "invoke",
         thread_id=thread_id,
         invocation_id=msg.message_id,
-        has_checkpointer=_has_checkpointer(reg.graph),
+        has_checkpointer=has_checkpointer(reg.graph),
         lock_backend=type(thread_lock).__name__,
         trigger_type=TRIGGER_TYPE,
     )
 
     lock_token: str | None = None
-    use_lock = bool(thread_id) and _has_checkpointer(reg.graph) and not reg.session_exclusive
+    use_lock = bool(thread_id) and has_checkpointer(reg.graph) and not reg.session_exclusive
     if use_lock and thread_id is not None:
         lock_token = thread_lock.acquire(reg.name, thread_id, timeout=reg.lock_timeout)
         if not lock_token:
@@ -254,12 +250,12 @@ async def process_service_bus_message_async(
         "invoke",
         thread_id=thread_id,
         invocation_id=msg.message_id,
-        has_checkpointer=_has_checkpointer(reg.graph),
+        has_checkpointer=has_checkpointer(reg.graph),
         lock_backend=type(thread_lock).__name__,
         trigger_type=TRIGGER_TYPE,
     )
 
-    use_lock = bool(thread_id) and _has_checkpointer(reg.graph) and not reg.session_exclusive
+    use_lock = bool(thread_id) and has_checkpointer(reg.graph) and not reg.session_exclusive
     lock_thread_id = thread_id if use_lock else None
     async with async_thread_lock(
         thread_lock, reg.name, lock_thread_id, timeout=reg.lock_timeout
