@@ -109,7 +109,7 @@ The current baseline was regenerated from the **published** `0.13.0` wheel
 `c79ea8331dfb4fe444f0c61ce54e049fc9cc3c9b`) because the registry file host was
 unreachable from the generating machine; the wheel-derived payload is
 byte-identical to that tag-source baseline for both contracts, so only the
-provenance changed (#879).
+provenance changed (#879, #906).
 
 ## Verifying the baseline against the published wheel
 
