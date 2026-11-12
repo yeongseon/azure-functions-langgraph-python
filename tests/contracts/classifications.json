@@ -3,18 +3,20 @@
     {
       "file": "api_baseline.json",
       "refs": [
-        "#879"
+        "#879",
+        "#906"
       ],
-      "sha256": "d7e4a80856f8f5d4bf0c37b234eba0c5d4e84407e3e3407ae82de46cd6d7d8b8",
-      "summary": "Initial pin of the public API baseline to the v0.13.0 release (tag source)."
+      "sha256": "595ebf0e8b0580ebe84c95c8b663f39a6389ffab73ac05271cab90cf134ef8cd",
+      "summary": "Public API baseline for v0.13.0 regenerated from the published wheel; the payload is byte-identical to the earlier tag-source baseline, only provenance changed."
     },
     {
       "file": "native_http_baseline.json",
       "refs": [
-        "#879"
+        "#879",
+        "#906"
       ],
-      "sha256": "e7274c76931c949d8bc6f1b462aa8f1c3ba0c935e6375dd444949f5158aadb1b",
-      "summary": "Initial pin of the Native HTTP contract baseline to the v0.13.0 release (tag source)."
+      "sha256": "37f2c9c6d53624f27675ea52537f27c675b6384e3803f233191d200bb9215d4b",
+      "summary": "Native HTTP baseline for v0.13.0 regenerated from the published wheel; the payload is byte-identical to the earlier tag-source baseline, only provenance changed."
     }
   ],
   "changes": [],
