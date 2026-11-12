@@ -16,7 +16,7 @@ from azure_functions_langgraph._endpoint import (
     build_endpoint_metadata,
     set_endpoint_metadata,
 )
-from azure_functions_langgraph._execution_plan import validate_optional_model
+from azure_functions_langgraph._execution_plan import has_checkpointer, validate_optional_model
 from azure_functions_langgraph._handlers import (
     handle_invoke,
     handle_invoke_async,
@@ -1136,9 +1136,8 @@ class LangGraphApp:
 # ------------------------------------------------------------------
 
 
-def _has_checkpointer(graph: Any) -> bool:
-    """Check whether a compiled graph has a checkpointer attached."""
-    return getattr(graph, "checkpointer", None) is not None
+# Kept under its historical private name for the existing unit tests.
+_has_checkpointer = has_checkpointer
 
 
 def get_langgraph_metadata(func: Any) -> dict[str, Any] | None:

@@ -516,6 +516,17 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         # Persist dirty intent first so a crash after the marker cannot hide it.
         # checkpoint.bin acts as the commit marker: if it exists, the checkpoint
         # is valid.  Partial failures before it leave harmless orphans.
+        # The hint is only a hint: ``current_latest`` feeds ``max(current_latest, id)`` in the
+        # clean hint published below, so it must name a checkpoint that exists. The one HEAD
+        # probe is what keeps that true; it is deliberately not removed (#860). A clean hint
+        # can name a missing checkpoint (``delete_checkpoints_before`` /
+        # ``delete_old_checkpoints`` leave ``latest.json`` alone), and then, without the
+        # probe, (a) a hint above this id would be re-published and keep pointing at nothing,
+        # and (b) a hint below this id would hide a committed checkpoint newer than this id,
+        # because the scan that finds it would be skipped. Skipping the probe whenever the
+        # hint is below this id is not equivalent either (case b). Pinned by
+        # ``test_put_probes_the_hinted_checkpoint_before_trusting_it`` in
+        # tests/test_blob_format_compat.py; see docs/blob-checkpoint-format.md.
         current_latest = self._read_latest_checkpoint_id(thread_id, checkpoint_ns, for_write=True)
         if current_latest is None or not self._blob_exists(
             self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
@@ -1725,6 +1736,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         checkpoint_id = checkpoint["id"]
         parent_checkpoint_id = get_checkpoint_id(config)
 
+        # Same hinted-checkpoint existence probe as in ``put`` (see the comment there, #860).
         current_latest = await self._aread_latest_checkpoint_id(
             thread_id, checkpoint_ns, for_write=True
         )

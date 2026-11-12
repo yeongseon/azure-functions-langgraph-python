@@ -35,8 +35,8 @@ namespaces with their own `checkpoints/`, `values/` and `latest.json`).
 | Shape | Written by | Meaning |
 | --- | --- | --- |
 | `{"checkpoint_id": "<id>"}` (no `version`) | 0.8.2 through 0.12.2 (published) | Legacy hint. Current readers **never trust it**; they treat it exactly like a missing hint and scan `checkpoints/` |
-| `{"version":1,"dirty":true}` | current writer, first upload of every `put` / `aput` | Intent marker. Not a certification of anything; readers scan |
-| `{"version":1,"dirty":false,"checkpoint_id":"<id>"}` | current writer, last upload of every `put` / `aput` | Clean hint. `checkpoint_id` is the greater of the previous hint and the new checkpoint id |
+| `{"version":1,"dirty":true}` | 0.13.0 and current writer, first upload of every `put` / `aput` | Intent marker. Not a certification of anything; readers scan |
+| `{"version":1,"dirty":false,"checkpoint_id":"<id>"}` | 0.13.0 and current writer, last upload of every `put` / `aput` | Clean hint. `checkpoint_id` is the greater of the previous hint and the new checkpoint id |
 
 A reader follows the hint only when `version == 1` and `dirty is False` and `checkpoint_id` is a
 non-empty string. Anything else (malformed JSON, non-object, other `version`, missing fields) is
@@ -83,6 +83,30 @@ Pending writes are independent objects: a crash mid-batch leaves a prefix of the
 
 All of the rows above are covered by `tests/test_blob_format_compat.py`.
 
+### Why `put` probes the hinted checkpoint (one HEAD per write)
+
+Before the dirty marker, `put` / `aput` read the clean hint and send one existence request (a HEAD) for
+the checkpoint it names. That request looks avoidable but is part of the behavior, not overhead: the hint
+the writer publishes last is `max(previous hint, new id)`, so the previous hint must name a checkpoint
+that exists. If it does not, the writer scans `checkpoints/` instead (the same path as a missing or dirty
+hint).
+
+A clean hint can name a missing checkpoint through the public API: `delete_checkpoints_before` and
+`delete_old_checkpoints` never touch `latest.json`. For such a hint, without the probe:
+
+* a hint **above** the id being written would be re-published and keep naming nothing (readers would
+  fall back to the scan on every read);
+* a hint **below** the id being written, with a newer committed checkpoint present (concurrent writer or
+  clock skew between instances), would be replaced by the new, lower id: `get_tuple` without an id would
+  stop returning the newest committed checkpoint. The scan that finds it is the probe's consequence.
+
+Skipping the probe only when the hint is below the new id does not help (the second case). Both states
+are pinned for the sync, native-async and executor-fallback writers by
+`test_put_probes_the_hinted_checkpoint_before_trusting_it` and
+`test_put_probe_stops_a_dangling_hint_from_hiding_a_newer_committed_checkpoint`; the request count (1 GET
+for the hint, 1 HEAD) is pinned by `tests/test_benchmark_blob_checkpointer.py`. The cost is one small
+request per `put` against a blob that is normally present; it is not measured against real Azure latency.
+
 ## Compatibility statement
 
 Two directions are different questions and are answered separately.
@@ -90,7 +114,7 @@ Two directions are different questions and are answered separately.
 ### Current release reads data written by older releases (backward read)
 
 **Verified**, for the writers and scope below: data written by the published releases
-`0.8.2`, `0.9.4` and `0.12.2` is read correctly by the current saver through the synchronous API, the
+`0.8.2`, `0.9.4`, `0.12.2` and `0.13.0` is read correctly by the current saver through the synchronous API, the
 native async API and the thread-executor async fallback. "Correctly" means: latest and by-id
 lookup, `list` ordering and parent chain, namespaces, special-character thread ids, channel values
 (including `empty` blobs), metadata, and pending writes in replay order. Reads modify nothing, and
@@ -234,6 +258,7 @@ container. `expected.json` is derived from the scenario's inputs, not from readi
 | `0.8.2` | PyPI wheel | legacy | no (predates #440) |
 | `0.9.4` | PyPI wheel | legacy | yes |
 | `0.12.2` | PyPI wheel | legacy | yes |
+| `0.13.0` | PyPI wheel | version 1 | yes |
 | `current` | this repository at the commit recorded in `environment.json` | version 1 | yes |
 
 ## Compatibility gate for any future format change

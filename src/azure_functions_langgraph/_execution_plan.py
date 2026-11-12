@@ -40,6 +40,17 @@ class RunPlan(NamedTuple):
     error: str | None
 
 
+def has_checkpointer(graph: Any) -> bool:
+    """Whether a graph has a checkpointer attached (the ``checkpointer`` is not ``None``).
+
+    Every surface asks this the same way: for the observer context's
+    ``has_checkpointer`` field, and to decide whether a thread identity needs the
+    ``ThreadLock``. A LangGraph ``True``/``False`` sentinel counts as attached;
+    the lock-scope helper separately ignores those sentinels.
+    """
+    return getattr(graph, "checkpointer", None) is not None
+
+
 def extract_thread_id(config: dict[str, Any]) -> tuple[str | None, str | None]:
     """Extract ``thread_id`` from *config*, returning ``(thread_id, error_message)``.
 

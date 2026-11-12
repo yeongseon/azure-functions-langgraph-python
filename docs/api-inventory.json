@@ -1759,7 +1759,7 @@
         {
           "bases": [],
           "consumers": {
-            "docs": false,
+            "docs": true,
             "examples": false,
             "tests": true
           },
@@ -4449,7 +4449,7 @@
           "consumers": {
             "docs": false,
             "examples": false,
-            "tests": false
+            "tests": true
           },
           "defined_in": "azure_functions_langgraph.triggers.service_bus",
           "in_all": false,
