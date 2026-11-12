@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 import importlib
 import itertools
+import time
 from typing import Any, Protocol, cast
 from unittest.mock import DEFAULT, patch
 import uuid
@@ -14,6 +15,7 @@ from azure_functions_langgraph.platform.contracts import ThreadStatus
 from azure_functions_langgraph.stores._errors import RunLockRenewalConflictError
 from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
 from tests.storage_service import fail_or_skip_service, require_tcp_service
+from tests.table_status_index_support import CHECKS, Env, FaultTable
 from tests.test_platform_routes import _get_fn, _patch_request
 from tests.test_platform_run_release_ownership import (
     Harness,
@@ -850,3 +852,126 @@ def test_a_genuinely_busy_thread_still_answers_409_over_the_real_table(
     check_a_genuinely_busy_thread_still_answers_409_and_keeps_its_owner(
         _real_state_harness(azurite_table_client)
     )
+
+
+# -- opt-in status index (#801): the shared scenarios and the unverified design assumptions ------
+
+
+def _index_env(table_client: _TableClientProtocol) -> Env:
+    """The scenarios' environment over the real table: the SDK client behind a fault wrapper."""
+    core = importlib.import_module("azure.core.exceptions")
+    wrapped = FaultTable(table_client)
+
+    def new_store(client: Any = wrapped, **options: Any) -> AzureTableThreadStore:
+        return AzureTableThreadStore.from_table_client(cast(Any, client), **options)
+
+    return Env(
+        inner=table_client,
+        table=wrapped,
+        store=new_store(status_index=True, status_index_state_ttl_seconds=0),
+        plain=new_store(table_client),
+        new_store=new_store,
+        wait=time.sleep,
+        modified_error=core.ResourceModifiedError,
+    )
+
+
+@pytest.mark.parametrize("check", CHECKS, ids=lambda check: check.__name__)
+def test_status_index_scenario_against_azurite(
+    azurite_table_client: _TableClientProtocol, check: Callable[[Env], None]
+) -> None:
+    check(_index_env(azurite_table_client))
+
+
+def _raw(table_client: _TableClientProtocol) -> Any:
+    return table_client
+
+
+def test_u1_an_identical_upsert_changes_the_etag_and_timestamp_on_azurite(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # U1 (design proposal): does insert-or-replace of identical content change the ETag? The index
+    # does not depend on the answer (every hint upsert carries a fresh ``u``), but it is recorded.
+    table = _raw(azurite_table_client)
+    key = {"PartitionKey": "idx:idle", "RowKey": "same"}
+    table.upsert_entity(dict(key), mode="replace")
+    first = table.get_entity("idx:idle", "same")
+    time.sleep(0.02)
+    table.upsert_entity(dict(key), mode="replace")
+    second = table.get_entity("idx:idle", "same")
+    assert first.metadata["etag"] != second.metadata["etag"]
+    assert first.metadata["timestamp"] < second.metadata["timestamp"]
+    table.upsert_entity({**key, "u": "1"}, mode="replace")
+    before = table.get_entity("idx:idle", "same").metadata["etag"]
+    table.upsert_entity({**key, "u": "1"}, mode="replace")
+    assert table.get_entity("idx:idle", "same").metadata["etag"] != before
+
+
+def test_u2_the_verification_filter_with_fourteen_row_keys_runs_on_azurite(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # U2: whether the 15-comparison limit counts the PartitionKey clause is NOT decidable here;
+    # Azurite does not enforce the limit (see the PR), so 14 stays the conservative batch size.
+    table = _raw(azurite_table_client)
+    for position in range(20):
+        table.upsert_entity({"PartitionKey": "thread", "RowKey": f"k{position:02d}"})
+    clauses = " or ".join(f"RowKey eq 'k{position:02d}'" for position in range(14))
+    rows = list(table.query_entities(f"PartitionKey eq 'thread' and ({clauses})"))
+    assert sorted(row["RowKey"] for row in rows) == [f"k{position:02d}" for position in range(14)]
+
+
+def test_u3_azurite_orders_filters_and_transacts_the_way_the_index_needs(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    table = _raw(azurite_table_client)
+    keys = [f"{position:019d}~t{position}" for position in (5, 3, 9, 1, 7)]
+    assert table.submit_transaction(
+        [
+            ("upsert", {"PartitionKey": "idx:error", "RowKey": key}, {"mode": "replace"})
+            for key in keys
+        ]
+    )
+    rows = [
+        r["RowKey"] for r in table.query_entities("PartitionKey eq 'idx:error'", select=["RowKey"])
+    ]
+    assert rows == sorted(keys)  # ascending RowKey order
+    after = [
+        r["RowKey"]
+        for r in table.query_entities(
+            f"PartitionKey eq 'idx:error' and RowKey gt '{sorted(keys)[1]}'", select=["RowKey"]
+        )
+    ]
+    assert after == sorted(keys)[2:]
+    paged = table.query_entities(
+        "PartitionKey eq 'idx:error'", results_per_page=2, select=["RowKey"]
+    )
+    assert [len(page) for page in (list(p) for p in paged.by_page())] == [2, 2, 1]
+    stale = table.get_entity("idx:error", sorted(keys)[0])
+    table.upsert_entity({"PartitionKey": "idx:error", "RowKey": sorted(keys)[0]}, mode="replace")
+    core = importlib.import_module("azure.core")
+    errors = importlib.import_module("azure.core.exceptions")
+    with pytest.raises(errors.ResourceModifiedError):
+        table.delete_entity(
+            "idx:error",
+            sorted(keys)[0],
+            etag=stale.metadata["etag"],
+            match_condition=core.MatchConditions.IfNotModified,
+        )
+    with pytest.raises(Exception):  # an all-or-nothing batch fails as a whole on a missing row
+        table.submit_transaction(
+            [
+                ("upsert", {"PartitionKey": "idx:error", "RowKey": "x"}, {"mode": "replace"}),
+                ("delete", {"PartitionKey": "idx:error", "RowKey": "missing"}, {}),
+            ]
+        )
+    assert "x" not in [r["RowKey"] for r in table.query_entities("PartitionKey eq 'idx:error'")]
+
+
+def test_u5_a_write_is_visible_to_the_next_read_on_azurite(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # U5 on the emulator only: read-your-writes for point reads and queries after an upsert.
+    store = _new_store(azurite_table_client)
+    thread = store.create()
+    assert store.get(thread.thread_id) is not None
+    assert [t.thread_id for t in store.search(status="idle", limit=100)] == [thread.thread_id]

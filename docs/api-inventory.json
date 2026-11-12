@@ -3825,6 +3825,11 @@
           "methods": [
             {
               "kind": "method",
+              "name": "audit_status_index",
+              "signature": "(*, mark_ready: bool=False) -> StatusIndexAuditReport"
+            },
+            {
+              "kind": "method",
               "name": "count",
               "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None) -> int"
             },
@@ -3839,14 +3844,19 @@
               "signature": "(thread_id: str) -> None"
             },
             {
+              "kind": "method",
+              "name": "disable_status_index",
+              "signature": "(*, delete_rows: bool=False) -> int"
+            },
+            {
               "kind": "classmethod",
               "name": "from_connection_string",
-              "signature": "(connection_string: str, table_name: str) -> AzureTableThreadStore"
+              "signature": "(connection_string: str, table_name: str, *, status_index: bool=False, status_index_offset_cap: int=DEFAULT_OFFSET_CAP, status_index_state_ttl_seconds: float=DEFAULT_STATE_TTL_SECONDS) -> AzureTableThreadStore"
             },
             {
               "kind": "classmethod",
               "name": "from_table_client",
-              "signature": "(table_client: _TableClientProtocol) -> AzureTableThreadStore"
+              "signature": "(table_client: _TableClientProtocol, *, status_index: bool=False, status_index_offset_cap: int=DEFAULT_OFFSET_CAP, status_index_state_ttl_seconds: float=DEFAULT_STATE_TTL_SECONDS) -> AzureTableThreadStore"
             },
             {
               "kind": "method",
@@ -3857,6 +3867,11 @@
               "kind": "method",
               "name": "merge_metadata",
               "signature": "(thread_id: str, metadata: Mapping[str, Any]) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "rebuild_status_index",
+              "signature": "(*, resume_after: str | None=None, max_threads: int | None=None) -> StatusIndexBuildResult"
             },
             {
               "kind": "method",
@@ -3875,6 +3890,11 @@
             },
             {
               "kind": "method",
+              "name": "repair_status_index",
+              "signature": "(grace_seconds: float=DEFAULT_REPAIR_GRACE_SECONDS) -> int"
+            },
+            {
+              "kind": "method",
               "name": "reset_stale_locks",
               "signature": "(older_than_seconds: int, status: Literal['idle', 'error']='error') -> int"
             },
@@ -3882,6 +3902,11 @@
               "kind": "method",
               "name": "search",
               "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, limit: int=10, offset: int=0) -> list[Thread]"
+            },
+            {
+              "kind": "method",
+              "name": "status_index_state",
+              "signature": "() -> StatusIndexState"
             },
             {
               "kind": "method",
@@ -3895,7 +3920,7 @@
             }
           ],
           "name": "AzureTableThreadStore",
-          "signature": "(*, table_client: _TableClientProtocol, not_found_error: type[BaseException], modified_error: type[BaseException], match_conditions: Any)"
+          "signature": "(*, table_client: _TableClientProtocol, not_found_error: type[BaseException], modified_error: type[BaseException], match_conditions: Any, status_index: bool=False, status_index_offset_cap: int=DEFAULT_OFFSET_CAP, status_index_state_ttl_seconds: float=DEFAULT_STATE_TTL_SECONDS)"
         }
       ],
       "tier": "Experimental",
@@ -3914,8 +3939,17 @@
       "tier_basis": "private module"
     },
     {
+      "module": "azure_functions_langgraph.stores._table_status_index",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
       "all": [
-        "AzureTableThreadStore"
+        "AzureTableThreadStore",
+        "StatusIndexAuditReport",
+        "StatusIndexBuildResult",
+        "StatusIndexState"
       ],
       "module": "azure_functions_langgraph.stores.azure_table",
       "public": true,
@@ -3935,6 +3969,11 @@
           "methods": [
             {
               "kind": "method",
+              "name": "audit_status_index",
+              "signature": "(*, mark_ready: bool=False) -> StatusIndexAuditReport"
+            },
+            {
+              "kind": "method",
               "name": "count",
               "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None) -> int"
             },
@@ -3949,14 +3988,19 @@
               "signature": "(thread_id: str) -> None"
             },
             {
+              "kind": "method",
+              "name": "disable_status_index",
+              "signature": "(*, delete_rows: bool=False) -> int"
+            },
+            {
               "kind": "classmethod",
               "name": "from_connection_string",
-              "signature": "(connection_string: str, table_name: str) -> AzureTableThreadStore"
+              "signature": "(connection_string: str, table_name: str, *, status_index: bool=False, status_index_offset_cap: int=DEFAULT_OFFSET_CAP, status_index_state_ttl_seconds: float=DEFAULT_STATE_TTL_SECONDS) -> AzureTableThreadStore"
             },
             {
               "kind": "classmethod",
               "name": "from_table_client",
-              "signature": "(table_client: _TableClientProtocol) -> AzureTableThreadStore"
+              "signature": "(table_client: _TableClientProtocol, *, status_index: bool=False, status_index_offset_cap: int=DEFAULT_OFFSET_CAP, status_index_state_ttl_seconds: float=DEFAULT_STATE_TTL_SECONDS) -> AzureTableThreadStore"
             },
             {
               "kind": "method",
@@ -3967,6 +4011,11 @@
               "kind": "method",
               "name": "merge_metadata",
               "signature": "(thread_id: str, metadata: Mapping[str, Any]) -> Thread"
+            },
+            {
+              "kind": "method",
+              "name": "rebuild_status_index",
+              "signature": "(*, resume_after: str | None=None, max_threads: int | None=None) -> StatusIndexBuildResult"
             },
             {
               "kind": "method",
@@ -3985,6 +4034,11 @@
             },
             {
               "kind": "method",
+              "name": "repair_status_index",
+              "signature": "(grace_seconds: float=DEFAULT_REPAIR_GRACE_SECONDS) -> int"
+            },
+            {
+              "kind": "method",
               "name": "reset_stale_locks",
               "signature": "(older_than_seconds: int, status: Literal['idle', 'error']='error') -> int"
             },
@@ -3992,6 +4046,11 @@
               "kind": "method",
               "name": "search",
               "signature": "(*, metadata: Mapping[str, Any] | None=None, status: ThreadStatus | None=None, limit: int=10, offset: int=0) -> list[Thread]"
+            },
+            {
+              "kind": "method",
+              "name": "status_index_state",
+              "signature": "() -> StatusIndexState"
             },
             {
               "kind": "method",
@@ -4005,7 +4064,55 @@
             }
           ],
           "name": "AzureTableThreadStore",
-          "signature": "(*, table_client: _TableClientProtocol, not_found_error: type[BaseException], modified_error: type[BaseException], match_conditions: Any)"
+          "signature": "(*, table_client: _TableClientProtocol, not_found_error: type[BaseException], modified_error: type[BaseException], match_conditions: Any, status_index: bool=False, status_index_offset_cap: int=DEFAULT_OFFSET_CAP, status_index_state_ttl_seconds: float=DEFAULT_STATE_TTL_SECONDS)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.stores._table_status_index",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [
+            {
+              "kind": "property",
+              "name": "clean",
+              "signature": "() -> bool"
+            }
+          ],
+          "name": "StatusIndexAuditReport",
+          "signature": "(scanned: int, expected_hints: int, missing: tuple[str, ...], stale: int, marked_ready: bool)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.stores._table_status_index",
+          "in_all": true,
+          "kind": "dataclass",
+          "methods": [],
+          "name": "StatusIndexBuildResult",
+          "signature": "(scanned: int, indexed: int, last_row_key: str | None, complete: bool)"
+        },
+        {
+          "bases": [],
+          "consumers": {
+            "docs": false,
+            "examples": false,
+            "tests": false
+          },
+          "defined_in": "azure_functions_langgraph.stores._table_status_index",
+          "in_all": true,
+          "kind": "alias",
+          "methods": [],
+          "name": "StatusIndexState",
+          "signature": "Literal['absent', 'building', 'ready', 'disabled']"
         },
         {
           "bases": [],
