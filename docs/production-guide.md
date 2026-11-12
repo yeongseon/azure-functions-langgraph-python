@@ -565,6 +565,28 @@ This is a design-envelope approximation, not an enforced limit, and generally wo
 
 Beyond that envelope, consider a sharded or higher-scale backend such as Cosmos DB.
 
+#### Opt-in status index (experimental)
+
+If `search(status="idle" | "interrupted" | "error")` without a metadata filter is the slow path, the
+store can serve it from per-status, time-ordered hint rows (`AzureTableThreadStore(status_index=True)`).
+It is off by default and does not change `count()`, unfiltered search or metadata filters. The full
+contract is in the [adapter reference](adapter-reference.md#table-status-index-opt-in-experimental); the
+operational points are:
+
+- **Costs:** one extra write when a thread is created or newly enters a terminal status (a run goes
+  from 2 to 3 writes), plus verification reads on search. Offsets above `status_index_offset_cap`
+  (default 200) scan.
+- **Roll out in order:** every instance index-aware (`status_index=True`), then
+  `rebuild_status_index()`, then `audit_status_index(mark_ready=True)`. Readers scan until the marker is `ready`.
+- **Mixed fleets are the hazard.** An instance without the option that creates or re-statuses a
+  thread after the backfill leaves it without a hint, and indexed searches omit it until the next
+  rebuild. Never run old and new writers together after `ready`; schedule `audit_status_index()`
+  (it lists `missing` threads) and `repair_status_index()` from a Timer Trigger.
+- **Roll back:** `disable_status_index()` first (readers scan after the cache TTL, default 30 s),
+  then switch the option off, then optionally `disable_status_index(delete_rows=True)`. Re-enable
+  only with a new backfill and clean audit.
+- Not measured on real Azure; the benefit and the write cost above are counted on a fake table.
+
 ### Concurrency controls
 
 Only `multitask_strategy="reject"` is supported.

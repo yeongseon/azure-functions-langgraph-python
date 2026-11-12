@@ -106,13 +106,13 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `platform.stores` | Experimental | README | 2 | 5 |
 | `protocols` | Stable-intent Core | README | 0 | 10 |
 | `stores` | Experimental | provisional | 1 | 1 |
-| `stores.azure_table` | Experimental | provisional | 1 | 2 |
+| `stores.azure_table` | Experimental | provisional | 4 | 5 |
 | `streaming` | Experimental | README | 0 | 2 |
 | `streaming_authorization` | Experimental | provisional | 0 | 3 |
 | `triggers` | Experimental | README | 8 | 8 |
 | `triggers.service_bus` | Experimental | README | 0 | 9 |
 
-27 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
+28 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
 
 ### Symbols by module
 
@@ -407,6 +407,9 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | Symbol | Kind | In `__all__` | Consumers |
 | --- | --- | --- | --- |
 | `AzureTableThreadStore` | class | yes | `ETD` |
+| `StatusIndexAuditReport` | dataclass | yes | `---` |
+| `StatusIndexBuildResult` | dataclass | yes | `---` |
+| `StatusIndexState` | alias | yes | `---` |
 | `logger` | alias | no | `ETD` |
 
 #### `streaming` — Experimental
@@ -574,6 +577,7 @@ Names found in no example, test or doc (name match only, so a name shared by two
 | `platform.contracts` | `Json`, `ThreadHistoryRequest`, `ThreadStateUpdate` |
 | `platform.routes` | `register_platform_routes` |
 | `protocols` | `AsyncStatefulGraph` |
+| `stores.azure_table` | `StatusIndexAuditReport`, `StatusIndexBuildResult`, `StatusIndexState` |
 | `triggers` | `InputMapper`, `ResultHandler`, `ThreadIdFactory` |
 | `triggers.service_bus` | `InputMapper`, `ResultHandler`, `TRIGGER_TYPE`, `ThreadIdFactory` |
 

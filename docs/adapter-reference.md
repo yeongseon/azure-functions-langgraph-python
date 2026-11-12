@@ -948,6 +948,101 @@ See the upstream advisory
 and [security](security.md#checkpoint-store-security) for the full
 rationale.
 
+### Table status index (opt-in, experimental)
+
+Off by default. With the default constructor the store writes no extra rows, sends no extra
+requests and keeps the table format unchanged. `search(status=...)` scans every thread of that
+status (about 1,000 entities per request), so `limit` and `offset` do not bound the I/O. Real
+Azure measurements are in #797; the index was **not** measured on real Azure.
+
+```python
+store = AzureTableThreadStore.from_connection_string(
+    conn, "langgraphthreads",
+    status_index=True,                      # write hints; read them only while the marker is ready
+    status_index_offset_cap=200,            # deeper offsets scan instead
+    status_index_state_ttl_seconds=30.0,    # how long a process caches the marker
+)
+```
+
+`from_table_client(client, status_index=True, ...)` takes the same options. The table client must
+support `upsert_entity`, `submit_transaction` and `delete_entity` (`azure.data.tables.TableClient`
+does). The `ThreadStore` protocol is unchanged.
+
+**Layout.** In the same table, `PartitionKey="idx:<status>"` and
+`RowKey="<inverted created_at, 19 digits>~<thread_id>"` for the terminal statuses `idle`,
+`interrupted` and `error` (`busy` is not indexed and keeps the scan). A hint carries only a random
+`u` value. One marker row (`PartitionKey="idx-meta"`, `RowKey="status-index"`) holds the state
+`building`, `ready` or `disabled` (no row means `absent`); a `clock` row in the same partition is used by repair.
+Every query of the store filters `PartitionKey eq 'thread'`, so these rows are never returned as threads.
+
+**What is served from the index.** Only `search(status=<idle|interrupted|error>)` with no `metadata`
+filter, while the marker is `ready` and `offset <= status_index_offset_cap`. Unfiltered search,
+metadata filters, `status="busy"` and `count()` always scan, as before. In every other case the
+reader falls back to the scan automatically (logged at DEBUG). Results and order equal the scan:
+`created_at` descending, thread id ascending on ties, `limit=0`, every `offset`.
+
+**Consistency contract.**
+
+- *Hints are never wrong.* A reader verifies each hint against the primary row (status equal to the
+  requested status and a matching `created_at` key) and returns a thread only then. A stale hint is
+  skipped, never returned.
+- *Hints are never missing while every writer is index-aware.* A writer upserts the hint of the
+  status it is about to set **before** the primary ETag compare-and-swap, so a crash or a lost race
+  leaves at most a stale hint. Superseded hints are not deleted eagerly (lazy deletion): a thread can
+  have up to three hints and the old ones are removed by `repair_status_index()`.
+- *Index and primary row are not transactional* (Azure Table cannot span partitions in one
+  transaction), and a reader does not see one consistent snapshot of both: a thread moving between
+  statuses during a search can appear under neither or under the old status for that call, exactly
+  as with a scan that races a write.
+- *Mixed fleets break completeness.* An old-version instance, or one with `status_index` off, that
+  creates a thread or changes its status after the backfill writes **no hint**, and while the
+  marker is `ready` readers will omit that thread from indexed searches. The package cannot see
+  other writers. `audit_status_index()` detects this (`missing`); an unclean `audit_status_index(mark_ready=True)`
+  demotes a `ready` marker to `building` so readers scan again.
+- *Marker propagation.* A process caches the marker for `status_index_state_ttl_seconds` (default 30);
+  after `disable_status_index()` other processes can still read the index for up to that long. Use `0` to read it on every search.
+
+**Cost.** Per request count (fake table, `tests/test_table_status_index.py`; not Azure timings):
+
+| Operation | Writes / gets off | Writes / gets on |
+|---|---|---|
+| `create` | 1 / 0 | 2 / 0 |
+| acquire run lock (idle to busy) | 1 / 1 | 1 / 1 |
+| release (busy to a terminal status) | 1 / 1 | 2 / 1 |
+| `update(status=<new terminal status>)` | 1 / 1 | 2 / 1 |
+| `update(metadata=...)`, `merge_metadata`, same status | 1 / 1 | 1 / 1 |
+| `delete` | 1 / 0 | 1 / 0 |
+
+A Platform run (acquire, release) goes from 2 to 3 writes. `search(status="idle", limit=10)` over
+3,000 threads (1,500 idle) read 1,500 entities in 2 requests by scan, and 29 entities in 3 requests
+through the index (2 once the marker is cached). A deep window verifies every row in front of it: `offset=100` read 225
+entities in 10 requests, which is why the offset is capped. Stale hints in the window add reads.
+Hint writes concentrate on one partition per status.
+
+**Rollout.**
+
+1. Deploy a version with the feature off everywhere.
+2. Deploy `status_index=True` to **every** instance (they now write hints; readers still scan
+   because the marker is not `ready`).
+3. Backfill from an admin tool or Timer Trigger: `store.rebuild_status_index()` (sets the marker to
+   `building`; idempotent; use `max_threads=` / `resume_after=result.last_row_key` for slices).
+4. `store.audit_status_index(mark_ready=True)`. Only a clean audit (no `missing`) sets `ready`.
+5. Periodically run `audit_status_index()` and `repair_status_index(grace_seconds=600)`. Repair only
+   deletes: it examines hints older than the grace period measured with the table service
+   `Timestamp` (not the host clock), verifies each against the primary row and deletes it with an
+   ETag condition, so a concurrent writer's fresh hint wins.
+
+**Rollback.** `store.disable_status_index()` sets the marker to `disabled` (readers scan after the
+cache TTL), then turn `status_index` off in the application, then optionally
+`disable_status_index(delete_rows=True)` to delete the hint rows. **Re-enabling always requires a
+new backfill and a clean audit**, because writes made while the index was off were not hinted.
+
+**Verification status.** Covered by fake-table tests with failure injection between steps and the
+same scenarios against Azurite (`make test-table`). Not verified on real Azure: whether the
+15-comparison `$filter` limit counts the `PartitionKey` clause (the verification batch is 14
+row keys to stay safe), throughput on a hot `idx:<status>` partition, read-after-write behavior,
+and in-region latency. Treat the feature as experimental until those are measured.
+
 ### Scale envelope
 
 The bundled persistent backends are intended for development and small-to-medium production deployments. Plan ahead before pushing past these limits:
@@ -960,6 +1055,7 @@ The bundled persistent backends are intended for development and small-to-medium
 Notes:
 
 - **Single partition** — `AzureTableThreadStore` keys every thread under a single PartitionKey, capped by Azure Table per-partition throughput (~2000 entities/sec on Standard accounts). Search and count beyond `status` filtering are **client-side**; see [COMPATIBILITY.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md).
+- **Opt-in status index** — `AzureTableThreadStore(status_index=True)` can serve explicit-`status`, metadata-free `search()` from time-ordered index rows instead of a full scan; see [Table status index (opt-in, experimental)](#table-status-index-opt-in-experimental).
 - **Prefix scans** — `AzureBlobCheckpointSaver` lists checkpoints via blob prefix scans; transaction count and latency grow with checkpoints-per-thread. Use the retention helpers below to keep that bounded.
 - **Table JSON capacity** — metadata, values and interrupts use legacy single-string properties
   when they fit, or versioned `utf16-v1` chunks of at most 64 KiB per UTF-16 property.
