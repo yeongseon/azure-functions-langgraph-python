@@ -103,11 +103,13 @@ The repository has no `CODEOWNERS` file. Maintainers review any diff touching
 `tests/contracts/` as a high-risk contract change; add a `CODEOWNERS` rule for
 that path if a second maintainer is ever added.
 
-The current baseline was generated from the `v0.13.0` tag source (commit
+The current baseline was regenerated from the **published** `0.13.0` wheel
+(sha256 `4c4c9241...1d91`, equal to the registry digest; provenance `kind`
+`published-wheel`). It was first pinned from the `v0.13.0` tag source (commit
 `c79ea8331dfb4fe444f0c61ce54e049fc9cc3c9b`) because the registry file host was
-unreachable from the generating machine; the recorded wheel digest is the
-registry-reported value. It has **not yet been verified against the published
-wheel** (#879); the verification below is how that is closed.
+unreachable from the generating machine; the wheel-derived payload is
+byte-identical to that tag-source baseline for both contracts, so only the
+provenance changed (#879).
 
 ## Verifying the baseline against the published wheel
 
