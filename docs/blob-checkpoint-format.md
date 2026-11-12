@@ -35,8 +35,8 @@ namespaces with their own `checkpoints/`, `values/` and `latest.json`).
 | Shape | Written by | Meaning |
 | --- | --- | --- |
 | `{"checkpoint_id": "<id>"}` (no `version`) | 0.8.2 through 0.12.2 (published) | Legacy hint. Current readers **never trust it**; they treat it exactly like a missing hint and scan `checkpoints/` |
-| `{"version":1,"dirty":true}` | current writer, first upload of every `put` / `aput` | Intent marker. Not a certification of anything; readers scan |
-| `{"version":1,"dirty":false,"checkpoint_id":"<id>"}` | current writer, last upload of every `put` / `aput` | Clean hint. `checkpoint_id` is the greater of the previous hint and the new checkpoint id |
+| `{"version":1,"dirty":true}` | 0.13.0 and current writer, first upload of every `put` / `aput` | Intent marker. Not a certification of anything; readers scan |
+| `{"version":1,"dirty":false,"checkpoint_id":"<id>"}` | 0.13.0 and current writer, last upload of every `put` / `aput` | Clean hint. `checkpoint_id` is the greater of the previous hint and the new checkpoint id |
 
 A reader follows the hint only when `version == 1` and `dirty is False` and `checkpoint_id` is a
 non-empty string. Anything else (malformed JSON, non-object, other `version`, missing fields) is
@@ -114,7 +114,7 @@ Two directions are different questions and are answered separately.
 ### Current release reads data written by older releases (backward read)
 
 **Verified**, for the writers and scope below: data written by the published releases
-`0.8.2`, `0.9.4` and `0.12.2` is read correctly by the current saver through the synchronous API, the
+`0.8.2`, `0.9.4`, `0.12.2` and `0.13.0` is read correctly by the current saver through the synchronous API, the
 native async API and the thread-executor async fallback. "Correctly" means: latest and by-id
 lookup, `list` ordering and parent chain, namespaces, special-character thread ids, channel values
 (including `empty` blobs), metadata, and pending writes in replay order. Reads modify nothing, and
@@ -258,6 +258,7 @@ container. `expected.json` is derived from the scenario's inputs, not from readi
 | `0.8.2` | PyPI wheel | legacy | no (predates #440) |
 | `0.9.4` | PyPI wheel | legacy | yes |
 | `0.12.2` | PyPI wheel | legacy | yes |
+| `0.13.0` | PyPI wheel | version 1 | yes |
 | `current` | this repository at the commit recorded in `environment.json` | version 1 | yes |
 
 ## Compatibility gate for any future format change
