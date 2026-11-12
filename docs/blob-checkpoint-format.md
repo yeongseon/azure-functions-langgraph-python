@@ -83,6 +83,30 @@ Pending writes are independent objects: a crash mid-batch leaves a prefix of the
 
 All of the rows above are covered by `tests/test_blob_format_compat.py`.
 
+### Why `put` probes the hinted checkpoint (one HEAD per write)
+
+Before the dirty marker, `put` / `aput` read the clean hint and send one existence request (a HEAD) for
+the checkpoint it names. That request looks avoidable but is part of the behavior, not overhead: the hint
+the writer publishes last is `max(previous hint, new id)`, so the previous hint must name a checkpoint
+that exists. If it does not, the writer scans `checkpoints/` instead (the same path as a missing or dirty
+hint).
+
+A clean hint can name a missing checkpoint through the public API: `delete_checkpoints_before` and
+`delete_old_checkpoints` never touch `latest.json`. For such a hint, without the probe:
+
+* a hint **above** the id being written would be re-published and keep naming nothing (readers would
+  fall back to the scan on every read);
+* a hint **below** the id being written, with a newer committed checkpoint present (concurrent writer or
+  clock skew between instances), would be replaced by the new, lower id: `get_tuple` without an id would
+  stop returning the newest committed checkpoint. The scan that finds it is the probe's consequence.
+
+Skipping the probe only when the hint is below the new id does not help (the second case). Both states
+are pinned for the sync, native-async and executor-fallback writers by
+`test_put_probes_the_hinted_checkpoint_before_trusting_it` and
+`test_put_probe_stops_a_dangling_hint_from_hiding_a_newer_committed_checkpoint`; the request count (1 GET
+for the hint, 1 HEAD) is pinned by `tests/test_benchmark_blob_checkpointer.py`. The cost is one small
+request per `put` against a blob that is normally present; it is not measured against real Azure latency.
+
 ## Compatibility statement
 
 Two directions are different questions and are answered separately.

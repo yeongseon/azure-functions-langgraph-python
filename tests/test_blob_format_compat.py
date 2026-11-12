@@ -558,6 +558,85 @@ def test_retry_after_crash_before_commit_marker_completes_cleanly() -> None:
 
 
 # --------------------------------------------------------------------------
+# the hinted-checkpoint existence probe in put()/aput() (#860)
+# --------------------------------------------------------------------------
+# ``put`` reads the clean hint and probes (one HEAD) that the hinted checkpoint exists
+# before folding it into the hint it publishes (``max(hint, new id)``). The probe looks
+# removable (one request per put) but is not: ``delete_checkpoints_before`` /
+# ``delete_old_checkpoints`` leave ``latest.json`` untouched, so a clean hint can name a
+# deleted checkpoint through the public API. These tests pin what the probe buys; they fail
+# if it is dropped or only run when the hint is above the new id.
+
+LOW = "1f000000-0000-6000-8000-000000000000"
+SURVIVOR = "1f000000-0000-6000-8000-000000000009"
+WRITERS = ["sync", "async-native", "async-fallback"]
+
+
+async def _put_via(kind: str, blobs: Blobs, prev: Any, new_id: str) -> None:
+    saver = _saver(blobs, native_async=kind == "async-native")
+    cp, new_versions = _next_checkpoint(prev, new_id)
+    metadata = {"source": "loop", "step": 9, "parents": {}}
+    if kind == "sync":
+        saver.put(prev.config, cp, metadata, new_versions)
+    else:
+        await saver.aput(prev.config, cp, metadata, new_versions)
+
+
+@pytest.mark.parametrize("kind", WRITERS)
+async def test_put_probes_the_hinted_checkpoint_before_trusting_it(kind: str) -> None:
+    """Hint names a deleted checkpoint *above* the id being written: it must not be republished."""
+    blobs, _ = _load_set("current")
+    thread, ns = "thread-sync", ""
+    saver = _saver(blobs)
+    prev = saver.get_tuple(_cfg(thread, ns))
+    assert prev.config["configurable"]["checkpoint_id"] == NEWEST
+    # Public API: remove every checkpoint; the clean hint still names NEWEST.
+    assert saver.delete_checkpoints_before(thread, before_checkpoint_id=NEXT, checkpoint_ns=ns) == 3
+    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": False, "checkpoint_id": NEWEST}
+    assert _ckpt(thread, ns, NEWEST, "checkpoint.bin") not in blobs
+
+    await _put_via(kind, blobs, prev, LOW)  # an id *below* the dangling hint
+
+    # Without the probe this would stay ``NEWEST`` (max of the dangling hint and LOW).
+    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": False, "checkpoint_id": LOW}
+    assert _saver(blobs).get_tuple(_cfg(thread, ns)).config["configurable"]["checkpoint_id"] == LOW
+
+
+@pytest.mark.parametrize("kind", WRITERS)
+async def test_put_probe_stops_a_dangling_hint_from_hiding_a_newer_committed_checkpoint(
+    kind: str,
+) -> None:
+    """Hint names a deleted checkpoint *below* the id being written, a newer one exists.
+
+    The scan the probe triggers is what finds ``SURVIVOR``; a "skip the probe when the
+    hint is below the new id" shortcut would publish ``NEXT`` and hide it.
+    """
+    blobs, _ = _load_set("current")
+    thread, ns = "thread-sync", ""
+    saver = _saver(blobs)
+    prev = saver.get_tuple(_cfg(thread, ns))
+    for leaf in ("checkpoint.bin", "metadata.bin"):
+        blobs[_ckpt(thread, ns, SURVIVOR, leaf)] = blobs[_ckpt(thread, ns, NEWEST, leaf)]
+    # Public API: drop everything below SURVIVOR, including the hinted NEWEST.
+    assert (
+        saver.delete_checkpoints_before(thread, before_checkpoint_id=SURVIVOR, checkpoint_ns=ns)
+        == 3
+    )
+    assert json.loads(blobs[_hint()][0])["checkpoint_id"] == NEWEST
+    assert _ckpt(thread, ns, NEWEST, "checkpoint.bin") not in blobs
+
+    await _put_via(kind, blobs, prev, NEXT)  # NEWEST < NEXT < SURVIVOR
+
+    assert json.loads(blobs[_hint()][0]) == {
+        "version": 1,
+        "dirty": False,
+        "checkpoint_id": SURVIVOR,
+    }
+    latest = _saver(blobs).get_tuple(_cfg(thread, ns))
+    assert latest.config["configurable"]["checkpoint_id"] == SURVIVOR
+
+
+# --------------------------------------------------------------------------
 # malformed / unknown data fails safely and is not overwritten
 # --------------------------------------------------------------------------
 
