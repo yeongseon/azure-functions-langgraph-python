@@ -2,7 +2,7 @@
 
 The fixture sets under ``tests/fixtures/blob_compat/sets`` hold blob names,
 metadata and bytes written by *real* published releases of this package
-(``0.8.2``, ``0.9.4``, ``0.12.2``) and by the current saver. They are produced
+(``0.8.2``, ``0.9.4``, ``0.12.2``, ``0.13.0``) and by the current saver. They are produced
 by ``tests/fixtures/blob_compat/generate_fixtures.py``; see the README next to
 it for versions and provenance.
 
@@ -47,16 +47,16 @@ SET_NAMES = sorted(p.name for p in SETS_DIR.iterdir() if p.is_dir())
 
 # Stored ``latest.json`` hint format -> fixture sets that carry it.
 #   None : unversioned ``{"checkpoint_id": ...}`` written by 0.8.2-0.12.2
-#   1    : ``{"version": 1, "dirty": bool, ["checkpoint_id": ...]}``, current writer
+#   1    : ``{"version": 1, "dirty": bool, ["checkpoint_id": ...]}``, 0.13.0 and the current writer
 # A new stored format version MUST add its key here together with a fixture set
 # produced by the real writer of that format (see the README), and the suite
 # below must pass over it before the format ships.
 STORED_HINT_FORMATS: dict[int | None, list[str]] = {
     None: ["0.8.2", "0.9.4", "0.12.2"],
-    1: ["current"],
+    1: ["0.13.0", "current"],
 }
 LEGACY_SETS = STORED_HINT_FORMATS[None]
-ASYNC_WRITER_SETS = ["0.9.4", "0.12.2", "current"]  # 0.8.2 predates native async (#440)
+ASYNC_WRITER_SETS = ["0.9.4", "0.12.2", "0.13.0", "current"]  # 0.8.2 predates native async (#440)
 
 GRAPH_MODULE = "azure_functions_langgraph.checkpointers.azure_blob"
 Blobs = dict[str, tuple[bytes, dict[str, str]]]
@@ -486,7 +486,7 @@ def test_legacy_write_without_task_path_metadata_replays_by_task_id_then_index()
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("set_name", ["0.12.2", "current"])
+@pytest.mark.parametrize("set_name", ["0.12.2", "0.13.0", "current"])
 def test_crash_after_dirty_intent_marker_only(set_name: str) -> None:
     blobs, expected = _load_set(set_name)
     blobs[_hint()] = (b'{"version":1,"dirty":true}', {})
@@ -497,7 +497,7 @@ def test_crash_after_dirty_intent_marker_only(set_name: str) -> None:
     assert got == _expected_newest_first(entry)
 
 
-@pytest.mark.parametrize("set_name", ["0.12.2", "current"])
+@pytest.mark.parametrize("set_name", ["0.12.2", "0.13.0", "current"])
 @pytest.mark.parametrize("native_async", [False, True])
 async def test_crash_before_commit_marker_leaves_previous_checkpoint_current(
     set_name: str, native_async: bool
@@ -528,7 +528,7 @@ async def test_crash_before_commit_marker_leaves_previous_checkpoint_current(
     assert orphan_metadata[0]
 
 
-@pytest.mark.parametrize("set_name", ["0.12.2", "current"])
+@pytest.mark.parametrize("set_name", ["0.12.2", "0.13.0", "current"])
 def test_crash_after_commit_marker_before_clean_hint_exposes_committed_checkpoint(
     set_name: str,
 ) -> None:
@@ -573,7 +573,7 @@ def _newest_counter_value_blob(blobs: Blobs) -> str:
     return sorted(n for n in blobs if n.startswith("threads/thread-sync/ns//values/counter/"))[-1]
 
 
-@pytest.mark.parametrize("set_name", ["0.12.2", "current"])
+@pytest.mark.parametrize("set_name", ["0.12.2", "0.13.0", "current"])
 @pytest.mark.parametrize("kind", ["checkpoint", "metadata", "write", "value"])
 @pytest.mark.parametrize("corruption", ["unknown-serde-type", "invalid-msgpack-bytes"])
 def test_unknown_or_malformed_blob_raises_and_nothing_is_overwritten(
