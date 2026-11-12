@@ -1,6 +1,46 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.14.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.13.0...v0.14.0) (2026-11-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **durable:** the cancel endpoint no longer answers 202 {"status": "cancelled"}. A client that treated that body as final must poll GET /api/runs/{run_id} until the status is terminal (cancelled, but also success or error if the run finished first), and a client that accepted only 202 must also accept 200, which a cancel of an already finished run now answers.
+
+### Features
+
+* **config:** validate hosting topology and shared-state safety at app build time ([#895](https://github.com/yeongseon/azure-functions-langgraph-python/issues/895)) ([bf0bf73](https://github.com/yeongseon/azure-functions-langgraph-python/commit/bf0bf73208269f4b4cb08b7313fa38a8ae1aea26))
+* **locks:** add an opt-in guard that rejects Blob checkpoint writes after detected lease loss ([#803](https://github.com/yeongseon/azure-functions-langgraph-python/issues/803)) ([51b2721](https://github.com/yeongseon/azure-functions-langgraph-python/commit/51b272110e428eb453944a3b16b1f96c8ba8f8be)), closes [#790](https://github.com/yeongseon/azure-functions-langgraph-python/issues/790)
+
+
+### Bug Fixes
+
+* **blob:** refuse to overwrite a latest hint of an unknown future version ([#902](https://github.com/yeongseon/azure-functions-langgraph-python/issues/902)) ([5ab6068](https://github.com/yeongseon/azure-functions-langgraph-python/commit/5ab6068e4ab3fa0c9e7518273d6d47406990f80a))
+* **durable:** distinguish cancellation requests from confirmed orchestration termination ([#837](https://github.com/yeongseon/azure-functions-langgraph-python/issues/837)) ([2a320af](https://github.com/yeongseon/azure-functions-langgraph-python/commit/2a320afcdd8cf4c1e44dc4f634a9d6c7fbdcd044))
+* **durable:** store sanitized error in Activity result instead of raw exception text ([#901](https://github.com/yeongseon/azure-functions-langgraph-python/issues/901)) ([d480a27](https://github.com/yeongseon/azure-functions-langgraph-python/commit/d480a275530993570371acab8eabc22269f0f6eb))
+* **locking:** scope thread locks by checkpoint storage identity ([#867](https://github.com/yeongseon/azure-functions-langgraph-python/issues/867)) ([5eeb81e](https://github.com/yeongseon/azure-functions-langgraph-python/commit/5eeb81e85d7711b8f29a535603f68e279246158b))
+* **platform:** align message serialization with SDK wire shapes ([#866](https://github.com/yeongseon/azure-functions-langgraph-python/issues/866)) ([5192d06](https://github.com/yeongseon/azure-functions-langgraph-python/commit/5192d0622003565b5ba2886a64b17773bf91a032))
+* **platform:** fail a state update whose run-lock release was not applied ([#846](https://github.com/yeongseon/azure-functions-langgraph-python/issues/846)) ([51ece27](https://github.com/yeongseon/azure-functions-langgraph-python/commit/51ece27c08451f9f010aa3e6b8a33a3dd13e8d5d)), closes [#836](https://github.com/yeongseon/azure-functions-langgraph-python/issues/836)
+* **platform:** keep the terminal status a run left when a state update's first read is stale ([#864](https://github.com/yeongseon/azure-functions-langgraph-python/issues/864)) ([cacee4a](https://github.com/yeongseon/azure-functions-langgraph-python/commit/cacee4af5979104b5967c2210b759e1d7b717ca1))
+* **platform:** preserve concurrent metadata changes to the same thread ([#838](https://github.com/yeongseon/azure-functions-langgraph-python/issues/838)) ([017aad3](https://github.com/yeongseon/azure-functions-langgraph-python/commit/017aad38908d166be8a48d3da0e76f2fcd46c052)), closes [#806](https://github.com/yeongseon/azure-functions-langgraph-python/issues/806)
+* **platform:** refuse a state update whose prior-status read saw busy ([#850](https://github.com/yeongseon/azure-functions-langgraph-python/issues/850)) ([a4cae17](https://github.com/yeongseon/azure-functions-langgraph-python/commit/a4cae173f327461bb64270bdaaf6aa6881839f84)), closes [#845](https://github.com/yeongseon/azure-functions-langgraph-python/issues/845)
+* **platform:** release thread ownership when state-update store acquisition raises ([#814](https://github.com/yeongseon/azure-functions-langgraph-python/issues/814)) ([b6a09ca](https://github.com/yeongseon/azure-functions-langgraph-python/commit/b6a09cac63f654c707673d423ff09f6994c77a2b)), closes [#807](https://github.com/yeongseon/azure-functions-langgraph-python/issues/807)
+* **platform:** remove dangling Content-Location headers from run responses ([#870](https://github.com/yeongseon/azure-functions-langgraph-python/issues/870)) ([28bdd30](https://github.com/yeongseon/azure-functions-langgraph-python/commit/28bdd30ab3bcbb4afdcdb0f08dfc52578fc978e0))
+* **platform:** verify run-lock ownership before reporting successful completion ([#815](https://github.com/yeongseon/azure-functions-langgraph-python/issues/815)) ([1958a20](https://github.com/yeongseon/azure-functions-langgraph-python/commit/1958a207d0c623aa3d1b4f67e7333c37adc776e6)), closes [#804](https://github.com/yeongseon/azure-functions-langgraph-python/issues/804)
+* **runs:** remove returns from finally while preserving release errors ([#865](https://github.com/yeongseon/azure-functions-langgraph-python/issues/865)) ([12d27e7](https://github.com/yeongseon/azure-functions-langgraph-python/commit/12d27e799cdf8c9e8a55f443f2f0c9d3bb4af2e1))
+* **security:** prevent per-graph auth bypass through Platform and Durable routes ([#868](https://github.com/yeongseon/azure-functions-langgraph-python/issues/868)) ([9858dbb](https://github.com/yeongseon/azure-functions-langgraph-python/commit/9858dbbf74b8241d948e547097ba3976e58a4da2))
+* **state:** support async-only checkpointers and consistent validation ([#869](https://github.com/yeongseon/azure-functions-langgraph-python/issues/869)) ([ce49690](https://github.com/yeongseon/azure-functions-langgraph-python/commit/ce496900c64b40e063aed2514d229a8d33d724c6))
+* **stores:** distinguish Azure Table renewal ETag conflicts from lost lock ownership ([#830](https://github.com/yeongseon/azure-functions-langgraph-python/issues/830)) ([4513311](https://github.com/yeongseon/azure-functions-langgraph-python/commit/45133113c6142e92834250e1bdf2332e6172748a)), closes [#805](https://github.com/yeongseon/azure-functions-langgraph-python/issues/805)
+* **stores:** revoke the old owner token when reclaiming a stale Azure Table lock ([#813](https://github.com/yeongseon/azure-functions-langgraph-python/issues/813)) ([836de8e](https://github.com/yeongseon/azure-functions-langgraph-python/commit/836de8e5499b1a62db7a70ae0ff9db4c089c1003)), closes [#808](https://github.com/yeongseon/azure-functions-langgraph-python/issues/808)
+
+
+### Performance
+
+* **blob:** parallelize checkpoint reads and stop list before over-building ([#874](https://github.com/yeongseon/azure-functions-langgraph-python/issues/874)) ([a733fa2](https://github.com/yeongseon/azure-functions-langgraph-python/commit/a733fa2f4e842d4e3d682d8de71b09bfe08462e9))
+* **blob:** read blob body and metadata in one request and create write-once pending writes conditionally ([#905](https://github.com/yeongseon/azure-functions-langgraph-python/issues/905)) ([cbab801](https://github.com/yeongseon/azure-functions-langgraph-python/commit/cbab801f2517d6edba9eb5f1f95c9fcd7b57f95f))
+* **store:** add an opt-in time-ordered status index for Azure Table search ([#910](https://github.com/yeongseon/azure-functions-langgraph-python/issues/910)) ([9eb4c48](https://github.com/yeongseon/azure-functions-langgraph-python/commit/9eb4c48c2e9476b73436ae9e521fd0a6125f75ee))
+
 ## [0.13.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.12.2...v0.13.0) (2026-11-06)
 
 
