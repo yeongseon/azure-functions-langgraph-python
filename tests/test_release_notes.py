@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 
@@ -271,3 +272,29 @@ def test_unverifiable_first_contribution_fails_closed(monkeypatch: pytest.Monkey
     monkeypatch.setattr(client, "_request", boom)
     # API failure must never turn into "first contribution"
     assert client.had_prior_contribution("someone", "v1.0.0") is True
+
+
+def test_apply_source_file_replaces_a_changed_annotation_instead_of_appending(
+    tmp_path: Path,
+) -> None:
+    # Given: a release re-rendered after its annotation wording changed
+    original = "- fix: thing (#12)\n"
+    gh = FakeGitHub(prs={12: ("maint", False)}, bodies={"v1.0.1": original})
+    rn.cmd_apply(
+        argparse.Namespace(tag="v1.0.1", dry_run=False, force=False, backup=None, source_file=None),
+        CFG,
+        gh,
+    )
+    source = tmp_path / "orig.md"
+    source.write_text(original, encoding="utf-8")
+    expected = rn.build_notes("v1.0.1", original, gh, CFG, dict(gh.releases()).get("v1.0.1"))
+    # When: forced from the pristine body
+    args = argparse.Namespace(
+        tag="v1.0.1", dry_run=False, force=True, backup=None, source_file=str(source)
+    )
+    assert rn.cmd_apply(args, CFG, gh) == 0
+    # Then: the live body equals a fresh render, and the flag needs --force
+    assert gh.bodies["v1.0.1"] == expected
+    args.force = False
+    with pytest.raises(ValueError, match="requires --force"):
+        rn.cmd_apply(args, CFG, gh)

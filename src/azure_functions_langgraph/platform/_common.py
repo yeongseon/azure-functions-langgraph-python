@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-import inspect
 import json
 import logging
 import os
@@ -12,6 +11,7 @@ import warnings
 import azure.functions as func
 from pydantic import BaseModel, ValidationError
 
+from azure_functions_langgraph._execution_plan import method_accepts_kwarg
 from azure_functions_langgraph._validation import (
     ValidationErrorDetail,
     sanitized_validation_errors,
@@ -19,7 +19,12 @@ from azure_functions_langgraph._validation import (
     validate_graph_name,
     validate_input_structure,
 )
-from azure_functions_langgraph.authorization import ThreadAuthorizer
+from azure_functions_langgraph.authorization import (
+    AuthorizationAction,
+    AuthorizationContext,
+    ThreadAuthorizer,
+    authorization_status,
+)
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.observability import NOOP_OBSERVER, RunObserver
 from azure_functions_langgraph.platform._sse import format_end_event, format_error_event
@@ -137,15 +142,12 @@ def _merge_thread_metadata(
     return store.update(thread_id, metadata={**(current or {}), **patch})
 
 
-def _build_sse_response(
-    chunks: list[str],
-    *,
-    content_location: str,
-) -> func.HttpResponse:
+def _build_sse_response(chunks: list[str]) -> func.HttpResponse:
     """Build the buffered SSE ``HttpResponse`` shared by all streaming routes.
 
     Every platform streaming exit path emits the same ``text/event-stream``
-    response with identical headers, differing only in ``Content-Location``.
+    response with identical headers. No ``Content-Location`` is set because the
+    Platform router registers no GET route for a run resource.
     """
     return func.HttpResponse(
         body="".join(chunks),
@@ -154,7 +156,6 @@ def _build_sse_response(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Content-Location": content_location,
         },
     )
 
@@ -256,6 +257,16 @@ def _get_threadless_graph(graph: Any) -> Any | None:
     The graph must satisfy the :class:`CloneableGraph` protocol (i.e. have a
     ``copy(*, update)`` method).  If it does not, or ``copy()`` raises, return
     ``None`` — threadless runs are not safe for this graph.
+
+    Deliberately **not cached per registration** (#861). A cached clone would
+    freeze whatever the graph looked like at registration, but registrations
+    hold the caller's live graph object and ``copy()`` is delegated to that
+    object, so a per-request clone observes later mutation/re-registration while
+    a cache would silently serve stale state. Immutability of the copy, the
+    absence of request-specific state and an invalidation hook on
+    re-registration cannot be established for an arbitrary ``CloneableGraph``,
+    so the clone stays per-request (it is a shallow, cheap ``copy``; the source
+    graph is never mutated). See ``tests/test_threadless_graph_clone.py``.
     """
     checkpointer = getattr(graph, "checkpointer", None)
     if checkpointer is None:
@@ -290,6 +301,12 @@ def _parse_run_create(
     shared by every ``runs/*`` route. Returns the parsed ``RunCreate`` on
     success or an ``HttpResponse`` on the first failing check, preserving the
     exact status-code precedence of the inlined handlers.
+
+    Deliberately Platform-specific (not routed through ``_execution_plan``): the
+    ``{"detail": ...}`` error shape, 422 for model-validation failures (native
+    uses 400), 501 for known-but-unsupported fields, and the
+    warn-and-ignore / strict unknown-field policy are part of the LangGraph
+    Platform wire contract that native routes do not share (#861).
     """
     raw_body = req.get_body()
     size_err = validate_body_size(raw_body, deps.max_request_body_bytes)
@@ -331,7 +348,13 @@ def _validate_run_io_structure(
     deps: PlatformRouteDeps,
 ) -> func.HttpResponse | None:
     """Validate the ``input``/``config``/``context``/``metadata`` structure
-    depth/breadth limits."""
+    depth/breadth limits.
+
+    Uses the shared ``validate_input_structure`` limits, but stays
+    Platform-specific: it also bounds ``context``/``metadata``, the
+    ``configurable`` message says "object or null" (``null`` is admitted), and
+    there is no ``allowed_configurable_keys`` policy (native-only) (#861).
+    """
     if run_req.input:
         input_err = validate_input_structure(
             run_req.input,
@@ -370,18 +393,47 @@ def _validate_run_io_structure(
     return None
 
 
-def _resolve_run_graph(
+def _authorize_run_graph(
     run_req: RunCreate,
     deps: PlatformRouteDeps,
+    req: func.HttpRequest,
+    thread_id: str | None = None,
 ) -> Any:
-    """Look up the assistant registration and validate its run I/O structure.
+    """Resolve the assistant registration and authorize it graph-aware (#854).
 
-    Returns the registration on success, or an ``HttpResponse`` when the
-    assistant is unknown (404) or the input/config structure is invalid (400).
+    Authorization runs with the resolved registration name so ``authorize``
+    callbacks see the actual graph. Threaded routes call this *before* any
+    thread lookup so a graph-level denial cannot reveal thread existence.
+
+    Returns the registration, or an ``HttpResponse`` (404 unknown assistant,
+    401/403 denied).
     """
     reg = deps.registrations.get(run_req.assistant_id)
     if reg is None:
         return _platform_error(404, f"Assistant {run_req.assistant_id!r} not found")
+    status = authorization_status(
+        deps.authorize,
+        AuthorizationContext(AuthorizationAction.RUN, reg.name, thread_id, req),
+    )
+    if status is not None:
+        return _platform_error(status, "Access denied")
+    return reg
+
+
+def _resolve_run_graph(
+    run_req: RunCreate,
+    deps: PlatformRouteDeps,
+    req: func.HttpRequest,
+    thread_id: str | None = None,
+) -> Any:
+    """Authorize the assistant's graph and validate its run I/O structure.
+
+    Returns the registration on success, or an ``HttpResponse`` when the
+    assistant is unknown (404), access is denied, or the input/config structure is invalid (400).
+    """
+    reg = _authorize_run_graph(run_req, deps, req, thread_id)
+    if isinstance(reg, func.HttpResponse):
+        return reg
     io_err = _validate_run_io_structure(run_req, deps)
     if io_err is not None:
         return io_err
@@ -412,6 +464,10 @@ def _build_threadless_config(
 
     Returns ``(config, None)`` on success or ``(None, 422_response)`` when the
     caller supplied a ``thread_id`` (not permitted for threadless execution).
+
+    Platform-specific: any non-null ``thread_id`` is a 422 because threadless
+    runs are ephemeral by contract, whereas native routes accept a thread id on a
+    checkpointer-free graph and route it through ``extract_thread_id`` (#861).
     """
     config: dict[str, Any] = {}
     if run_req.config:
@@ -427,18 +483,12 @@ def _build_threadless_config(
 def _method_accepts_context(method: Any) -> bool:
     """Return ``True`` if *method* accepts a ``context`` keyword argument.
 
-    Mirrors ``_handlers._method_accepts_version``: matches an explicit
-    ``context`` parameter or a ``**kwargs`` catch-all; returns ``False`` when
-    the signature cannot be introspected (e.g. some C-level callables).
+    Delegates the signature probe to the shared
+    :func:`~azure_functions_langgraph._execution_plan.method_accepts_kwarg`
+    (same rule as native ``version``: an explicit parameter or ``**kwargs``;
+    ``False`` when the signature cannot be introspected).
     """
-    try:
-        sig = inspect.signature(method)
-    except (TypeError, ValueError):
-        return False
-    for param in sig.parameters.values():
-        if param.name == "context" or param.kind is inspect.Parameter.VAR_KEYWORD:
-            return True
-    return False
+    return method_accepts_kwarg(method, "context")
 
 
 def _resolve_context_kwarg(
@@ -451,6 +501,10 @@ def _resolve_context_kwarg(
     a context but the graph method has no ``context``/``**kwargs`` parameter
     to receive it -- an unsupported request must be rejected, not silently
     dropped.
+
+    Platform's analog of native ``version`` negotiation: the capability probe is
+    the shared ``method_accepts_kwarg``, but the request field (``context``), the
+    ``{"detail": ...}`` 422 message and the forwarding rule are Platform-specific.
     """
     if context is None:
         return {}

@@ -142,6 +142,7 @@ graphs and checkpointer status.
 
 ## Next steps
 
+- [5-Minute Tutorial](tutorial-5-min.md) — the default path from local invoke to Azure
 - [Configuration](configuration.md) — configure auth levels and graph options
 - [Usage Guide](usage.md) — detailed endpoint reference with all request/response formats
 - [Examples](examples/simple_agent.md) — more complete examples

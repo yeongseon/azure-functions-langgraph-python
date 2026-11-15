@@ -58,6 +58,13 @@ class StatefulGraph(Protocol):
 
 
 @runtime_checkable
+class AsyncStatefulGraph(Protocol):
+    """Protocol for a graph that supports asynchronous state retrieval."""
+
+    def aget_state(self, config: dict[str, Any]) -> Awaitable[Any]: ...
+
+
+@runtime_checkable
 class UpdatableStateGraph(Protocol):
     """Protocol for a graph that supports state updates via a checkpointer."""
 

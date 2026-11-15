@@ -10,5 +10,57 @@
       "three breaking changes",
       "Blob marker leases do not fence checkpoint writes after lease loss"
     ]
+  },
+  "annotations": {
+    "v0.2.0": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/23981822989) (the trusted-publisher token exchange was refused with `invalid-publisher`), so v0.2.0 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.5.0**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.3.0": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/23984989252) (the trusted-publisher token exchange was refused with `invalid-publisher`), so v0.3.0 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.5.0**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.4.0": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/23993056592) (the trusted-publisher token exchange was refused with `invalid-publisher`), so v0.4.0 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.5.0**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.5.2": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/24605716212) (the tag gate rejected it: `Version in __init__.py (0.5.1) does not match git tag (0.5.2)`), so v0.5.2 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.5.4**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.5.3": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/24958757167) (cause unconfirmed: the job log has expired), so v0.5.3 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.5.4**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.11.0": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/38141259504) (installed-wheel tests failed with `No module named 'scripts'`, and real-Azure certification failed on a remote-build conflict), so v0.11.0 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.11.4**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.11.1": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/38142818146) (real-Azure certification failed: the true-streaming e2e tests failed against the deployed test app), so v0.11.1 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.11.4**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.11.2": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/38144369700) (real-Azure certification failed: the same true-streaming e2e tests failed), so v0.11.2 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.11.4**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.11.3": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/38145575218) (real-Azure certification failed: the same true-streaming e2e tests failed), so v0.11.3 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.11.4**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.12.1": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/38891888298) (installed-wheel tests failed with `No module named 'scripts'`), so v0.12.1 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.12.2**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    }
   }
 }

@@ -1116,12 +1116,21 @@ def cmd_render(args: argparse.Namespace, cfg: Config, gh: GitHub) -> int:
 
 def cmd_apply(args: argparse.Namespace, cfg: Config, gh: GitHub) -> int:
     original = gh.release_body(args.tag)
+    source_file = getattr(args, "source_file", None)
+    if source_file and not args.force:
+        raise ValueError("--source-file requires --force")
     if MARKER in original and not args.force:
         action = "would be skipped" if args.dry_run else "nothing to do"
         print(f"{args.tag}: already standardized; {action}")
         return 0
     published = dict(gh.releases()).get(args.tag)
-    new = build_notes(args.tag, original, gh, cfg, published)
+    source = original
+    if source_file:
+        # Re-render from the pristine pre-standardization body, so a changed annotation replaces
+        # the previous one instead of being appended next to it. The write is still guarded
+        # against the live body, which is what set_body() compares.
+        source = Path(source_file).read_text(encoding="utf-8")
+    new = build_notes(args.tag, source, gh, cfg, published)
     if args.dry_run:
         sys.stdout.write(new)
         return 0
@@ -1151,6 +1160,10 @@ def main(argv: list[str] | None = None) -> int:
     p_apply.add_argument("tag")
     p_apply.add_argument("--dry-run", action="store_true")
     p_apply.add_argument("--force", action="store_true", help="re-render even if already done")
+    p_apply.add_argument(
+        "--source-file",
+        help="re-render from this original body (use with --force) instead of the live body",
+    )
     p_apply.add_argument("--backup", help="dir to save the previous body before editing")
     args = parser.parse_args(argv)
     cfg = Config.load(Path(args.config))

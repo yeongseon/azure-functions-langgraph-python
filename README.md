@@ -97,13 +97,20 @@ wires Azure Table explicitly. State separation is not authenticated ownership.
 
 ## Documentation
 
-- [Configuration](docs/configuration.md) and [usage](docs/usage.md)
-- [Adapter reference, optional features and migrations](docs/adapter-reference.md)
-- [Architecture](docs/architecture.md) and [distributed deployment](docs/production-guide.md#distributed-deployment)
-- [Finite SDK support matrix](COMPATIBILITY.md): partial compatibility, not Platform parity
-- [Examples](examples/README.md), [troubleshooting](docs/troubleshooting.md), [security](SECURITY.md)
-- [Contributing](CONTRIBUTING.md), [product scope](PRD.md), [design](DESIGN.md)
-- AI tooling: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt), [AGENTS.md](AGENTS.md)
+Read in this order (the [documentation site](https://yeongseon.dev/azure-functions-python/langgraph/) follows it):
+
+1. [Installation](docs/installation.md) and [Quickstart](docs/getting-started.md)
+2. [5-minute tutorial](docs/tutorial-5-min.md), then [deployment](docs/deployment.md)
+3. [Production guide](docs/production-guide.md) and [security](SECURITY.md)
+4. Reference: [configuration](docs/configuration.md), [usage](docs/usage.md),
+   [adapter reference, optional features and migrations](docs/adapter-reference.md),
+   [architecture](docs/architecture.md), [finite SDK support matrix](COMPATIBILITY.md)
+   (partial compatibility, not Platform parity)
+5. [Examples](examples/README.md) and [troubleshooting](docs/troubleshooting.md)
+
+Maintainers and contributors: [Contributing](CONTRIBUTING.md), [product scope](PRD.md),
+[design](DESIGN.md), [release process](docs/release_process.md).
+AI tooling: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt), [AGENTS.md](AGENTS.md).
 
 ## Contributing
 

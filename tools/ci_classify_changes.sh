@@ -24,6 +24,12 @@ while IFS= read -r f || [ -n "$f" ]; do
   [ -z "$f" ] && continue
   count=$((count + 1))
   case "$f" in
+    # docs/testing.md is pinned to tests/conftest.py by tests/test_testing_docs.py,
+    # so editing it must run the test matrix as well as the docs build.
+    docs/testing.md)
+      docs_only=false
+      docs_changed=true
+      ;;
     # Docs build inputs that are not documentation themselves run both paths.
     # Source files are included because mkdocstrings imports them into the docs.
     .github/workflows/ci-test.yml | mkdocs.yml | pyproject.toml | docs/*.py | \

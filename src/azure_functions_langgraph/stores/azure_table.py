@@ -22,6 +22,15 @@ from ..platform.stores import (
 )
 from ._errors import RunLockReleaseError, RunLockRenewalConflictError
 from ._table_json import read_json, validate_entity, write_json
+from ._table_status_index import (
+    DEFAULT_OFFSET_CAP,
+    DEFAULT_REPAIR_GRACE_SECONDS,
+    DEFAULT_STATE_TTL_SECONDS,
+    StatusIndex,
+    StatusIndexAuditReport,
+    StatusIndexBuildResult,
+    StatusIndexState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +68,18 @@ class AzureTableThreadStore(ThreadStore):
 
     Also provides atomic run-lock acquisition via Azure Table ETag
     compare-and-swap and owner-fenced lock release via conditional replacement.
+
+    Opt-in status index (``status_index=True``, off by default): ``search(status=...)`` without a
+    metadata filter can be served from per-status, time-ordered *hint* rows in the same table
+    (``PartitionKey="idx:<status>"``) instead of scanning every thread. Hints are written before
+    the primary compare-and-swap and verified against the primary row on every read, so results
+    and ordering equal the scan path; a hint may be stale but, while every writer is index-aware,
+    is never missing. Only ``idle``, ``interrupted`` and ``error`` are indexed. Readers use the
+    index only while the marker row says ``ready`` and ``offset <= status_index_offset_cap``;
+    otherwise they scan. Unfiltered search, metadata filters and :meth:`count` always scan.
+    Operate it with :meth:`rebuild_status_index`, :meth:`audit_status_index`,
+    :meth:`repair_status_index`, :meth:`status_index_state` and :meth:`disable_status_index`;
+    see ``docs/adapter-reference.md`` for the rollout, rollback and consistency contract.
     """
 
     def __init__(
@@ -68,6 +89,9 @@ class AzureTableThreadStore(ThreadStore):
         not_found_error: type[BaseException],
         modified_error: type[BaseException],
         match_conditions: Any,
+        status_index: bool = False,
+        status_index_offset_cap: int = DEFAULT_OFFSET_CAP,
+        status_index_state_ttl_seconds: float = DEFAULT_STATE_TTL_SECONDS,
     ) -> None:
         if not_found_error is None:
             raise ValueError(
@@ -90,12 +114,28 @@ class AzureTableThreadStore(ThreadStore):
         self._modified_error: type[BaseException] = modified_error
         self._match_conditions = match_conditions
         self._release_signal = _ReleaseSignal()
+        self._status_index: StatusIndex | None = (
+            StatusIndex(
+                table_client,
+                not_found_error=not_found_error,
+                modified_error=modified_error,
+                match_conditions=match_conditions,
+                offset_cap=status_index_offset_cap,
+                state_ttl_seconds=status_index_state_ttl_seconds,
+            )
+            if status_index
+            else None
+        )
 
     @classmethod
     def from_connection_string(
         cls,
         connection_string: str,
         table_name: str,
+        *,
+        status_index: bool = False,
+        status_index_offset_cap: int = DEFAULT_OFFSET_CAP,
+        status_index_state_ttl_seconds: float = DEFAULT_STATE_TTL_SECONDS,
     ) -> AzureTableThreadStore:
         table_client_class, not_found_error, modified_error, match_conditions_cls = (
             cls._load_azure_sdk_symbols()
@@ -110,10 +150,20 @@ class AzureTableThreadStore(ThreadStore):
             not_found_error=not_found_error,
             modified_error=modified_error,
             match_conditions=match_conditions_cls,
+            status_index=status_index,
+            status_index_offset_cap=status_index_offset_cap,
+            status_index_state_ttl_seconds=status_index_state_ttl_seconds,
         )
 
     @classmethod
-    def from_table_client(cls, table_client: _TableClientProtocol) -> AzureTableThreadStore:
+    def from_table_client(
+        cls,
+        table_client: _TableClientProtocol,
+        *,
+        status_index: bool = False,
+        status_index_offset_cap: int = DEFAULT_OFFSET_CAP,
+        status_index_state_ttl_seconds: float = DEFAULT_STATE_TTL_SECONDS,
+    ) -> AzureTableThreadStore:
         """Wrap a pre-built ``azure.data.tables.TableClient``.
 
         Use this when you build the ``TableClient`` yourself — for
@@ -139,6 +189,9 @@ class AzureTableThreadStore(ThreadStore):
                 credential=DefaultAzureCredential(),
             )
             store = AzureTableThreadStore.from_table_client(client)
+
+        Pass ``status_index=True`` to opt in to the time-ordered status index (see the class
+        docstring); the default keeps the table layout and every request unchanged.
         """
         not_found_error, modified_error, match_conditions_cls = cls._load_azure_core_symbols()
         return cls(
@@ -146,6 +199,9 @@ class AzureTableThreadStore(ThreadStore):
             not_found_error=not_found_error,
             modified_error=modified_error,
             match_conditions=match_conditions_cls,
+            status_index=status_index,
+            status_index_offset_cap=status_index_offset_cap,
+            status_index_state_ttl_seconds=status_index_state_ttl_seconds,
         )
 
     @staticmethod
@@ -314,6 +370,73 @@ class AzureTableThreadStore(ThreadStore):
             for key, value in metadata.items()
         )
 
+    def _hint_status_change(self, current: dict[str, Any], replacement: dict[str, Any]) -> None:
+        """Write-ahead hint: upsert the index row of the status ``replacement`` is about to set.
+
+        Runs before the primary compare-and-swap and is idempotent, so a retry after a lost ETag
+        race writes it again harmlessly; if the CAS then loses for good the hint is merely stale.
+        Does nothing when the index is off, the status does not change or it is not indexed.
+        """
+        index = self._status_index
+        if index is None:
+            return
+        target = replacement.get("status")
+        if target == current.get("status") or not isinstance(target, str):
+            return
+        index.upsert_hint(target, str(replacement["RowKey"]), replacement["created_at"])
+
+    def _require_index(self) -> StatusIndex:
+        if self._status_index is None:
+            raise RuntimeError("the status index is not enabled; construct with status_index=True")
+        return self._status_index
+
+    def rebuild_status_index(
+        self, *, resume_after: str | None = None, max_threads: int | None = None
+    ) -> StatusIndexBuildResult:
+        """Backfill hints for every indexable thread and set the marker to ``building``.
+
+        Idempotent and resumable: hints are upserted in per-partition entity group transactions
+        of at most 100, re-running is safe, and ``resume_after`` (the previous result's
+        ``last_row_key``) with ``max_threads`` lets a Timer Trigger work in bounded slices.
+        Readers keep scanning until :meth:`audit_status_index` ``(mark_ready=True)`` succeeds.
+        Calling it on a ``ready`` index demotes it to ``building``.
+        """
+        return self._require_index().rebuild(resume_after=resume_after, max_threads=max_threads)
+
+    def audit_status_index(self, *, mark_ready: bool = False) -> StatusIndexAuditReport:
+        """Compare primary rows with hints; optionally set the marker to ``ready`` if clean.
+
+        ``missing`` hints (a thread whose status is indexed but that has no hint) block
+        readiness; this is how a thread created by an index-unaware writer is detected. Stale
+        hints are only counted. With ``mark_ready=True`` an unclean audit never leaves the marker
+        ``ready`` (a ``ready`` marker is demoted to ``building``). Memory is proportional to the
+        number of threads; run it from an admin tool or Timer Trigger.
+        """
+        return self._require_index().audit(mark_ready=mark_ready)
+
+    def repair_status_index(self, grace_seconds: float = DEFAULT_REPAIR_GRACE_SECONDS) -> int:
+        """Delete stale hints (deleted thread, other status) and return how many were deleted.
+
+        Only hints whose service ``Timestamp`` is older than ``grace_seconds`` (measured against
+        the table service's clock, not this host's) are examined, and each is deleted with an ETag
+        condition, so a concurrent writer's fresh hint always wins. It cannot add a missing hint;
+        use :meth:`rebuild_status_index` for that.
+        """
+        return self._require_index().repair(grace_seconds)
+
+    def status_index_state(self) -> StatusIndexState:
+        """Read the marker now (uncached): ``absent``, ``building``, ``ready`` or ``disabled``."""
+        return self._require_index().state(refresh=True)
+
+    def disable_status_index(self, *, delete_rows: bool = False) -> int:
+        """Set the marker to ``disabled`` (readers scan) and optionally delete every hint row.
+
+        Returns the number of hint rows deleted (a row that vanished concurrently may be
+        counted). Re-enabling requires :meth:`rebuild_status_index` and a clean
+        :meth:`audit_status_index`, because writes made while the index was off are not hinted.
+        """
+        return self._require_index().disable(delete_rows=delete_rows)
+
     def _query_entities(self, *, status: ThreadStatus | None) -> list[Thread]:
         pk = self._partition_key().replace("'", "''")
         query_filter = f"PartitionKey eq '{pk}'"
@@ -347,6 +470,8 @@ class AzureTableThreadStore(ThreadStore):
         )
         self._warn_entity_size(entity, thread_id)
         validate_entity(entity)
+        if self._status_index is not None:
+            self._status_index.upsert_hint("idle", thread_id, thread.created_at)
         self._table_client.create_entity(entity)
         return self._entity_to_thread(entity)
 
@@ -428,6 +553,7 @@ class AzureTableThreadStore(ThreadStore):
                 replacement["updated_at"] = self._now()
                 apply(replacement)
                 validate_entity(replacement)
+                self._hint_status_change(entity, replacement)
                 self._table_client.update_entity(
                     replacement,
                     mode="replace",
@@ -618,6 +744,7 @@ class AzureTableThreadStore(ThreadStore):
                 write_json(replacement, "values_json", values)
             self._warn_entity_size(replacement, thread_id)
             validate_entity(replacement)
+            self._hint_status_change(entity, replacement)
             try:
                 self._table_client.update_entity(
                     replacement,
@@ -806,6 +933,7 @@ class AzureTableThreadStore(ThreadStore):
             }
             replacement.update(status=status, updated_at=self._now())
             validate_entity(replacement)
+            self._hint_status_change(entity, replacement)
 
             try:
                 self._table_client.update_entity(
@@ -852,6 +980,11 @@ class AzureTableThreadStore(ThreadStore):
         if offset < 0:
             raise ValueError(f"offset must be non-negative, got {offset}")
 
+        if self._status_index is not None and metadata is None and status is not None:
+            indexed = self._status_index.search(status, limit, offset)
+            if indexed is not None:
+                return [self._entity_to_thread(entity) for entity in indexed]
+
         threads = self._query_entities(status=status)
         filtered = [thread for thread in threads if self._metadata_matches(thread, metadata)]
         filtered.sort(key=lambda thread: thread.created_at, reverse=True)
@@ -867,4 +1000,9 @@ class AzureTableThreadStore(ThreadStore):
         return sum(1 for thread in threads if self._metadata_matches(thread, metadata))
 
 
-__all__ = ["AzureTableThreadStore"]
+__all__ = [
+    "AzureTableThreadStore",
+    "StatusIndexAuditReport",
+    "StatusIndexBuildResult",
+    "StatusIndexState",
+]
