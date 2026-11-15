@@ -1,0 +1,98 @@
+name: Release audit
+
+# Read-only report on whether every GitHub Release has a matching, gated PyPI
+# distribution (docs/release_process.md#release-audit). This workflow only reads
+# GitHub and PyPI. It never creates, edits or deletes a release or tag, never
+# uploads to PyPI, and is not part of the publish chain: `publish-pypi.yml`
+# stays the only publisher and Release Please the only owner of versions/tags.
+#
+# When it runs:
+# - pull_request: only when the audit, its registry or its docs change, so the
+#   change is exercised against the real repository and PyPI.
+# - workflow_run: after every `Publish to PyPI` run (any conclusion), so a
+#   failed or missing publication turns this run red right after the release.
+# - schedule: daily, to catch a release whose publish run never appeared.
+#
+# A red run (exit 1) means a new defect that the exception registry does not
+# cover; exit 2 means the audit itself could not collect or parse evidence.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/release-audit.yml"
+      - ".github/release-audit-exceptions.json"
+      - "tools/audit_releases.py"
+      - "tools/release_audit_*.py"
+      - "docs/release-status.md"
+  workflow_run:
+    workflows: ["Publish to PyPI"]
+    types: [completed]
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+# contents: read   - checkout of the default branch / the pull request merge ref.
+# actions: read    - list the publish workflow runs and their jobs.
+# No write scope, no secrets: the token is only used to raise GitHub's read rate
+# limit and is sent to api.github.com only by the audit itself.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-audit-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Audit releases against PyPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # For workflow_run and schedule this is the default branch; for a pull
+      # request it is the merge ref. The workflow never checks out a ref taken
+      # from the triggering run's payload.
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+
+      - name: Audit releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          mkdir -p audit-out
+          # PyPI can lag a few minutes behind a finished publish run, so right
+          # after a publish run a defect is re-checked before it is reported.
+          attempts=1
+          if [ "$EVENT_NAME" = "workflow_run" ]; then attempts=3; fi
+          status=0
+          for attempt in $(seq 1 "$attempts"); do
+            status=0
+            python -m tools.audit_releases \
+              --snapshot-out audit-out/release-facts.json \
+              --format markdown > audit-out/report.md || status=$?
+            [ "$status" -ne 1 ] && break
+            if [ "$attempt" -lt "$attempts" ]; then sleep 120; fi
+          done
+          cat audit-out/report.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 1 ]; then
+            echo "::error title=Release audit::A release has a defect the exception registry does not cover. See the job summary and docs/release_process.md#release-audit (fix-forward, never move a tag)."
+          elif [ "$status" -ne 0 ]; then
+            echo "::error title=Release audit::The audit could not collect or parse its evidence (exit $status); this is not a verdict on the releases."
+          fi
+          exit "$status"
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-audit
+          path: audit-out/
+          if-no-files-found: ignore
