@@ -53,10 +53,10 @@ class ReleaseOutcomeProvider(Protocol):
     that also implements this protocol answers exactly: ``applied`` is true only when this
     call performed the release.
 
-    Platform run handlers use the answer when the store provides it and fall back to the
-    comparison otherwise, so stores without this capability keep working. Implementations
-    must keep it consistent with ``release_run_lock``: that method's return value is this
-    method's ``thread``.
+    Platform run handlers and state updates use the answer when the store provides it and fall
+    back to the comparison otherwise, so stores without this capability keep working.
+    Implementations must keep it consistent with ``release_run_lock``: that method's return
+    value is this method's ``thread``.
     """
 
     def release_run_lock_outcome(
@@ -241,13 +241,13 @@ class ThreadStore(Protocol):
         release that is the requested ``status`` with ``lock_token`` cleared.
         Platform handlers compare the returned thread with what they asked
         for: a thread that is still ``busy``, still carries a ``lock_token`` or
-        has a different status counts as a refused release and fails the run, so
-        a store that returns a snapshot taken before the write, or keeps the
-        token on the released row, makes every run fail. That comparison cannot
-        tell an applied release from a stale no-op when another owner already
-        left the thread at the requested status; a store that also implements
-        :class:`ReleaseOutcomeProvider` closes that gap and handlers then use
-        its answer instead.
+        has a different status counts as a refused release and fails the run or
+        state update, so a store that returns a snapshot taken before the write,
+        or keeps the token on the released row, makes every one fail. That
+        comparison cannot tell an applied release from a stale no-op when another
+        owner already left the thread at the requested status; a store that also
+        implements :class:`ReleaseOutcomeProvider` closes that gap and handlers
+        then use its answer instead.
 
         Raises ``KeyError(thread_id)`` if the thread does not exist.
         Implementations may treat this as a best-effort release when used

@@ -10,6 +10,10 @@ from tests.test_platform_routes import _get_fn, _post_request
 from tests.test_stores_azure_table import _new_store
 
 
+class FatalGraphError(BaseException):
+    pass
+
+
 @pytest.mark.parametrize("endpoint", ["wait", "stream"])
 @pytest.mark.parametrize("graph_fails", [False, True])
 def test_release_failure_retains_primary_error_and_releases_outer_lock(
@@ -50,6 +54,39 @@ def test_release_failure_retains_primary_error_and_releases_outer_lock(
     observer.on_run_completed.assert_not_called()
     if graph_fails:
         assert json.loads(response.get_body())["detail"] == "Graph execution failed"
+    token = lock.acquire("agent", thread.thread_id)
+    assert token is not None
+    lock.release("agent", thread.thread_id, token)
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+def test_base_exception_is_not_suppressed_by_release_failure(endpoint: str) -> None:
+    # Given a fatal graph error and a simultaneous persistence failure during cleanup.
+    store, _ = _new_store()
+    lock = InProcessThreadLock()
+    graph = FakeCompiledGraph()
+    app = LangGraphApp(platform_compat=True, thread_lock=lock)
+    app._thread_store = store
+    app.register(graph=graph, name="agent")
+    thread = store.create()
+    handler = _get_fn(app.function_app, f"aflg_platform_runs_{endpoint}")
+    request = _post_request(
+        f"/api/threads/{thread.thread_id}/runs/{endpoint}",
+        {"assistant_id": "agent", "input": {}},
+        thread_id=thread.thread_id,
+    )
+    method = "invoke" if endpoint == "wait" else "stream"
+    fatal = FatalGraphError("fatal-graph-canary")
+    with (
+        patch.object(graph, method, side_effect=fatal),
+        patch.object(store, "release_run_lock", side_effect=OSError("release-canary")),
+        pytest.raises(FatalGraphError, match="fatal-graph-canary") as raised,
+    ):
+        # When cleanup runs while the BaseException is propagating.
+        handler(request)
+
+    # Then cleanup does not replace the fatal error, and the outer lock is still released.
+    assert raised.value is fatal
     token = lock.acquire("agent", thread.thread_id)
     assert token is not None
     lock.release("agent", thread.thread_id, token)

@@ -10,35 +10,23 @@ fake-model fallback (no Azure OpenAI / Azure Storage credentials required):
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
-import sys
 from typing import Any
 
 import pytest
+
+from tests.example_imports import load_example_file
 
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples" / "conversation_memory"
 
 
 def _load_graph_module() -> Any:
-    path = EXAMPLE_DIR / "graph.py"
-    spec = importlib.util.spec_from_file_location("_conversation_memory_graph", path)
-    assert spec is not None and spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    sys.path.insert(0, str(EXAMPLE_DIR))
-    try:
-        spec.loader.exec_module(mod)
-    finally:
-        sys.path.pop(0)
-    return mod
+    return load_example_file(EXAMPLE_DIR / "graph.py", "_conversation_memory_graph")
 
 
 @pytest.fixture()
 def compiled_graph(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
-    sys.modules.pop("model_config", None)
-    sys.modules.pop("tools", None)
     return _load_graph_module().compiled_graph
 
 

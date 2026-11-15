@@ -9,8 +9,8 @@ Azure. It defines:
   orchestration output) onto :data:`DurableRunStatus`.
 * :class:`DurableRunPayload` / :class:`DurableRunResult` — the JSON-serializable
   activity input/output records passed through Durable orchestration history.
-* :func:`serialize_error` — a safe, JSON-serializable error shape (type + message
-  only; never a traceback or arbitrary object).
+* :func:`serialize_error` — a safe, JSON-serializable error shape (exception class
+  name + a fixed generic message; never exception text, a traceback or any object).
 
 The orchestrator MUST stay deterministic, so everything here is pure: no clocks,
 no randomness, no I/O.
@@ -40,15 +40,23 @@ DurableRunStatus = Literal["pending", "running", "success", "error", "cancelled"
 _ActivityStatus = Literal["success", "error", "rejected"]
 
 
-def serialize_error(exc: BaseException) -> dict[str, str]:
-    """Return a safe, JSON-serializable error shape (type + message only).
+#: Fixed message stored in Durable history for every failed run (#898).
+GENERIC_ERROR_MESSAGE = "The run failed."
 
-    Never includes a traceback, ``args`` beyond the string form, or any
-    arbitrary object — consistent with the observability boundary that a run's
-    correlation surface carries the exception *type* and message only.
+
+def serialize_error(exc: BaseException) -> dict[str, str]:
+    """Return the safe error shape stored in Durable orchestration history.
+
+    The result is the exception *class name* plus a fixed generic message. It
+    never includes ``str(exc)``, ``args``, a traceback or any object: exception
+    text can carry connection strings, hostnames, tokens or user data, and
+    Durable history/status is readable by anyone with access to the Task Hub
+    storage or the Durable management endpoints. Log the raw exception
+    server-side at the point of failure instead (see
+    :func:`~azure_functions_langgraph.durable._activity.execute_langgraph_run_impl`).
     """
 
-    return {"type": type(exc).__name__, "message": str(exc)}
+    return {"type": type(exc).__name__, "message": GENERIC_ERROR_MESSAGE}
 
 
 @dataclass(frozen=True)

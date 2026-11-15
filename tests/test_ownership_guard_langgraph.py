@@ -156,13 +156,17 @@ class Uploads:
         sync_upload = saver._upload_blob
         async_upload = saver._aupload_blob
 
-        def record_sync(path: str, data: bytes, metadata: dict[str, str]) -> None:
+        def record_sync(
+            path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
+        ) -> None:
             self.paths.append(path)
-            sync_upload(path, data, metadata)
+            sync_upload(path, data, metadata, overwrite)
 
-        async def record_async(path: str, data: bytes, metadata: dict[str, str]) -> None:
+        async def record_async(
+            path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
+        ) -> None:
             self.paths.append(path)
-            await async_upload(path, data, metadata)
+            await async_upload(path, data, metadata, overwrite)
 
         monkeypatch.setattr(saver, "_upload_blob", record_sync)
         monkeypatch.setattr(saver, "_aupload_blob", record_async)

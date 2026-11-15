@@ -1,0 +1,62 @@
+name: API Contract Baseline Verification
+
+# Optional, advisory lane (#879). It re-downloads the PUBLISHED wheel of the
+# baseline release, verifies its sha256 against the registry, and checks that the
+# committed baselines in tests/contracts/ still describe exactly that wheel,
+# across a Python / LangGraph / azure-functions matrix. It is deliberately NOT
+# part of ci-required and is never triggered by pull requests.
+
+on:
+  schedule:
+    - cron: "43 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-contract-verify
+  cancel-in-progress: false
+
+jobs:
+  verify-baseline:
+    name: Verify baseline (Py ${{ matrix.python-version }}, ${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.11"
+            label: "langgraph min, azure-functions 1.x"
+            langgraph: "langgraph==1.0.0"
+            azure-functions: "azure-functions>=1.21.0,<2.0.0"
+          - python-version: "3.12"
+            label: "langgraph latest, azure-functions 1.x"
+            langgraph: "langgraph>=1.0,<2.0"
+            azure-functions: "azure-functions>=1.21.0,<2.0.0"
+          - python-version: "3.13"
+            label: "langgraph latest, azure-functions 2.x"
+            langgraph: "langgraph>=1.0,<2.0"
+            azure-functions: "azure-functions>=1.21.0,<3.0.0"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install runtime dependencies only (not the package under test)
+        env:
+          LANGGRAPH_SPEC: ${{ matrix.langgraph }}
+          AZURE_FUNCTIONS_SPEC: ${{ matrix.azure-functions }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "$LANGGRAPH_SPEC" "$AZURE_FUNCTIONS_SPEC" "pydantic>=2.7.4,<3.0"
+
+      - name: Verify the committed baseline against the published wheel
+        run: python tools/api_contract.py verify-baseline

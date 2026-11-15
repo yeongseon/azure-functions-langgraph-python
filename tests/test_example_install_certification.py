@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-import runpy
 import sys
 
 import pytest
+
+from tests.example_imports import load_example_file
 
 # Load the script by path: the installed-wheel test tier runs from outside the
 # checkout, so ``scripts`` is not importable as a package there.
@@ -85,14 +86,13 @@ def test_tool_calling_example_starts_without_optional_openapi_package(
     example_dir = Path(__file__).resolve().parents[1] / "examples" / "tool_calling_agent"
     monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
     monkeypatch.setitem(sys.modules, "azure_functions_openapi", None)
-    sys.modules.pop("model_config", None)
-    sys.modules.pop("tools", None)
-    monkeypatch.syspath_prepend(str(example_dir))
 
     # When: the Functions entry point is loaded
-    module = runpy.run_path(str(example_dir / "function_app.py"))
+    module = load_example_file(
+        example_dir / "function_app.py", "_install_certification_tool_calling_function_app"
+    )
 
     # Then: native route metadata remains available and the optional bridge is skipped
-    metadata = module["langgraph_app"].get_app_metadata().graphs["tool_calling_agent"]
-    assert module["count"] == 0
+    metadata = module.langgraph_app.get_app_metadata().graphs["tool_calling_agent"]
+    assert module.count == 0
     assert any(route.path.endswith("/invoke") for route in metadata.routes)

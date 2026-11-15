@@ -30,6 +30,7 @@ from azure_functions_langgraph.platform._common import (
     _snapshot_to_thread_state,
     logger,
 )
+from azure_functions_langgraph.platform._serialization import dumps as platform_dumps
 from azure_functions_langgraph.platform.contracts import (
     Checkpoint,
     ThreadCount,
@@ -41,6 +42,7 @@ from azure_functions_langgraph.platform.contracts import (
     ThreadStatus,
     ThreadUpdate,
 )
+from azure_functions_langgraph.platform.stores import ReleaseOutcomeProvider
 from azure_functions_langgraph.protocols import (
     StatefulGraph,
     StateHistoryGraph,
@@ -60,22 +62,36 @@ def _release_thread_state_lock(
     """Release both the distributed thread lock and the store-backed run lock
     held while a state update is in flight, returning any cleanup failure.
 
-    Mirrors ``_release_thread_run_lock`` in ``_runs.py``, except that no renewal
-    thread is started here: ``update_state`` is a single synchronous call, so the
-    store row is not refreshed while it runs and ``reset_stale_locks`` must be
-    configured above the longest state update (see the production guide).
+    Mirrors ``_release_thread_run_lock`` in ``_runs.py``, including its judgement of the
+    store's release: one the store refused as stale is a failure, not a success. The one
+    difference is that no renewal thread is started here: ``update_state`` is a single
+    synchronous call, so the store row is not refreshed while it runs and
+    ``reset_stale_locks`` must be configured above the longest state update (see the
+    production guide).
     """
     failure: Exception | None = None
     try:
-        released = deps.thread_store.release_run_lock(
-            thread_id,
-            status=status,
-            owner_token=store_owner_token or lock_token,
-        )
-        if released.status == "busy" or released.lock_token is not None:
+        owner_token = store_owner_token or lock_token
+        applied = True
+        if isinstance(deps.thread_store, ReleaseOutcomeProvider):
+            outcome = deps.thread_store.release_run_lock_outcome(
+                thread_id, status=status, owner_token=owner_token
+            )
+            released, applied = outcome.thread, outcome.applied
+        else:
+            released = deps.thread_store.release_run_lock(
+                thread_id, status=status, owner_token=owner_token
+            )
+        # A stale owner's release is a deliberate no-op that returns the unchanged current thread,
+        # so success needs the store's own "applied" answer (when it gives one) and a thread at
+        # the requested status with no lock token. A store refuses to release to "busy", so a
+        # thread still busy under a newer owner always differs from the requested status.
+        if not applied or released.status != status or released.lock_token is not None:
             failure = RuntimeError("State-update store ownership was not released")
             logger.warning(
-                "State-update lock release did not clear ownership for thread %s", thread_id
+                "State-update lock release for thread %s was ignored: "
+                "the update no longer owned the thread",
+                thread_id,
             )
     except KeyError as exc:
         failure = exc
@@ -340,21 +356,18 @@ def register_thread_routes(
                 tasks=[],
                 interrupts=[],
             )
-            return func.HttpResponse(
-                body=json.dumps(state.model_dump(mode="json"), default=str),
-                mimetype="application/json",
-                status_code=200,
-            )
+            return func.HttpResponse(body=platform_dumps(state), mimetype="application/json")
         except Exception:
             logger.exception("get_state failed for thread %s", thread_id)
             return _platform_error(500, "Internal error retrieving thread state")
 
         state = _snapshot_to_thread_state(snapshot, thread_id)
-        return func.HttpResponse(
-            body=json.dumps(state.model_dump(mode="json"), default=str),
-            mimetype="application/json",
-            status_code=200,
-        )
+        try:
+            body = platform_dumps(state)
+        except ValueError:
+            logger.exception("get_state returned non-finite JSON for thread %s", thread_id)
+            return _platform_error(500, "Internal error serializing thread state")
+        return func.HttpResponse(body=body, mimetype="application/json", status_code=200)
 
     @app.function_name(name="aflg_platform_threads_state_update")
     @app.route(route="threads/{thread_id}/state", methods=["POST"], auth_level=auth)
@@ -419,13 +432,42 @@ def register_thread_routes(
         graph_name = thread.assistant_id
         prior_status = thread.status
 
-        lock_token = deps.thread_lock.acquire(graph_name, thread_id)
+        # The update goes back to the status it read, and a store refuses to release to "busy".
+        # A thread read as busy is refused before any lock is taken: its run may have finished
+        # since the read, and taking the store lock would then overwrite the terminal status that
+        # run left, which cannot be restored. A thread that is still busy is refused by the store
+        # lock below anyway, so the answer is the same.
+        lock_token = (
+            None if prior_status == "busy" else deps.thread_lock.acquire(graph_name, thread_id)
+        )
         if lock_token is None:
             return _platform_error(
                 409,
                 f"Thread {thread_id!r} is already busy. "
                 f"State updates are not supported while a run is active.",
             )
+        # The status read above predates the shared lock. A run that started and finished since
+        # then (under a distributed ThreadLock it held this lock the whole time) left a different
+        # terminal status, and releasing to the stale one would silently replace it (#849). The
+        # store lock overwrites the status with "busy", so it has to be read again before that.
+        try:
+            current = deps.thread_store.get(thread_id)
+        except Exception:
+            logger.exception("State-update status re-read failed for thread %s", thread_id)
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
+            return _platform_error(500, "Internal error updating thread state")
+        if current is None:
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
+            return _platform_error(404, f"Thread {thread_id!r} not found")
+        if current.status == "busy":
+            _release_outer_state_lock(deps, graph_name, thread_id, lock_token)
+            return _platform_error(
+                409,
+                f"Thread {thread_id!r} is already busy. "
+                f"State updates are not supported while a run is active.",
+            )
+        prior_status = current.status
+
         try:
             locked = deps.thread_store.try_acquire_run_lock(thread_id, assistant_id=graph_name)
         except KeyError:
@@ -595,8 +637,9 @@ def register_thread_routes(
             logger.exception("get_state_history failed for thread %s", thread_id)
             return _platform_error(500, "Internal error retrieving thread history")
 
-        return func.HttpResponse(
-            body=json.dumps([s.model_dump(mode="json") for s in results], default=str),
-            mimetype="application/json",
-            status_code=200,
-        )
+        try:
+            response_body = platform_dumps(results)
+        except ValueError:
+            logger.exception("get_state_history returned non-finite JSON for thread %s", thread_id)
+            return _platform_error(500, "Internal error serializing thread history")
+        return func.HttpResponse(body=response_body, mimetype="application/json", status_code=200)

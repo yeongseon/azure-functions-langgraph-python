@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
-import sys
 
 import pytest
+
+from tests.example_imports import load_example_file
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
@@ -13,6 +13,7 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("azure_openai_agent", "compiled_graph"),
     ("conversation_memory", "compiled_graph"),
     ("platform_compat_sdk", "compiled_graph"),
+    ("platform_thread_isolation", "compiled_graph"),
     ("openapi_bridge", "compiled_graph"),
     ("tool_calling_agent", "compiled_graph"),
     ("production_auth", "private_graph"),
@@ -23,25 +24,15 @@ GRAPH_EXAMPLES: tuple[tuple[str, str], ...] = (
     ("versioned_output_agent", "compiled_graph"),
     ("async_agent", "compiled_graph"),
     ("run_observer", "compiled_graph"),
+    ("run_observer_offline_proof", "compiled_graph"),
     ("observability_app_insights", "compiled_graph"),
     ("run_observer_otel", "compiled_graph"),
     ("service_bus_agent", "compiled_graph"),
+    ("service_bus_sessions", "compiled_graph"),
     ("true_streaming_agent", "compiled_graph"),
+    ("streaming_authorization", "compiled_graph"),
     ("durable_async_agent", "compiled_graph"),
 )
-
-
-def _load_module(example_dir: Path, module_name: str) -> object:
-    path = example_dir / f"{module_name}.py"
-    spec = importlib.util.spec_from_file_location(
-        f"_examples_{example_dir.name}_{module_name}", path
-    )
-    assert spec is not None
-    assert spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
 
 
 @pytest.mark.parametrize("example,attr", GRAPH_EXAMPLES)
@@ -56,13 +47,7 @@ def test_example_graph_compiles(example: str, attr: str, monkeypatch: pytest.Mon
         "production_persistent_agent",
     }:
         monkeypatch.setenv("AGENT_MODEL_MODE", "fake")
-        sys.modules.pop("model_config", None)
-    sys.modules.pop("tools", None)
-    sys.path.insert(0, str(example_dir))
-    try:
-        mod = _load_module(example_dir, "graph")
-    finally:
-        sys.path.pop(0)
+    mod = load_example_file(example_dir / "graph.py", f"_examples_{example}_graph")
 
     graph = getattr(mod, attr)
     assert graph is not None
@@ -82,6 +67,7 @@ EXAMPLE_DIRS = (
     "azure_openai_agent",
     "conversation_memory",
     "platform_compat_sdk",
+    "platform_thread_isolation",
     "persistent_agent_blob_table",
     "managed_identity_storage",
     "openapi_bridge",
@@ -92,11 +78,15 @@ EXAMPLE_DIRS = (
     "versioned_output_agent",
     "async_agent",
     "run_observer",
+    "run_observer_offline_proof",
     "observability_app_insights",
     "run_observer_otel",
     "service_bus_agent",
+    "service_bus_sessions",
     "true_streaming_agent",
+    "streaming_authorization",
     "durable_async_agent",
+    "sqlite_checkpoint_local",
 )
 
 

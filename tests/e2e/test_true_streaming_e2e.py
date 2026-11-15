@@ -13,6 +13,8 @@ BASE_URL = os.environ.get("E2E_STREAM_BASE_URL", "").rstrip("/")
 FUNCTION_KEY = os.environ.get("E2E_STREAM_CODE", "")
 EVIDENCE_PATH = os.environ.get("STREAM_TIMING_EVIDENCE", "")
 SKIP_REASON = "E2E_STREAM_BASE_URL not set — skipping true-streaming Azure e2e tests"
+LOCK_RELEASE_DEADLINE_S = 10.0
+LOCK_POLL_INTERVAL_S = 0.1
 pytestmark = pytest.mark.e2e
 
 
@@ -33,6 +35,16 @@ def _stream(*, thread_id: str, fail: bool = False) -> requests.Response:
         timeout=60,
         stream=True,
     )
+
+
+def _stream_after_lock_release(*, thread_id: str) -> requests.Response:
+    deadline = time.monotonic() + LOCK_RELEASE_DEADLINE_S
+    while True:
+        response = _stream(thread_id=thread_id)
+        if response.status_code != 409 or time.monotonic() >= deadline:
+            return response
+        response.close()
+        time.sleep(LOCK_POLL_INTERVAL_S)
 
 
 @pytest.mark.skipif(not BASE_URL, reason=SKIP_REASON)
@@ -92,9 +104,14 @@ def test_disconnect_releases_thread_lock() -> None:
 
     # When: the client disconnects before graph completion
     response.close()
-    time.sleep(0.5)
-    retry = _stream(thread_id=thread_id)
+    # The synchronous step that was in flight keeps the lock until it has finished (#621), so a
+    # retry can meet lock contention for a moment after the disconnect: poll for the release.
+    retry = _stream_after_lock_release(thread_id=thread_id)
 
-    # Then: the same thread can run again instead of returning lock contention
+    # Then: the same thread can run again instead of staying locked
+    assert retry.status_code != 409, (
+        f"thread {thread_id} was still locked (HTTP 409) {LOCK_RELEASE_DEADLINE_S:g} s "
+        "after the client disconnected"
+    )
     assert retry.status_code == 200, retry.text
     assert "event: end" in retry.text

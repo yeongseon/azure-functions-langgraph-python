@@ -63,7 +63,7 @@ app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYM
 Use per-graph overrides to keep a strict default while exposing narrowly scoped public routes.
 
 ⚠️ **Scope**: Per-graph `auth_level` overrides apply only to **native routes** (`/api/graphs/{name}/invoke`, `/api/graphs/{name}/stream`).
-When `platform_compat=True` is enabled, all platform-compatible routes (`/api/threads/...`, `/api/runs/...`) use the **app-level** `auth_level` regardless of per-graph overrides.
+When `platform_compat=True` is enabled, all platform-compatible routes (`/api/threads/...`, `/api/runs/...`) use the **app-level** `auth_level` regardless of per-graph overrides. Because a stricter per-graph key would otherwise be bypassed through those shared routes, building an app with a graph *stricter* than the app-level `auth_level` while Platform or Durable routes are enabled raises `ValueError` (`mixed-auth` in the [topology table](#topology-validation-880)); looser graphs and native-only apps are unaffected.
 
 ### API Management integration pattern
 
@@ -285,6 +285,13 @@ replay determinism is preserved. Durable history is not a replacement for
 LangGraph checkpoints. See the README "Durable async run lifecycle" section and
 [`examples/durable_async_agent/`](../examples/durable_async_agent/).
 
+Durable removes the **HTTP request-response** ceiling, not the Function execution
+timeout: the activity running the graph is subject to the same `functionTimeout`
+as any other function (Consumption maximum 10 minutes; see
+[timeout limits](#azure-functions-timeout-limits)), and a timeout is recorded as
+a failed activity ([Azure docs](https://learn.microsoft.com/en-us/azure/azure-functions/durable-functions/durable-functions-perf-and-scale#function-timeouts)). A single
+long graph run must still fit that limit.
+
 This is an **execution and polling** choice, not a concurrency workaround.
 Activities acquire the app's `ThreadLock` only for checkpointed graphs with a
 thread ID. They do not acquire the Platform `ThreadStore` run lock. Multiple
@@ -339,6 +346,34 @@ only what it observed:
   tool call that is in flight, and Activity delivery is at-least-once. Give
   side-effecting tools an idempotency key or deduplicate them in the application;
   do not use cancellation as a safeguard against a duplicate or unwanted effect.
+- **Redelivery, replay and retries.** These are three different things. A *redelivery*
+  re-runs the Activity (and so the whole graph) with the same `run_id` and payload; a
+  checkpointer does not stop it, because the adapter always invokes with the payload
+  input and nodes' external effects can repeat. *Orchestrator replay* re-drives
+  only the deterministic orchestrator and does not re-run the Activity. An
+  *application retry* is a new run with a new `run_id`. Use an idempotency key derived
+  from the stable `run_id` with a provider that enforces it atomically, and put retries
+  inside the tool call with that same key rather than relying on Durable to re-run the
+  Activity (a re-run repeats the whole graph, not one tool); see
+  [`examples/durable_async_agent/`](../examples/durable_async_agent/) and
+  `tests/test_durable_replay_idempotency.py` for the pattern and its limits.
+  Carry that key in a `config.configurable` entry that LangGraph does not reserve
+  (for example `app_run_id`). **Do not use `run_id` there:** LangGraph reserves it. It
+  copies `configurable.run_id` into checkpoint metadata, and a later invoke on the same
+  thread with the same value is treated as a resume of that run, so the new input is
+  ignored and the nodes do not run. The adapter itself never sets it; see
+  [Troubleshooting](troubleshooting.md#a-second-durable-run-on-the-same-thread-skips-the-graph).
+- **Errors in Durable history.** A failed Activity stores only the exception class name
+  and the fixed message `The run failed.` in the orchestration output, which is what
+  Durable history, the Task Hub storage and the Durable management endpoints expose.
+  Exception text is never stored there (it can carry connection strings or tokens). The
+  raw exception is logged server-side by the Activity (`logger.exception`, with `run_id`
+  and graph name but no input, config or result), so read it in Application Insights or
+  the host log. `GET /api/runs/{run_id}` returns `{"code": "run_failed", "message": "The
+  run failed."}`. The graph `input` and `result` are still stored in history as
+  application data and need the access controls described in
+  [Security](security.md#shared-persistence-is-a-trust-boundary).
+
 - **Migration.** Earlier releases answered `202 {"status": "cancelled"}` at once.
   A client that treated that body as final must now poll `GET` until the status is
   terminal, and one that accepted only `202` must also accept `200` (the run had
@@ -530,6 +565,28 @@ This is a design-envelope approximation, not an enforced limit, and generally wo
 
 Beyond that envelope, consider a sharded or higher-scale backend such as Cosmos DB.
 
+#### Opt-in status index (experimental)
+
+If `search(status="idle" | "interrupted" | "error")` without a metadata filter is the slow path, the
+store can serve it from per-status, time-ordered hint rows (`AzureTableThreadStore(status_index=True)`).
+It is off by default and does not change `count()`, unfiltered search or metadata filters. The full
+contract is in the [adapter reference](adapter-reference.md#table-status-index-opt-in-experimental); the
+operational points are:
+
+- **Costs:** one extra write when a thread is created or newly enters a terminal status (a run goes
+  from 2 to 3 writes), plus verification reads on search. Offsets above `status_index_offset_cap`
+  (default 200) scan.
+- **Roll out in order:** every instance index-aware (`status_index=True`), then
+  `rebuild_status_index()`, then `audit_status_index(mark_ready=True)`. Readers scan until the marker is `ready`.
+- **Mixed fleets are the hazard.** An instance without the option that creates or re-statuses a
+  thread after the backfill leaves it without a hint, and indexed searches omit it until the next
+  rebuild. Never run old and new writers together after `ready`; schedule `audit_status_index()`
+  (it lists `missing` threads) and `repair_status_index()` from a Timer Trigger.
+- **Roll back:** `disable_status_index()` first (readers scan after the cache TTL, default 30 s),
+  then switch the option off, then optionally `disable_status_index(delete_rows=True)`. Re-enable
+  only with a new backfill and clean audit.
+- Not measured on real Azure; the benefit and the write cost above are counted on a fake table.
+
 ### Concurrency controls
 
 Only `multitask_strategy="reject"` is supported.
@@ -680,12 +737,28 @@ and the [trigger example](../examples/service_bus_agent/). A plain queue with a
 
 ### Distributed thread locking
 
-The native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) guard checkpointed runs with a thread ID using a **per-thread lock** keyed by `(graph_name, thread_id)`. The default `InProcessThreadLock` is single-process only: separate workers, even on one instance, have separate locks.
+The native invoke/stream endpoints (`POST /api/graphs/{name}/invoke` and `.../stream`) guard checkpointed runs with a thread ID using a **per-thread lock** keyed by `(lock scope, thread_id)`, where the lock scope is the graph name unless the graph's checkpointer reports a storage identity (see [Lock scope and shared checkpointers](#lock-scope-and-shared-checkpointers)). The default `InProcessThreadLock` is single-process only: separate workers, even on one instance, have separate locks.
 
 For shared writers across processes, `LangGraphApp` accepts any object satisfying the [`ThreadLock`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/src/azure_functions_langgraph/locks/base.py) protocol via `thread_lock`. `AzureBlobLeaseThreadLock` is the shipped low-cost distributed choice, requiring only a Blob container rather than an additional database or broker. It is not universally required: a custom backend or an explicitly single-writer topology may fit your deployment. Finite leases naturally expire (15–60 s) after renewal stops; infinite leases require explicit recovery.
 
 > ℹ️ **Background renewal.** `AzureBlobLeaseThreadLock` renews leases in the background by default: a per-instance daemon thread renews every active lease at `lease_duration / 3` intervals until `close()` (or process exit). Pass `auto_renew=False` to opt out — a finite lease then silently expires mid-execution as it did before renewal support, and construction emits a `UserWarning` so the trade-off is visible. Infinite leases (`lease_duration=-1`) never need renewal but must be broken manually if a host crashes.
 >
+#### Lock scope and shared checkpointers
+
+Two graphs that write the same checkpoint storage collide on a `thread_id` (and checkpoint namespace), so they must not run at once. The thread lock is therefore keyed by a *lock scope* derived from the graph's **own checkpointer**, never from which graphs happen to be registered:
+
+- A checkpointer may expose an optional `lock_scope_identity` string naming its physical storage. The bundled `AzureBlobCheckpointSaver` reports `azure-blob:<account>/<container>` (checkpoint blobs are not prefixed, so the container is the collision scope). Every graph on that storage gets the scope `storage-<hash of the identity>`, regardless of graph name, of other registrations, of the app (`LangGraphApp` or `StreamingLangGraphApp`) and of the process. Registering another graph later cannot change an existing graph's scope.
+- A graph with no checkpointer, a LangGraph sentinel (`True`/`False`), or a checkpointer that exposes no `lock_scope_identity` (SQLite, Postgres, Cosmos DB and custom savers today) keeps its **graph name** as the scope, exactly as before. Sharing between such graphs **cannot be detected**: do not rely on the lock to serialize two such graphs that write the same database or file; share one graph, or serialize them another way. Custom savers may opt in by exposing a deterministic `lock_scope_identity` property.
+- HTTP graphs and Service Bus triggers resolve a lock by name. Registering the same name on both surfaces with checkpointers on *different* storage raises `ValueError`, because one name cannot map to two scopes. Use distinct names.
+- Each acquired token is bound to the scope it was acquired under; release and ownership guards always use that scope.
+- The same scope is used by every surface that takes the thread lock: native invoke/stream, `StreamingLangGraphApp`, Platform runs and state updates, Service Bus and Durable activities. Platform `ThreadStore` CAS is unchanged and remains additional to the thread lock.
+- The lock is per thread, so it also covers every checkpoint namespace of that thread (a superset of the physical collision scope).
+- Owner-token release and `OwnershipGuardProvider` behave as before; only the `graph_name` argument handed to the backend is the scope. `AzureBlobLeaseThreadLock` therefore sees the scope in its key (marker blob `thread-locks/<scope>/<thread_id>`).
+
+Limits: this adds no storage-side fencing. The lease-loss limits described below still apply and nothing here provides exactly-once checkpoint writes. A checkpointer that does not report an identity, or two storages that alias the same data under different account/container names, are not detected.
+
+> ⚠️ **Rolling deployments and mixed fleets.** The lock key changes for **every graph whose checkpointer reports an identity** (today: every graph using `AzureBlobCheckpointSaver`), even a graph that shared nothing: before, writers locked `<graph>`; now they lock `storage-<hash>`. Graphs without an identity keep their key. During a rollout, an old instance locks `<graph>` while a new instance locks `storage-<hash>`, so **previously serialized writes to the same thread can overlap** between old and new instances, including for a single graph, and old instances still do not exclude each other across graphs. For the Blob backend the marker blob also differs. Mixed old/new fleets (or a rollback) have the same exposure in reverse. Drain or pause writes for the affected threads while rolling out, or stop all old instances before starting new ones. After the rollout every instance agrees. Changing which checkpointer a graph uses later changes its scope the same way.
+
 #### Lease lifecycle (AzureBlobLeaseThreadLock)
 
 ```mermaid
@@ -899,7 +972,7 @@ with the lock; drain graph work before closing the lock and then its clients.
 | `AzureBlobLeaseThreadLock` | Yes — Azure Blob lease CAS | One Blob container | Finite expiry after renewal stops; renewal loss can admit another writer while old work continues | Shared writers across processes/hosts; default finite lease is 60 seconds with renewal, not a graph deadline |
 | Custom `ThreadLock` implementation | Yours to design | Yours to provision | Yours to reason about | Redis, Cosmos DB, Postgres advisory locks, etc. |
 
-**Safety guard — `AZFUNC_LANGGRAPH_LOCK_BACKEND`.** In multi-instance environments, set this environment variable to `distributed` (or any non-empty value other than `inprocess`). When the value indicates a distributed backend is required and `thread_lock` resolves to the default `InProcessThreadLock`, `LangGraphApp.__post_init__` raises `RuntimeError` at construction — turning a silent-race deployment mistake into a fail-fast startup error. Set the value to `inprocess` (or leave it unset) in single-instance environments; the guard passes for any wired custom backend regardless of the environment value.
+**Safety guard — `AZFUNC_LANGGRAPH_LOCK_BACKEND`.** In multi-instance environments, set this environment variable to `distributed` (or any non-empty value other than `inprocess`). When the value indicates a distributed backend is required and `thread_lock` resolves to the default `InProcessThreadLock`, `LangGraphApp.__post_init__` raises `RuntimeError` at construction — turning a silent-race deployment mistake into a fail-fast startup error. Set the value to `inprocess` (or leave it unset) in single-instance environments; the guard passes for any wired custom backend regardless of the environment value. The same rule is re-evaluated when `app.function_app` is built, so a lock or variable changed after construction is still caught; see [Topology validation](#topology-validation-880).
 
 **Safety guard — `AZFUNC_LANGGRAPH_THREAD_STORE` (platform-compat).** The thread *store* has the same scale-out footgun as the lock: when `platform_compat=True` and no store is supplied, `LangGraphApp` defaults to the per-instance `InMemoryThreadStore`, so on Azure scale-out (Consumption / Elastic Premium) each worker keeps its own threads and state diverges across instances. Two layered guards mirror the lock-backend precedent:
 
@@ -921,6 +994,78 @@ store and rebuilds all routes against it. Keep the exported module-level
 Functions app assignment last so Azure never receives the superseded route
 object.
 
+#### Topology validation (#880)
+
+`LangGraphApp` and `StreamingLangGraphApp` derive one immutable internal plan from the *final* configuration (constructor arguments, registrations, the thread store and lock actually wired, and the environment) and validate it once when `app.function_app` is built, before any route exists. A rejected configuration exports no routes and runs no graph. No constructor parameter or public import changed; the plan is private.
+
+Hard errors are limited to configurations that are unsafe by construction or by the operator's own declaration. Anything that only *suggests* scale-out is a `RuntimeWarning`, because the instance count cannot be proven.
+
+| Rule | Severity | Raised when | Evidence |
+| --- | --- | --- | --- |
+| `mixed-auth` | `ValueError` | Platform or Durable routes are enabled and a graph's `auth_level` is stricter than the app-level one | Those routes are protected only by the app-level key, so the graph's key is bypassed (#854) |
+| `lock-backend-declared` | `RuntimeError` | `AZFUNC_LANGGRAPH_LOCK_BACKEND` declares a distributed backend but `thread_lock` is the default `InProcessThreadLock` | The operator declared several writers; a process-local lock excludes none of them. Also raised at construction |
+| `thread-store-declared` | `RuntimeError` | `platform_compat=True`, a distributed deployment is declared (either variable), and the store is the per-instance `InMemoryThreadStore` | Thread records would diverge per instance; a distributed lock does not share them (#742) |
+| `process-local-checkpointer-declared` | `RuntimeError` | A distributed deployment is declared and any registered graph (HTTP, Service Bus, Durable) uses an `InMemorySaver` checkpointer | Checkpoints live in one process: other instances, restarts and Durable activities on another worker never see them |
+| `thread-store-hosted` | `RuntimeWarning` | `platform_compat=True`, in-memory store, Azure host markers present | As above, but scale-out is only suspected |
+| `process-local-checkpointer-hosted` | `RuntimeWarning` | Azure host markers present and a graph uses `InMemorySaver` | State is lost on restart and diverges if the app scales out |
+| `inprocess-lock-hosted` | `RuntimeWarning` | Azure host markers present and a checkpointed graph is serialized only by the default `InProcessThreadLock` | One Azure instance may run several worker processes, and the plan may scale out |
+
+**Override and local development.** There is no new setting. Leave both variables unset for local development, where nothing is rejected and nothing warns. To assert a single-writer deployment on Azure, set `AZFUNC_LANGGRAPH_LOCK_BACKEND=inprocess` (or `AZFUNC_LANGGRAPH_THREAD_STORE=inmemory`): this suppresses the two new hosted warnings (`process-local-checkpointer-hosted`, `inprocess-lock-hosted`). The existing `thread-store-hosted` warning is unchanged and still follows the host markers. To clear a hard error, wire the shared backend or unset the declaration.
+
+**Why deployment detection is not a hard guard.** `WEBSITE_INSTANCE_ID` and `WEBSITE_SITE_NAME` are App Service platform variables: present on a single-instance plan (so they do not prove scale-out) and absent on container-based hosts (so absence does not prove local). `AZURE_FUNCTIONS_ENVIRONMENT` defaults to `Production` when unset, is set to `Development` by Core Tools locally but is an ordinary app setting in Azure, and `FUNCTIONS_WORKER_RUNTIME` is also set by `local.settings.json`. None identifies local development reliably, so detection only drives warnings, and the explicit declarations above remain the only hard-guard trigger.
+
+Not changed: lock scope semantics, route-prefix and `Content-Location` semantics, and the late-registration rejection (#868). Statelessness is never rejected: stateless graphs, native-only apps and valid local examples build without findings.
+
+Expected outcomes (checked by `tests/test_topology_truth_table.py`, which builds each row and fails if this table drifts). *Declaration* is the environment setting; *Checkpointer* `shared` is any non-`InMemorySaver` saver; *mixed* auth is an `ANONYMOUS` app with a `FUNCTION` graph.
+
+<!-- topology-truth-table:start -->
+| Surface | Hosting | Declaration | Checkpointer | Lock | Platform store | Auth | Outcome |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| native | local | none | none | in-process | n/a | uniform | OK |
+| native | local | none | shared | in-process | n/a | uniform | OK |
+| native | local | none | process-local | in-process | n/a | uniform | OK |
+| native | hosted | none | none | in-process | n/a | uniform | OK |
+| native | hosted | none | shared | in-process | n/a | uniform | Warning `inprocess-lock-hosted` |
+| native | hosted | none | shared | distributed | n/a | uniform | OK |
+| native | hosted | none | process-local | in-process | n/a | uniform | Warning `process-local-checkpointer-hosted` |
+| native | hosted | inprocess | shared | in-process | n/a | uniform | OK |
+| native | hosted | inprocess | process-local | in-process | n/a | uniform | OK |
+| native | local | lock=distributed | none | in-process | n/a | uniform | **Error** `lock-backend-declared` |
+| native | local | lock=distributed | shared | distributed | n/a | uniform | OK |
+| native | local | lock=distributed | process-local | distributed | n/a | uniform | **Error** `process-local-checkpointer-declared` |
+| native | local | store=distributed | shared | in-process | n/a | uniform | OK |
+| native | hosted | none | shared | in-process | n/a | mixed | Warning `inprocess-lock-hosted` |
+| platform | local | none | shared | in-process | in-memory | uniform | OK |
+| platform | hosted | none | none | in-process | in-memory | uniform | Warning `thread-store-hosted` |
+| platform | hosted | none | shared | in-process | in-memory | uniform | Warning `thread-store-hosted`, `inprocess-lock-hosted` |
+| platform | hosted | none | shared | distributed | distributed | uniform | OK |
+| platform | hosted | none | shared | in-process | distributed | uniform | Warning `inprocess-lock-hosted` |
+| platform | local | lock=distributed | shared | distributed | in-memory | uniform | **Error** `thread-store-declared` |
+| platform | local | store=distributed | none | in-process | in-memory | uniform | **Error** `thread-store-declared` |
+| platform | local | store=distributed | process-local | in-process | distributed | uniform | **Error** `process-local-checkpointer-declared` |
+| platform | local | none | shared | in-process | in-memory | mixed | **Error** `mixed-auth` |
+| platform | local | store=distributed | shared | in-process | in-memory | mixed | **Error** `mixed-auth` |
+| durable | local | none | shared | in-process | n/a | uniform | OK |
+| durable | hosted | none | process-local | in-process | n/a | uniform | Warning `process-local-checkpointer-hosted` |
+| durable | hosted | none | shared | distributed | n/a | uniform | OK |
+| durable | local | lock=distributed | shared | in-process | n/a | uniform | **Error** `lock-backend-declared` |
+| durable | local | store=distributed | process-local | in-process | n/a | uniform | **Error** `process-local-checkpointer-declared` |
+| durable | local | store=distributed | shared | in-process | n/a | uniform | OK |
+| durable | local | none | shared | in-process | n/a | mixed | **Error** `mixed-auth` |
+| service_bus | local | none | shared | in-process | n/a | uniform | OK |
+| service_bus | hosted | none | none | in-process | n/a | uniform | OK |
+| service_bus | hosted | none | shared | in-process | n/a | uniform | Warning `inprocess-lock-hosted` |
+| service_bus | hosted | none | process-local | in-process | n/a | uniform | Warning `process-local-checkpointer-hosted` |
+| service_bus | local | lock=distributed | process-local | distributed | n/a | uniform | **Error** `process-local-checkpointer-declared` |
+| streaming | local | none | shared | in-process | n/a | uniform | OK |
+| streaming | hosted | none | shared | in-process | n/a | uniform | Warning `inprocess-lock-hosted` |
+| streaming | local | lock=distributed | none | in-process | n/a | uniform | **Error** `lock-backend-declared` |
+| streaming | local | store=distributed | process-local | in-process | n/a | uniform | **Error** `process-local-checkpointer-declared` |
+| streaming | hosted | inprocess | process-local | in-process | n/a | uniform | OK |
+<!-- topology-truth-table:end -->
+
+Only one error is raised per build; a rejection also precedes every warning, so a rejected row lists a single rule (for example, `mixed-auth` wins over `thread-store-declared`).
+
 #### Opt-in guard for Blob checkpoint writes (#790)
 
 Off by default. When enabled, the Blob lock hands every run a small **guard bound
@@ -935,6 +1080,12 @@ after detected loss is not reported as a success.
 **This reduces writes after detected loss. It is not fencing.** Detection lags,
 a check can pass an instant before the upload it protects, and nothing stops the
 stale graph or its side effects outside the checkpoint store.
+
+A pending write whose slot already exists (a retried `put_writes` / `aput_writes`)
+is also checked first: ordinary write slots are created with one create-only upload
+(`overwrite=False`), and a slot that already exists is left untouched by the service.
+A writer that has *detected* loss therefore gets `ThreadLeaseLostError` for a retry
+too, instead of the earlier silent skip; the stored data is the same either way.
 
 ```python
 lock = AzureBlobLeaseThreadLock(
@@ -982,7 +1133,7 @@ run executes or when it finishes):
 | Native stream, true streaming, Platform `runs/stream` | An `event: error` frame, then `event: end` (the HTTP status is already 200); Platform thread status ends `error`. |
 | Platform `runs/wait` | `500`; thread status `error`. |
 | Platform `POST /threads/{id}/state` | `500` `Internal error updating thread state`; thread status `error`. |
-| Durable activity | `activity_status: "error"` with `error.type` `ThreadLeaseLostError` and a fixed message. |
+| Durable activity | `activity_status: "error"` with `error.type` `ThreadLeaseLostError` and the fixed message `The run failed.`. |
 | Service Bus | The exception propagates, so the Functions runtime applies its normal retry and dead-letter policy; the result handler does not run. |
 
 The error message is a fixed sentence without thread ID, graph name or token, so
@@ -1058,7 +1209,24 @@ until `reset_stale_locks` reclaims it. A state update is one synchronous
 `update_state` call, and the handler does **not** start the store-lock renewal
 worker that runs use, so it does not refresh the row while the update executes:
 keep `reset_stale_locks(older_than_seconds=...)` above the longest state update
-you expect, not only above the longest run.
+you expect, not only above the longest run. If the row is reclaimed anyway, or
+another run acquires the thread, while `update_state` is running, the update's
+own release is refused as stale and the handler answers the sanitized HTTP 500
+`Internal error releasing thread state lock` instead of success; the update
+itself is not rolled back. The bundled stores report this exactly, even when the
+reclaim left the thread at the status the update asked for, and a custom store
+that cannot say so is judged by the returned thread alone (see the adapter
+reference).
+
+A state update goes back to the thread's prior status (`idle`, `interrupted` or
+`error`), so it reads the thread **again after taking the shared lock** and before
+the store lock overwrites the status with `busy`. Under a distributed
+`ThreadLock` a run holds that lock for its whole duration, so the second read
+shows the status the run left and the update keeps it. With the process-local
+default lock a run in another instance does not hold it, and a run that starts
+and finishes between the second read and the store acquisition can still have its
+terminal status replaced; use a distributed lock when several instances write one
+thread. A thread that reads `busy` on either read is refused with `409`.
 
 - **Native-only:** choose a checkpointer and distributed `ThreadLock` for shared
   writers. A Platform `ThreadStore` is not required.
