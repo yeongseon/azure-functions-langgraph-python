@@ -63,7 +63,7 @@ app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYM
 Use per-graph overrides to keep a strict default while exposing narrowly scoped public routes.
 
 ⚠️ **Scope**: Per-graph `auth_level` overrides apply only to **native routes** (`/api/graphs/{name}/invoke`, `/api/graphs/{name}/stream`).
-When `platform_compat=True` is enabled, all platform-compatible routes (`/api/threads/...`, `/api/runs/...`) use the **app-level** `auth_level` regardless of per-graph overrides.
+When `platform_compat=True` is enabled, all platform-compatible routes (`/api/threads/...`, `/api/runs/...`) use the **app-level** `auth_level` regardless of per-graph overrides. Because a stricter per-graph key would otherwise be bypassed through those shared routes, building an app with a graph *stricter* than the app-level `auth_level` while Platform or Durable routes are enabled raises `ValueError` (`mixed-auth` in the [topology table](#topology-validation-880)); looser graphs and native-only apps are unaffected.
 
 ### API Management integration pattern
 
@@ -285,6 +285,13 @@ replay determinism is preserved. Durable history is not a replacement for
 LangGraph checkpoints. See the README "Durable async run lifecycle" section and
 [`examples/durable_async_agent/`](../examples/durable_async_agent/).
 
+Durable removes the **HTTP request-response** ceiling, not the Function execution
+timeout: the activity running the graph is subject to the same `functionTimeout`
+as any other function (Consumption maximum 10 minutes; see
+[timeout limits](#azure-functions-timeout-limits)), and a timeout is recorded as
+a failed activity ([Azure docs](https://learn.microsoft.com/en-us/azure/azure-functions/durable-functions/durable-functions-perf-and-scale#function-timeouts)). A single
+long graph run must still fit that limit.
+
 This is an **execution and polling** choice, not a concurrency workaround.
 Activities acquire the app's `ThreadLock` only for checkpointed graphs with a
 thread ID. They do not acquire the Platform `ThreadStore` run lock. Multiple
@@ -345,9 +352,27 @@ only what it observed:
   input and nodes' external effects can repeat. *Orchestrator replay* re-drives
   only the deterministic orchestrator and does not re-run the Activity. An
   *application retry* is a new run with a new `run_id`. Use an idempotency key derived
-  from the stable `run_id` with a provider that enforces it atomically; see
+  from the stable `run_id` with a provider that enforces it atomically, and put retries
+  inside the tool call with that same key rather than relying on Durable to re-run the
+  Activity (a re-run repeats the whole graph, not one tool); see
   [`examples/durable_async_agent/`](../examples/durable_async_agent/) and
   `tests/test_durable_replay_idempotency.py` for the pattern and its limits.
+  Carry that key in a `config.configurable` entry that LangGraph does not reserve
+  (for example `app_run_id`). **Do not use `run_id` there:** LangGraph reserves it. It
+  copies `configurable.run_id` into checkpoint metadata, and a later invoke on the same
+  thread with the same value is treated as a resume of that run, so the new input is
+  ignored and the nodes do not run. The adapter itself never sets it; see
+  [Troubleshooting](troubleshooting.md#a-second-durable-run-on-the-same-thread-skips-the-graph).
+- **Errors in Durable history.** A failed Activity stores only the exception class name
+  and the fixed message `The run failed.` in the orchestration output, which is what
+  Durable history, the Task Hub storage and the Durable management endpoints expose.
+  Exception text is never stored there (it can carry connection strings or tokens). The
+  raw exception is logged server-side by the Activity (`logger.exception`, with `run_id`
+  and graph name but no input, config or result), so read it in Application Insights or
+  the host log. `GET /api/runs/{run_id}` returns `{"code": "run_failed", "message": "The
+  run failed."}`. The graph `input` and `result` are still stored in history as
+  application data and need the access controls described in
+  [Security](security.md#shared-persistence-is-a-trust-boundary).
 
 - **Migration.** Earlier releases answered `202 {"status": "cancelled"}` at once.
   A client that treated that body as final must now poll `GET` until the status is
@@ -539,6 +564,28 @@ If your deployment runs multiple Function App instances, ensure each thread's wr
 This is a design-envelope approximation, not an enforced limit, and generally works well up to roughly 100K threads (~500 entities/sec throughput).
 
 Beyond that envelope, consider a sharded or higher-scale backend such as Cosmos DB.
+
+#### Opt-in status index (experimental)
+
+If `search(status="idle" | "interrupted" | "error")` without a metadata filter is the slow path, the
+store can serve it from per-status, time-ordered hint rows (`AzureTableThreadStore(status_index=True)`).
+It is off by default and does not change `count()`, unfiltered search or metadata filters. The full
+contract is in the [adapter reference](adapter-reference.md#table-status-index-opt-in-experimental); the
+operational points are:
+
+- **Costs:** one extra write when a thread is created or newly enters a terminal status (a run goes
+  from 2 to 3 writes), plus verification reads on search. Offsets above `status_index_offset_cap`
+  (default 200) scan.
+- **Roll out in order:** every instance index-aware (`status_index=True`), then
+  `rebuild_status_index()`, then `audit_status_index(mark_ready=True)`. Readers scan until the marker is `ready`.
+- **Mixed fleets are the hazard.** An instance without the option that creates or re-statuses a
+  thread after the backfill leaves it without a hint, and indexed searches omit it until the next
+  rebuild. Never run old and new writers together after `ready`; schedule `audit_status_index()`
+  (it lists `missing` threads) and `repair_status_index()` from a Timer Trigger.
+- **Roll back:** `disable_status_index()` first (readers scan after the cache TTL, default 30 s),
+  then switch the option off, then optionally `disable_status_index(delete_rows=True)`. Re-enable
+  only with a new backfill and clean audit.
+- Not measured on real Azure; the benefit and the write cost above are counted on a fake table.
 
 ### Concurrency controls
 
@@ -1034,6 +1081,12 @@ after detected loss is not reported as a success.
 a check can pass an instant before the upload it protects, and nothing stops the
 stale graph or its side effects outside the checkpoint store.
 
+A pending write whose slot already exists (a retried `put_writes` / `aput_writes`)
+is also checked first: ordinary write slots are created with one create-only upload
+(`overwrite=False`), and a slot that already exists is left untouched by the service.
+A writer that has *detected* loss therefore gets `ThreadLeaseLostError` for a retry
+too, instead of the earlier silent skip; the stored data is the same either way.
+
 ```python
 lock = AzureBlobLeaseThreadLock(
     container_client=lock_container,
@@ -1080,7 +1133,7 @@ run executes or when it finishes):
 | Native stream, true streaming, Platform `runs/stream` | An `event: error` frame, then `event: end` (the HTTP status is already 200); Platform thread status ends `error`. |
 | Platform `runs/wait` | `500`; thread status `error`. |
 | Platform `POST /threads/{id}/state` | `500` `Internal error updating thread state`; thread status `error`. |
-| Durable activity | `activity_status: "error"` with `error.type` `ThreadLeaseLostError` and a fixed message. |
+| Durable activity | `activity_status: "error"` with `error.type` `ThreadLeaseLostError` and the fixed message `The run failed.`. |
 | Service Bus | The exception propagates, so the Functions runtime applies its normal retry and dead-letter policy; the result handler does not run. |
 
 The error message is a fixed sentence without thread ID, graph name or token, so

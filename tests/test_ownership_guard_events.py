@@ -154,7 +154,7 @@ async def test_durable_normalizes_terminal_loss_without_rollback(durable: Durabl
     assert result.result is None
     assert result.error == {
         "type": "ThreadLeaseLostError",
-        "message": str(ThreadLeaseLostError(reason="lost")),
+        "message": "The run failed.",
     }
     serialized = json.dumps(result.to_dict())
     for secret in (THREAD, GRAPH, durable.lock.acquired[0]):
@@ -223,7 +223,7 @@ async def test_durable_normalizes_provider_failure_and_releases(durable: Durable
     # Then no graph runs and the ordinary activity failure path releases ownership.
     assert result.activity_status == "error"
     assert result.result is None
-    assert result.error == {"type": "RuntimeError", "message": "guard provider failed"}
+    assert result.error == {"type": "RuntimeError", "message": "The run failed."}
     assert durable.graph.configs == []
     assert durable.observer.events == ["started", "failed"]
     assert len(durable.observer.failures) == 1
@@ -244,7 +244,7 @@ async def test_durable_skips_terminal_check_when_graph_raises(durable: DurableBo
     result = await durable.run()
     # Then the graph error wins and the guard is not checked in cleanup.
     assert result.activity_status == "error"
-    assert result.error == {"type": "ValueError", "message": "graph failed"}
+    assert result.error == {"type": "ValueError", "message": "The run failed."}
     assert result.result is None
     assert durable.lock.guards[0].checks == 0
     assert durable.observer.events == ["started", "failed"]
@@ -367,9 +367,7 @@ async def test_registered_durable_activity_wires_guard_and_normalizes_output(tri
     assert output["activity_status"] == ("error" if trip else "success")
     assert output["result"] == (None if trip else {"ok": True})
     assert output["error"] == (
-        {"type": "ThreadLeaseLostError", "message": str(ThreadLeaseLostError(reason="lost"))}
-        if trip
-        else None
+        {"type": "ThreadLeaseLostError", "message": "The run failed."} if trip else None
     )
     assert observer.events == ["started", "failed" if trip else "completed"]
     serialized = json.dumps(output)

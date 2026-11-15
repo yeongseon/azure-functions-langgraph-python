@@ -25,6 +25,9 @@ from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpoi
 from azure_functions_langgraph.locks.azure_blob import AzureBlobLeaseThreadLock
 from tests.test_blob_lease_evaluation import _TimedContainer, _TimedLease
 from tests.test_checkpointers_azure_blob import (
+    FakeResourceExistsError as CheckpointResourceExistsError,
+)
+from tests.test_checkpointers_azure_blob import (
     FakeResourceNotFoundError,
     MockContainerClient,
     _checkpoint,
@@ -46,7 +49,13 @@ def _fake_azure_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
     setattr(blob_mod, "ContainerClient", (_TimedContainer, MockContainerClient))
     exceptions_mod = types.ModuleType("azure.core.exceptions")
     setattr(exceptions_mod, "ResourceNotFoundError", FakeResourceNotFoundError)
-    setattr(exceptions_mod, "ResourceExistsError", FakeResourceExistsError)
+    # The lock fake and the checkpoint fake each raise their own "exists" error; a tuple is
+    # a valid ``except`` target, so one attribute serves both.
+    setattr(
+        exceptions_mod,
+        "ResourceExistsError",
+        (FakeResourceExistsError, CheckpointResourceExistsError),
+    )
     setattr(exceptions_mod, "HttpResponseError", FakeHttpResponseError)
     for name, module in (
         ("azure", types.ModuleType("azure")),

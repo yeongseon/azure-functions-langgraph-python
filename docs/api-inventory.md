@@ -86,7 +86,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `app` | Stable-intent Core | README | 0 | 3 |
 | `authorization` | Beta | provisional | 0 | 6 |
 | `checkpointers` | Beta | README | 6 | 6 |
-| `checkpointers.azure_blob` | Beta | README | 0 | 3 |
+| `checkpointers.azure_blob` | Beta | README | 0 | 4 |
 | `checkpointers.cosmos` | Beta | README | 2 | 3 |
 | `checkpointers.postgres` | Beta | README | 1 | 2 |
 | `checkpointers.sqlite` | Beta | README | 1 | 2 |
@@ -106,13 +106,13 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `platform.stores` | Experimental | README | 2 | 5 |
 | `protocols` | Stable-intent Core | README | 0 | 10 |
 | `stores` | Experimental | provisional | 1 | 1 |
-| `stores.azure_table` | Experimental | provisional | 1 | 2 |
+| `stores.azure_table` | Experimental | provisional | 4 | 5 |
 | `streaming` | Experimental | README | 0 | 2 |
 | `streaming_authorization` | Experimental | provisional | 0 | 3 |
 | `triggers` | Experimental | README | 8 | 8 |
 | `triggers.service_bus` | Experimental | README | 0 | 9 |
 
-27 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
+28 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
 
 ### Symbols by module
 
@@ -186,6 +186,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | Symbol | Kind | In `__all__` | Consumers |
 | --- | --- | --- | --- |
 | `AzureBlobCheckpointSaver` | class | no | `ETD` |
+| `BlobCheckpointFormatError` | class | no | `-TD` |
 | `OrphanedValueCollectionResult` | dataclass | no | `-T-` |
 | `logger` | alias | no | `ETD` |
 
@@ -240,7 +241,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `CANCEL_REQUESTED` | constant | yes | `-T-` |
 | `DurableClientLike` | protocol | yes | `---` |
 | `DurableRunPayload` | dataclass | yes | `-T-` |
-| `DurableRunResult` | dataclass | yes | `-T-` |
+| `DurableRunResult` | dataclass | yes | `-TD` |
 | `DurableRunStatus` | alias | yes | `---` |
 | `GraphRegistrationLike` | protocol | yes | `---` |
 | `OrchestrationContextLike` | protocol | yes | `---` |
@@ -290,7 +291,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `bind_ownership_guard` | function | no | `-T-` |
 | `check_ownership_guard` | function | no | `-T-` |
 | `config_with_ownership_guard` | function | no | `-T-` |
-| `guard_run_config` | function | no | `-T-` |
+| `guard_run_config` | function | no | `-TD` |
 | `ownership_guard_for` | function | no | `-T-` |
 | `resolve_ownership_guard` | function | no | `-T-` |
 
@@ -315,7 +316,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `RunTransport` | alias | no | `-TD` |
 | `finish_context` | function | no | `-T-` |
 | `logger` | alias | no | `ETD` |
-| `new_run_context` | function | no | `-T-` |
+| `new_run_context` | function | no | `-TD` |
 | `request_id_from_headers` | function | no | `---` |
 | `safe_observer_call` | function | no | `---` |
 
@@ -406,6 +407,9 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | Symbol | Kind | In `__all__` | Consumers |
 | --- | --- | --- | --- |
 | `AzureTableThreadStore` | class | yes | `ETD` |
+| `StatusIndexAuditReport` | dataclass | yes | `---` |
+| `StatusIndexBuildResult` | dataclass | yes | `---` |
+| `StatusIndexState` | alias | yes | `---` |
 | `logger` | alias | no | `ETD` |
 
 #### `streaming` — Experimental
@@ -443,7 +447,7 @@ Tier basis: `README` = named by the README stability table; `provisional` = not 
 | `InputMapper` | alias | no | `---` |
 | `ResultHandler` | alias | no | `---` |
 | `ServiceBusMessageLike` | protocol | no | `-TD` |
-| `TRIGGER_TYPE` | constant | no | `---` |
+| `TRIGGER_TYPE` | constant | no | `-T-` |
 | `ThreadContentionError` | class | no | `ETD` |
 | `ThreadIdFactory` | alias | no | `---` |
 | `default_message_mapper` | function | no | `ETD` |
@@ -573,8 +577,9 @@ Names found in no example, test or doc (name match only, so a name shared by two
 | `platform.contracts` | `Json`, `ThreadHistoryRequest`, `ThreadStateUpdate` |
 | `platform.routes` | `register_platform_routes` |
 | `protocols` | `AsyncStatefulGraph` |
+| `stores.azure_table` | `StatusIndexAuditReport`, `StatusIndexBuildResult`, `StatusIndexState` |
 | `triggers` | `InputMapper`, `ResultHandler`, `ThreadIdFactory` |
-| `triggers.service_bus` | `InputMapper`, `ResultHandler`, `TRIGGER_TYPE`, `ThreadIdFactory` |
+| `triggers.service_bus` | `InputMapper`, `ResultHandler`, `ThreadIdFactory` |
 
 ## Root exports without an in-repo consumer
 

@@ -332,4 +332,4 @@ app.register(graph=public_graph, name="public", auth_level=func.AuthLevel.ANONYM
 app.register(graph=admin_graph, name="admin", auth_level=func.AuthLevel.ADMIN)
 ```
 
-When `auth_level` is passed to `register()`, it overrides the app-level setting for that graph's endpoints only.
+When `auth_level` is passed to `register()`, it overrides the app-level setting for that graph's native endpoints only. Platform-compatible (`platform_compat=True`) and Durable (`async_runs="durable"`) routes are shared by every graph and use the app-level `auth_level`; a graph *stricter* than the app level is rejected with `ValueError` when those routes are enabled (see [security](security.md#mixed-per-graph-auth-with-platform-or-durable-routes)).

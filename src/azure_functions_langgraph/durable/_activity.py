@@ -20,8 +20,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import json
+import logging
 from typing import Any, Protocol, runtime_checkable
 
+from azure_functions_langgraph._execution_plan import has_checkpointer
 from azure_functions_langgraph._json import dumps
 from azure_functions_langgraph.durable._state import DurableRunPayload, DurableRunResult
 from azure_functions_langgraph.locks import ThreadLock
@@ -42,6 +44,8 @@ __all__ = ["GraphRegistrationLike", "execute_langgraph_run_impl"]
 # exporters can distinguish durable async runs from HTTP invoke/stream runs.
 TRIGGER_TYPE = "durable"
 
+logger = logging.getLogger(__name__)
+
 
 class _OutputSerializationError(ValueError):
     def __str__(self) -> str:
@@ -60,12 +64,6 @@ class GraphRegistrationLike(Protocol):
     graph: Any
     name: str
     async_mode: bool
-
-
-def _has_checkpointer(graph: Any) -> bool:
-    """Whether a compiled graph has a checkpointer attached."""
-
-    return getattr(graph, "checkpointer", None) is not None
 
 
 def _is_async(reg: GraphRegistrationLike) -> bool:
@@ -96,13 +94,14 @@ async def execute_langgraph_run_impl(
 
     reg = registry.get(payload.graph_name)
     if reg is None:
+        logger.error("Durable run %r names an unregistered graph", payload.run_id)
         return DurableRunResult.failure(
             payload.run_id,
             KeyError(f"No graph registered under name {payload.graph_name!r}"),
         )
 
     thread_id = payload.thread_id
-    has_ckpt = _has_checkpointer(reg.graph)
+    has_ckpt = has_checkpointer(reg.graph)
     ctx = new_run_context(
         reg.name,
         "invoke",
@@ -148,6 +147,12 @@ async def execute_langgraph_run_impl(
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
             if not isinstance(exc, Exception):
                 raise
+            # Durable history keeps only a sanitized error (class name + fixed message); the
+            # raw exception stays server-side. Identifiers only: never the input, config or
+            # result.
+            logger.exception(
+                "Durable run failed: run_id=%s graph=%s", payload.run_id, reg.name, exc_info=exc
+            )
             return DurableRunResult.failure(payload.run_id, exc)
         else:
             safe_observer_call(observer, "on_run_completed", finish_context(ctx))

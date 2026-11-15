@@ -227,10 +227,11 @@
   "package": "azure-functions-langgraph",
   "provenance": {
     "commit": "c79ea8331dfb4fe444f0c61ce54e049fc9cc3c9b",
-    "kind": "tag-source",
-    "note": "Generated from the v0.13.0 tag source because files.pythonhosted.org was unreachable from the generating host; the sha256 is the PyPI JSON API digest of the published wheel and was not re-verified against the tag source.",
+    "kind": "published-wheel",
+    "note": "Regenerated from the published 0.13.0 wheel (sha256 verified against the PyPI JSON API digest); payload byte-identical to the earlier tag-source baseline (#879).",
     "published_wheel_sha256": "4c4c924182861a1a0fdb47058a19611d448352be7eadcff7cca95e34aec71d91",
-    "ref": "v0.13.0"
+    "ref": "v0.13.0",
+    "wheel_sha256": "4c4c924182861a1a0fdb47058a19611d448352be7eadcff7cca95e34aec71d91"
   },
   "schema_version": 1,
   "symbols": {

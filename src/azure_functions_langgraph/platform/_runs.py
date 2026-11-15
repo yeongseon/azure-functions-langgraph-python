@@ -4,6 +4,7 @@ from typing import Any
 
 import azure.functions as func
 
+from azure_functions_langgraph._execution_plan import has_checkpointer
 from azure_functions_langgraph._validation import (
     validate_thread_id,
 )
@@ -173,7 +174,7 @@ def register_run_routes(
             run_id=run_id,
             thread_id=thread_id,
             assistant_id=run_req.assistant_id,
-            has_checkpointer=getattr(reg.graph, "checkpointer", None) is not None,
+            has_checkpointer=has_checkpointer(reg.graph),
         )
 
         lock_token = deps.thread_lock.acquire(reg.name, thread_id)
@@ -326,7 +327,7 @@ def register_run_routes(
             run_id=run_id,
             thread_id=thread_id,
             assistant_id=run_req.assistant_id,
-            has_checkpointer=getattr(reg.graph, "checkpointer", None) is not None,
+            has_checkpointer=has_checkpointer(reg.graph),
             stream_mode=stream_mode,
         )
         lock_token = deps.thread_lock.acquire(reg.name, thread_id)

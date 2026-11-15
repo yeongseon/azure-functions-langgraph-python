@@ -47,16 +47,20 @@ class _Item:
 
 
 class _Stream:
-    def __init__(self, data: bytes) -> None:
+    """Mirrors ``StorageStreamDownloader``: ``properties.metadata`` comes with the body."""
+
+    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
         self._data = data
+        self.properties = _Props(dict(metadata))
 
     def readall(self) -> bytes:
         return self._data
 
 
 class _AStream:
-    def __init__(self, data: bytes) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
         self._data = data
+        self.properties = _Props(dict(metadata))
 
     async def readall(self) -> bytes:
         return self._data
@@ -80,13 +84,18 @@ Blobs = dict[str, tuple[bytes, dict[str, str]]]
 
 
 def make_containers(
-    sync_base: type, async_base: type, not_found: type[BaseException]
+    sync_base: type,
+    async_base: type,
+    not_found: type[BaseException],
+    exists: type[BaseException] | None = None,
 ) -> tuple[type, type]:
     """Build in-memory sync/async containers deriving from the given client classes.
 
     The saver checks ``isinstance`` against ``azure.storage.blob.ContainerClient``
     (and the ``aio`` class), so the generator passes the real classes while unit
-    tests pass their own stand-ins.
+    tests pass their own stand-ins. ``exists`` is the error a create-only upload
+    (``overwrite=False``) raises on an existing blob (``ResourceExistsError``); releases
+    before the conditional create never pass ``overwrite=False``, so it is optional.
     """
 
     class _Client:
@@ -94,12 +103,16 @@ def make_containers(
             self._b, self._n = blobs, name
 
         def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+            if not overwrite and self._n in self._b:
+                if exists is None:
+                    raise AssertionError("create-only upload without an 'exists' error type")
+                raise exists(self._n)
             self._b[self._n] = (bytes(data), dict(metadata))
 
         def download_blob(self) -> _Stream:
             if self._n not in self._b:
                 raise not_found(self._n)
-            return _Stream(self._b[self._n][0])
+            return _Stream(self._b[self._n][0], self._b[self._n][1])
 
         def get_blob_properties(self) -> _Props:
             if self._n not in self._b:
@@ -116,7 +129,8 @@ def make_containers(
             _Client.upload_blob(self, data, metadata, overwrite)
 
         async def download_blob(self) -> _AStream:  # type: ignore[override]
-            return _AStream(_Client.download_blob(self).readall())
+            stream = _Client.download_blob(self)
+            return _AStream(stream.readall(), stream.properties.metadata)
 
         async def get_blob_properties(self) -> _Props:  # type: ignore[override]
             return _Client.get_blob_properties(self)
@@ -288,14 +302,14 @@ def run_scenario(
 
 
 def generate(label: str, source_ref: str) -> dict[str, Any]:
-    from azure.core.exceptions import ResourceNotFoundError
+    from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
     from azure.storage.blob import ContainerClient
     from azure.storage.blob.aio import ContainerClient as AioContainerClient
 
     from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
 
     sync_cls, async_cls = make_containers(
-        ContainerClient, AioContainerClient, ResourceNotFoundError
+        ContainerClient, AioContainerClient, ResourceNotFoundError, ResourceExistsError
     )
     random.seed(881)
     blobs: Blobs = {}

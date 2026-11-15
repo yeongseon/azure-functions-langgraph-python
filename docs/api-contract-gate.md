@@ -103,7 +103,33 @@ The repository has no `CODEOWNERS` file. Maintainers review any diff touching
 `tests/contracts/` as a high-risk contract change; add a `CODEOWNERS` rule for
 that path if a second maintainer is ever added.
 
-The current baseline was generated from the `v0.13.0` tag source (commit
+The current baseline was regenerated from the **published** `0.13.0` wheel
+(sha256 `4c4c9241...1d91`, equal to the registry digest; provenance `kind`
+`published-wheel`). It was first pinned from the `v0.13.0` tag source (commit
 `c79ea8331dfb4fe444f0c61ce54e049fc9cc3c9b`) because the registry file host was
-unreachable from the generating machine; the recorded wheel digest is the
-registry-reported value and is not re-verified against that source.
+unreachable from the generating machine; the wheel-derived payload is
+byte-identical to that tag-source baseline for both contracts, so only the
+provenance changed (#879, #906).
+
+## Verifying the baseline against the published wheel
+
+```bash
+python tools/api_contract.py verify-baseline
+```
+
+The command reads the registry metadata for the baseline version, downloads the
+published wheel (retrying, https PyPI hosts only, size-capped), requires its
+sha256 to equal the registry digest and the baseline provenance
+`published_wheel_sha256`, then regenerates both snapshots from the unpacked wheel
+and compares them byte-for-byte (payload, not provenance) with the committed
+baselines. Exit codes: `0` identical, `1` differs (the differing changes are
+listed), `2` unreachable or malformed input. Offline use:
+`--wheel <file> --expected-sha256 <digest>`.
+
+The weekly / manual workflow `API Contract Baseline Verification`
+(`.github/workflows/api-contract-verify.yml`) runs it across a Python and
+LangGraph / azure-functions matrix with `contents: read` only, no secrets and no
+pull-request trigger. It is advisory and not part of `ci-required`; a failure
+means the baseline provenance, or the supported dependency window, needs a
+review, never an automatic baseline edit. An exit code `2` is infrastructure
+(registry unreachable) and should be re-run.

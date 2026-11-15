@@ -9,7 +9,7 @@ import importlib
 import sys
 import threading
 import types
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
@@ -20,14 +20,21 @@ class _NotFound(Exception):
     pass
 
 
+class _Exists(Exception):
+    pass
+
+
 class _Props:
     def __init__(self, metadata: dict[str, str]) -> None:
         self.metadata = metadata
 
 
 class _Stream:
-    def __init__(self, data: bytes) -> None:
+    """Mirrors ``StorageStreamDownloader``: ``properties.metadata`` comes with the body."""
+
+    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
         self._data = data
+        self.properties = _Props(dict(metadata))
 
     def readall(self) -> bytes:
         return self._data
@@ -61,8 +68,10 @@ class _SyncClient:
 
     def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
         self._s.ops["upload"] += 1
-        if not overwrite and self._n in self._s.blobs:
-            raise ValueError("exists")
+        if not overwrite:
+            self._s.ops["create_only"] += 1
+            if self._n in self._s.blobs:
+                raise _Exists(self._n)
         self._s.blobs[self._n] = (data, dict(metadata))
 
     def download_blob(self) -> _Stream:
@@ -85,7 +94,7 @@ class _SyncClient:
                 store.gate.set()
             if self._n not in store.blobs:
                 raise _NotFound(self._n)
-            return _Stream(store.blobs[self._n][0])
+            return _Stream(*store.blobs[self._n])
         finally:
             with store.lock:
                 store.in_flight -= 1
@@ -119,8 +128,9 @@ class _SyncContainer:
 
 
 class _AsyncStream:
-    def __init__(self, data: bytes) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
         self._data = data
+        self.properties = _Props(dict(metadata))
 
     async def readall(self) -> bytes:
         return self._data
@@ -133,6 +143,10 @@ class _AsyncClient:
 
     async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
         self._s.ops["upload"] += 1
+        if not overwrite:
+            self._s.ops["create_only"] += 1
+            if self._n in self._s.blobs:
+                raise _Exists(self._n)
         self._s.blobs[self._n] = (data, dict(metadata))
 
     async def download_blob(self) -> _AsyncStream:
@@ -157,7 +171,7 @@ class _AsyncClient:
                 raise RuntimeError("boom")
             if self._n not in self._s.blobs:
                 raise _NotFound(self._n)
-            return _AsyncStream(self._s.blobs[self._n][0])
+            return _AsyncStream(*self._s.blobs[self._n])
         finally:
             self._s.in_flight -= 1
 
@@ -194,6 +208,7 @@ def _fake_azure(monkeypatch: Any) -> None:
     setattr(blob_mod, "aio", aio_mod)
     exc_mod = types.ModuleType("azure.core.exceptions")
     setattr(exc_mod, "ResourceNotFoundError", _NotFound)
+    setattr(exc_mod, "ResourceExistsError", _Exists)
     for name, mod in (
         ("azure", types.ModuleType("azure")),
         ("azure.storage", types.ModuleType("azure.storage")),
@@ -260,10 +275,11 @@ def test_get_tuple_request_count_is_stable_and_results_ordered() -> None:
     assert result is not None
     assert list(result.checkpoint["channel_values"]) == [f"ch{i}" for i in range(12)]
     assert result.pending_writes == [("task", f"w{j}", f"cp-000-w{j}") for j in range(5)]
-    # Parallelism must not change the request count (1 checkpoint + 1 metadata
-    # + 12 values + 5 writes downloads, each paired with a properties call).
+    # Parallelism must not change the download count (1 checkpoint + 1 metadata
+    # + 12 values + 5 writes). Each download carries its own metadata
+    # (``download_blob().properties``), so no separate properties request is made.
     assert store.ops["download"] == 19
-    assert store.ops["properties"] == 19
+    assert store.ops["properties"] == 0
     assert store.ops["list"] == 1
 
 
@@ -409,3 +425,176 @@ def test_list_skips_checkpoint_with_missing_metadata_under_filter() -> None:
     del store.blobs[meta_name]
     assert _ids(saver.list(_cfg(), filter={"run_id": "r"})) == ["cp-001"]
     assert _ids(saver.list(_cfg())) == ["cp-001"]
+
+
+# --------------------------------------------------------------------------
+# one-request body + metadata reads
+# --------------------------------------------------------------------------
+
+
+async def test_async_get_tuple_reads_body_and_metadata_in_one_request() -> None:
+    saver, store = _saver()
+    _seed(saver, 1, channels=12, writes=5)
+    store.ops.clear()
+    result = await saver.aget_tuple(_cfg("cp-000"))
+    assert result is not None
+    assert result.pending_writes == [("task", f"w{j}", f"cp-000-w{j}") for j in range(5)]
+    assert store.ops["download"] == 19
+    assert store.ops["properties"] == 0
+
+
+def test_metadata_driven_reads_still_see_blob_metadata_from_the_download() -> None:
+    """Pending writes are ordered and attributed from metadata carried by the download."""
+    saver, store = _saver()
+    cp = _cp("cp-000", 1)
+    saver.put(_cfg(), cp, _md(0), dict(cp["channel_versions"]))
+    saver.put_writes(_cfg("cp-000"), [("a", 1), ("b", 2)], task_id="t/1", task_path="p|q")
+    store.ops.clear()
+    tup = saver.get_tuple(_cfg("cp-000"))
+    assert tup is not None and tup.pending_writes == [("t/1", "a", 1), ("t/1", "b", 2)]
+    assert store.ops["properties"] == 0
+
+
+def test_download_without_properties_falls_back_to_one_properties_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A duck-typed client whose download has no ``properties`` still reads correctly."""
+    saver, store = _saver()
+    cp = _cp("cp-000", 2)
+    saver.put(_cfg(), cp, _md(0), dict(cp["channel_versions"]))
+    original = _SyncClient.download_blob
+
+    def bare(self: _SyncClient) -> Any:
+        stream = original(self)
+        del stream.properties
+        return stream
+
+    monkeypatch.setattr(_SyncClient, "download_blob", bare)
+    store.ops.clear()
+    tup = saver.get_tuple(_cfg("cp-000"))
+    assert tup is not None and tup.checkpoint["channel_values"] == {
+        "ch0": "cp-000-v0",
+        "ch1": "cp-000-v1",
+    }
+    # checkpoint + metadata + 2 values, each followed by its own properties request.
+    assert store.ops["download"] == 4 and store.ops["properties"] == 4
+
+
+async def test_async_download_without_metadata_mapping_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saver, store = _saver()
+    cp = _cp("cp-000", 1)
+    saver.put(_cfg(), cp, _md(0), dict(cp["channel_versions"]))
+    original = _AsyncClient.download_blob
+
+    async def no_metadata(self: _AsyncClient) -> Any:
+        stream = await original(self)
+        stream.properties.metadata = cast(Any, None)
+        return stream
+
+    monkeypatch.setattr(_AsyncClient, "download_blob", no_metadata)
+    store.ops.clear()
+    tup = await saver.aget_tuple(_cfg("cp-000"))
+    assert tup is not None and tup.checkpoint["channel_values"] == {"ch0": "cp-000-v0"}
+    assert store.ops["properties"] == store.ops["download"] == 3
+
+
+def test_blob_without_serde_type_is_absent_and_costs_one_request() -> None:
+    saver, store = _saver()
+    store.blobs["threads/t/ns//checkpoints/cp-x/checkpoint.bin"] = (b"x", {})
+    store.ops.clear()
+    assert saver.get_tuple(_cfg("cp-x")) is None
+    assert store.ops["download"] == 1 and store.ops["properties"] == 0
+
+
+# --------------------------------------------------------------------------
+# put_writes: conditional create instead of existence check + upload
+# --------------------------------------------------------------------------
+
+
+def _write_path(index: int, task: str = "task", cp_id: str = "cp-000") -> str:
+    return f"threads/t/ns//checkpoints/{cp_id}/writes/{task}/{index}.bin"
+
+
+def test_put_writes_first_write_is_one_create_only_request_per_key() -> None:
+    saver, store = _saver()
+    cp = _cp("cp-000", 1)
+    saver.put(_cfg(), cp, _md(0), dict(cp["channel_versions"]))
+    store.ops.clear()
+    saver.put_writes(_cfg("cp-000"), [("a", 1), ("b", 2), ("c", 3)], task_id="task")
+    assert store.ops["properties"] == 0, "no existence check"
+    assert store.ops["upload"] == store.ops["create_only"] == 3
+
+
+@pytest.mark.parametrize("native_async", [False, True])
+async def test_put_writes_retry_keeps_the_first_value_and_does_not_raise(
+    native_async: bool,
+) -> None:
+    saver, store = _saver()
+    cp = _cp("cp-000", 1)
+    saver.put(_cfg(), cp, _md(0), dict(cp["channel_versions"]))
+
+    async def write(values: list[tuple[str, Any]]) -> None:
+        if native_async:
+            await saver.aput_writes(_cfg("cp-000"), values, task_id="task")
+        else:
+            saver.put_writes(_cfg("cp-000"), values, task_id="task")
+
+    await write([("a", "first"), ("b", "first")])
+    snapshot = dict(store.blobs)
+    store.ops.clear()
+    await write([("a", "SECOND"), ("b", "SECOND"), ("c", "new")])
+    assert store.blobs[_write_path(0)] == snapshot[_write_path(0)]
+    assert store.blobs[_write_path(1)] == snapshot[_write_path(1)]
+    assert _write_path(2) in store.blobs, "the not-yet-written slot of the batch is created"
+    assert store.ops["properties"] == 0
+    assert store.ops["create_only"] == 3
+
+
+@pytest.mark.parametrize("native_async", [False, True])
+async def test_put_writes_special_channels_are_still_overwritten(native_async: bool) -> None:
+    from langgraph.checkpoint.base import WRITES_IDX_MAP
+
+    special = next(ch for ch, idx in WRITES_IDX_MAP.items() if idx < 0)
+    saver, store = _saver()
+    cp = _cp("cp-000", 1)
+    saver.put(_cfg(), cp, _md(0), dict(cp["channel_versions"]))
+    for value in ("one", "two"):
+        store.ops.clear()
+        if native_async:
+            await saver.aput_writes(_cfg("cp-000"), [(special, value)], task_id="task")
+        else:
+            saver.put_writes(_cfg("cp-000"), [(special, value)], task_id="task")
+        assert store.ops["upload"] == 1 and store.ops["create_only"] == 0
+    tup = saver.get_tuple(_cfg("cp-000"))
+    assert tup is not None and tup.pending_writes == [("task", special, "two")]
+
+
+def test_put_writes_is_atomic_for_a_racing_second_writer() -> None:
+    """A writer that passed an (old-style) existence check can no longer clobber the slot.
+
+    Interleave: writer A's create lands between B's serialization and B's create.
+    Previously B's ``_blob_exists`` had already returned False, so B overwrote A.
+    """
+    saver_a, store = _saver()
+    module = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    saver_b = module.AzureBlobCheckpointSaver(
+        container_client=_SyncContainer(store), aio_container_client=_AsyncContainer(store)
+    )
+    cp = _cp("cp-000", 1)
+    saver_a.put(_cfg(), cp, _md(0), dict(cp["channel_versions"]))
+    real_dumps = saver_b.serde.dumps_typed
+    fired: list[bool] = []
+
+    def dumps_then_a_writes(value: Any) -> Any:
+        out = real_dumps(value)
+        if not fired:
+            fired.append(True)
+            saver_a.put_writes(_cfg("cp-000"), [("a", "from-A")], task_id="task")
+        return out
+
+    saver_b.serde.dumps_typed = dumps_then_a_writes
+    saver_b.put_writes(_cfg("cp-000"), [("a", "from-B")], task_id="task")
+    tup = saver_a.get_tuple(_cfg("cp-000"))
+    assert tup is not None and tup.pending_writes == [("task", "a", "from-A")]

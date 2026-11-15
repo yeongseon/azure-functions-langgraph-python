@@ -54,6 +54,8 @@ Negative-path tests (invalid JSON, a graph that raises, a missing graph state) u
 
 The Azure Table benchmark (`tools/benchmark_table_store.py`) is a measurement tool, not a test level. Its `fake` backend models no network or service latency, and its `azurite` backend measures SDK plus emulator latency only. Neither is Azure Storage: do not quote those numbers as Azure measurements or derive a supported thread count from them. The optional real-Azure mode measures only the endpoint and network path where you run it.
 
+The Blob checkpointer benchmark (`tools/benchmark_blob_checkpointer.py`) counts the requests `AzureBlobCheckpointSaver` issues against an in-memory counting fake (GET, HEAD, PUT, create-only PUT, LIST); `--latency-ms` adds a fixed simulated delay per request. It models no network or service behavior and is not Azure Storage: request counts describe the saver's call pattern, and the simulated column is not a wall-clock or Azure measurement. `tests/test_benchmark_blob_checkpointer.py` pins the request budgets.
+
 ## Test structure
 
 ```

@@ -6,7 +6,7 @@ The `LangGraphApp` constructor accepts the following parameters:
 
 ### `auth_level`
 
-The Azure Functions authentication level for all registered routes.
+The Azure Functions authentication level for all registered routes. A graph can override it for its own native routes with `register(..., auth_level=...)`; Platform-compatible and Durable routes always use this app-level value, and a graph stricter than it is rejected when those routes are enabled (see [security](security.md#mixed-per-graph-auth-with-platform-or-durable-routes)).
 
 ```python
 import azure.functions as func

@@ -38,7 +38,7 @@ LangGraph is the most popular framework for building stateful AI agents with LLM
 ### Could Have (v0.3+) — delivered as experimental, optional surfaces
 
 1. **LangGraph Platform API Compatibility** *(experimental, opt-in)* — Mirror the LangGraph Platform REST API so `langgraph_sdk` can connect. Delivered (v0.3+) but framed as an **optional** surface layered on the Core adapter; see "Product boundary" below.
-2. **Durable Functions Integration** — Use Durable Functions for long-running agent executions (>10 min timeout)
+2. **Durable Functions Integration** — Use Durable Functions for long-running agent executions without holding an HTTP request open (create/poll/cancel). This lifts the HTTP request-response limit (about 230 s), **not** the Function execution timeout: activity functions are subject to the same `functionTimeout` as other Azure Functions (Consumption: default 5 min, maximum 10 min; other plans per `host.json`), so a single graph-running activity must still fit that limit. Multi-step workloads should be split across activities.
 3. **OpenAPI Generation** — Integration with `azure-functions-openapi-python` for auto-generated API docs
 
 ## Product boundary: Core adapter vs Experimental Platform Compatibility

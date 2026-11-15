@@ -132,21 +132,23 @@ async def test_write_slots_check_only_uploads_and_preserve_partial_progress(stor
     # Given: one nonnegative slot already exists, while special slots are overwriteable.
     cfg = config()
     await store.writes(cfg, [("alpha", "original")])
-    guard = ScriptedGuard(trip_on=1)
+    guard = ScriptedGuard()
     cfg.setdefault("configurable", {})[OWNERSHIP_GUARD_CONFIG_KEY] = guard
     before = dict(store.container.blobs)
-    # When: a duplicate-only batch is skipped, then a mixed batch trips mid-list.
+    # When: a duplicate-only batch is retried, then a mixed batch trips mid-list.
+    # The existing slot is left untouched by the create-only upload (#860); the guard is
+    # checked before that attempt, exactly as before every other upload.
     await store.writes(cfg, [("alpha", "ignored")])
-    assert guard.checks == 0
+    assert guard.checks == 1
     assert store.container.blobs == before
-    guard.trip_on = 3
+    guard.trip_on = 5
     with pytest.raises(ThreadLeaseLostError) as caught:
         await store.writes(
             cfg, [("alpha", "ignored"), (SPECIAL, "first"), (SPECIAL, "second"), ("beta", "B")]
         )
     # Then: both negative-slot uploads ran; the later ordinary slot did not.
     assert caught.value.reason == "lost"
-    assert guard.checks == 3
+    assert guard.checks == 5
     writes_prefix = PREFIX + "checkpoints/cp-001/writes/task-7f3a/"
     assert set(store.container.blobs) == {
         writes_prefix + "0.bin",
@@ -155,6 +157,27 @@ async def test_write_slots_check_only_uploads_and_preserve_partial_progress(stor
     record = store.container.blobs[writes_prefix + f"{WRITES_IDX_MAP[SPECIAL]}.bin"]
     assert store.saver.serde.loads_typed((record.metadata["serde_type"], record.data)) == "second"
     assert store.container.blobs[writes_prefix + "0.bin"] == before[writes_prefix + "0.bin"]
+
+
+async def test_lost_owner_retrying_an_already_written_slot_is_rejected_not_skipped(
+    store: Store,
+) -> None:
+    """Behavior change in #860: the existence check no longer hides a retry from the guard.
+
+    Before, ``put_writes`` skipped an already-written slot before the ownership guard
+    ran, so a writer that had lost ownership could "succeed" by retrying it. The
+    create-only upload checks the guard first (like every other upload), so such a retry
+    now raises ``ThreadLeaseLostError`` and writes nothing. Failing closed is the
+    guard's contract; the stored data is identical either way.
+    """
+    cfg = config()
+    await store.writes(cfg, [("alpha", "original")])
+    guard = ScriptedGuard(trip_on=1)
+    cfg.setdefault("configurable", {})[OWNERSHIP_GUARD_CONFIG_KEY] = guard
+    before = dict(store.container.blobs)
+    with pytest.raises(ThreadLeaseLostError):
+        await store.writes(cfg, [("alpha", "ignored")])
+    assert store.container.blobs == before
 
 
 @pytest.mark.parametrize("operation", ["put", "writes"])
@@ -174,20 +197,26 @@ async def test_check_immediately_precedes_every_upload(
     cfg.setdefault("configurable", {})[OWNERSHIP_GUARD_CONFIG_KEY] = LoggingGuard()
     upload, aupload = store.saver._upload_blob, store.saver._aupload_blob
 
-    def logged_upload(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    def logged_upload(
+        path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
+    ) -> None:
         events.append("upload")
-        upload(path, data, metadata)
+        upload(path, data, metadata, overwrite)
 
-    async def logged_aupload(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    async def logged_aupload(
+        path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
+    ) -> None:
         events.append("upload")
-        await aupload(path, data, metadata)
+        await aupload(path, data, metadata, overwrite)
 
     monkeypatch.setattr(store.saver, "_upload_blob", logged_upload)
     monkeypatch.setattr(store.saver, "_aupload_blob", logged_aupload)
-    # When: writing a checkpoint or a batch containing a skipped ordinary slot.
+    # When: writing a checkpoint or a batch containing an already-written ordinary slot.
     await store.write(operation, cfg)
-    # Then: no extra, omitted, or displaced checks can hide behind a final count.
-    assert events == ["check", "upload"] * (6 if operation == "put" else 1)
+    # Then: no extra, omitted, or displaced checks can hide behind a final count. The
+    # already-written slot ("alpha") now also gets a check and a (rejected) create-only
+    # upload instead of being skipped before the guard ran; "beta" is created.
+    assert events == ["check", "upload"] * (6 if operation == "put" else 2)
 
 
 @pytest.mark.parametrize("operation", ["put", "writes"])

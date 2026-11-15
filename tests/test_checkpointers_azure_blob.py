@@ -84,6 +84,10 @@ class FakeResourceNotFoundError(Exception):
     """Raised when a mock blob is not present."""
 
 
+class FakeResourceExistsError(Exception):
+    """Raised by a create-only upload (``overwrite=False``) onto an existing mock blob."""
+
+
 _DEFAULT_BLOB_LAST_MODIFIED = datetime(2020, 1, 1, tzinfo=UTC)
 
 
@@ -101,8 +105,11 @@ class _BlobItem:
 
 
 class _MockDownloadStream:
-    def __init__(self, data: bytes) -> None:
+    """Mirrors ``StorageStreamDownloader``: ``properties.metadata`` comes with the body."""
+
+    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
         self._data = data
+        self.properties = _MockBlobProperties(dict(metadata))
 
     def readall(self) -> bytes:
         return self._data
@@ -120,7 +127,7 @@ class MockBlobClient:
 
     def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
         if not overwrite and self._blob_name in self._container.blobs:
-            raise ValueError("Blob already exists")
+            raise FakeResourceExistsError(self._blob_name)
         existing = self._container.blobs.get(self._blob_name)
         last_modified = (
             existing.last_modified if existing is not None else _DEFAULT_BLOB_LAST_MODIFIED
@@ -133,7 +140,7 @@ class MockBlobClient:
         record = self._container.blobs.get(self._blob_name)
         if record is None:
             raise FakeResourceNotFoundError(self._blob_name)
-        return _MockDownloadStream(record.data)
+        return _MockDownloadStream(record.data, record.metadata)
 
     def get_blob_properties(self) -> _MockBlobProperties:
         record = self._container.blobs.get(self._blob_name)
@@ -163,8 +170,9 @@ class MockContainerClient:
 
 
 class _AsyncMockDownloadStream:
-    def __init__(self, data: bytes) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
         self._data = data
+        self.properties = _MockBlobProperties(dict(metadata))
 
     async def readall(self) -> bytes:
         return self._data
@@ -177,7 +185,7 @@ class AsyncMockBlobClient:
 
     async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
         if not overwrite and self._blob_name in self._container.blobs:
-            raise ValueError("Blob already exists")
+            raise FakeResourceExistsError(self._blob_name)
         existing = self._container.blobs.get(self._blob_name)
         last_modified = (
             existing.last_modified if existing is not None else _DEFAULT_BLOB_LAST_MODIFIED
@@ -190,7 +198,7 @@ class AsyncMockBlobClient:
         record = self._container.blobs.get(self._blob_name)
         if record is None:
             raise FakeResourceNotFoundError(self._blob_name)
-        return _AsyncMockDownloadStream(record.data)
+        return _AsyncMockDownloadStream(record.data, record.metadata)
 
     async def get_blob_properties(self) -> _MockBlobProperties:
         record = self._container.blobs.get(self._blob_name)
@@ -246,6 +254,7 @@ def _install_fake_azure_modules(monkeypatch: Any) -> None:
     azure_core_mod = types.ModuleType("azure.core")
     azure_core_exceptions_mod = types.ModuleType("azure.core.exceptions")
     setattr(azure_core_exceptions_mod, "ResourceNotFoundError", FakeResourceNotFoundError)
+    setattr(azure_core_exceptions_mod, "ResourceExistsError", FakeResourceExistsError)
 
     monkeypatch.setitem(sys.modules, "azure", azure_mod)
     monkeypatch.setitem(sys.modules, "azure.storage", azure_storage_mod)

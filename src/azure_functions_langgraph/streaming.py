@@ -54,6 +54,7 @@ from azure_functions_langgraph._execution_plan import (
     VERSION_UNSUPPORTED_STATUS,
     admit_request_structure,
     extract_thread_id,
+    has_checkpointer,
     negotiate_version,
     plan_run_config,
     validate_optional_model,
@@ -674,7 +675,7 @@ class StreamingLangGraphApp:
                 GraphInfo(
                     name=reg.name,
                     description=reg.description,
-                    has_checkpointer=getattr(reg.graph, "checkpointer", None) is not None,
+                    has_checkpointer=has_checkpointer(reg.graph),
                 )
                 for reg in self._registrations.values()
             ]
@@ -767,7 +768,7 @@ class StreamingLangGraphApp:
         observer: RunObserver,
         thread_lock: ThreadLock,
     ) -> Any:
-        has_cp = getattr(reg.graph, "checkpointer", None) is not None
+        has_cp = has_checkpointer(reg.graph)
         ctx = new_run_context(
             reg.name,
             "invoke",
@@ -878,7 +879,7 @@ class StreamingLangGraphApp:
         observer: RunObserver,
         thread_lock: ThreadLock,
     ) -> Any:
-        has_cp = getattr(reg.graph, "checkpointer", None) is not None
+        has_cp = has_checkpointer(reg.graph)
         ctx = new_run_context(
             reg.name,
             "stream",
