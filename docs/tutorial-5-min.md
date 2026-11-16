@@ -252,10 +252,16 @@ The invoke request/response contract and the health-probe shape shown above are
 asserted against the **real `examples/simple_agent` graph** in CI by
 [`tests/test_tutorial_smoke.py`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/tests/test_tutorial_smoke.py), which drives
 the documented payload through the same native HTTP handler the deployed app
-uses. If the example or the endpoint contract changes, that test fails — so the
-commands here cannot silently drift out of date.
+uses. The CI `host-smoke` job (`make host-smoke`) also boots the example under a
+real Functions host with `func start`, using the example's own `host.json` and
+`local.settings.json` (an empty `AzureWebJobsStorage` and no storage emulator),
+and checks the routes, the health probe, the invoke response and the stream call
+shown above. That job runs the current source, not the package version pinned in
+`requirements.txt`. If the example or the endpoint contract changes, those checks
+fail — so the commands here cannot silently drift out of date.
 
-For a full local host boot (Core Tools + curl), run
+To repeat the host boot by hand against the package version pinned in the
+example's `requirements.txt` (Core Tools + curl), run
 [`tools/smoke_tutorial.sh`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/tools/smoke_tutorial.sh).
 
 ## Next steps
