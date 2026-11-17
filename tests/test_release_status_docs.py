@@ -184,3 +184,57 @@ def test_repo_text_does_not_repeat_the_broader_pip_claim() -> None:
         ROOT / "docs" / "release_process.md",
     ):
         assert "cannot be installed with pip" not in " ".join(path.read_text().split()), path
+
+
+def test_release_process_names_four_user_facing_statuses() -> None:
+    # Given: the release process with its whitespace collapsed
+    process = " ".join((ROOT / "docs" / "release_process.md").read_text().split())
+    prefix = "User-facing release notes may therefore show only these statuses:"
+    suffix = "They never state"
+
+    # When: isolating the sentence enumerating the allowed user-facing statuses
+    sentence = process.split(prefix, 1)[1].split(suffix, 1)[0]
+
+    # Then: it names each of the four statuses and preserves the closing distribution rule
+    for status in (
+        "*published*",
+        "*not yet published*",
+        "*not published*",
+        "*publication pending*",
+    ):
+        assert status in sentence, status
+    assert "They never state that a GitHub Release is itself a distribution" in process
+
+
+def test_not_yet_published_wording_states_the_facts_a_reader_needs_and_how_it_ends() -> None:
+    # Given: the release process with its whitespace collapsed
+    process = " ".join((ROOT / "docs" / "release_process.md").read_text().split())
+
+    # Then: it defines the not yet published note, its facts, and how the state transitions
+    for phrase in (
+        "Status: not yet published to PyPI.",
+        "has no files on PyPI and cannot be installed from PyPI with pip",
+        "The latest version on PyPI is",
+        "if a re-run publishes the version, remove the note",
+        "if a later version is published instead, replace it",
+        "do not describe a version as available unless PyPI lists its files",
+        "Never move or reuse a tag",
+    ):
+        assert phrase in process, phrase
+
+
+def test_release_status_page_says_where_a_tag_that_is_not_a_row_is_reported() -> None:
+    # Given: the release-status page and the release process document
+    process_raw = (ROOT / "docs" / "release_process.md").read_text()
+    link_target = "release_process.md#when-the-audit-is-red-fix-forward-and-metadata-correction"
+    heading_text = "When the audit is red: fix-forward and metadata correction"
+
+    # Then: the page guides readers on tags that are not table rows and links the heading
+    assert "is not a row" in PROSE
+    assert "*not yet published* note" in PROSE
+    assert link_target in PAGE
+    assert any(
+        line.lstrip("#").strip() == heading_text
+        for line in process_raw.splitlines()
+        if line.startswith("#")
+    )
