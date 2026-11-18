@@ -215,6 +215,9 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      # Caps a floating transitive dependency: langsmith 0.15.0 cannot import under the
+      # pydantic 2.7.4 floor (NameError in langsmith/schemas.py) although it declares
+      # pydantic >= 2. Drop the cap once a langsmith release imports under that floor (#920).
       - name: Install exact declared dependency floors
         run: |
           python -m pip install --upgrade pip
@@ -225,6 +228,7 @@ jobs:
             "langgraph-sdk==0.2.2" \
             "langchain-core==0.3.67" \
             "pydantic==2.7.4" \
+            "langsmith<0.15" \
             "coverage" \
             "opentelemetry-api>=1.20,<2" \
             "opentelemetry-sdk>=1.20,<2" \
@@ -237,7 +241,7 @@ jobs:
 
       - name: Report and assert resolved dependency floors
         run: |
-          python -m pip show azure-functions langgraph langgraph-sdk langchain-core pydantic
+          python -m pip show azure-functions langgraph langgraph-sdk langchain-core pydantic langsmith
           python - <<'PY'
           from importlib.metadata import version
 
@@ -249,6 +253,7 @@ jobs:
               "pydantic": version("pydantic"),
           }
           print(f"resolved dependencies={resolved}")
+          print(f"capped transitive dependency langsmith={version('langsmith')}")
           assert resolved == {
               "azure-functions": "1.21.0",
               "langgraph": "1.0.0",
