@@ -393,6 +393,10 @@ native invoke/stream run and every Platform `runs/wait` / `runs/stream` run. Eac
 callback receives an immutable `RunContext` of **correlation identifiers and
 timing only** — never input, output, config, headers, or secrets.
 
+A thread lock backend that raises while acquiring a native invoke or stream run is
+reported as `started` followed by `failed`, and the response is the standard JSON 500;
+a lock held elsewhere stays a `rejected` run with a 409.
+
 On the true-streaming surface, each started run receives exactly one terminal
 callback, including invoke cancellation, stream disconnection and iterator
 cleanup failures. Stream callbacks finish after iterator cleanup and lock

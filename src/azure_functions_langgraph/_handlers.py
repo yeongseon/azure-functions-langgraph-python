@@ -8,6 +8,7 @@ receives only the explicit dependencies it needs — no reference to
 
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
 import dataclasses
 import json
 import logging
@@ -102,6 +103,19 @@ def _error_response(
         status_code=status_code,
         headers={"X-Request-ID": request_id} if request_id is not None else None,
     )
+
+
+_LOCK_ACQUIRE_FAILED_DETAIL = "Thread lock could not be acquired"
+
+
+def _lock_acquire_failed(
+    observer: RunObserver, ctx: RunContext, graph_name: str, exc: Exception
+) -> func.HttpResponse:
+    """Report a raising lock backend as a started-then-failed run with the standard 500."""
+    logger.exception("Graph %s thread lock acquisition failed", graph_name)
+    safe_observer_call(observer, "on_run_started", ctx)
+    safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
+    return _error_response(500, _LOCK_ACQUIRE_FAILED_DETAIL, ctx.run_id)
 
 
 def _reject(
@@ -296,7 +310,10 @@ def handle_invoke(
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
     lock_token: str | None = None
     if has_cp and thread_id:
-        lock_token = thread_lock.acquire(reg.name, thread_id)
+        try:
+            lock_token = thread_lock.acquire(reg.name, thread_id)
+        except Exception as exc:
+            return _lock_acquire_failed(observer, ctx, reg.name, exc)
         if not lock_token:
             return _reject(
                 observer,
@@ -405,7 +422,10 @@ def handle_stream(
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
     lock_token: str | None = None
     if has_cp and thread_id:
-        lock_token = thread_lock.acquire(reg.name, thread_id)
+        try:
+            lock_token = thread_lock.acquire(reg.name, thread_id)
+        except Exception as exc:
+            return _lock_acquire_failed(observer, ctx, reg.name, exc)
         if not lock_token:
             return _reject(
                 observer,
@@ -538,7 +558,13 @@ async def handle_invoke_async(
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
     lock_thread_id = thread_id if has_cp else None
-    async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
+    async with AsyncExitStack() as lock_stack:
+        try:
+            lock_token = await lock_stack.enter_async_context(
+                async_thread_lock(thread_lock, reg.name, lock_thread_id)
+            )
+        except Exception as exc:
+            return _lock_acquire_failed(observer, ctx, reg.name, exc)
         if lock_thread_id is not None and lock_token is None:
             return _reject(
                 observer,
@@ -643,7 +669,13 @@ async def handle_stream_async(
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
     lock_thread_id = thread_id if has_cp else None
-    async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
+    async with AsyncExitStack() as lock_stack:
+        try:
+            lock_token = await lock_stack.enter_async_context(
+                async_thread_lock(thread_lock, reg.name, lock_thread_id)
+            )
+        except Exception as exc:
+            return _lock_acquire_failed(observer, ctx, reg.name, exc)
         if lock_thread_id is not None and lock_token is None:
             return _reject(
                 observer,
