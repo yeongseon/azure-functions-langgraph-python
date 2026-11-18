@@ -83,6 +83,12 @@ How to read the table:
   expired, so those rows rest on the run record, the check annotations that GitHub still keeps and the
   git history. The October rows rest on the job logs.
 - There is no v0.6.x: no tag, GitHub Release or PyPI version exists for it.
+- A tag whose publish run failed and that has no published successor yet is not a row, whatever
+  its date: a row records a verified first published successor. Its GitHub Release carries a
+  *not yet published* note (see [Release Process](release_process.md#when-the-audit-is-red-fix-forward-and-metadata-correction)),
+  and the release audit reports it as a defect until the version is published (by re-running the
+  publish workflow on the unchanged tag after a transient or external failure) or a later version
+  is published and the tag is recorded here.
 
 ## What to do
 
