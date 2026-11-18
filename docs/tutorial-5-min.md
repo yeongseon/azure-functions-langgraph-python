@@ -87,6 +87,14 @@ candidate behavior, not published-package behavior.
 > value, which is enough for local HTTP-only runs. No storage emulator is needed
 > for this path.
 
+> With Core Tools 4.8.0 and this empty setting, the host log shows
+> `Process reporting unhealthy: Unhealthy` with
+> `azure.functions.webjobs.storage ... Unable to create client for AzureWebJobsStorage`
+> a few seconds after `func start` and again about 30 seconds later, while the
+> web host and script host lifecycle entries stay Healthy and the routes keep
+> answering. It reflects that no storage account is configured for the host in this
+> local HTTP-only run; the deploy step below creates one.
+
 ## Step 3 — Run locally (30s)
 
 ```bash
