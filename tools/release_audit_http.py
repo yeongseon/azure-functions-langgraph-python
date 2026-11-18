@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 import http.client
 import os
+import re
 import time
 from typing import Protocol
 
 from tools.release_audit_model import JSON, AuditError
 from tools.release_audit_parse import integer, load, mapping, sequence
+
+MAX_ATTEMPTS = 3
+BACKOFF_SECONDS = (1.0, 2.0)
+_CLASS_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,9 +32,22 @@ class Fetcher(Protocol):
 
 
 class HTTPFetcher:
-    def __init__(self, timeout: float = 20, deadline_seconds: float = 300) -> None:
+    def __init__(
+        self,
+        timeout: float = 20,
+        deadline_seconds: float = 300,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+        attempts: int = MAX_ATTEMPTS,
+        backoff: tuple[float, ...] = BACKOFF_SECONDS,
+    ) -> None:
         if timeout <= 0 or deadline_seconds <= 0:
             raise AuditError("timeout and deadline must be positive")
+        if attempts < 1 or not backoff:
+            raise AuditError("attempts must be positive and backoff must not be empty")
+        self.sleep = sleep
+        self.attempts = attempts
+        self.backoff = backoff
         self.timeout = timeout
         self.deadline = time.monotonic() + deadline_seconds
 
@@ -42,35 +61,59 @@ class HTTPFetcher:
     def get(self, host: str, path: str, accept: str = "application/vnd.github+json") -> Response:
         if host not in {"api.github.com", "pypi.org"} or not path.startswith("/"):
             raise AuditError("only fixed GitHub/PyPI HTTPS hosts are allowed")
-        remaining = self.deadline - time.monotonic()
-        if remaining <= 0:
-            raise AuditError("overall collection deadline exceeded")
-        try:
-            with closing(
-                http.client.HTTPSConnection(host, timeout=min(self.timeout, remaining))
-            ) as c:
-                c.request("GET", path, headers=self.headers(host, accept))
-                with c.getresponse() as response:
-                    if response.status in {301, 302}:
-                        raise AuditError("HTTP redirect refused")
-                    chunks: list[bytes] = []
-                    size = 0
-                    while True:
-                        remaining = self.deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise AuditError("overall collection deadline exceeded")
-                        if c.sock:
-                            c.sock.settimeout(min(self.timeout, remaining))
-                        block = response.read1(65536)
-                        if not block:
-                            break
-                        size += len(block)
-                        if size > 32 * 1024 * 1024:
-                            raise AuditError("response exceeds 32 MiB evidence limit")
-                        chunks.append(block)
-                    return Response(response.status, b"".join(chunks).decode("utf-8"))
-        except (OSError, http.client.HTTPException, UnicodeError):
-            raise AuditError("HTTPS GET failed; diagnostics redacted") from None
+        attempt = 0
+        while True:
+            attempt += 1
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise AuditError("overall collection deadline exceeded")
+            retryable = True
+            failure: BaseException | None = None
+            try:
+                response = self.attempt(host, path, accept, remaining)
+                if response.status < 500 or response.status > 599:
+                    return response
+            except UnicodeError as exc:
+                retryable, failure = False, exc
+            except (OSError, http.client.HTTPException) as exc:
+                failure = exc
+            if retryable and attempt < self.attempts:
+                delay = self.backoff[min(attempt, len(self.backoff)) - 1]
+                if self.deadline - time.monotonic() > delay:
+                    self.sleep(delay)
+                    continue
+            if failure is None:
+                return response
+            name = type(failure).__name__
+            if not _CLASS_NAME.fullmatch(name):
+                name = "Exception"
+            raise AuditError(
+                f"HTTPS GET failed after {attempt} attempt{'s' if attempt != 1 else ''} "
+                f"({host}, {name}); details redacted"
+            ) from None
+
+    def attempt(self, host: str, path: str, accept: str, remaining: float) -> Response:
+        with closing(http.client.HTTPSConnection(host, timeout=min(self.timeout, remaining))) as c:
+            c.request("GET", path, headers=self.headers(host, accept))
+            with c.getresponse() as response:
+                if response.status in {301, 302}:
+                    raise AuditError("HTTP redirect refused")
+                chunks: list[bytes] = []
+                size = 0
+                while True:
+                    remaining = self.deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise AuditError("overall collection deadline exceeded")
+                    if c.sock:
+                        c.sock.settimeout(min(self.timeout, remaining))
+                    block = response.read1(65536)
+                    if not block:
+                        break
+                    size += len(block)
+                    if size > 32 * 1024 * 1024:
+                        raise AuditError("response exceeds 32 MiB evidence limit")
+                    chunks.append(block)
+                return Response(response.status, b"".join(chunks).decode("utf-8"))
 
 
 def get_json(fetcher: Fetcher, host: str, path: str, *, provenance: bool = False) -> JSON:

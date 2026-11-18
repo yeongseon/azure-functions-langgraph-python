@@ -410,7 +410,11 @@ existing authority and gates; recovery still requires a maintainer decision.
 | daily `schedule` (and `workflow_dispatch`) | catches a tag whose publish run never appeared (a `PENDING` verdict becomes a defect after the six-hour grace period) |
 
 A new defect makes the run **red** (exit 1); an audit that cannot collect or parse
-evidence is also red (exit 2) and is not a verdict on any release. The Markdown report
+evidence is also red (exit 2) and is not a verdict on any release. Transient request
+failures (timeouts, connection resets, incomplete responses and HTTP 5xx) are retried up
+to three attempts with a short backoff inside the collection deadline, and an exit 2
+caused by a request names only the fixed host, the exception class and the attempt
+count, never the request path, headers, response body or token. The Markdown report
 is in the job summary and, with the collected facts, in the `release-audit` artifact. The
 workflow reports through its exit status only: it opens no issue and edits no release.
 Failed scheduled runs are announced through GitHub's own workflow notifications.
