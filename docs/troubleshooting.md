@@ -231,6 +231,37 @@ top-level create-run body field (and the Durable instance id), not a
 `configurable` entry. For an application-level idempotency key use a name that
 LangGraph does not reserve, such as `app_run_id` or `idempotency_key`.
 
+## Storage and persistence settings
+
+The Functions host has its own storage (`AzureWebJobsStorage`), which is separate from graph persistence (the checkpointer, the thread lock and the thread store). A failure at import or indexing time stops the host from registering routes: the host logs `Worker failed to index functions` and every route answers 404. A failure at the first request is different: `/api/health` answers 200 and only the first request that touches persistence fails. `/api/health` is a liveness check; it proves neither that storage nor the lock is usable.
+
+| What you see | When it appears | What the host or Python shows (observed) | What to check |
+| --- | --- | --- | --- |
+| Postgres setting missing | Import, host indexing fails | Before the guard in `postgres_checkpoint_production`: `KeyError: 'LANGGRAPH_POSTGRES_CONNECTION_STRING'`. With the guard: `RuntimeError` saying `LANGGRAPH_POSTGRES_CONNECTION_STRING is not set or is empty.` | Set `LANGGRAPH_POSTGRES_CONNECTION_STRING` in `local.settings.json` or the Function App settings. |
+| Postgres setting empty | Import, host indexing fails | Before the guard, the empty string reached libpq defaults and a local socket attempt: `connection failed: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL:  role "<your OS user name>" does not exist` (the role is the operating-system user name of the machine that runs the host). With the guard in this example, missing and empty now give the same message. | Same as above. |
+| Postgres unreachable | Import, host indexing fails | `connection failed: connection to server at "127.0.0.1", port 1 failed: Connection refused`; the password does not appear. Setting `LANGGRAPH_POSTGRES_SETUP=true` failed at the connection, before any setup. | Host, port, firewall and `connect_timeout` in the connection string. |
+| Neither blob URL nor connection string (`production_persistent_agent`) | Import, host indexing fails | `Set AZURE_STORAGE_BLOB_ACCOUNT_URL for Managed Identity, or AZURE_STORAGE_CONNECTION_STRING for Azurite/local dev.` | Set one of the two settings. |
+| Malformed storage connection string | Client construction | `Connection string is either blank or malformed.` for both the Blob and Table SDK clients. Constructors also accepted trailing semicolons and an endpoint-only Blob string (an anonymous client); the Table client rejected a Blob-only string with `Connection string missing required connection details.` Accepting a string at construction does not prove it can authenticate. | Check the string format and that it carries the details for the service in use. |
+| Unreachable Blob endpoint with `LANGGRAPH_AUTO_CREATE_STORAGE=true` | Import | 79 to 84 s at import with default SDK retries, then the host worker-metadata request timed out at about 60 s (`Requesting metadata from worker failed.`), the host recycled and no HTTP response was seen. | Pre-create the container and leave `LANGGRAPH_AUTO_CREATE_STORAGE` unset in production, as the example README says. |
+| Missing container | First request | Health 200; the first native invoke returned 500 with an empty body. Host log: `ResourceNotFoundError: The specified container does not exist.` with `ErrorCode:ContainerNotFound`. | Create the checkpoint container, or enable auto-create in development. |
+| Missing table | First request | Health 200; the first `POST /api/threads` returned 500 with an empty body. Host log: `ResourceNotFoundError` with `"code":"TableNotFound"`. | Create the thread table, or enable auto-create in development. |
+| Table bootstrap warning | Import, first request may fail later | `Table create skipped at cold start (table=langgraphthreads): ... First real operation may fail if the table is missing.` It is emitted through Python logging and, in the observed run, was not present in the default host log. | Check that the Table endpoint is reachable and the table exists. |
+
+### Where to look
+
+The host log is the only place that names the cause of an empty 500 today (tracked in #928). Under the example's static startup error, the chained exception holds the SDK's own message and is the only place that names the cause of the startup failure; for an unreachable Blob endpoint it was observed in Python as `ServiceRequestError` with `Failed to establish a new connection: [Errno 111] Connection refused`. In the experiment, the synthetic credentials placed in the settings did not appear in the captured exception text, the logging output or the host log, for these versions and configurations; this is not a guarantee.
+
+### Not reproduced
+
+These could cause failures but were not observed, so they are possible causes, not observed symptoms:
+
+- A missing managed-identity data role. A `403` alone does not prove a missing role: identity selection, role scope, propagation delay and network rules all produce one.
+- A deployed app with an empty `AzureWebJobsStorage`.
+- SAS-authenticated recovery.
+- Storage URL userinfo variants.
+
+These are local observations, not Azure certification: Core Tools 4.8.0, `azure-functions-langgraph` 0.13.0, `azure-storage-blob` 12.31.1, `azure-data-tables` 12.7.0, `azure-core` 1.41.0, `psycopg` 3.3.9 and Azurite 3.35.0, with local HTTP-only host runs.
+
 ## Getting help
 
 - [GitHub Issues](https://github.com/yeongseon/azure-functions-langgraph-python/issues) — questions, bug reports, and feature requests

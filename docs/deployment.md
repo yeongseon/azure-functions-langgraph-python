@@ -48,6 +48,8 @@ Two different things share the word "storage". Only the first is needed for a ba
 | Functions Storage Account (`AzureWebJobsStorage`) | **Always** | Host state, keys, deployment package |
 | Blob checkpointer / Table thread store (Step 7) | **Optional** | Persist graph state and thread metadata across instances |
 
+For failures caused by these settings, see [Storage and persistence settings](troubleshooting.md#storage-and-persistence-settings).
+
 ## When to move to Premium
 
 The minimal default ([5-minute tutorial](tutorial-5-min.md)) uses Flex Consumption.

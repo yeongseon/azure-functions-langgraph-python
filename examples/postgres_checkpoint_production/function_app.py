@@ -9,7 +9,13 @@ import azure.functions as func
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.checkpointers.postgres import create_postgres_checkpointer
 
-_CONN_STRING = os.environ["LANGGRAPH_POSTGRES_CONNECTION_STRING"]
+_CONN_STRING = os.environ.get("LANGGRAPH_POSTGRES_CONNECTION_STRING")
+if _CONN_STRING is None or not _CONN_STRING.strip():
+    raise RuntimeError(
+        "LANGGRAPH_POSTGRES_CONNECTION_STRING is not set or is empty. Set it to a "
+        "psycopg-compatible connection string in local.settings.json (local) or in the "
+        "Function App settings (Azure); see README.md in this example."
+    )
 _RUN_SETUP = os.environ.get("LANGGRAPH_POSTGRES_SETUP", "true").lower() == "true"
 
 checkpointer = create_postgres_checkpointer(_CONN_STRING, setup=_RUN_SETUP)

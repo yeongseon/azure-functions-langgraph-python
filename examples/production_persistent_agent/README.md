@@ -348,3 +348,4 @@ Intentionally excluded (kept simple, or belongs elsewhere):
   persistence driven by a connection string only.
 - [README → Persistent storage](../../README.md#persistent-storage-v04) and
   [`docs/production-guide.md`](../../docs/production-guide.md) — narrative docs.
+- [Troubleshooting → Storage and persistence settings](../../docs/troubleshooting.md#storage-and-persistence-settings) — verified startup and first-request storage failures.
