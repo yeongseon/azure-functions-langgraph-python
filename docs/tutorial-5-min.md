@@ -268,6 +268,7 @@ example's `requirements.txt` (Core Tools + curl), run
 
 - [Configuration](configuration.md) — auth levels, per-graph overrides, route prefix
 - [Usage Guide](usage.md) — full endpoint reference and request/response formats
+- [Start from your own project](getting-started.md#start-from-a-new-functions-project): scaffold with `func init` and add the graph
 - **Optional, only when you need them:**
     - [Deployment (advanced guide)](deployment.md): Premium, Blob/Table storage, `platform_compat`
     - [Production Guide](production-guide.md): persistence, distributed locks, Managed Identity, hardening
