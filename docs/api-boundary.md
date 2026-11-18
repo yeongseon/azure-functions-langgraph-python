@@ -1,7 +1,8 @@
 # API boundary and migration policy
 
-> **Status: proposal for maintainer approval (issue #878).** This page records an
-> inventory-backed assessment. It changes no import path, export or runtime
+> **Status: proposal for maintainer approval (issues #878 and #930).** This page
+> records an inventory-backed assessment, and section 8 records a decision about an
+> entrypoint facade. It changes no import path, export or runtime
 > behavior. Nothing here is a commitment to 1.0; the package stays on the rolling
 > 0.x policy in the [README stability table](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/README.md#stability--rolling-0x-per-surface).
 
@@ -200,3 +201,78 @@ for the scan itself:
 2. Confirm or change the `provisional` tiers: `authorization`, `openapi`,
    `stores`, `streaming_authorization`.
 3. Confirm that a separate follow-up is not needed (none is recommended).
+4. Decide on the entrypoint facade of section 8. The proposal is **no facade now**,
+   with the triggers listed there for revisiting it.
+
+## 8. A thin entrypoint facade (proposal, #930)
+
+[#913](https://github.com/yeongseon/azure-functions-langgraph-python/issues/913)
+gives `app = LangGraphApp(graph)` as an illustrative target only and asks whether a thin
+entrypoint facade is justified before any signature is implemented. This section records
+what was verified and what is not known, so the decision can be made on evidence. It adds
+no export, signature or behavior.
+
+### What the host requires
+
+Observed with Azure Functions Core Tools 4.8.0, Python 3.11.15 and
+`azure-functions-langgraph` 0.13.0 from PyPI, in a `func init` project with no storage
+emulator. These are local runs; no Azure-hosted behavior is claimed.
+
+| Top level of `function_app.py` | Result |
+| --- | --- |
+| `app = langgraph_app.function_app` (today) | the host registers `aflg_<graph>_invoke`, `_state` and `_stream` plus `aflg_health` and `aflg_health_details`; `GET /api/health` answers 200 |
+| `app = LangGraphApp()` and `app.register(...)`, without `.function_app` | `Worker failed to index functions`, `ValueError: Could not find top level function app instances in function_app.py.` and `No job functions found`; no route exists |
+| the scaffold's `app = func.FunctionApp()` next to the library's function app | `ValueError: More than one FunctionApp or other top level function app instances are defined.`; no route exists |
+
+The worker needs exactly one top-level function app instance, and a `LangGraphApp` object
+is not one. The illustrative `app = LangGraphApp(graph)` therefore cannot work today, and
+any shorter entrypoint has to either return a function app (option B) or make
+`LangGraphApp` itself one (option C).
+
+### What the integration costs today
+
+The [first-run baseline](onboarding-baseline.md) records it for
+`examples/simple_agent/function_app.py`: 9 code lines and 5 top-level statements (two
+imports, construct, register, export) with no constructor argument. The other measured
+first-run steps are not integration code: 6 command lines to the first local response, 5
+files and 4 requirements. Of the 28 example apps, 27 host a graph through
+`langgraph_app.function_app`; the other is a timer utility.
+
+### Options
+
+| Option | What the user writes | What it saves against the baseline | Costs and unknowns |
+| --- | --- | --- | --- |
+| **A. No facade (proposed)** | unchanged: construct, register, export `.function_app` | nothing | nothing new; the two indexing failures above can be documented |
+| B. A function that builds and returns the function app for one graph, for example `app = serve(graph, name="simple_agent")` (a hypothetical name) | two imports and one call | 3 top-level statements instead of 5 | a new public name in the Stable-intent core, which exports 31 names today; a second way to do the same thing that the examples, READMEs and tests must choose between; it forwards only some of the 17 constructor parameters and the per-graph `register` options, so a user who needs a second graph, a thread lock, an observer or `platform_compat` rewrites the entrypoint, unless it forwards everything, which makes it a second spelling of the same API |
+| C. `LangGraphApp` is itself the function app the worker finds | `app = LangGraphApp(...)` | construct, register and export collapse into one construction | **not validated.** `function_app` is a cached property that `register`, `register_service_bus` and the `thread_store` setter invalidate, so today a change followed by a new access builds a new `FunctionApp`, and registrations made after Platform or Durable routes were exported are checked against that exported registry (#854). The worker takes the top-level object once, so a discoverable `LangGraphApp` needs a defined moment at which routes are built and a defined behavior for registrations after it. This changes a Stable-intent class |
+
+### Recommendation
+
+**Option A: do not add a facade now.**
+
+1. The saving is small and measured: at most 2 statements of 5 (option B), while the first-run
+   steps the baseline measures lie mostly outside these lines (the clone, the virtual
+   environment, the installation and the host start).
+2. Option B adds permanent surface to the Stable-intent core and a second spelling of the
+   same API, with a capability cliff for anything beyond a single graph.
+3. Option C is the only way to make `app = LangGraphApp(...)` real, and it is the option
+   whose lifecycle is not validated.
+4. The failure modes observed above are cheaper to address by documentation, which needs no
+   API change.
+
+Revisit when:
+
+- a measured, repeatable newcomer task (for example a timed walkthrough or recorded support
+  questions) shows the construct, register and export statements as a dominant source of
+  failures or time; or
+- a prototype answers option C's lifecycle questions and the maintainers accept a change to
+  the class.
+
+### What was not validated
+
+- Option C: what happens when the worker indexes the module, the identity of the function
+  app across `register` calls, and the late-registration and topology checks.
+- Option B: a signature, behavior with several graphs, and which constructor options it
+  would forward.
+- Any Azure-hosted behavior (Flex Consumption or Premium), and other Core Tools or
+  `azure-functions` versions.
