@@ -91,6 +91,14 @@ invoke plus incremental streaming/error/disconnect cases, rejects startup/indexi
 log failures, and reaps its own process groups and temporary storage on success,
 failure or interrupt. It does not stop existing hosts or emulators.
 
+`make host-lanes` needs the same tools and runs in the `table` Hatch environment
+(the Blob and Table extras). It starts two lock-test hosts, a Platform SDK host and
+topology-refusal hosts over one Azurite, runs `tests/e2e/test_langgraph_lock_e2e.py` and
+`tests/host_lanes/test_platform_sdk.py` through `tools/check_junit.py` so that a skip
+fails the run, and reaps its own process groups and temporary storage the same way. Pass
+`--lane locks|platform|topology` to the runner (`python -m tools.run_host_lanes`) to run
+one lane. The result is local evidence on an emulator, not Azure certification.
+
 `make e2e-azure` needs `E2E_BASE_URL`, `E2E_BASE_URL_B` and `E2E_STREAM_BASE_URL`
 pointing at deployed native, second lock-test and streaming apps. Configure keys
 with `E2E_CODE` and `E2E_STREAM_CODE`, never URL query parameters. Missing targets,

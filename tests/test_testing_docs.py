@@ -78,6 +78,7 @@ def test_documented_make_targets_and_paths_exist() -> None:
     for path in (
         "tools/benchmark_table_store.py",
         "tests/host_smoke",
+        "tests/host_lanes",
         "tests/e2e",
         "tests/integration",
     ):

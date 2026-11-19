@@ -1,0 +1,86 @@
+name: Host Lanes
+
+# Runs the local Functions-host lanes (`make host-lanes`) against Azurite: the two-app lease-lock
+# e2e, the Platform SDK scenarios and the topology refusals. Local evidence only; Azurite is not
+# Azure Storage and `func start` is not a deployed host. Deliberately not a required check: it
+# installs Core Tools and Azurite from npm, and the Azure certification gate stays in publish-pypi.yml.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "src/azure_functions_langgraph/**"
+      - "examples/e2e_app/**"
+      - "tests/host_lanes/**"
+      - "tests/data/platform_compat_manifest.json"
+      # Test modules the lanes run or load; tests/test_host_lanes_workflow.py keeps this list complete.
+      - "tests/__init__.py"
+      - "tests/conftest.py"
+      - "tests/example_imports.py"
+      - "tests/e2e/__init__.py"
+      - "tests/e2e/conftest.py"
+      - "tests/e2e/test_langgraph_lock_e2e.py"
+      - "tools/run_host_lanes.py"
+      - "tools/run_host_smoke.py"
+      - "tools/check_junit.py"
+      - "Makefile"
+      - "pyproject.toml"
+      - ".github/workflows/ci-host-lanes.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/azure_functions_langgraph/**"
+      - "examples/e2e_app/**"
+      - "tests/host_lanes/**"
+      - "tests/data/platform_compat_manifest.json"
+      # Test modules the lanes run or load; tests/test_host_lanes_workflow.py keeps this list complete.
+      - "tests/__init__.py"
+      - "tests/conftest.py"
+      - "tests/example_imports.py"
+      - "tests/e2e/__init__.py"
+      - "tests/e2e/conftest.py"
+      - "tests/e2e/test_langgraph_lock_e2e.py"
+      - "tools/run_host_lanes.py"
+      - "tools/run_host_smoke.py"
+      - "tools/check_junit.py"
+      - "Makefile"
+      - "pyproject.toml"
+      - ".github/workflows/ci-host-lanes.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-lanes-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  host-lanes:
+    name: Local Functions host lanes (Py 3.11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install Functions Core Tools v4 and Azurite
+        run: |
+          npm install --global azure-functions-core-tools@4 --unsafe-perm true
+          npm install --global azurite
+          func --version
+          azurite --version
+
+      - name: Install the package with the Blob and Table extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,azure-blob,azure-table]"
+
+      - name: Run the lock, Platform SDK and topology lanes with owned processes
+        run: make host-lanes HATCH=python LANES_PYTHON=python
