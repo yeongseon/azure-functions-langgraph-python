@@ -104,10 +104,8 @@ class MockTableClient:
         self.entities[key] = replaced
 
     def delete_entity(self, partition_key: str, row_key: str) -> None:
-        key = (partition_key, row_key)
-        if key not in self.entities:
-            raise FakeResourceNotFoundError(row_key)
-        del self.entities[key]
+        # Like azure-data-tables, deleting a missing entity is not an error.
+        self.entities.pop((partition_key, row_key), None)
 
     def query_entities(
         self,
