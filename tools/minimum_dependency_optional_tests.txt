@@ -13,6 +13,8 @@ tests/test_platform_sdk_example.py
 tests/test_platform_thread_isolation_example.py
 # Requires the Azure Blob extra and a live Azurite service.
 tests/test_production_persistent_agent_example.py
+# Imports langgraph_sdk.errors and drives newer client methods, both absent from the 0.2.2 floor.
+tests/host_lanes/test_platform_sdk.py
 # Certifies SDK wire behavior against supported newer SDK lines, not the 0.2.2 floor.
 tests/test_sdk_compat.py
 # Requires the azurefunctions-extensions-http-fastapi streaming extra.
