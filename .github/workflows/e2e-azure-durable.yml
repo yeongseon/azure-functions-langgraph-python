@@ -1,0 +1,151 @@
+name: e2e-azure-durable
+
+# OPTIONAL, dispatch-only real-Azure lane for the Durable async-run surface (#811):
+# lifecycle, same-thread contention, cancellation and ONE controlled host restart while the
+# Activity is in flight. It is NOT part of the publish gate (publish-pypi.yml does not call it)
+# and does not touch e2e-azure.yml. It reuses the same OIDC environment/secrets and the same
+# permissions as e2e-azure.yml; it requests nothing extra.
+#
+# The host restart uses `az functionapp restart` on this run's own temporary app, which needs
+# nothing beyond the rights e2e-azure.yml already uses to create and delete these resources.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA (or ref) whose built wheel is deployed and tested
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'koreacentral' }}
+
+jobs:
+  deploy_and_test:
+    name: Deploy & Test (Durable, Y1 / Python 3.12)
+    runs-on: ubuntu-latest
+    environment: azure-e2e
+    timeout-minutes: 90
+    outputs:
+      resource_group: ${{ steps.names.outputs.rg }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Compute resource names
+        id: names
+        run: |
+          RUN="${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          ST="stafe2ed${RUN}"
+          echo "rg=rg-af-e2e-langgraph-durable-${RUN}" >> "$GITHUB_OUTPUT"
+          echo "app=af-e2e-langgraph-durable-${RUN}"   >> "$GITHUB_OUTPUT"
+          echo "st=${ST:0:24}"                          >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create Resource Group
+        run: |
+          az group create \
+            --name "${{ steps.names.outputs.rg }}" \
+            --location "$AZURE_LOCATION" \
+            --tags purpose=e2e repo=azure-functions-langgraph lane=durable run="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Deploy infra (Bicep, single Y1 app)
+        run: |
+          az deployment group create \
+            --resource-group "${{ steps.names.outputs.rg }}" \
+            --template-file infra/main.bicep \
+            --parameters \
+                location="$AZURE_LOCATION" \
+                functionAppName="${{ steps.names.outputs.app }}" \
+                storageName="${{ steps.names.outputs.st }}" \
+                enableAppInsights=false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Azure Functions Core Tools
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/microsoft.gpg
+          sudo install -o root -g root -m 644 /tmp/microsoft.gpg /etc/apt/trusted.gpg.d/
+          sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-$(lsb_release -cs)-prod $(lsb_release -cs) main" > /etc/apt/sources.list.d/dotnetdev.list'
+          sudo apt-get update
+          sudo apt-get install -y azure-functions-core-tools-4
+
+      - name: Bundle candidate wheel into the deploy payload
+        run: |
+          # A BUILT WHEEL from this ref, never an editable install or the PyPI release.
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir dist
+          WHEEL=$(ls dist/azure_functions_langgraph-*.whl | head -n1)
+          mkdir -p examples/e2e_durable_app/wheels
+          cp "$WHEEL" examples/e2e_durable_app/wheels/
+          echo "./wheels/$(basename "$WHEEL")[durable]" >> examples/e2e_durable_app/requirements.txt
+          cat examples/e2e_durable_app/requirements.txt
+
+      - name: Install test deps
+        run: pip install pytest requests
+
+      - name: Publish function app
+        working-directory: examples/e2e_durable_app
+        timeout-minutes: 40
+        run: func azure functionapp publish "${{ steps.names.outputs.app }}" --python --build remote
+
+      - name: Run Durable e2e tests
+        env:
+          E2E_DURABLE_BASE_URL: https://${{ steps.names.outputs.app }}.azurewebsites.net
+          E2E_DURABLE_RESTART_CMD: az functionapp restart --resource-group ${{ steps.names.outputs.rg }} --name ${{ steps.names.outputs.app }}
+          E2E_DURABLE_EVIDENCE: ${{ github.workspace }}/cert-durable/evidence.json
+        run: |
+          mkdir -p cert-durable
+          # Selects ONLY tests/e2e_durable via its marker; the repo addopts are cleared as in
+          # e2e-azure.yml. check_junit.py fails the step on zero tests, any skip (so a missing
+          # restart command cannot pass silently) or failure.
+          pytest tests/e2e_durable -v -m e2e_durable -o addopts="" --tb=short --junitxml=cert-durable/e2e-results.xml
+          python tools/check_junit.py cert-durable/e2e-results.xml \
+            --area "durable lifecycle/restart=test_durable_e2e"
+
+      - name: Upload evidence (sanitized counts, statuses and short tags only)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: azure-durable-evidence
+          path: cert-durable/
+          if-no-files-found: warn
+          retention-days: 30
+
+  cleanup:
+    name: Cleanup Azure Resources
+    runs-on: ubuntu-latest
+    environment: azure-e2e
+    needs: [deploy_and_test]
+    if: always()
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Delete Resource Group and verify removal
+        run: |
+          RG="${{ needs.deploy_and_test.outputs.resource_group }}"
+          if [ -z "$RG" ]; then echo "No resource group to delete."; exit 0; fi
+          az group delete --name "$RG" --yes --no-wait
+          for i in $(seq 1 30); do
+            if [ "$(az group exists --name "$RG")" = "false" ]; then echo "Deleted $RG"; exit 0; fi
+            sleep 20
+          done
+          echo "::error ::Resource group $RG still present after 10 minutes"; exit 1
