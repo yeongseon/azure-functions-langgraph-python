@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator, Sequence
 import importlib
+import importlib.util
 import json
+from pathlib import Path
+import sys
 from typing import Any
 import uuid
 
@@ -223,3 +226,50 @@ async def test_latest_publication_failure_recovers_on_azurite(
         assert older is not None
         assert older.checkpoint["id"] == "cp-001"
         assert [c.checkpoint["id"] for c in reader.list(cfg)] == ["cp-002", "cp-001"]
+
+
+_BENCHMARK = Path(__file__).resolve().parents[2] / "tools" / "benchmark_blob_checkpointer.py"
+
+
+@pytest.mark.parametrize("async_api", [False, True], ids=["sync", "async"])
+@pytest.mark.parametrize(("channels", "writes", "history"), [(6, 3, 2), (20, 10, 5)])
+def test_benchmark_fake_issues_the_requests_the_real_sdk_sends(
+    channels: int, writes: int, history: int, async_api: bool
+) -> None:
+    """``tools/benchmark_blob_checkpointer.py`` counts requests against an in-memory fake.
+
+    Every request-count budget for the saver rests on that fake modeling what the Azure SDK
+    sends, so this runs the same workload through the real SDK clients on Azurite, counting
+    at the HTTP transport, and requires every scenario to agree request for request. An SDK
+    release that adds or drops a request fails here instead of silently invalidating the
+    budgets (#860).
+    """
+    require_tcp_service("127.0.0.1", 10000, "Azurite Blob")
+    try:
+        # The azure-blob extra: the SDK clients, and aiohttp for the async transport.
+        importlib.import_module("azure.storage.blob.aio")
+        getattr(importlib.import_module("azure.core.pipeline.transport"), "AioHttpTransport")
+    except (ImportError, AttributeError) as exc:
+        fail_or_skip_service(f"the azure-blob extra is unavailable: {exc}")
+    spec = importlib.util.spec_from_file_location("benchmark_blob_checkpointer_azurite", _BENCHMARK)
+    assert spec is not None and spec.loader is not None
+    bench = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = bench
+    try:
+        spec.loader.exec_module(bench)
+        fake = {r["scenario"]: r for r in bench.run(channels, writes, history, 0.0, async_api)}
+        real = {
+            r["scenario"]: r
+            for r in bench.run_azurite(
+                channels, writes, history, 0.0, async_api, AZURITE_BLOB_CONNECTION_STRING
+            )
+        }
+    finally:
+        sys.modules.pop(spec.name, None)
+
+    assert fake.keys() == real.keys()
+    for scenario, row in real.items():
+        assert "OTHER" not in row, f"{scenario}: unmodeled requests {row['OTHER']}"
+        assert {k: row[k] for k in bench.KINDS} == {k: fake[scenario][k] for k in bench.KINDS}, (
+            scenario
+        )
