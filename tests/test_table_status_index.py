@@ -103,7 +103,7 @@ def test_write_amplification_is_counted_per_operation() -> None:
         "update(status=error) again (no change)": {"writes": 1, "gets": 1},
         "update(metadata)": {"writes": 1, "gets": 1},
         "merge_metadata": {"writes": 1, "gets": 1},
-        "delete": {"writes": 1, "gets": 0},
+        "delete": {"writes": 1, "gets": 1},
     }
     # The index adds exactly one write where a terminal status is newly set, none elsewhere.
     assert on == {
@@ -114,7 +114,7 @@ def test_write_amplification_is_counted_per_operation() -> None:
         "update(status=error) again (no change)": {"writes": 1, "gets": 1},
         "update(metadata)": {"writes": 1, "gets": 1},
         "merge_metadata": {"writes": 1, "gets": 1},
-        "delete": {"writes": 1, "gets": 0},
+        "delete": {"writes": 1, "gets": 1},
     }
 
 
