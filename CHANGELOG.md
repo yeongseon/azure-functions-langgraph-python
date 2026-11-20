@@ -1,6 +1,14 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.14.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.14.0...v0.14.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **handlers:** return the standard 500 when the thread lock backend raises ([#932](https://github.com/yeongseon/azure-functions-langgraph-python/issues/932)) ([b72f9dd](https://github.com/yeongseon/azure-functions-langgraph-python/commit/b72f9dd8c31152b706767d89fb79914cead25564)), closes [#928](https://github.com/yeongseon/azure-functions-langgraph-python/issues/928)
+* **store:** raise KeyError when AzureTableThreadStore deletes a missing thread ([#935](https://github.com/yeongseon/azure-functions-langgraph-python/issues/935)) ([8d3dcbc](https://github.com/yeongseon/azure-functions-langgraph-python/commit/8d3dcbc89ea710b4e0e2ca958c386cd9782693b8)), closes [#934](https://github.com/yeongseon/azure-functions-langgraph-python/issues/934)
+
 ## [0.14.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.13.0...v0.14.0) (2026-11-15)
 
 
