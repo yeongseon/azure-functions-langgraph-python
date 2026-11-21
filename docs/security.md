@@ -7,6 +7,8 @@ tenant ownership of a LangGraph `thread_id`. Keep the default `FUNCTION` level,
 then independently authenticate the principal and authorize each resource/action.
 Random, unguessable thread IDs reduce enumeration; they are **not authorization**.
 Neither checkpoint separation nor distributed locks establish ownership.
+For details on configuring host-level auth and understanding local versus deployed enforcement
+without cloud keys, see [native endpoint auth levels](configuration.md#native-endpoint-auth-levels).
 
 The classic hook receives an immutable `AuthorizationContext` containing the action,
 graph name, thread ID (when applicable), and raw `HttpRequest`. Return `True` to
