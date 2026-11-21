@@ -180,6 +180,32 @@ async def test_lost_owner_retrying_an_already_written_slot_is_rejected_not_skipp
     assert store.container.blobs == before
 
 
+@pytest.mark.parametrize("synchronous", [False, True])
+async def test_rejected_duplicate_retry_preserves_opposite_api_readback(synchronous: bool) -> None:
+    """Lost-owner rejection preserves the full tuple and blobs through the opposite API."""
+    container = MockContainerClient()
+    saver = AzureBlobCheckpointSaver(
+        container_client=container, aio_container_client=AsyncMockContainerClient(container)
+    )
+    writer = Store(saver, container, synchronous)
+    cfg = await writer.put(config(), "cp-001")
+    await writer.writes(cfg, [("alpha", "original"), ("beta", "B")])
+    expected = saver.get_tuple(cfg) if synchronous else await saver.aget_tuple(cfg)
+    assert expected is not None
+    assert expected.pending_writes == [
+        ("task-7f3a", "alpha", "original"),
+        ("task-7f3a", "beta", "B"),
+    ]
+    before = dict(container.blobs)
+    guarded = config()
+    guarded.setdefault("configurable", {})[OWNERSHIP_GUARD_CONFIG_KEY] = ScriptedGuard(trip_on=1)
+    with pytest.raises(ThreadLeaseLostError):
+        await writer.writes(guarded, [("alpha", "ignored")])
+    actual = await saver.aget_tuple(cfg) if synchronous else saver.get_tuple(cfg)
+    assert actual == expected
+    assert container.blobs == before
+
+
 @pytest.mark.parametrize("operation", ["put", "writes"])
 async def test_check_immediately_precedes_every_upload(
     store: Store, operation: Operation, monkeypatch: pytest.MonkeyPatch

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 import importlib
 import sys
 import threading
@@ -76,7 +77,7 @@ class _SyncClient:
 
     def download_blob(self) -> _Stream:
         store = self._s
-        gated = store.gate_threshold is not None and "values" in self._n
+        gated = store.gate_threshold is not None and ("values" in self._n or "/writes/" in self._n)
         with store.lock:
             store.ops["download"] += 1
             store.in_flight += 1
@@ -293,6 +294,81 @@ def test_sync_reads_are_concurrent_but_bounded() -> None:
     # Downloads block until at least two overlap, so sequential reads cannot
     # reach this point with max_in_flight > 1.
     assert 1 < store.max_in_flight <= module._MAX_CONCURRENT_BLOB_READS
+
+
+@pytest.mark.parametrize("native_async", [False, True])
+async def test_pending_write_only_reads_are_bounded_and_numerically_ordered(
+    native_async: bool,
+) -> None:
+    """Pending writes alone overlap at most eight downloads and retain numeric slot order."""
+    saver, store = _saver()
+    _seed(saver, 1, channels=0, writes=40)
+    store.max_in_flight = 0
+    # Hold the sync batch open: an unbounded executor can start all forty reads;
+    # the bounded executor releases its first eight through the fake's timeout.
+    store.gate_threshold = 40
+    result = (
+        await saver.aget_tuple(_cfg("cp-000")) if native_async else saver.get_tuple(_cfg("cp-000"))
+    )
+    assert result is not None
+    assert result.checkpoint["channel_values"] == {}
+    assert result.pending_writes == [("task", f"w{i}", f"cp-000-w{i}") for i in range(40)]
+    assert 1 < store.max_in_flight <= 8
+    assert store.in_flight == 0
+
+
+def test_sync_pending_write_failure_waits_for_workers_and_returns_no_partial_tuple(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed pending-write download propagates only after all sync workers have exited."""
+    saver, _ = _saver()
+    _seed(saver, 1, channels=0, writes=20)
+    download = _SyncClient.download_blob
+    sibling_started, failed, release, returned = (threading.Event() for _ in range(4))
+    workers: set[threading.Thread] = set()
+    active: set[threading.Thread] = set()
+    lock = threading.Lock()
+    fault = TimeoutError("pending download failed")
+
+    def controlled_download(client: _SyncClient) -> _Stream:
+        if "/writes/" not in client._n:
+            return download(client)
+        worker = threading.current_thread()
+        with lock:
+            workers.add(worker)
+            active.add(worker)
+        try:
+            if client._n.endswith("/0.bin"):
+                assert sibling_started.wait(5)
+                failed.set()
+                raise fault
+            sibling_started.set()
+            assert release.wait(5)
+            return download(client)
+        finally:
+            with lock:
+                active.remove(worker)
+
+    def read() -> None:
+        try:
+            with pytest.raises(TimeoutError) as caught:
+                saver.get_tuple(_cfg("cp-000"))
+            assert caught.value is fault
+            assert not active
+            assert all(not worker.is_alive() for worker in workers)
+        finally:
+            returned.set()
+
+    monkeypatch.setattr(_SyncClient, "download_blob", controlled_download)
+    with ThreadPoolExecutor(max_workers=1) as caller:
+        future = caller.submit(read)
+        try:
+            assert failed.wait(5)
+            # Siblings are deliberately blocked, so returning now would leak workers.
+            assert not returned.wait(1)
+        finally:
+            release.set()
+        future.result(timeout=5)
 
 
 async def test_async_reads_are_concurrent_bounded_and_ordered() -> None:
