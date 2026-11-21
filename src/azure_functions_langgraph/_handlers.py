@@ -118,6 +118,26 @@ def _lock_acquire_failed(
     return _error_response(500, _LOCK_ACQUIRE_FAILED_DETAIL, ctx.run_id)
 
 
+_LOCK_RELEASE_FAILED_DETAIL = "Thread lock could not be released"
+
+
+def _release_lock(
+    thread_lock: ThreadLock, graph_name: str, thread_id: str, token: str
+) -> Exception | None:
+    """Release *token* once; log and return an ``Exception`` the backend raised.
+
+    Called from a ``finally``, where an exception escaping would replace the run's own outcome
+    (a computed result or the graph's failure). ``BaseException`` (cancellation, interpreter
+    exit) is not caught.
+    """
+    try:
+        thread_lock.release(graph_name, thread_id, token)
+    except Exception as exc:
+        logger.exception("Graph %s thread lock release failed", graph_name)
+        return exc
+    return None
+
+
 def _reject(
     observer: RunObserver,
     ctx: RunContext,
@@ -324,6 +344,7 @@ def handle_invoke(
                 ),
             )
     safe_observer_call(observer, "on_run_started", ctx)
+    release_error: Exception | None = None
     try:
         run_config, guard = guard_run_config(thread_lock, reg.name, thread_id, lock_token, config)
         result = reg.graph.invoke(request.input, config=run_config, **version_kwargs)
@@ -335,7 +356,13 @@ def handle_invoke(
         return _error_response(500, "Graph execution failed", ctx.run_id)
     finally:
         if lock_token is not None and thread_id is not None:
-            thread_lock.release(reg.name, thread_id, lock_token)
+            release_error = _release_lock(thread_lock, reg.name, thread_id, lock_token)
+
+    if release_error is not None:
+        # The graph finished, but its result is not handed out as a success: the lock state is
+        # unknown and the run's effects may already have happened.
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), release_error)
+        return _error_response(500, _LOCK_RELEASE_FAILED_DETAIL, ctx.run_id)
 
     safe_observer_call(observer, "on_run_completed", finish_context(ctx))
     return func.HttpResponse(
@@ -459,6 +486,7 @@ def handle_stream(
         return True
 
     stream_error: BaseException | None = None
+    release_error: Exception | None = None
     safe_observer_call(observer, "on_run_started", ctx)
     try:
         run_config, guard = guard_run_config(thread_lock, reg.name, thread_id, lock_token, config)
@@ -481,7 +509,11 @@ def handle_stream(
         _append_chunk(f"event: error\ndata: {error_payload}\n\n")
     finally:
         if lock_token is not None and thread_id is not None:
-            thread_lock.release(reg.name, thread_id, lock_token)
+            release_error = _release_lock(thread_lock, reg.name, thread_id, lock_token)
+
+    if release_error is not None and stream_error is None:
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), release_error)
+        return _error_response(500, _LOCK_RELEASE_FAILED_DETAIL, ctx.run_id)
 
     chunks.append("event: end\ndata: {}\n\n")
 

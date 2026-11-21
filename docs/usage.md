@@ -269,7 +269,7 @@ All error responses follow a consistent format:
 |-------------|-----------|
 | 400 | Invalid JSON body |
 | 422 | Request validation error (missing/invalid fields) |
-| 500 | Graph execution failed, or `Thread lock could not be acquired` when the thread lock backend raises |
+| 500 | Graph execution failed, or `Thread lock could not be acquired` / `Thread lock could not be released` when the thread lock backend raises |
 | 501 | Stream requested on a graph that does not support `stream()` |
 | 404 | Thread not found (state endpoint) |
 
