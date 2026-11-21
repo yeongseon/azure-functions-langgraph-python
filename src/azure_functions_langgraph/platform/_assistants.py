@@ -21,6 +21,19 @@ from azure_functions_langgraph.platform.contracts import (
 )
 
 
+def _assistant_matches(reg_name: str, filters: AssistantSearch | AssistantCount) -> bool:
+    """Match registered assistants, whose metadata is always ``None``.
+
+    Absent, null and empty metadata impose no constraints. A non-empty
+    exact key/value filter cannot match an assistant without metadata.
+    """
+    return (
+        not filters.metadata
+        and (filters.graph_id is None or reg_name == filters.graph_id)
+        and (filters.name is None or filters.name.casefold() in reg_name.casefold())
+    )
+
+
 def register_assistant_routes(
     app: func.FunctionApp,
     deps: PlatformRouteDeps,
@@ -55,11 +68,7 @@ def register_assistant_routes(
 
         results: list[Assistant] = []
         for reg_name, reg in deps.registrations.items():
-            if search.graph_id is not None and reg_name != search.graph_id:
-                continue
-            if search.metadata is not None:
-                continue
-            if search.name is not None and search.name.casefold() not in reg_name.casefold():
+            if not _assistant_matches(reg_name, search):
                 continue
             results.append(_registration_to_assistant(reg_name, reg))
 
@@ -93,15 +102,7 @@ def register_assistant_routes(
         except ValidationError as exc:
             return _platform_error(422, sanitized_validation_errors(exc))
 
-        total = 0
-        for reg_name, _reg in deps.registrations.items():
-            if count_req.graph_id is not None and reg_name != count_req.graph_id:
-                continue
-            if count_req.metadata is not None:
-                continue
-            if count_req.name is not None and count_req.name.casefold() not in reg_name.casefold():
-                continue
-            total += 1
+        total = sum(_assistant_matches(reg_name, count_req) for reg_name in deps.registrations)
 
         return func.HttpResponse(
             body=json.dumps(total),
