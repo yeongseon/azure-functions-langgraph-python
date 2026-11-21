@@ -32,3 +32,5 @@ curl -X POST http://localhost:7071/api/graphs/simple_agent/stream \
 # Health check
 curl http://localhost:7071/api/health
 ```
+
+For a step-by-step walkthrough of expected error response shapes and troubleshooting without cloud credentials, see the [native invocation troubleshooting guide](../../docs/troubleshooting.md#no-credentials-native-invocation-troubleshooting).
