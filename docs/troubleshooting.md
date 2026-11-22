@@ -167,13 +167,13 @@ func start --verbose
 
 ### Native invoke or stream returns 500 `Thread lock could not be released`
 
-`POST /api/graphs/{name}/invoke` and the buffered `.../stream` (of a graph in the default
-synchronous mode or registered with `async_mode=True`) return the standard JSON 500 with this
-detail and an `X-Request-ID` if the graph finished but the thread lock backend raised while
-releasing the lock. The result is not returned, and the run is reported to a `RunObserver`
-as `started` followed by `failed`. If the graph itself failed as well, its error response is
-the one returned and the release failure is only logged. The bundled `InProcessThreadLock`
-and `AzureBlobLeaseThreadLock` do not raise from `release`, so this points at a custom
+`POST /api/graphs/{name}/invoke` and the buffered `.../stream` return the standard JSON 500
+with this detail and an `X-Request-ID` if the graph finished but the thread lock backend
+raised while releasing the lock. The result is not returned, and the run is reported to a
+`RunObserver` as `started` followed by `failed`. If the graph itself failed as well, its
+error response is the one returned and the release failure is only logged. The bundled
+`InProcessThreadLock` and `AzureBlobLeaseThreadLock` do not raise from `release`, so this
+points at a custom
 `ThreadLock` that does.
 
 This response does **not** imply rollback: the graph ran, so its checkpoint and any tool
