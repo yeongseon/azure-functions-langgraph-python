@@ -241,10 +241,12 @@ Platform (`/threads`, `/runs`, `/assistants`) and Durable (`async_runs="durable"
 
 ### Setup
 
-In one terminal, start the local Azure Functions host:
+Before starting the host, ensure dependencies are installed (see the
+[`simple_agent` Run locally section](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/examples/simple_agent/README.md#run-locally)):
 
 ```bash
 cd examples/simple_agent
+pip install -r requirements.txt
 func start
 ```
 
@@ -272,11 +274,13 @@ curl -X POST http://localhost:7071/api/graphs/simple_agent/invoke \
 }
 ```
 
-The response includes the header `X-Request-ID: <uuid>` matching the internal run ID.
+The response includes the header `X-Request-ID: <request-id>` (a 32-character hex string)
+matching the internal run ID.
 
 ### Step 2: Request schema error — missing input envelope (422 Unprocessable Entity)
 
-A common mistake when transitioning from standalone Python `graph.invoke({...})` is sending the bare state payload without the transport envelope:
+A common mistake when transitioning from standalone Python `graph.invoke({...})` is sending
+the bare state payload without the transport envelope:
 
 ```bash
 curl -X POST http://localhost:7071/api/graphs/simple_agent/invoke \
@@ -295,15 +299,18 @@ curl -X POST http://localhost:7071/api/graphs/simple_agent/invoke \
       "type": "missing"
     }
   ],
-  "request_id": "<uuid>"
+  "request_id": "<request-id>"
 }
 ```
 
-**Root cause & Fix:** The native adapter expects an `InvokeRequest` envelope: `{"input": {...}, "config": {...}}`. Wrap your state dict inside `"input"`.
+**Root cause & Fix:** The native adapter expects an `InvokeRequest` envelope:
+`{"input": {...}, "config": {...}}`. Wrap your state dict inside `"input"`.
 
 ### Step 3: Configuration admission error — unapproved controls (400 Bad Request)
 
-Native invoke and stream routes enforce an admission policy before execution, locking, or authorization. Passing execution controls like `recursion_limit` or unapproved configurable keys results in immediate rejection:
+Native invoke and stream routes enforce an admission policy before execution, locking, or
+authorization. Passing execution controls like `recursion_limit` or unapproved configurable
+keys results in immediate rejection:
 
 ```bash
 curl -X POST http://localhost:7071/api/graphs/simple_agent/invoke \
@@ -320,7 +327,7 @@ curl -X POST http://localhost:7071/api/graphs/simple_agent/invoke \
 {
   "error": "error",
   "detail": "Only config.configurable is client configurable",
-  "request_id": "<uuid>"
+  "request_id": "<request-id>"
 }
 ```
 
@@ -330,18 +337,20 @@ Similarly, sending an unapproved key inside `config.configurable` returns:
 {
   "error": "error",
   "detail": "Unapproved config.configurable field",
-  "request_id": "<uuid>"
+  "request_id": "<request-id>"
 }
 ```
 
-**Root cause & Fix:** Client requests cannot override server execution limits. Bind defaults on the server using `graph = graph.with_config({"recursion_limit": 25})`, or register allowed keys via `app.register(graph, "agent", allowed_configurable_keys=frozenset({"locale"}))`.
+**Root cause & Fix:** Client requests cannot override server execution limits. Bind defaults
+on the server using `graph = graph.with_config({"recursion_limit": 25})`, or register
+allowed keys via `app.register(graph, "agent", allowed_configurable_keys=frozenset({"locale"}))`.
 
 ### Step 4: Distinguishing adapter rejections from graph failures
 
 | Status | Where failure occurs | Error shape in HTTP response | Where to look |
 | --- | --- | --- | --- |
-| **`400`** | Admission policy | `{"error": "error", "detail": "Only config.configurable is client configurable"}` | HTTP response body. Fix client payload or bind config on server. |
-| **`422`** | Pydantic envelope validation | `{"error": "error", "detail": [{"loc": ["input"], "type": "missing"}]}` | HTTP response body. Ensure payload is wrapped in `{"input": {...}}`. |
+| **`400`** | Admission policy | `{"error": "error", "detail": "Only config.configurable is client configurable", "request_id": "..."}` | HTTP response body. Fix client payload or bind config on server. |
+| **`422`** | Pydantic envelope validation | `{"error": "error", "detail": [{"loc": ["input"], "type": "missing"}], "request_id": "..."}` | HTTP response body. Ensure payload is wrapped in `{"input": {...}}`. |
 | **`500`** | Graph execution inside a node | `{"error": "error", "detail": "Graph execution failed", "request_id": "..."}` | **Functions host console log**. Internal stack traces are intentionally redacted from the HTTP body to prevent data leaks. |
 
 ### Focused validation & Out-of-scope checks

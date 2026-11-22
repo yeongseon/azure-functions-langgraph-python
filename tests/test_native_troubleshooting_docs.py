@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
+import types
+from typing import Any
 
+import azure.functions as func
 import pytest
 
+from azure_functions_langgraph._handlers import handle_invoke
 from tests.test_docs_navigation import _anchors
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +28,9 @@ OBSERVED_FRAGMENTS = (
     "Only config.configurable is client configurable",
     "Unapproved config.configurable field",
     "Graph execution failed",
+    "<request-id>",
+    "32-character hex string",
+    "examples/simple_agent/README.md#run-locally",
 )
 
 NOT_IN_SCOPE = (
@@ -79,3 +87,67 @@ def test_section_documents_scope_limits_and_validation() -> None:
 @pytest.mark.parametrize(("page", "link"), LINKERS)
 def test_pages_link_to_the_section(page: Path, link: str) -> None:
     assert link in page.read_text()
+
+
+class _DummyLock:
+    def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> str | None:
+        return None
+
+    def release(self, graph_name: str, thread_id: str, token: str) -> None:
+        pass
+
+
+class _DummyGraph:
+    def invoke(self, graph_input: Any, config: Any = None) -> dict[str, bool]:
+        return {"ok": True}
+
+
+def _invoke_handler(body: dict[str, Any]) -> func.HttpResponse:
+    reg = types.SimpleNamespace(
+        name="simple_agent",
+        graph=_DummyGraph(),
+        stream_enabled=True,
+        allowed_configurable_keys=frozenset({"locale"}),
+    )
+    req = func.HttpRequest(
+        method="POST",
+        url="http://localhost:7071/api/graphs/simple_agent/invoke",
+        body=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    return handle_invoke(
+        req,
+        reg,
+        thread_lock=_DummyLock(),
+        max_request_body_bytes=1_000_000,
+        max_input_depth=20,
+        max_input_nodes=1_000,
+    )
+
+
+def test_native_handler_emits_quoted_422_shape() -> None:
+    # Bare payload without "input" envelope (Step 2)
+    res = _invoke_handler({"messages": [{"role": "human", "content": "World"}]})
+    assert res.status_code == 422
+    data = json.loads(res.get_body())
+    assert data["error"] == "error"
+    assert data["detail"] == [{"loc": ["input"], "type": "missing"}]
+    assert re.fullmatch(r"[0-9a-f]{32}", data["request_id"])
+
+
+def test_native_handler_emits_quoted_400_shapes() -> None:
+    # 1. Unapproved execution control (recursion_limit)
+    res_rec = _invoke_handler({"input": {}, "config": {"recursion_limit": 25}})
+    assert res_rec.status_code == 400
+    data_rec = json.loads(res_rec.get_body())
+    assert data_rec["error"] == "error"
+    assert data_rec["detail"] == "Only config.configurable is client configurable"
+    assert re.fullmatch(r"[0-9a-f]{32}", data_rec["request_id"])
+
+    # 2. Unapproved configurable key
+    res_unapp = _invoke_handler({"input": {}, "config": {"configurable": {"unlisted": 1}}})
+    assert res_unapp.status_code == 400
+    data_unapp = json.loads(res_unapp.get_body())
+    assert data_unapp["error"] == "error"
+    assert data_unapp["detail"] == "Unapproved config.configurable field"
+    assert re.fullmatch(r"[0-9a-f]{32}", data_unapp["request_id"])
