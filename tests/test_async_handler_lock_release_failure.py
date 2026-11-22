@@ -302,6 +302,19 @@ async def test_async_thread_lock_still_raises_a_release_failure_by_default() -> 
     assert lock.releases == ["owner-token"]
 
 
+async def test_async_thread_lock_default_keeps_the_release_failure_over_a_failing_body() -> None:
+    # Given a lock whose release raises, no callback, and protected work that fails first
+    lock = _Lock(RuntimeError(_SECRET))
+
+    # When the scope exits
+    # Then the release failure propagates as before, with the work's failure as its context
+    with pytest.raises(RuntimeError, match="secret-sentinel") as raised:
+        async with async_thread_lock(lock, "agent", "t1"):
+            raise ValueError("work failed")
+    assert isinstance(raised.value.__context__, ValueError)
+    assert lock.releases == ["owner-token"]
+
+
 async def test_async_thread_lock_passes_a_release_failure_to_the_callback_instead() -> None:
     # Given a lock whose release raises and a callback that records it
     lock = _Lock(RuntimeError(_SECRET))
