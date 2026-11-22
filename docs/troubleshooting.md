@@ -165,6 +165,29 @@ Check logs:
 func start --verbose
 ```
 
+### Native invoke or stream returns 500 `Thread lock could not be released`
+
+`POST /api/graphs/{name}/invoke` and the buffered `.../stream` of a graph registered in the
+default synchronous mode (not `async_mode=True`) return the standard JSON 500 with this
+detail and an `X-Request-ID` if the graph finished but the thread lock backend raised while
+releasing the lock. The result is not returned, and the run is reported to a `RunObserver`
+as `started` followed by `failed`. If the graph itself failed as well, its error response is
+the one returned and the release failure is only logged. The bundled `InProcessThreadLock`
+and `AzureBlobLeaseThreadLock` do not raise from `release`, so this points at a custom
+`ThreadLock` that does.
+
+This response does **not** imply rollback: the graph ran, so its checkpoint and any tool
+side effects may already exist. Before retrying, read the thread state and checkpoint
+history to reconcile what happened. Do not blindly repeat a non-idempotent run; the adapter
+does not promise exactly-once execution. The lock may still be held until the backend lets
+it go, so a retry can answer 409 meanwhile. Compare `Thread lock could not be acquired`:
+that 500 means the lock backend failed *before* the graph started.
+
+Inspect the server log for `thread lock release failed` and its traceback, which names the
+backend error. Fix the backend so that `release` logs and returns, as the `ThreadLock`
+contract asks. Graphs registered with `async_mode=True` are not covered by this handling
+yet, and the Platform routes report their own release failures (see below).
+
 ### Platform state update returns 500 during lock release
 
 `POST /threads/{thread_id}/state` returns the sanitized error
