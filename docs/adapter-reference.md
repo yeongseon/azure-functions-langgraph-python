@@ -397,9 +397,9 @@ A thread lock backend that raises while acquiring a native invoke or stream run 
 reported as `started` followed by `failed`, and the response is the standard JSON 500;
 a lock held elsewhere stays a `rejected` run with a 409.
 
-A backend that raises while *releasing* a native invoke or buffered stream run of a graph
-in the default synchronous mode (not `async_mode=True`) turns an otherwise successful run
-into `started` followed by `failed`, and the response is the standard JSON 500
+A backend that raises while *releasing* a native invoke or buffered stream run (of a graph
+in the default synchronous mode or registered with `async_mode=True`) turns an otherwise
+successful run into `started` followed by `failed`, and the response is the standard JSON 500
 (`Thread lock could not be released`), not the result. If the graph itself failed, its
 error is the one reported and the release failure is only logged. The run may already
 have changed state, so reconcile it before retrying (see
