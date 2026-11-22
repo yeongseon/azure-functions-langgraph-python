@@ -65,7 +65,12 @@ async def run_sync_retaining_ownership(func: Callable[[], _T]) -> _T:
 async def release_thread_lock(
     thread_lock: ThreadLock, graph_name: str, thread_id: str, token: str
 ) -> None:
-    """Release one owner token even when the caller is repeatedly cancelled."""
+    """Release one owner token even when the caller is repeatedly cancelled.
+
+    If the release itself raises after the caller was cancelled, the cancellation is raised
+    (as :func:`acquire_thread_lock` does) and the failure is logged at warning level, because
+    a failed release can leave the lock held.
+    """
     caller = asyncio.current_task()
     cancellation_count = caller.cancelling() if caller is not None else 0
     release_task = asyncio.create_task(
@@ -77,9 +82,24 @@ async def release_thread_lock(
             await asyncio.shield(release_task)
         except asyncio.CancelledError as exc:
             cancellation = exc
-    await release_task
+        except Exception:
+            break
+
     if cancellation is None and caller is not None and caller.cancelling() > cancellation_count:
         cancellation = asyncio.CancelledError()
+
+    try:
+        await release_task
+    except Exception:
+        if cancellation is not None:
+            logger.warning(
+                "Thread lock release failed after caller cancellation; propagating cancellation",
+                extra={"graph_name": graph_name, "thread_id": thread_id},
+                exc_info=True,
+            )
+            raise cancellation from None
+        raise
+
     if cancellation is not None:
         raise cancellation
 
