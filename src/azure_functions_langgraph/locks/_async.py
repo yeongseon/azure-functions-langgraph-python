@@ -148,9 +148,20 @@ async def acquire_thread_lock(
 
 @asynccontextmanager
 async def async_thread_lock(
-    thread_lock: ThreadLock, graph_name: str, thread_id: str | None, *, timeout: float = 0.0
+    thread_lock: ThreadLock,
+    graph_name: str,
+    thread_id: str | None,
+    *,
+    timeout: float = 0.0,
+    on_release_error: Callable[[Exception], None] | None = None,
 ) -> AsyncIterator[str | None]:
-    """Acquire and release an owner token without losing it to cancellation."""
+    """Acquire and release an owner token without losing it to cancellation.
+
+    A release that raises propagates by default. With ``on_release_error`` an ``Exception`` from
+    the release is passed to that callback instead, so the scope exits normally, or keeps
+    unwinding the exception it was already handling, rather than the release failure replacing
+    the outcome of the protected work. ``BaseException`` (cancellation) is never passed on.
+    """
     if thread_id is None:
         yield None
         return
@@ -160,4 +171,9 @@ async def async_thread_lock(
         yield token
     finally:
         if token is not None:
-            await release_thread_lock(thread_lock, graph_name, thread_id, token)
+            try:
+                await release_thread_lock(thread_lock, graph_name, thread_id, token)
+            except Exception as exc:
+                if on_release_error is None:
+                    raise
+                on_release_error(exc)
