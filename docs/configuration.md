@@ -47,7 +47,7 @@ import azure.functions as func
 
 from azure_functions_langgraph import LangGraphApp
 
-# App-level default is FUNCTION; routes require an Azure Functions key when deployed
+# App-level default is FUNCTION; graph routes require an Azure Functions key when deployed
 app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
 
 # Inherits app-level FUNCTION auth
@@ -86,12 +86,13 @@ Understanding what happens locally versus in Azure avoids false assumptions:
     function keys locally**. A request sent to `http://localhost:7071/api/graphs/agent/invoke`
     without any key succeeds with `200 OK`. This is expected local runtime behavior, not an
     adapter defect or an indicator that the deployed route is unprotected.
+  - **Host key denial with `func start --enableAuth`:** The flag turns on the host's full
+    authentication pipeline locally. A request to a `FUNCTION`-level route without a key, or with
+    an invalid one in `?code=` or the `x-functions-key` header, is then rejected by the host with
+    `401`, while an `ANONYMOUS` route such as `/api/health` still answers `200`. No Azure
+    subscription is needed.
 
 - **What requires a live/deployed host to verify:**
-  - **Host key denial (HTTP 401):** The Azure Functions web host intercepts requests before
-    worker execution. Rejection of requests with missing or invalid function keys can only be
-    verified against a live host (such as a deployed Azure Function App or an authenticated
-    test runner).
   - **Key rotation and scope:** Distinction between function-level keys and host-level master
     (`ADMIN`) keys.
   - Never commit real function keys, connection strings, or cloud secrets in documentation or
@@ -100,8 +101,8 @@ Understanding what happens locally versus in Azure avoids false assumptions:
 #### Focused validation & Out-of-scope checks
 
 - **Verified locally with:** In-memory trigger binding assertions (`tests/test_app.py` and
-  `tests/test_auth_docs.py`), offline fake graph runs, and Core Tools 4.8.0 unauthenticated
-  local invocation.
+  `tests/test_auth_docs.py`), offline fake graph runs, and Core Tools 4.8.0 with and
+  without `--enableAuth` (`200` without a key by default, `401` with `--enableAuth`).
 - **Intentionally not run:** Live Azure provisioning, cloud key generation, and expansion of
   experimental Durable/Platform contracts.
 
