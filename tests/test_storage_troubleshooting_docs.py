@@ -7,6 +7,7 @@ import re
 
 import pytest
 
+from azure_functions_langgraph import _handlers
 from tests.test_docs_navigation import _anchors
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +110,32 @@ def test_section_does_not_claim_a_403_difference_it_did_not_observe() -> None:
     # When/Then: a 403 is mentioned only in the not-reproduced list, as a caution
     assert "403" not in where_to_look
     assert section.count("403") == 1
+
+
+def _row(label: str) -> str:
+    return next(line for line in _section().splitlines() if line.startswith(f"| {label} |"))
+
+
+def test_missing_container_row_quotes_what_the_native_route_answers_with() -> None:
+    # Given: the missing-container row and the detail the handlers return when the lock fails
+    row = _row("Missing container")
+
+    # When/Then: the row quotes that text from the code, the correlation header and the old symptom
+    assert f"`{_handlers._LOCK_ACQUIRE_FAILED_DETAIL}`" in row
+    assert "`Graph execution failed`" in row
+    assert "`X-Request-ID`" in row
+    assert "empty body (0.13.0)" in row
+
+
+def test_where_to_look_separates_the_native_json_500_from_the_platform_empty_500() -> None:
+    # Given: the "Where to look" note
+    where_to_look = _section().split("### Where to look", 1)[1].split("### ", 1)[0]
+
+    # When/Then: it no longer calls every storage 500 empty and points at no closed issue
+    assert "#928" not in where_to_look
+    assert "native route answers with the standard JSON error body" in where_to_look
+    platform_note = "Platform route whose thread store fails still answers with an empty body"
+    assert platform_note in where_to_look
 
 
 @pytest.mark.parametrize(("page", "link"), LINKERS)
