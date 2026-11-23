@@ -1,6 +1,17 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.14.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.14.0...v0.14.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **handlers:** report a raising thread lock release as a failed run ([#947](https://github.com/yeongseon/azure-functions-langgraph-python/issues/947)) ([e45311c](https://github.com/yeongseon/azure-functions-langgraph-python/commit/e45311c9e4775a390249947095d36a5c67300f88)), closes [#943](https://github.com/yeongseon/azure-functions-langgraph-python/issues/943)
+* **handlers:** report a raising thread lock release as a failed run for async graphs ([#959](https://github.com/yeongseon/azure-functions-langgraph-python/issues/959)) ([88093f9](https://github.com/yeongseon/azure-functions-langgraph-python/commit/88093f95f0521700111ca7ebe98f6a50268d267a)), closes [#958](https://github.com/yeongseon/azure-functions-langgraph-python/issues/958)
+* **handlers:** return the standard 500 when the thread lock backend raises ([#932](https://github.com/yeongseon/azure-functions-langgraph-python/issues/932)) ([b72f9dd](https://github.com/yeongseon/azure-functions-langgraph-python/commit/b72f9dd8c31152b706767d89fb79914cead25564)), closes [#928](https://github.com/yeongseon/azure-functions-langgraph-python/issues/928)
+* **locks:** keep a cancellation when the lock release raises in release_thread_lock ([#961](https://github.com/yeongseon/azure-functions-langgraph-python/issues/961)) ([9f63b00](https://github.com/yeongseon/azure-functions-langgraph-python/commit/9f63b002b16b84cd52a64a1bba0f3976562dd2db)), closes [#960](https://github.com/yeongseon/azure-functions-langgraph-python/issues/960)
+* **store:** raise KeyError when AzureTableThreadStore deletes a missing thread ([#935](https://github.com/yeongseon/azure-functions-langgraph-python/issues/935)) ([8d3dcbc](https://github.com/yeongseon/azure-functions-langgraph-python/commit/8d3dcbc89ea710b4e0e2ca958c386cd9782693b8)), closes [#934](https://github.com/yeongseon/azure-functions-langgraph-python/issues/934)
+
 ## [0.14.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.13.0...v0.14.0) (2026-11-15)
 
 

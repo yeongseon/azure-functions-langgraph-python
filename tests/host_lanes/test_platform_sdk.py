@@ -91,7 +91,7 @@ def _input(text: str, *, fresh: bool = True) -> dict[str, Any]:
     return {"user_text": text, "history": [], "turn_count": 0} if fresh else {"user_text": text}
 
 
-def test_assistants_search_get_and_count(client: SyncLangGraphClient) -> None:
+def test_assistants_search_get_and_count(client: SyncLangGraphClient, http: httpx.Client) -> None:
     # Given: one registered graph; When: it is listed, fetched and counted
     found = client.assistants.search(limit=10, offset=0)
     assistant = client.assistants.get("agent")
@@ -105,6 +105,10 @@ def test_assistants_search_get_and_count(client: SyncLangGraphClient) -> None:
     assert client.assistants.count(graph_id="nonexistent") == 0
     assert client.assistants.count(name="AGE") == 1
     assert client.assistants.count(metadata={"key": "value"}) == 0
+    # And an empty metadata object is no filter; the SDK drops it, so it is sent over raw HTTP
+    assert http.post("/assistants/count", json={"metadata": {}}).json() == 1
+    searched = http.post("/assistants/search", json={"metadata": {}}).json()
+    assert [item["assistant_id"] for item in searched] == ["agent"]
     with pytest.raises(NotFoundError):
         client.assistants.get("nonexistent")
 

@@ -89,7 +89,16 @@ get a clear failure rather than silent drift.
 | `assistants.get` | ✅ Full | Returns `_registration_to_assistant` snapshot for the registered graph. |
 | `assistants.count` | ✅ Full | Same filter semantics as `search`. |
 | `assistants.create` / `update` / `delete` / `set_latest` | ❌ Not exposed | Assistants are derived from in-process `register()` calls; no runtime mutation. |
-| `metadata` filter on `search`/`count` | ⚠️ Silently ignored | Matches return as if the filter were absent (`_assistants.py:51-52, 88-89`). Plan to surface as a filter no-op or `400` in a future release. |
+| `metadata` filter on `search`/`count` | ⚠️ Partial | Absent, `null`, or `{}` means no metadata filtering. A non-empty object requires an exact match for every key/value pair; registered assistants have `metadata=None`, so it returns `[]` / `0`. Other filters and search pagination still apply. |
+
+**Migration note (#944):** Previously, sending `metadata={}` directly to
+`POST /assistants/search` or `POST /assistants/count` returned `[]` or `0`.
+It now returns or counts all assistants that pass the other filters (search
+still applies `offset`/`limit`; count remains the total before pagination).
+Absent or `null` metadata remains unrestricted; non-empty filters still match
+nothing, including a key whose requested value is `null`, since the key is absent.
+No new error status or mutable assistant metadata registry is introduced.
+This is partial, experimental SDK compatibility, not LangGraph Platform parity.
 
 ### Threads (CRUD)
 
