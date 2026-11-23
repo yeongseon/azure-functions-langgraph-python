@@ -36,8 +36,10 @@ func start
 
 | Setting | Required | Description |
 | --- | --- | --- |
-| `LANGGRAPH_POSTGRES_CONNECTION_STRING` | yes | psycopg-compatible connection string. Example: `postgresql://user:pass@host:5432/db` (add `?sslmode=require` for Azure Database for PostgreSQL). |
+| `LANGGRAPH_POSTGRES_CONNECTION_STRING` | yes (rejected with a clear startup error when missing or empty) | psycopg-compatible connection string. Example: `postgresql://user:pass@host:5432/db` (add `?sslmode=require` for Azure Database for PostgreSQL). |
 | `LANGGRAPH_POSTGRES_SETUP` | no (default `true`) | Run `setup()` on cold start to create / migrate the checkpoint tables. Set to `false` if migrations are managed out-of-band (e.g. by a deployment pipeline). |
+
+If startup fails, see [Storage and persistence settings](../../docs/troubleshooting.md#storage-and-persistence-settings).
 
 ## Connection string format
 

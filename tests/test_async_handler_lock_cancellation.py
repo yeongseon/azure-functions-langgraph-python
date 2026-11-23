@@ -219,7 +219,7 @@ async def test_lock_contention_never_releases_invalid_token(endpoint: str) -> No
 
 
 @pytest.mark.parametrize("endpoint", ["invoke", "stream"])
-async def test_acquisition_exception_is_propagated(endpoint: str) -> None:
+async def test_acquisition_exception_returns_standard_500(endpoint: str) -> None:
     # Given a protocol-compatible lock whose acquisition fails.
     graph = _ControlledGraph()
 
@@ -227,11 +227,12 @@ async def test_acquisition_exception_is_propagated(endpoint: str) -> None:
         def acquire(self, graph_name: str, thread_id: str, timeout: float = 0.0) -> str | None:
             raise RuntimeError("acquire failed")
 
-    # When the actual async handler awaits acquisition, then the failure is retrieved.
-    with pytest.raises(RuntimeError, match="acquire failed"):
-        await _invoke_handler(endpoint, graph, _FailingLock())
+    # When the actual async handler awaits acquisition.
+    response = await _invoke_handler(endpoint, graph, _FailingLock())
 
-    # Then graph execution never starts.
+    # Then the failure becomes the standard 500 and graph execution never starts.
+    assert response.status_code == 500
+    assert json.loads(response.get_body())["detail"] == "Thread lock could not be acquired"
     assert graph.calls == 0
 
 

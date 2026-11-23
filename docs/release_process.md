@@ -410,7 +410,11 @@ existing authority and gates; recovery still requires a maintainer decision.
 | daily `schedule` (and `workflow_dispatch`) | catches a tag whose publish run never appeared (a `PENDING` verdict becomes a defect after the six-hour grace period) |
 
 A new defect makes the run **red** (exit 1); an audit that cannot collect or parse
-evidence is also red (exit 2) and is not a verdict on any release. The Markdown report
+evidence is also red (exit 2) and is not a verdict on any release. Transient request
+failures (timeouts, connection resets, incomplete responses and HTTP 5xx) are retried up
+to three attempts with a short backoff inside the collection deadline, and an exit 2
+caused by a request names only the fixed host, the exception class and the attempt
+count, never the request path, headers, response body or token. The Markdown report
 is in the job summary and, with the collected facts, in the `release-audit` artifact. The
 workflow reports through its exit status only: it opens no issue and edits no release.
 Failed scheduled runs are announced through GitHub's own workflow notifications.
@@ -436,17 +440,29 @@ outcome matches. The documented release gate itself is not weakened or replaced.
    published successor and whether the cause is confirmed. An entry needs retained run
    evidence; an unprovable cause is recorded as unconfirmed, not guessed.
 4. Metadata correction: add a short, factual status note at the top of the GitHub Release
-   of the unpublished version (a maintainer action; the audit never edits releases). Keep the
-   change summary. Suggested text: "Status: this tag's `Publish to PyPI` run failed
-   ``([run N](URL))``, so <version> was not published to PyPI. First published successor:
-   <successor>. See [Release status](https://yeongseon.github.io/azure-functions-langgraph-python/release-status/)."
+   of the version that has no files on PyPI (a maintainer action; the audit never edits
+   releases). Keep the change summary. Choose the wording by what the records show:
+    - **No later version is published yet** (the publish run failed; if the cause was
+      transient or external, the tag may still be re-run, see step 2). Suggested text:
+      "Status: not yet published to PyPI. The `Publish to PyPI` run for this tag
+      ``[failed](URL)``, so <version> has no files on PyPI and cannot be installed from PyPI
+      with pip. The latest version on PyPI is **<latest>**.
+      See [Release status](https://yeongseon.github.io/azure-functions-langgraph-python/release-status/)."
+      Add where the run stopped, or a tracking issue, only when the records show them.
+   - **A later version is published.** Suggested text: "Status: this tag's `Publish to PyPI`
+     run failed ``([run N](URL))``, so <version> was not published to PyPI. First published
+     successor: <successor>. See [Release status](https://yeongseon.github.io/azure-functions-langgraph-python/release-status/)."
    State only what the records show; do not claim a cause that was not verified, and do not
-   describe a version as available unless PyPI lists its files.
+   describe a version as available unless PyPI lists its files. Keep the note accurate as
+   the situation changes: if a re-run publishes the version, remove the note; if a later
+   version is published instead, replace it with the second wording and record the tag as in
+   step 3.
 
 User-facing release notes may therefore show only these statuses: *published* (PyPI
-lists the files; no note needed), *not published* (the note above, with the first
-published successor) and *publication pending* (a run is in flight). They never state
-that a GitHub Release is itself a distribution.
+lists the files; no note needed), *not yet published* (the publish run failed and no
+later version is published; the note names the latest version on PyPI), *not published*
+(the second note above, with the first published successor) and *publication pending* (a
+run is in flight). They never state that a GitHub Release is itself a distribution.
 
 ## Related
 

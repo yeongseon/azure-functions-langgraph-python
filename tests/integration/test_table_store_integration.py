@@ -105,6 +105,24 @@ def _new_store(table_client: _TableClientProtocol) -> AzureTableThreadStore:
     return AzureTableThreadStore.from_table_client(cast(Any, table_client))
 
 
+def test_deleting_a_missing_thread_raises_key_error_against_the_real_table(
+    azurite_table_client: _TableClientProtocol,
+) -> None:
+    # Given: the real SDK, whose delete_entity returns without error for a missing entity
+    store = _new_store(azurite_table_client)
+    created = store.create()
+
+    # When: the thread is deleted, then deleted again, and an id that never existed is deleted
+    store.delete(created.thread_id)
+
+    # Then: the first delete removes it and both missing deletes raise KeyError
+    assert store.get(created.thread_id) is None
+    with pytest.raises(KeyError):
+        store.delete(created.thread_id)
+    with pytest.raises(KeyError):
+        store.delete("never-existed")
+
+
 def test_large_json_create_update_release_and_shrink(
     azurite_table_client: _TableClientProtocol,
 ) -> None:

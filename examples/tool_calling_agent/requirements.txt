@@ -7,7 +7,7 @@
 # dependency-free demo logic, so they add nothing here.
 #
 azure-functions
-azure-functions-langgraph>=0.12.0,<0.13
+azure-functions-langgraph>=0.13.0,<0.14
 langgraph>=1.0,<2.0
 langchain-core>=1.0,<2.0
 langchain-openai>=1.0,<2.0

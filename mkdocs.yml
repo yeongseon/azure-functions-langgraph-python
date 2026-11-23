@@ -74,6 +74,7 @@ nav:
       - Hardening Status: hardening-status.md
       - Deferred Edge Triage: deferred-edge-triage.md
       - Agent Playbook: agent-playbook.md
+      - First-run Baseline: onboarding-baseline.md
 
 markdown_extensions:
   - admonition
