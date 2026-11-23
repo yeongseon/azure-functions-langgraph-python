@@ -44,6 +44,10 @@ class ChatState(TypedDict, total=False):
     last_reply: str
 
 
+class _AssistantMetadataKwargs(TypedDict, total=False):
+    metadata: dict[str, str] | None
+
+
 def greet(state: ChatState) -> dict[str, Any]:
     text = state.get("user_text", "")
     reply = f"Hello, {text}!" if text else "Hello!"
@@ -317,9 +321,91 @@ class TestSdkAssistants:
         assert client.assistants.count(graph_id="nonexistent") == 0
 
     def test_count_with_metadata_filter(self) -> None:
-        """assistants.count(metadata=...) returns 0 (no user metadata on assistants)."""
+        """A non-empty metadata filter returns 0 (no user metadata on assistants)."""
         _, client = _make_app()
         assert client.assistants.count(metadata={"key": "value"}) == 0
+
+    @pytest.mark.parametrize("endpoint", ["search", "count"])
+    @pytest.mark.parametrize(
+        "metadata_kwargs",
+        [{}, {"metadata": None}, {"metadata": {}}, {"metadata": {"key": "value"}}],
+        ids=["absent", "null", "empty", "nonempty"],
+    )
+    @pytest.mark.parametrize(
+        ("other_filters", "expected_ids"),
+        [
+            ({}, ["agent"]),
+            ({"graph_id": "agent"}, ["agent"]),
+            ({"graph_id": "missing"}, []),
+            ({"name": "AGE"}, ["agent"]),
+            ({"name": "missing"}, []),
+        ],
+        ids=["all", "graph", "missing-graph", "name", "missing-name"],
+    )
+    def test_metadata_filter_sdk_calls(
+        self,
+        endpoint: str,
+        metadata_kwargs: _AssistantMetadataKwargs,
+        other_filters: dict[str, str],
+        expected_ids: list[str],
+    ) -> None:
+        # Given: a real SDK client backed by the route transport.
+        _, client = _make_app()
+        expected = [] if metadata_kwargs.get("metadata") else expected_ids
+
+        # When: the public SDK method receives each metadata case.
+        if endpoint == "search":
+            result = client.assistants.search(
+                **metadata_kwargs,
+                graph_id=other_filters.get("graph_id"),
+                name=other_filters.get("name"),
+            )
+            # Then: both SDK lines observe the same assistant set.
+            assert isinstance(result, list)
+            assert [a["assistant_id"] for a in result] == expected
+        else:
+            total = client.assistants.count(
+                **metadata_kwargs,
+                graph_id=other_filters.get("graph_id"),
+                name=other_filters.get("name"),
+            )
+            assert total == len(expected)
+
+    @pytest.mark.parametrize("endpoint", ["search", "count"])
+    @pytest.mark.parametrize(
+        "metadata_body",
+        [{}, {"metadata": None}, {"metadata": {}}, {"metadata": {"key": "value"}}],
+        ids=["absent", "null", "empty", "nonempty"],
+    )
+    def test_metadata_filter_sdk_wire_cases(
+        self, endpoint: str, metadata_body: dict[str, dict[str, str] | None]
+    ) -> None:
+        # Given: the SDK methods omit falsey metadata; its HTTP layer preserves JSON.
+        _, client = _make_app()
+        expected_ids = [] if metadata_body.get("metadata") else ["agent"]
+
+        # When: all four payloads, including an actual empty object, reach the routes.
+        result = client.http.post(f"/assistants/{endpoint}", json=metadata_body)
+
+        # Then: empty metadata is unrestricted, not a zero-match filter.
+        assert (result if endpoint == "count" else [a["assistant_id"] for a in result]) == (
+            len(expected_ids) if endpoint == "count" else expected_ids
+        )
+
+    def test_empty_metadata_sdk_pagination_and_total(self) -> None:
+        # Given: two registered assistants and an SDK client with an empty filter.
+        app, _ = _make_app(name="alpha")
+        app.register(graph=_build_graph(), name="alphabet")
+        client = _make_sdk_client(app.function_app)
+
+        # When: the SDK asks for the second filtered result and the complete count.
+        page = client.assistants.search(metadata={}, name="ALPH", offset=1, limit=1)
+        total = client.assistants.count(metadata={}, name="ALPH")
+
+        # Then: pagination affects search only, not the total.
+        assert isinstance(page, list)
+        assert [a["assistant_id"] for a in page] == ["alphabet"]
+        assert total == 2
 
     def test_count_with_name_filter(self) -> None:
         """assistants.count(name=...) filters by case-insensitive substring."""

@@ -8,6 +8,7 @@ receives only the explicit dependencies it needs — no reference to
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import AsyncExitStack
 import dataclasses
 import json
@@ -136,6 +137,22 @@ def _release_lock(
         logger.exception("Graph %s thread lock release failed", graph_name)
         return exc
     return None
+
+
+def _release_failure_recorder(
+    graph_name: str, errors: list[Exception]
+) -> Callable[[Exception], None]:
+    """Return an ``async_thread_lock`` callback that logs a raising release and records it.
+
+    The async handlers release the lock when their ``async with`` scope exits, so the failure
+    is collected there and decided on afterwards, as ``_release_lock`` does for the sync ones.
+    """
+
+    def record(exc: Exception) -> None:
+        logger.error("Graph %s thread lock release failed", graph_name, exc_info=exc)
+        errors.append(exc)
+
+    return record
 
 
 def _reject(
@@ -590,10 +607,16 @@ async def handle_invoke_async(
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
     lock_thread_id = thread_id if has_cp else None
+    release_errors: list[Exception] = []
     async with AsyncExitStack() as lock_stack:
         try:
             lock_token = await lock_stack.enter_async_context(
-                async_thread_lock(thread_lock, reg.name, lock_thread_id)
+                async_thread_lock(
+                    thread_lock,
+                    reg.name,
+                    lock_thread_id,
+                    on_release_error=_release_failure_recorder(reg.name, release_errors),
+                )
             )
         except Exception as exc:
             return _lock_acquire_failed(observer, ctx, reg.name, exc)
@@ -618,6 +641,12 @@ async def handle_invoke_async(
             logger.exception("Graph %s ainvoke failed", reg.name)
             safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
             return _error_response(500, "Graph execution failed", ctx.run_id)
+
+    if release_errors:
+        # The graph finished, but its result is not handed out as a success: the lock state is
+        # unknown and the run's effects may already have happened.
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), release_errors[0])
+        return _error_response(500, _LOCK_RELEASE_FAILED_DETAIL, ctx.run_id)
 
     safe_observer_call(observer, "on_run_completed", finish_context(ctx))
     return func.HttpResponse(
@@ -701,10 +730,16 @@ async def handle_stream_async(
     if isinstance(version_kwargs, func.HttpResponse):
         return _reject(observer, ctx, "unsupported_version", version_kwargs)
     lock_thread_id = thread_id if has_cp else None
+    release_errors: list[Exception] = []
     async with AsyncExitStack() as lock_stack:
         try:
             lock_token = await lock_stack.enter_async_context(
-                async_thread_lock(thread_lock, reg.name, lock_thread_id)
+                async_thread_lock(
+                    thread_lock,
+                    reg.name,
+                    lock_thread_id,
+                    on_release_error=_release_failure_recorder(reg.name, release_errors),
+                )
             )
         except Exception as exc:
             return _lock_acquire_failed(observer, ctx, reg.name, exc)
@@ -776,6 +811,10 @@ async def handle_stream_async(
             # does not itself await that cleanup (#650).
             if agen is not None:
                 await _aclose_async_iterator(agen)
+
+    if release_errors and stream_error is None:
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), release_errors[0])
+        return _error_response(500, _LOCK_RELEASE_FAILED_DETAIL, ctx.run_id)
 
     chunks.append("event: end\ndata: {}\n\n")
 
