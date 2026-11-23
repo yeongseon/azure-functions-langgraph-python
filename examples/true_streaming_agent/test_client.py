@@ -1,5 +1,7 @@
 """Offline client parsing, not host/transport cancellation certification."""
 
+from http.client import IncompleteRead
+import io
 import json
 import unittest
 from unittest.mock import MagicMock, patch
@@ -32,7 +34,60 @@ class ClientTests(unittest.TestCase):
         ):
             main()
         body = json.loads(connection.request.call_args.kwargs["body"])
-        self.assertEqual(body["config"]["configurable"]["thread_id"], "local-sse-client")
+        self.assertTrue(body["config"]["configurable"]["thread_id"].startswith("local-sse-client-"))
+        connection.close.assert_called_once()
+
+    def run_main(self, *args, status=200, read1=None, body=b""):
+        connection = MagicMock()
+        response = connection.getresponse.return_value
+        response.status = status
+        response.reason = "Conflict"
+        response.read.return_value = body
+        response.getheader.return_value = "text/event-stream"
+        response.read1.side_effect = read1 or [b"event: end\ndata: {}\n\n"]
+        stderr = io.StringIO()
+        with (
+            patch("client.HTTPConnection", return_value=connection),
+            patch("sys.argv", ["client.py", *args]),
+            patch("sys.stderr", stderr),
+        ):
+            try:
+                main()
+                code = 0
+            except SystemExit as exit_:
+                code = exit_.code
+        return connection, code, stderr.getvalue()
+
+    def test_each_run_gets_its_own_thread_id_unless_one_is_given(self):
+        ids = []
+        for args in ((), (), ("--thread-id", "mine")):
+            connection, _, _ = self.run_main(*args)
+            ids.append(
+                json.loads(connection.request.call_args.kwargs["body"])["config"]["configurable"][
+                    "thread_id"
+                ]
+            )
+        self.assertNotEqual(ids[0], ids[1])
+        self.assertEqual(ids[2], "mine")
+
+    def test_http_error_reports_the_server_detail(self):
+        detail = b'{"error":"error","detail":"Thread is currently in use by another request"}'
+        _, code, stderr = self.run_main(status=409, body=detail)
+        self.assertEqual(code, 1)
+        self.assertIn("HTTP 409: Thread is currently in use by another request", stderr)
+
+    def test_http_error_without_a_json_body_falls_back_to_the_reason(self):
+        _, code, stderr = self.run_main(status=409, body=b"<html>")
+        self.assertEqual(code, 1)
+        self.assertIn("HTTP 409: Conflict", stderr)
+
+    def test_abrupt_connection_close_is_a_clean_failure_not_a_traceback(self):
+        connection, code, stderr = self.run_main(
+            read1=[b"event: data\ndata: {}\n\n", IncompleteRead(b"")]
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("Stream failed:", stderr)
+        self.assertNotIn("Traceback", stderr)
         connection.close.assert_called_once()
 
     def test_multibyte_frame_rejected_by_wire_size(self):

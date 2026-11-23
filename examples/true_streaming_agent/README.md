@@ -137,6 +137,10 @@ event or connection close before `end` fails rather than silently succeeding.
 It consumes the adapter's JSON SSE dialect, not a generic browser EventSource
 reconnection implementation; it does not reconnect or replay runs.
 
+Each invocation uses a fresh checkpoint thread. Pass `--thread-id` to reuse a
+thread deliberately. A reused thread can return HTTP 409 while the earlier run
+is still active.
+
 `make example-sse-client CLIENT_ARGS="--stop-after 1"` closes the client after
 one event. Closing a client does not prove the graph stopped or undo effects;
 see the disconnect contract above and bound timeouts in graph tools.

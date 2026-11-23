@@ -6,9 +6,10 @@ import argparse
 import codecs
 from collections.abc import Iterable, Iterator
 from contextlib import closing
-from http.client import HTTPConnection
+from http.client import HTTPConnection, HTTPException
 import json
 import re
+import uuid
 
 
 class StreamError(ValueError):
@@ -65,14 +66,25 @@ def events(chunks: Iterable[bytes]) -> Iterator[tuple[str, object]]:
     raise StreamError("Connection closed before end event")
 
 
+def _error_detail(response: object) -> str:
+    """The server's JSON ``detail`` (at most 4 KiB read), or the HTTP reason phrase."""
+    try:
+        detail = json.loads(response.read(4096)).get("detail")  # type: ignore[attr-defined]
+    except (OSError, ValueError, AttributeError, HTTPException):
+        detail = None
+    return detail if isinstance(detail, str) else str(getattr(response, "reason", ""))
+
+
 def main() -> None:
     """Call a local Core Tools host without keys or cloud credentials."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stop-after", type=int, default=0, help="close after N data events")
+    parser.add_argument("--thread-id", help="checkpoint thread id (default: a new one per run)")
     args = parser.parse_args()
+    thread_id = args.thread_id or f"local-sse-client-{uuid.uuid4().hex[:8]}"
     body = {
         "input": {"messages": [{"role": "human", "content": "hello world"}], "tokens": []},
-        "config": {"configurable": {"thread_id": "local-sse-client"}},
+        "config": {"configurable": {"thread_id": thread_id}},
         "stream_mode": "updates",
     }
     try:
@@ -85,7 +97,7 @@ def main() -> None:
             )
             response = connection.getresponse()
             if response.status != 200:
-                raise StreamError(f"HTTP {response.status}")
+                raise StreamError(f"HTTP {response.status}: {_error_detail(response)}")
             if (
                 response.getheader("Content-Type", "").split(";", 1)[0].strip()
                 != "text/event-stream"
@@ -98,7 +110,7 @@ def main() -> None:
                 if args.stop_after > 0 and count >= args.stop_after:
                     print("Closing client; this does not confirm server-side cancellation.")
                     break
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, HTTPException) as exc:
         parser.exit(1, f"Stream failed: {exc}\n")
 
 
