@@ -13,6 +13,9 @@ import pytest
 from tests.example_imports import load_example_file
 from tests.topology_truth_table import RULE_PATTERNS
 
+pytest.importorskip("azure.storage.blob")
+pytest.importorskip("azure.data.tables")
+
 APP = Path(__file__).resolve().parents[1] / "examples/e2e_topology_app/topology_app.py"
 CONNECTION = (
     "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;"
