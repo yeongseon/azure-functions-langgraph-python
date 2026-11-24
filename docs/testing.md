@@ -321,7 +321,7 @@ unset BENCH_BLOB_CS
 
 Created only `rg-af-bench-860b-202611241531` in `koreacentral`, tagged
 `purpose=benchmark repo=azure-functions-langgraph issue=860 owner=agent`, with one
-Standard_LRS StorageV2 account (public Blob access false, minimum TLS1_2).
+Standard_LRS StorageV2 account `stafbench860b328770` (public Blob access false, minimum TLS1_2).
 Start `2026-11-24T15:31:22Z`; final deletion proof `2026-11-24T15:35:00Z`.
 EXIT trap ran synchronous `az group delete --yes`, then `az group wait --deleted`.
 `az group exists --name rg-af-bench-860b-202611241531 -o tsv` returned **false**;
@@ -330,6 +330,23 @@ EXIT trap ran synchronous `az group delete --yes`, then `az group wait --deleted
 Conservative estimate **under US$0.10** for a few minutes of small-payload storage
 and fewer than 50,000 planned requests; session-wide sends were not instrumented.
 This is a budget estimate, not an invoice or verified regional tariff, well under $5.
+
+**Continuation validation.** `make lint` timed out after 45 seconds while Hatch tried
+to create/install the new worktree environment. Used the previous run's existing
+Python 3.11 Hatch interpreters directly, not a new successful Make gate: ruff check
+and format-check passed, all three workflow linters passed, default-environment mypy
+passed (301 files), and MkDocs built the final evidence prose (existing link notices).
+`make build` passed. The full source suite, with the previous locally built 0.14.2
+wheel target providing correct distribution metadata, passed: **5408 passed,
+107 skipped, 37 deselected, 2 xfailed; coverage 96.91%**. The 107 skips are optional
+local-service/dependency tests, not skipped live Blob scenarios. Focused installed-wheel
+configuration: **36 passed** with `tools/wheel-tests.ini`, no source-tree PYTHONPATH.
+An initial direct mypy run in the Table-extra environment reported one new test
+re-export error (corrected by importing importlib directly) and three unrelated
+host-lane SDK/protocol errors; the normal default environment mypy passed.
+LSP is clean for the new guard file; the integration module retains existing
+unresolved local-package and `_HAS_CONFORMANCE` constant-redefinition diagnostics.
+Read-only advisory review found no concrete defect; it is not human approval or CI.
 
 ## Test structure
 
