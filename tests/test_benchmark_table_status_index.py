@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import inspect
+from pathlib import Path
+import sys
 from typing import Any
 
 import pytest
@@ -14,8 +17,20 @@ from tests.table_status_index_support import (
     FakeResourceNotFoundError,
     FakeTable,
 )
-from tools import benchmark_table_status_index as bench
-from tools.benchmark_table_store import RequestCounter
+
+_TOOLS = Path(__file__).resolve().parents[1] / "tools"
+_SPEC = importlib.util.spec_from_file_location(
+    "tools", _TOOLS / "__init__.py", submodule_search_locations=[str(_TOOLS)]
+)
+if _SPEC is None or _SPEC.loader is None:
+    raise RuntimeError("cannot load repository benchmark tools")
+if "tools" not in sys.modules:
+    _PACKAGE = importlib.util.module_from_spec(_SPEC)
+    sys.modules["tools"] = _PACKAGE
+    _SPEC.loader.exec_module(_PACKAGE)
+
+from tools import benchmark_table_status_index as bench  # noqa: E402
+from tools.benchmark_table_store import RequestCounter  # noqa: E402
 
 
 def test_index_benchmark_compares_with_seeded_oracle(monkeypatch: pytest.MonkeyPatch) -> None:
