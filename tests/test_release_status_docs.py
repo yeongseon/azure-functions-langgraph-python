@@ -23,7 +23,7 @@ RUN_CELL = re.compile(
 # Tag -> (GitHub Release date, failed "Publish to PyPI" run id, first published successor), as
 # checked against the GitHub Releases API, the Actions run records, PyPI and git ancestry on
 # 2026-11-10.
-RECORDED = {
+HISTORICAL_RECORDED = {
     "v0.2.0": ("2026-04-04", "23981822989", "0.5.0"),
     "v0.3.0": ("2026-04-04", "23984989252", "0.5.0"),
     "v0.4.0": ("2026-04-05", "23993056592", "0.5.0"),
@@ -34,6 +34,13 @@ RECORDED = {
     "v0.11.2": ("2026-10-11", "38144369700", "0.11.4"),
     "v0.11.3": ("2026-10-11", "38145575218", "0.11.4"),
     "v0.12.1": ("2026-10-16", "38891888298", "0.12.2"),
+}
+# The two superseded candidates were verified on 2026-11-24. Their GitHub Release
+# note wording is proposed for maintainer approval, not registered as an annotation.
+RECORDED = {
+    **HISTORICAL_RECORDED,
+    "v0.14.0": ("2026-11-15", "43702945169", "0.14.2"),
+    "v0.14.1": ("2026-11-23", "45200927573", "0.14.2"),
 }
 # Statements that were wrong or that the release process does not make, kept out on purpose.
 FORBIDDEN = (
@@ -160,12 +167,12 @@ def test_page_and_entry_points_avoid_statements_that_were_wrong_or_are_not_polic
             assert phrase not in text, phrase
 
 
-def test_release_notes_annotations_cover_exactly_the_recorded_unpublished_tags() -> None:
+def test_release_notes_annotations_cover_exactly_the_approved_historical_tags() -> None:
     import json
 
     annotations = json.loads((ROOT / ".github" / "release-notes.json").read_text())["annotations"]
-    assert set(annotations) == set(RECORDED)
-    for tag, (_, run, successor) in RECORDED.items():
+    assert set(annotations) == set(HISTORICAL_RECORDED)
+    for tag, (_, run, successor) in HISTORICAL_RECORDED.items():
         (note,) = annotations[tag]["notes"]
         assert note.startswith("**Status: not published to PyPI.**")
         assert f"/actions/runs/{run})" in note
