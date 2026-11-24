@@ -174,6 +174,7 @@ and independent high-risk review, the first scheduled run or maintainer command
 `gh workflow run azure-canary.yml` provides the live proof. Manual dispatch on
 another ref certifies that ref, not `main`; the called workflow's `azure-e2e`
 environment fixes the OIDC subject, not a branch restriction.
+A green manual dispatch from a ref other than `main` certifies that ref, not `main`, and is not a canary of `main`.
 
 ### Retry a failed publish gate
 
