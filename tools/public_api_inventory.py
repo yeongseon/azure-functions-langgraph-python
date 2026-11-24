@@ -38,23 +38,23 @@ EXPERIMENTAL = "Experimental"
 INTERNAL = "Internal"
 
 # Longest-prefix match on dotted module names. ``basis`` is ``README`` when the
-# README stability table names the surface, ``provisional`` when it does not and
-# a maintainer should confirm the tier.
+# README stability table names the surface, ``maintainer decision`` for tiers
+# confirmed on 2026-11-24 in issue #878 (see docs/api-boundary.md section 7).
 MODULE_TIERS: dict[str, tuple[str, str]] = {
     PKG: (CORE, "README"),
     f"{PKG}.app": (CORE, "README"),
     f"{PKG}.contracts": (CORE, "README"),
     f"{PKG}.protocols": (CORE, "README"),
-    f"{PKG}.openapi": (BETA, "provisional"),
-    f"{PKG}.authorization": (BETA, "provisional"),
+    f"{PKG}.openapi": (CORE, "maintainer decision"),
+    f"{PKG}.authorization": (CORE, "maintainer decision"),
     f"{PKG}.observability": (BETA, "README"),
     f"{PKG}.observability_otel": (BETA, "README"),
     f"{PKG}.checkpointers": (BETA, "README"),
     f"{PKG}.locks": (BETA, "README"),
-    f"{PKG}.stores": (EXPERIMENTAL, "provisional"),
+    f"{PKG}.stores": (EXPERIMENTAL, "maintainer decision"),
     f"{PKG}.platform": (EXPERIMENTAL, "README"),
     f"{PKG}.streaming": (EXPERIMENTAL, "README"),
-    f"{PKG}.streaming_authorization": (EXPERIMENTAL, "provisional"),
+    f"{PKG}.streaming_authorization": (EXPERIMENTAL, "maintainer decision"),
     f"{PKG}.triggers": (EXPERIMENTAL, "README"),
     f"{PKG}.durable": (EXPERIMENTAL, "README"),
 }
@@ -723,8 +723,9 @@ def render_markdown(data: dict[str, Any]) -> str:
     )
     add("")
     add(
-        "Tier basis: `README` = named by the README stability table; `provisional` = not named "
-        "there, assigned by analogy and needing maintainer confirmation."
+        "Tier basis: `README` = named by the README stability table; `maintainer decision` = "
+        "confirmed on 2026-11-24 in "
+        "[API boundary section 7](api-boundary.md#7-maintainer-decisions)."
     )
     add("")
     root = data["root"]

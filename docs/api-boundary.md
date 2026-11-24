@@ -1,6 +1,6 @@
 # API boundary and migration policy
 
-> **Status: proposal for maintainer approval (issues #878 and #930).** This page
+> **Status: approved by the maintainer on 2026-11-24 (issues #878 and #930).** This page
 > records an inventory-backed assessment, and section 8 records a decision about an
 > entrypoint facade. It changes no import path, export or runtime
 > behavior. Nothing here is a commitment to 1.0; the package stays on the rolling
@@ -30,11 +30,11 @@ it is not a 1.0 guarantee.
 | OpenTelemetry observer | `observability_otel`, `OTelRunObserver` | Beta | README | `otel` |
 | Checkpoint backends | `checkpointers.*` | Beta | README | `azure-blob`, `postgres`, `sqlite`, `cosmos` |
 | Thread locks, ownership guard | `locks.*` | Beta | README | `azure-blob` for the lease lock |
-| Authorization hook | `authorization` | Beta | provisional | none |
-| OpenAPI bridge | `openapi` | Beta | provisional | `openapi` |
+| Authorization hook | `authorization` | Stable-intent Core | maintainer decision (section 7) | none |
+| OpenAPI bridge | `openapi` | Stable-intent Core | maintainer decision (section 7) | `openapi` |
 | Platform SDK compatibility | `platform.*`, `platform_compat=True`, Platform routes | Experimental | README | none (`langgraph-sdk` is a client-side dependency) |
-| Platform thread store (Azure Table) | `stores.*` | Experimental | provisional | `azure-table` |
-| True HTTP streaming | `streaming`, `streaming_authorization`, `StreamingLangGraphApp` | Experimental | README | `streaming` |
+| Platform thread store (Azure Table) | `stores.*` | Experimental | maintainer decision (section 7) | `azure-table` |
+| True HTTP streaming | `streaming`, `streaming_authorization`, `StreamingLangGraphApp` | Experimental | README; `streaming_authorization` confirmed in section 7 | `streaming` |
 | Service Bus trigger | `triggers.*`, `default_message_mapper`, `ServiceBusMessageLike`, `ThreadContentionError` | Experimental | README | none (`azure-functions` trigger binding) |
 | Durable async-run lifecycle | `durable.*`, `async_runs="durable"`, Durable routes | Experimental | README | `durable` |
 | Private modules | any path component starting with `_` | Internal | n/a | n/a |
@@ -44,11 +44,17 @@ Notes:
 - `LangGraphApp` is Stable-intent Core, but its **opt-in parameters**
   `platform_compat` and `async_runs="durable"` enable Experimental surfaces. The
   tier belongs to the surface, not to the class that hosts the switch.
-- Rows marked `provisional` are not named in the README table. They were placed
-  by analogy and need maintainer confirmation (see section 7).
+- The tiers of `authorization`, `openapi`, `stores` and `streaming_authorization`
+  are confirmed by the maintainer decision in section 7.
 - The Core classification of `contracts` and `protocols` follows from them being
   the types of the Core calls and routes; the README table does not list them
   separately.
+
+The contract gate labels the package root's module entry `package`, while the
+inventory labels the root Stable-intent Core as the main public import surface.
+The gate assigns each exported symbol the tier of its defining module, rather
+than the root's label. The consistency tests therefore pin both root labels
+separately and compare normalized tiers for every other public module.
 
 ## 2. Native HTTP contracts vs Platform SDK compatibility
 
@@ -72,7 +78,7 @@ Options considered:
 
 | Option | What changes | Assessment |
 | --- | --- | --- |
-| **A. No move (recommended)** | Keep every import path. Publish the inventory, the tier matrix and a deprecation policy; guard the inventory with a test. | Zero consumer churn; closes the discoverability gap with documentation. |
+| **A. No move (decided)** | Keep every import path. Publish the inventory, the tier matrix and a deprecation policy; guard the inventory with a test. | Zero consumer churn; closes the discoverability gap with documentation. |
 | B. `azure_functions_langgraph.experimental` with shims | Relocate Platform/Durable/Streaming/Service Bus symbols; old paths become warning shims. | Adds a second path for every symbol, shim code to maintain and warnings for every current consumer, for no runtime benefit. |
 | C. Root-only tidy | Stop re-exporting the four Experimental symbols from the root package. | Removes supported imports (breaking under the CONTRIBUTING classification) to fix a labelling problem. |
 
@@ -101,7 +107,7 @@ Reasoning for A:
    emit warnings at a precisely defined moment (section 4). That is permanent
    maintenance in exchange for cosmetics.
 
-**Recommendation: adopt option A.** No follow-up issue is justified today, and
+**Decision: adopt option A** (2026-11-24, section 7). No follow-up issue is justified today, and
 none is filed. Revisit when one of these concrete triggers occurs:
 
 - an Experimental surface needs an incompatible API change and a new path would
@@ -113,7 +119,7 @@ none is filed. Revisit when one of these concrete triggers occurs:
 If a real move is ever approved it should be proposed per surface, in its own
 focused issue, using the policy and migration-table format below.
 
-## 4. Proposed migration and deprecation policy
+## 4. Migration and deprecation policy
 
 Applies to relocations, renames, removals and signature/behavior changes of a
 supported surface. Compatibility classification still follows CONTRIBUTING; the
@@ -175,6 +181,8 @@ for the scan itself:
 
 - the committed inventory equals a fresh scan, and `--check` exits non-zero when
   it is stale;
+- both scanners list the same public modules; normalized tiers match the contract
+  gate for every non-root public module, and the intended root labels are pinned;
 - `__all__` and the lazy-export table agree, and every export is classified into
   a tier;
 - positive checks: every Core/Beta root export that needs no extra resolves
@@ -193,23 +201,28 @@ for the scan itself:
   authorization work (#854) are related but independent.
 - Contributor-reserved examples (#817-#826).
 
-## 7. Decisions needed from a maintainer
+## 7. Maintainer decisions
 
-1. Approve the staged decision: **no move now**, publish the inventory, adopt the
-   policy in section 4. (This is the acceptance item that cannot be self-approved
-   in a pull request.)
-2. Confirm or change the `provisional` tiers: `authorization`, `openapi`,
-   `stores`, `streaming_authorization`.
-3. Confirm that a separate follow-up is not needed (none is recommended).
-4. Decide on the entrypoint facade of section 8. The proposal is **no facade now**,
-   with the triggers listed there for revisiting it.
+Approved on **2026-11-24** in the
+[maintainer's decision comment on #878](https://github.com/yeongseon/azure-functions-langgraph-python/issues/878#issuecomment-7145038007):
 
-## 8. A thin entrypoint facade (proposal, #930)
+1. **Staged decision approved: no namespace move now.** The inventory and the
+   policy in section 4 stand. No new backward-incompatible import is introduced.
+2. **Tiers confirmed:** `authorization` and `openapi` are Stable (Stable-intent
+   Core in the inventory); `stores` and `streaming_authorization` are Experimental.
+   This aligns the inventory with the gate's existing `TIER_RULES`.
+   `BLOCKING_TIERS` still contains both `beta` and `stable`, so gate behavior is
+   unchanged; only the inventory's tier and basis labels change.
+3. **No separate follow-up issue** is needed.
+4. **No thin entrypoint facade now:** option A of section 8 is decided, with the
+   triggers listed there for revisiting it unchanged.
+
+## 8. A thin entrypoint facade (decision, #930)
 
 [#913](https://github.com/yeongseon/azure-functions-langgraph-python/issues/913)
 gives `app = LangGraphApp(graph)` as an illustrative target only and asks whether a thin
 entrypoint facade is justified before any signature is implemented. This section records
-what was verified and what is not known, so the decision can be made on evidence. It adds
+what was verified and what is not known, supporting the decision in section 7. It adds
 no export, signature or behavior.
 
 ### What the host requires
@@ -242,13 +255,15 @@ files and 4 requirements. Of the 28 example apps, 27 host a graph through
 
 | Option | What the user writes | What it saves against the baseline | Costs and unknowns |
 | --- | --- | --- | --- |
-| **A. No facade (proposed)** | unchanged: construct, register, export `.function_app` | nothing | nothing new; the two indexing failures above can be documented |
+| **A. No facade (decided)** | unchanged: construct, register, export `.function_app` | nothing | nothing new; the two indexing failures above can be documented |
 | B. A function that builds and returns the function app for one graph, for example `app = serve(graph, name="simple_agent")` (a hypothetical name) | two imports and one call | 3 top-level statements instead of 5 | a new public name in the Stable-intent core, which exports 31 names today; a second way to do the same thing that the examples, READMEs and tests must choose between; it forwards only some of the 17 constructor parameters and the per-graph `register` options, so a user who needs a second graph, a thread lock, an observer or `platform_compat` rewrites the entrypoint, unless it forwards everything, which makes it a second spelling of the same API |
 | C. `LangGraphApp` is itself the function app the worker finds | `app = LangGraphApp(...)` | construct, register and export collapse into one construction | **not validated.** `function_app` is a cached property that `register`, `register_service_bus` and the `thread_store` setter invalidate, so today a change followed by a new access builds a new `FunctionApp`, and registrations made after Platform or Durable routes were exported are checked against that exported registry (#854). The worker takes the top-level object once, so a discoverable `LangGraphApp` needs a defined moment at which routes are built and a defined behavior for registrations after it. This changes a Stable-intent class |
 
-### Recommendation
+### Decision
 
 **Option A: do not add a facade now.**
+
+Decided by the maintainer on 2026-11-24 (section 7).
 
 1. The saving is small and measured: at most 2 statements of 5 (option B), while the first-run
    steps the baseline measures lie mostly outside these lines (the clone, the virtual
