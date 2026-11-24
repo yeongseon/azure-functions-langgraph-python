@@ -380,6 +380,117 @@ only what it observed:
   already finished). The Durable lifecycle is experimental and may change between minor
   releases; this change is marked breaking so release notes flag it.
 
+#### Live Durable observations (2026-11-24, Y1 / Python 3.12)
+
+**Scope and limits first.** This is bounded evidence, **not restart/recovery
+certification**. Durable lifecycle remains **Experimental**. The dispatch-only
+`e2e-azure-durable.yml` lane deployed a candidate wheel to one Linux Consumption
+(Y1) app in `koreacentral`, using the Azure Storage task-hub provider, Blob
+checkpoints and a Blob lease thread lock. Both Azure artifacts report Python
+3.12.16, `azure-functions` 1.26.0, `azure-functions-durable` 1.7.0 and
+`azure-functions-langgraph` 0.14.2. The extension bundle range is `[4.*, 5.0.0)`;
+its resolved extension version was not captured. No scale-out topology was
+deliberately exercised, and one app is not proof of one worker process.
+
+**All live runs.** Each linked run uploads `azure-durable-evidence` containing
+`evidence.json` and JUnit results. Read the failed run as well as the passing one:
+
+| Run / candidate | Observed result and interpretation |
+| --- | --- |
+| [45424662376](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45424662376), `main` at `f13ad5d` | 5 tests passed, zero skipped; deploy/test and cleanup jobs succeeded. Success: one attempt and one node entry, `pending → running → success`. Failure reporting passed with the sanitized public error. Same-thread second run: `rejected`, one attempt. |
+| Same run, cancellation, 60 s hold | `cancelled_after_seconds=1.0`, `activity_completed_after_terminate=false`, `hold_finished=0`, `effects_applied=0`, `node_entries=1`, `attempts=1`, after observing for hold + 90 s. **No completion was observed within the bound**; this does not establish worker abort or its cause. |
+| Same run, `az functionapp restart`, 90 s hold | **D — inconclusive interruption evidence.** Status `running → success`; attempts/started/completions all 1, effect calls/applied both 1, one VM-instance tag; test 108.575 s. `WEBSITE_INSTANCE_ID` identifies a VM, not a process. Same-process completion after a graceful drain/no-op is consistent with this record; recovery from interruption is not demonstrated. |
+| [45429722085](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45429722085), probe candidate `7b362c6` | **Failed: 3 passed, 3 failed, zero skipped.** Login, provisioning, Core Tools, wheel build, publish and artifact upload succeeded. Success had one attempt/node entry (first observed status already `success`); failure reporting and contention (`rejected`, one attempt) passed. Cancellation observation raised an HTTP read timeout; no final cancel evidence was written. Both restart variants failed before control commands: restart while reading in-flight evidence, stop/start while creating its run. **D for both modes: neither interruption was exercised.** Cleanup deleted its resource group and verified removal. Precise timeout cause remains unproven; see the diagnosis below. |
+| [45436237291](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45436237291), corrected probe `c56ced1` | **6 passed, zero skipped; every deploy/test/upload/cleanup step succeeded.** Success `pending → running → success`, one attempt/node entry; failure sanitized; contention second run rejected once. Cancellation, now last, reached `cancelled` in 0.8 s; its Activity subsequently completed (`hold_finished=1`, `effects_applied=1`, one attempt/node entry). |
+| Same corrected run, restart, 240 s hold | **B — interrupted attempt redelivered on another process.** Attempts/started 2, completions 1, rejections 0, node entries 2, hold-finished 1. Initial process had no completion; different-process attempt at +339.714 s, hold finished +580.406 s, completion +580.735 s; terminal `success` at +583.186 s. Effect calls/applied 1/1. Restart returned at +3.952 s. |
+| Same corrected run, stop/start, 240 s hold | **B.** Stop returned +2.960 s; `Stopped` observed +5.480 s; start returned +6.533 s. Attempts/started 2, completions 1, rejections 0, node entries 2, hold-finished 1. Different-process redelivery +392.606 s, hold finished +633.177 s, completion +633.501 s; terminal `success` +635.805 s. Effect calls/applied 1/1. |
+
+**Timeout diagnosis and probe correction.** The failed run's first timeout was
+during cancellation's unchanged 60 s hold, before any 240 s restart Activity was
+created. Contention's 45 s first run had already reached success. Thus the retained
+data does not support several long restart holds starving HTTP workers as the
+initial cause. An owned local Core Tools 4.8.0 / Azurite 3.35.0 rehearsal with
+three overlapping 60 s holds (one cancelled orchestration) kept health/evidence
+requests responsive: maximum 0.368 s. This is not a Y1 CPU/worker reproduction.
+
+A fake-storage call-count experiment did prove an introduced instrumentation
+defect: the paired-marker endpoint constructed 23 container clients (each attempting
+container creation), listed 16 times and downloaded 14 marker bodies for a
+representative snapshot. The corrected endpoint uses one closed client, one listing
+and one download per matching marker, deriving counts and paired timestamps from
+those same reads. The regression test enforces that bound. Cancellation runs last
+because a terminal orchestration is not proof its Activity stopped, and the lane
+stops on its first failed scenario to avoid cascading observations. No thread-pool
+setting or HTTP timeout was increased. A local host repeat passed before dispatch.
+The passing Azure run shows this probe completes; it does **not** isolate which
+change or transient host/storage condition caused the earlier timeout.
+
+[Python concurrency guidance](https://learn.microsoft.com/en-us/azure/azure-functions/python-scale-performance-reference)
+distinguishes sync worker-pool invocations from event-loop coroutines;
+[`PYTHON_THREADPOOL_THREAD_COUNT`](https://learn.microsoft.com/en-us/azure/azure-functions/functions-app-settings#python_threadpool_thread_count)
+defaults to `None` for Python 3.9+. The package offloads synchronous graph execution;
+do not equate that executor with the worker's sync-invocation pool without measuring.
+[Durable concurrency limits](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-perf-and-scale#concurrency-throttles)
+bound loaded Activities, not proof of actual simultaneous sleeping threads.
+
+**Probe settings and interpretation.** The strengthened fixture emits 16-hex
+salted process tags derived from PID and Linux `/proc/self/stat` field 22 (start
+ticks), also scoped by VM identity; raw values and the salt are not exposed.
+Timestamp/tag pairs at Activity start, hold start/finish and Activity completion
+separate deliveries from node entries. The harness records command timing,
+timestamped status samples relative to the control command, attempts and process
+tags, effect calls versus effects applied, and time to terminal status. Management
+command output is not evidence that a worker was interrupted.
+
+The requested modes are `az functionapp restart` and `stop → show state=Stopped
+→ start`, targeting only the dispatch's own app. Each uses a 240 s hold: with a
+fresh hold observation (at most 30 s old), a 90 s control-command cap and a 90 s
+stop-state poll bound, stopping should precede natural hold completion; actual
+markers, not that timing budget, determine the finding. The hold stays below the
+unchanged default Consumption function timeout. Terminal observation allows
+1,200 s from the first control command, within the unchanged 90-minute job limit.
+The Azure Storage provider's
+[`workItemQueueVisibilityTimeout` defaults to five minutes](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-host-json-settings),
+and [Activity message visibility is renewed while the host is healthy](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-bindings#trigger-behavior).
+Recovery after a killed worker can therefore take minutes, plus another hold and
+cold-start/polling delays; it must not be inferred from a short wait.
+
+Classification is **A** when one started Activity completes in that same process
+(restart did not interrupt it); **B** when a previously unfinished attempt is
+redelivered and completes in a different process, with the idempotent effect
+applied once; **C** when no completion or terminal status appears within the
+bound (stuck observation, not independent proof of a kill); **D** for other or
+insufficient evidence. A failed bound remains a failing test, not permission to
+weaken the terminal-status requirement. Classification is recorded, not asserted
+as a package promise. Terminal normalized status, no duplicate applied effect
+and no raw exception-text exposure are the restart outcome assertions; failed
+control commands and unconfirmed stop state also fail probe integrity checks.
+
+**Cancellation promise comparison.** The absence of a completion marker in the
+passing Azure run differs from the
+[2026-11-19 local Azurite rehearsal](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811#issuecomment-7012783127),
+which reported continued Activity completion and an effect after cancellation.
+The Azure record is **consistent** with the acknowledgement/status warning above:
+neither `cancel_requested` nor `cancelled` proves tool or worker stoppage. It does
+**not cover** the categorical “does not interrupt” wording, continued checkpoint
+writes, lock retention, or an already-in-flight external tool call. No statement
+is conclusively contradicted by missing markers alone, so existing cancellation
+promises were not changed on that basis. Do not turn either observation into a
+guarantee of automatic abort or guaranteed continued execution. The corrected Azure
+run directly observed completion and one applied effect after orchestration
+cancellation, **consistent** with the warning that Activity work can continue.
+Lock retention and an external tool already in flight remain **not covered**.
+
+**What remains unproven.** One corrected Azure run observed interrupted-Activity
+redelivery/recovery in both modes, but does not establish repeatability or direct
+owner-token handoff evidence, the post-effect / pre-checkpoint duplicate window,
+or universal checkpoint fencing. Premium/Flex, other Python/SDK lines,
+other task-hub providers, multi-instance scale-out, sustained load, deployment
+changes, long-running workflow compatibility and cross-region recovery are not
+covered. These are in-region, point-in-time observations only. Keep
+[#811](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811)
+open; the native release gate is unchanged.
+
 ### Configure timeout explicitly
 
 Set `functionTimeout` in `host.json` to a value aligned with your plan and workload SLO.
