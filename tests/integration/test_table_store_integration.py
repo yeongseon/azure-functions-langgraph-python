@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 import importlib
 import itertools
+import os
 import time
 from typing import Any, Protocol, cast
 from unittest.mock import DEFAULT, patch
@@ -76,19 +77,27 @@ class _TableClientProtocol(Protocol):
 
 @pytest.fixture
 def azurite_table_client() -> Iterator[_TableClientProtocol]:
-    require_tcp_service("127.0.0.1", 10002, "Azurite Table")
+    env_var = os.environ.get("TABLE_TEST_CONNECTION_STRING_ENV")
+    connection = AZURITE_TABLE_CONNECTION_STRING
+    if env_var:
+        connection = os.environ.get(env_var, "")
+        if not connection:
+            pytest.fail("named Table connection-string environment variable is empty")
+    else:
+        require_tcp_service("127.0.0.1", 10002, "Azurite Table")
     try:
         tables_module = importlib.import_module("azure.data.tables")
         TableServiceClient = cast(
             type[_TableServiceClientProtocol],
             getattr(tables_module, "TableServiceClient"),
         )
-        service_client = TableServiceClient.from_connection_string(
-            conn_str=AZURITE_TABLE_CONNECTION_STRING
-        )
+        service_client = TableServiceClient.from_connection_string(conn_str=connection)
         _ = list(service_client.list_tables())
     except Exception as exc:
+        if env_var:
+            pytest.fail(f"real Table service unavailable ({type(exc).__name__})")
         fail_or_skip_service(f"Azurite Table Storage is incompatible or unavailable: {exc}")
+        raise AssertionError("service failure handler must not return") from exc
 
     table_name = f"aflgint{uuid.uuid4().hex[:18]}"
     table_client = service_client.create_table_if_not_exists(table_name=table_name)
