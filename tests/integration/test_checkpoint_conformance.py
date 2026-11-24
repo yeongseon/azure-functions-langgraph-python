@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator, Iterator, Sequence
 import importlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -97,19 +98,32 @@ class _AsyncConformanceSaver(AzureBlobCheckpointSaver):
         self.delete_thread(thread_id)
 
 
+def _blob_connection_string() -> str:
+    """Select an explicit credential variable without falling back on bad configuration."""
+    env_var = os.environ.get("BLOB_TEST_CONNECTION_STRING_ENV")
+    if env_var is not None:
+        connection = os.environ.get(env_var, "")
+        if not connection:
+            pytest.fail("named Blob connection-string environment variable is empty", pytrace=False)
+        return connection
+    require_tcp_service("127.0.0.1", 10000, "Azurite Blob")
+    return AZURITE_BLOB_CONNECTION_STRING
+
+
 @pytest.fixture
 def azurite_container_client() -> Iterator[Any]:
-    """Yield a fresh, uniquely-named live Azurite blob ContainerClient."""
-    require_tcp_service("127.0.0.1", 10000, "Azurite Blob")
+    """Yield a fresh private container on the selected live Blob backend."""
+    connection = _blob_connection_string()
     try:
         blob_module = importlib.import_module("azure.storage.blob")
-        blob_service_client = blob_module.BlobServiceClient.from_connection_string(
-            AZURITE_BLOB_CONNECTION_STRING
-        )
+        blob_service_client = blob_module.BlobServiceClient.from_connection_string(connection)
         # Probe connectivity so an unavailable Azurite skips rather than errors.
         _ = blob_service_client.get_service_properties()
     except Exception as exc:  # pragma: no cover - only when Azurite is absent
+        if "BLOB_TEST_CONNECTION_STRING_ENV" in os.environ:
+            pytest.fail(f"real Blob service unavailable ({type(exc).__name__})", pytrace=False)
         fail_or_skip_service(f"Azurite Blob Storage is incompatible or unavailable: {exc}")
+        raise AssertionError("service failure handler must not return") from exc
 
     container_name = f"aflgconf{uuid.uuid4().hex[:18]}"
     container_client = blob_service_client.create_container(container_name)
@@ -154,7 +168,7 @@ async def test_native_and_fallback_conformance_azurite(
 ) -> None:
     aio_module = importlib.import_module("azure.storage.blob.aio")
     async with aio_module.ContainerClient.from_connection_string(
-        AZURITE_BLOB_CONNECTION_STRING, azurite_container_client.container_name
+        _blob_connection_string(), azurite_container_client.container_name
     ) as aio:
 
         async def factory() -> Any:
@@ -179,7 +193,7 @@ async def test_latest_publication_failure_recovers_on_azurite(
     # Given: A is stored on Azurite; only B's final clean publication is interrupted.
     aio_module = importlib.import_module("azure.storage.blob.aio")
     async with aio_module.ContainerClient.from_connection_string(
-        AZURITE_BLOB_CONNECTION_STRING, azurite_container_client.container_name
+        _blob_connection_string(), azurite_container_client.container_name
     ) as aio:
         saver = AzureBlobCheckpointSaver(
             container_client=azurite_container_client,
@@ -244,7 +258,7 @@ def test_benchmark_fake_issues_the_requests_the_real_sdk_sends(
     release that adds or drops a request fails here instead of silently invalidating the
     budgets (#860).
     """
-    require_tcp_service("127.0.0.1", 10000, "Azurite Blob")
+    connection = _blob_connection_string()
     try:
         # The azure-blob extra: the SDK clients, and aiohttp for the async transport.
         importlib.import_module("azure.storage.blob.aio")
@@ -260,9 +274,7 @@ def test_benchmark_fake_issues_the_requests_the_real_sdk_sends(
         fake = {r["scenario"]: r for r in bench.run(channels, writes, history, 0.0, async_api)}
         real = {
             r["scenario"]: r
-            for r in bench.run_azurite(
-                channels, writes, history, 0.0, async_api, AZURITE_BLOB_CONNECTION_STRING
-            )
+            for r in bench.run_azurite(channels, writes, history, 0.0, async_api, connection)
         }
     finally:
         sys.modules.pop(spec.name, None)
