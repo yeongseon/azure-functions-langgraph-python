@@ -21,10 +21,9 @@ by ``E2E_DURABLE_EVIDENCE`` and reported, not assumed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import os
-import shlex
-import subprocess
 import time
 from typing import Any
 import uuid
@@ -38,9 +37,13 @@ from ._contracts import (
     check_success_evidence,
     create_body,
 )
+from ._restart import HOLD_SECONDS, restart_probe
 
 BASE_URL = os.environ.get("E2E_DURABLE_BASE_URL", "").rstrip("/")
 RESTART_CMD = os.environ.get("E2E_DURABLE_RESTART_CMD", "")
+STOP_CMD = os.environ.get("E2E_DURABLE_STOP_CMD", "")
+START_CMD = os.environ.get("E2E_DURABLE_START_CMD", "")
+STATE_CMD = os.environ.get("E2E_DURABLE_STATE_CMD", "")
 EVIDENCE_PATH = os.environ.get("E2E_DURABLE_EVIDENCE", "")
 GRAPH = "e2e_durable"
 TERMINAL = {"success", "error", "cancelled"}
@@ -56,6 +59,13 @@ pytestmark = [
 _evidence: dict[str, Any] = {}
 
 
+def _request(call: Callable[[], requests.Response]) -> requests.Response:
+    try:
+        return call()
+    except requests.RequestException:
+        raise AssertionError("Durable probe HTTP request failed (details redacted)") from None
+
+
 def _record(name: str, data: dict[str, Any]) -> None:
     """Keep sanitized observations (statuses, counts, short tags only); no URLs, keys or bodies."""
     _evidence[name] = data
@@ -68,21 +78,23 @@ def _create(
     run_id: str, *, hold: float = 0, thread_id: str | None = None, fail: bool = False
 ) -> None:
     body = create_body(run_id, hold=hold, thread_id=thread_id, fail=fail)
-    r = requests.post(f"{BASE_URL}/api/graphs/{GRAPH}/runs", json=body, timeout=60)
-    assert r.status_code == 202, r.text
+    r = _request(
+        lambda: requests.post(f"{BASE_URL}/api/graphs/{GRAPH}/runs", json=body, timeout=60)
+    )
+    assert r.status_code == 202, f"create HTTP status {r.status_code}"
     check_create_response(r.json(), run_id)
 
 
 def _get(run_id: str) -> dict[str, Any]:
-    r = requests.get(f"{BASE_URL}/api/runs/{run_id}", timeout=60)
-    assert r.status_code == 200, r.text
+    r = _request(lambda: requests.get(f"{BASE_URL}/api/runs/{run_id}", timeout=60))
+    assert r.status_code == 200, f"poll HTTP status {r.status_code}"
     body: dict[str, Any] = r.json()
     return body
 
 
 def _evidence_for(run_id: str) -> dict[str, Any]:
-    r = requests.get(f"{BASE_URL}/api/e2e/evidence/{run_id}", timeout=60)
-    assert r.status_code == 200, r.text
+    r = _request(lambda: requests.get(f"{BASE_URL}/api/e2e/evidence/{run_id}", timeout=60))
+    assert r.status_code == 200, f"evidence HTTP status {r.status_code}"
     body: dict[str, Any] = r.json()
     return body
 
@@ -184,18 +196,24 @@ def test_same_thread_contention_rejects_second_run() -> None:
     )
 
 
-def test_cancel_during_work_records_when_activity_finishes() -> None:
+def _cancel_during_work_records_when_activity_finishes() -> None:
     run_id = f"d-cancel-{uuid.uuid4().hex[:12]}"
     hold = 60
     _create(run_id, hold=hold)
     _wait_entered(run_id)
     t0 = time.time()
-    r = requests.post(f"{BASE_URL}/api/runs/{run_id}/cancel", timeout=60)
-    assert r.status_code == 202, r.text
+    cancel_observation: dict[str, Any] = {"phase": "requesting", "hold_seconds": hold}
+    _record("cancel", cancel_observation)
+    r = _request(lambda: requests.post(f"{BASE_URL}/api/runs/{run_id}/cancel", timeout=60))
+    assert r.status_code == 202, f"cancel HTTP status {r.status_code}"
     assert r.json()["status"] == "cancel_requested"
     final = _wait_terminal(run_id, 120)
     assert final["status"] == "cancelled", final
     cancelled_after = time.time() - t0
+    cancel_observation.update(
+        {"phase": "observing_activity", "cancelled_after_seconds": round(cancelled_after, 1)}
+    )
+    _record("cancel", cancel_observation)
     # Observe, do not assume: does the already-running Activity still finish after terminate?
     # "completions" is emitted only after graph invocation returned (effect + checkpointing done),
     # not at the in-graph hold marker.
@@ -220,38 +238,37 @@ def test_cancel_during_work_records_when_activity_finishes() -> None:
     )
 
 
-@pytest.mark.skipif(
-    not RESTART_CMD, reason="E2E_DURABLE_RESTART_CMD not set; skipping host restart"
-)
-def test_host_restart_during_activity() -> None:
+@pytest.mark.parametrize("mode", ["restart", "stop_start"])
+def test_host_restart_during_activity(mode: str) -> None:
+    commands = {"restart": RESTART_CMD, "stop": STOP_CMD, "start": START_CMD, "state": STATE_CMD}
+    required = ["restart"] if mode == "restart" else ["stop", "start", "state"]
+    if not all(commands[name] for name in required):
+        pytest.skip("Durable restart control commands not configured")
     run_id = f"d-restart-{uuid.uuid4().hex[:12]}"
-    thread = f"t-{run_id}"
-    seen: list[str] = []
-    _create(run_id, hold=90, thread_id=thread)
-    _wait_entered(run_id)
-    before = _get(run_id)["status"]
-    subprocess.run(shlex.split(RESTART_CMD), check=True, timeout=300)  # noqa: S603
-    final = _wait_terminal(run_id, 900, seen)
-    ev = _evidence_for(run_id)
     _record(
-        "host_restart",
+        f"host_{mode}",
+        {"mode": mode, "phase": "preflight", "classification": "D", "control_issued": False},
+    )
+    _create(run_id, hold=HOLD_SECONDS)
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        ev = _evidence_for(run_id)
+        if ev["markers"]["hold-started"] and not ev["hold_finished"]:
+            break
+        time.sleep(2)
+    else:
+        raise AssertionError("Activity never observed inside hold")
+    restart_probe(
+        mode,
+        commands,
         {
-            "status_before_restart": before,
-            "statuses_after_restart": seen,
-            "final_status": final["status"],
-            "final_activity_status": (final.get("output") or {}).get("activity_status"),
-            "activity_attempts": len(ev["attempts"]),
-            "activity_started": len(ev["started"]),
-            "activity_rejected": len(ev["rejected"]),
-            "graph_node_entries": len(ev["node_entries"]),
-            "hold_finished": len(ev["hold_finished"]),
-            "attempt_instance_tags": sorted(set(ev["attempts"])),
-            "activity_completions": len(ev["completions"]),
-            "activity_completion_times_ms": ev["completion_times_ms"],
-            "effect_calls": len(ev["effect_calls"]),
-            "effects_applied": ev["effects_applied"],
+            "get": lambda: _get(run_id),
+            "evidence": lambda: _evidence_for(run_id),
+            "record": lambda data: _record(f"host_{mode}", data),
         },
     )
-    # Package-level promises only: a terminal normalized status, and the idempotency key holding.
-    assert final["status"] in TERMINAL
-    assert ev["effects_applied"] <= 1, "idempotency key failed to suppress a duplicate effect"
+
+
+def test_cancel_during_work_records_when_activity_finishes() -> None:
+    # Termination does not prove Activity completion; leave no later scenario to overlap it.
+    _cancel_during_work_records_when_activity_finishes()

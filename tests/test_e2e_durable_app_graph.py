@@ -43,6 +43,9 @@ class FakeContainer:
     def __init__(self) -> None:
         self.blobs: dict[str, bytes] = {}
         self.order: list[str] = []  # upload order, for marker-ordering assertions
+        self.list_calls = 0
+        self.download_calls = 0
+        self.closed = False
 
     def upload_blob(self, name: str, data: bytes, overwrite: bool = True) -> None:
         if not overwrite and name in self.blobs:
@@ -51,10 +54,15 @@ class FakeContainer:
         self.order.append(name)
 
     def list_blobs(self, name_starts_with: str = "") -> list[_Blob]:
+        self.list_calls += 1
         return [_Blob(n) for n in sorted(self.blobs) if n.startswith(name_starts_with)]
 
     def download_blob(self, name: str) -> _Download:
+        self.download_calls += 1
         return _Download(self.blobs[name])
+
+    def close(self) -> None:
+        self.closed = True
 
 
 @pytest.fixture
@@ -106,7 +114,7 @@ def test_node_markers_are_counted_per_run_and_separate_from_attempts(
     # Graph nodes never write Activity-boundary evidence.
     assert module.count_markers("attempt", "r2") == []
     assert module.count_markers("activity-finished", "r2") == []
-    assert all(len(tag) == 8 for tag in module.count_markers("node-enter", "r2"))
+    assert all(len(tag) == 16 for tag in module.count_markers("node-enter", "r2"))
 
 
 class _Reg:
@@ -193,6 +201,10 @@ async def test_activity_finished_is_emitted_after_all_graph_work(
     assert kinds.index("hold-finished") < kinds.index("activity-finished")
     (finished_ms,) = module.marker_times_ms("activity-finished", "r6")
     assert finished_ms >= max(module.marker_times_ms("effect-call", "r6"))
+    for kind in ("attempt", "started", "hold-started", "hold-finished", "activity-finished"):
+        [marker] = module.marker_events(kind, "r6")
+        assert marker["process_tag"] == module.process_tag()
+        assert marker["time_ms"] <= finished_ms
 
 
 async def test_failed_activity_still_emits_finish_marker_after_effect_node_raised(
@@ -214,3 +226,47 @@ def test_fail_flag_raises_before_any_effect(
     with pytest.raises(RuntimeError):
         module.effect({"run_id": "r3", "fail": True})
     assert module.effect_applied_count("r3") == 0
+
+
+def test_process_tag_changes_with_pid_or_start_time(
+    graph_module: tuple[ModuleType, FakeContainer], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module, _ = graph_module
+    original = module.process_tag()
+    assert original == module.process_tag()
+    monkeypatch.setattr(module.os, "getpid", lambda: 123456)
+    changed_pid = module.process_tag()
+    assert changed_pid != original
+    # Field 22, after a comm containing spaces and a closing parenthesis.
+    stat = "1 (worker ) with spaces) " + " ".join(["S"] + ["0"] * 18 + ["999999"])
+    monkeypatch.setattr(module.Path, "read_text", lambda self: stat)
+    assert module.process_tag() != changed_pid
+    assert len(module.process_tag()) == 16
+
+
+async def test_snapshot_lists_once_and_reads_each_marker_once(
+    graph_module: tuple[ModuleType, FakeContainer], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from azure_functions_langgraph.locks import InProcessThreadLock
+
+    module, fake = graph_module
+    await _run(module, InProcessThreadLock(), "snapshot")
+    module.enter({"run_id": "other"})
+    clients = []
+
+    def container() -> FakeContainer:
+        clients.append(fake)
+        return fake
+
+    monkeypatch.setattr(module, "evidence_container", container)
+    snapshot = module.evidence_snapshot("snapshot")
+    assert len(clients) == 1
+    assert fake.list_calls == 1
+    assert fake.download_calls == 7
+    assert fake.closed
+    assert snapshot["effects_applied"] == 1
+    assert snapshot["attempts"] == [module.process_tag()]
+    assert snapshot["hold_finished"] == [module.process_tag()]
+    assert snapshot["completion_times_ms"] == [
+        snapshot["markers"]["activity-finished"][0]["time_ms"]
+    ]
