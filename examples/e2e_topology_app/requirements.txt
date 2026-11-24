@@ -1,0 +1,2 @@
+# The workflow appends the candidate wheel with Blob/Table extras before publish.
+# No PyPI adapter dependency and no separately installed Functions worker.
