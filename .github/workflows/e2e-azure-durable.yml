@@ -1,7 +1,7 @@
 name: e2e-azure-durable
 
 # OPTIONAL, dispatch-only real-Azure lane for the Durable async-run surface (#811):
-# lifecycle, same-thread contention, cancellation and ONE controlled host restart while the
+# lifecycle, same-thread contention, cancellation and two controlled restart modes while the
 # Activity is in flight. It is NOT part of the publish gate (publish-pypi.yml does not call it)
 # and does not touch e2e-azure.yml. It reuses the same OIDC environment/secrets and the same
 # permissions as e2e-azure.yml; it requests nothing extra.
@@ -103,6 +103,9 @@ jobs:
         env:
           E2E_DURABLE_BASE_URL: https://${{ steps.names.outputs.app }}.azurewebsites.net
           E2E_DURABLE_RESTART_CMD: az functionapp restart --resource-group ${{ steps.names.outputs.rg }} --name ${{ steps.names.outputs.app }}
+          E2E_DURABLE_STOP_CMD: az functionapp stop --resource-group ${{ steps.names.outputs.rg }} --name ${{ steps.names.outputs.app }}
+          E2E_DURABLE_START_CMD: az functionapp start --resource-group ${{ steps.names.outputs.rg }} --name ${{ steps.names.outputs.app }}
+          E2E_DURABLE_STATE_CMD: az functionapp show --resource-group ${{ steps.names.outputs.rg }} --name ${{ steps.names.outputs.app }} --query state -o tsv
           E2E_DURABLE_EVIDENCE: ${{ github.workspace }}/cert-durable/evidence.json
         run: |
           mkdir -p cert-durable
