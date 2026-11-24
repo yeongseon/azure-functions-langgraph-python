@@ -39,11 +39,21 @@ def _app_setting_names() -> set[str]:
 
 def test_deployment_storage_authentication_type_is_a_documented_value() -> None:
     # Given: the authentication block of the deployment storage configuration
-    match = re.search(r"authentication:\s*\{[^}]*?type:\s*'([^']+)'", _code(), re.S)
+    match = re.search(
+        r"authentication:\s*(?:identityBasedStorage\s*\?\s*)?"
+        r"\{([^}]+)\}(?:\s*:\s*\{([^}]+)\})?",
+        _code(),
+        re.S,
+    )
 
     # Then: its type is one of the values Azure accepts
     assert match is not None
-    assert match.group(1) in VALID_AUTH_TYPES
+    blocks = [block for block in match.groups() if block]
+    for block in blocks:
+        auth_type = re.search(r"type:\s*'([^']+)'", block)
+        assert auth_type is not None
+        assert auth_type.group(1) in VALID_AUTH_TYPES
+    assert len(blocks) == 2
 
 
 def test_connection_string_authentication_names_an_existing_app_setting() -> None:
