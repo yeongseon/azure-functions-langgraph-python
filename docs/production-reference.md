@@ -12,8 +12,12 @@ one deployed reference passed persistence, isolation, contention and restart tes
 and observed the expected 200/401/200 auth statuses. The five-test live run ended
 **4 passed, 1 failed, 0 skipped** because an additional invoke-response assertion
 expected the wrong LangChain message envelope. That parser is corrected and tested
-offline, but was **not rerun on Azure**: the authorized three-cycle budget was
-exhausted. Do not equate this evidence with release certification.
+offline, but was **not rerun on Azure**. A fourth, explicitly authorized cycle
+at `d6605ae2647571fcf281a8ed5488d31aa50ea3f8` provisioned successfully but stopped
+before publishing when the temporary wrapper's new role-inventory CLI command
+returned nonzero. Its subprocess exception was not sanitized correctly. No live
+tests ran in cycle four, and the four-cycle budget is exhausted. Do not equate
+this evidence with release certification.
 
 Verified deployment: Korea Central, Linux FC1 Flex Consumption, Python 3.11,
 2048 MB, no always-ready instances; published adapter wheel 0.14.2; public HTTPS
@@ -249,16 +253,49 @@ the workstation venv, reported:
 | Restart persistence | Passed; state before restart preserved and next turn accumulated; 7.212 s including Azure restart/readiness/state/invoke |
 | Live pytest aggregate | **4 passed / 1 failed / 0 skipped**, 35.77 s; not all-green certification |
 
-Three provision cycles, no fourth: first stopped on evidence wrapper's null CLI
+The first three provision cycles: first stopped on evidence wrapper's null CLI
 properties; second exposed example's protected-liveness misconfiguration; third
 produced the observations above and found the harness envelope mismatch. None
 established a package defect. Final app/IaC was not altered after cycle 3.
+
+**Authorized cycle four (2026-11-24 UTC):** restored source and corrected harness
+at `d6605ae2647571fcf281a8ed5488d31aa50ea3f8`; merging main was already up to
+date. Focused reference/helper/docs/example/Flex tests passed **27/27**; Bicep,
+ruff check/format, mypy (316 files), and all three workflow linters passed using
+the existing environment fallback. ARM validation/provisioning passed in
+5.744/67.937 s. ARM reported Python 3.11, 2048 MB, max 40, no always-ready
+instances, HTTPS-only and system-assigned deployment authentication. Storage
+Shared Key and public Blob access were both false, TLS1_2; connection-string
+setting names were absent.
+
+The temporary wrapper then ran `az role assignment list --scope <owned-account>
+--all` and received exit 1. Its stderr was not retained, so the exact CLI cause
+is **undetermined**; do not infer an authorization failure. The wrapper raised
+`CalledProcessError` before publishing or pytest. This is a wrapper/evidence
+collection failure, not an established package/IaC defect. The exception included
+a subscription identifier in tool output: a logging-boundary failure, not a
+credential leak; it is not reproduced here. Actual role principal/scope proof
+was not captured. The template's configured role table above is not a substitute
+for that missing live inventory.
+
+| Cycle-four live test | Result |
+| --- | --- |
+| Liveness/keyless/keyed invoke | Not run |
+| Protected runtime versions | Not run; no published code in this cycle |
+| Persistence/isolation | Not run |
+| Same-thread contention | Not run |
+| Restart persistence | Not run |
+
+No fifth cycle or alternative role query was attempted. The corrected invoke
+parser therefore still has offline proof only. The previous deployed runtime
+version table remains cycle-three evidence, not a new running-process claim.
 
 | Created group | Contents | Deletion evidence |
 | --- | --- | --- |
 | `rg-af-ref-202611242144` | FC1 plan, Function App/system identity, Standard_LRS account, Blob containers, one account role | EXIT delete/wait; exists false; no remaining owned `rg-af-*` names |
 | `rg-af-ref-202611242148` | Same topology, published app | EXIT delete/wait; exists false; no remaining owned `rg-af-*` names |
 | `rg-af-ref-202611242157` | Same topology, corrected example | EXIT delete/wait; exists false; no remaining owned `rg-af-*` names |
+| `rg-af-ref-202611242222` | Same provisioned topology; stopped before publish | EXIT delete/wait; exists false; remaining `rg-af-*` list empty |
 
 Resource group names above identify disposable evidence resources, not reusable
 deployment names. Every group lived for minutes, below the three-hour limit.
@@ -268,7 +305,7 @@ The essential evidence is recorded here; no credentials/subscription IDs are inc
 
 ## Cost, cold starts and teardown
 
-Estimated marginal cost for all three short-lived cycles: **under US$1 total**,
+Estimated marginal cost for all four short-lived cycles: **under US$1 total**,
 not an invoice or measured regional tariff. One Standard_LRS account and FC1 with
 no always-ready capacity, tiny deterministic traffic, no model service or telemetry
 resource. Actual billing was not measured; no sustained-load estimate is claimed.
@@ -293,5 +330,5 @@ Confirm `exists=false` for your group and that your owned name is absent from th
 list; never delete another person's group. The group deletion removes the plan,
 app/system identity, account/data/containers and scoped role assignment. Check
 Cost Management later for actual charges. Maintainer follow-up: authorize final
-SHA/RBAC, obtain an all-green corrected-harness run under new spend approval,
+SHA/RBAC, decide whether to authorize further work after the exhausted four-cycle budget,
 and decide a separate re-certification workflow; do not close #882 automatically.
