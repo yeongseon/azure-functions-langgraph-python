@@ -87,6 +87,15 @@ Before opening a PR, run `ruff format --check <changed-python-files>` (or
 `src` and `tests` without changing files. CI checks those same trees and also
 reports formatting failures on changed Python files in a dedicated step.
 
+In **Test and Coverage** CI, the blocking coverage gate is pytest's
+`fail_under = 95` on the Python 3.11 matrix cell. Uploading its report to
+Codecov is **non-blocking but visible**: an upload failure emits a warning
+annotation and an actionable job summary, without relaxing the pytest gate.
+Check the upload log for authentication or service/network errors; the owner
+maintains the `CODECOV_TOKEN` repository secret from the Codecov dashboard in
+**Settings > Secrets and variables > Actions**. Fork PRs do not receive repository
+secrets, and Dependabot skips the upload and its failure-reporting step.
+
 Integration tests (Azurite, Cosmos) require docker-compose services. The
 Cosmos emulator is known-flaky on GitHub-hosted runners, so CI does not run
 it on push or pull_request: it runs nightly on a schedule and on manual
