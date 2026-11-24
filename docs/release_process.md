@@ -144,6 +144,39 @@ step to dispatch and no freshness window to expire.
 
 Publication uses PyPI Trusted Publishing (OIDC); there is no API token to manage.
 
+### Real-Azure canary
+
+`azure-canary.yml` runs the same `e2e-azure.yml` certification as the publish gate
+weekly on `main` (Monday at 02:41 UTC). GitHub schedules run only on the default
+branch. It passes no inputs: the release-gating 1.x/Y1 path runs, not the optional
+2.x/Flex lane. A red run warns that the next release's `azure-e2e` gate would fail
+under the same conditions: subscription state, runner-image or Azure Functions
+Core Tools drift, platform drift, or a regression in the checked-out source.
+Inspect the failing step; a green canary is not a guarantee about a later tag.
+
+The canary is not a publish dependency and does not change or replace the
+tag-specific publish gate. Fix source/workflow defects forward on `main`; never
+move or reuse a tag (see [Recovery](#recovery)). Failed scheduled runs notify the
+account that last edited the cron schedule through GitHub's workflow notifications;
+the canary opens no issues automatically.
+
+Each run costs one short Y1 certification deployment (two native apps and one
+streaming app, with shared storage), followed by the existing cleanup job. On
+2026-11-24, the 1.x jobs in [standalone run 45382515072](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45382515072)
+and [publish run 45393218077](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45393218077)
+took 6m30s and 6m42s respectively, roughly 6.5 minutes; these are observations,
+not a price or runtime cap. Cleanup requests asynchronous resource-group deletion
+(`--no-wait`); cancellation or cleanup failure can leave resources needing owner
+attention.
+
+The new workflow cannot be dispatched before it exists on `main`. After merge
+and independent high-risk review, the first scheduled run or maintainer command
+`gh workflow run azure-canary.yml` provides the live proof. Manual dispatch on
+another ref certifies that ref, not `main`; the called workflow's `azure-e2e`
+environment fixes the OIDC subject, not a branch restriction.
+
+### Retry a failed publish gate
+
 To re-run after a failed gate (nothing was uploaded, so the version is still free):
 
 ```bash
