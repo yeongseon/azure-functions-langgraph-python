@@ -40,6 +40,12 @@ def test_runtime_reports_installed_distributions(monkeypatch: pytest.MonkeyPatch
         }
         binding = module.reference_runtime.build().get_bindings_dict()["bindings"][0]
         assert binding["authLevel"] == func.AuthLevel.FUNCTION
+        bindings = {
+            function.get_function_name(): function.get_bindings_dict()["bindings"][0]
+            for function in module.app.get_functions()
+        }
+        assert bindings["aflg_health"]["authLevel"] == func.AuthLevel.ANONYMOUS
+        assert bindings["aflg_health_details"]["authLevel"] == func.AuthLevel.FUNCTION
     finally:
         module.thread_lock.close()
         module.container_client.close()

@@ -130,8 +130,8 @@ if _ENABLE_DISTRIBUTED_LOCK:
 langgraph_app = LangGraphApp(
     platform_compat=_ENABLE_PLATFORM,
     auth_level=func.AuthLevel.FUNCTION,
-    # Explicitly protect the health-details inventory in production.
-    health_auth_level=func.AuthLevel.FUNCTION,
+    health_auth_level=func.AuthLevel.ANONYMOUS,
+    health_details_auth_level=func.AuthLevel.FUNCTION,
     # Distributed per-thread lock (None -> in-process default when disabled).
     thread_lock=thread_lock,
 )
