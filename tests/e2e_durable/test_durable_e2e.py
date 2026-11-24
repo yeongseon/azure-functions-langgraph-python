@@ -21,6 +21,7 @@ by ``E2E_DURABLE_EVIDENCE`` and reported, not assumed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import os
 import time
@@ -58,6 +59,13 @@ pytestmark = [
 _evidence: dict[str, Any] = {}
 
 
+def _request(call: Callable[[], requests.Response]) -> requests.Response:
+    try:
+        return call()
+    except requests.RequestException:
+        raise AssertionError("Durable probe HTTP request failed (details redacted)") from None
+
+
 def _record(name: str, data: dict[str, Any]) -> None:
     """Keep sanitized observations (statuses, counts, short tags only); no URLs, keys or bodies."""
     _evidence[name] = data
@@ -70,21 +78,23 @@ def _create(
     run_id: str, *, hold: float = 0, thread_id: str | None = None, fail: bool = False
 ) -> None:
     body = create_body(run_id, hold=hold, thread_id=thread_id, fail=fail)
-    r = requests.post(f"{BASE_URL}/api/graphs/{GRAPH}/runs", json=body, timeout=60)
-    assert r.status_code == 202, r.text
+    r = _request(
+        lambda: requests.post(f"{BASE_URL}/api/graphs/{GRAPH}/runs", json=body, timeout=60)
+    )
+    assert r.status_code == 202, f"create HTTP status {r.status_code}"
     check_create_response(r.json(), run_id)
 
 
 def _get(run_id: str) -> dict[str, Any]:
-    r = requests.get(f"{BASE_URL}/api/runs/{run_id}", timeout=60)
-    assert r.status_code == 200, r.text
+    r = _request(lambda: requests.get(f"{BASE_URL}/api/runs/{run_id}", timeout=60))
+    assert r.status_code == 200, f"poll HTTP status {r.status_code}"
     body: dict[str, Any] = r.json()
     return body
 
 
 def _evidence_for(run_id: str) -> dict[str, Any]:
-    r = requests.get(f"{BASE_URL}/api/e2e/evidence/{run_id}", timeout=60)
-    assert r.status_code == 200, r.text
+    r = _request(lambda: requests.get(f"{BASE_URL}/api/e2e/evidence/{run_id}", timeout=60))
+    assert r.status_code == 200, f"evidence HTTP status {r.status_code}"
     body: dict[str, Any] = r.json()
     return body
 
@@ -192,12 +202,18 @@ def test_cancel_during_work_records_when_activity_finishes() -> None:
     _create(run_id, hold=hold)
     _wait_entered(run_id)
     t0 = time.time()
-    r = requests.post(f"{BASE_URL}/api/runs/{run_id}/cancel", timeout=60)
-    assert r.status_code == 202, r.text
+    cancel_observation: dict[str, Any] = {"phase": "requesting", "hold_seconds": hold}
+    _record("cancel", cancel_observation)
+    r = _request(lambda: requests.post(f"{BASE_URL}/api/runs/{run_id}/cancel", timeout=60))
+    assert r.status_code == 202, f"cancel HTTP status {r.status_code}"
     assert r.json()["status"] == "cancel_requested"
     final = _wait_terminal(run_id, 120)
     assert final["status"] == "cancelled", final
     cancelled_after = time.time() - t0
+    cancel_observation.update(
+        {"phase": "observing_activity", "cancelled_after_seconds": round(cancelled_after, 1)}
+    )
+    _record("cancel", cancel_observation)
     # Observe, do not assume: does the already-running Activity still finish after terminate?
     # "completions" is emitted only after graph invocation returned (effect + checkpointing done),
     # not at the in-graph hold marker.
@@ -229,6 +245,10 @@ def test_host_restart_during_activity(mode: str) -> None:
     if not all(commands[name] for name in required):
         pytest.skip("Durable restart control commands not configured")
     run_id = f"d-restart-{uuid.uuid4().hex[:12]}"
+    _record(
+        f"host_{mode}",
+        {"mode": mode, "phase": "preflight", "classification": "D", "control_issued": False},
+    )
     _create(run_id, hold=HOLD_SECONDS)
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:

@@ -7,6 +7,7 @@ from typing import Any
 
 import azure.functions as func
 import pytest
+import requests
 
 from azure_functions_langgraph.durable._runtime import create_run_http, get_run_http
 from tests.e2e_durable._contracts import (
@@ -132,3 +133,15 @@ def test_restart_classification_requires_process_completion_evidence(
         },
     }
     assert classify(evidence, terminal) == expected
+
+
+def test_probe_http_failure_redacts_endpoint_and_backend_details() -> None:
+    from tests.e2e_durable.test_durable_e2e import _request
+
+    def failed_request() -> requests.Response:
+        raise requests.ReadTimeout("sensitive-host-and-backend-detail")
+
+    with pytest.raises(AssertionError, match="details redacted") as caught:
+        _request(failed_request)
+    assert "sensitive" not in str(caught.value)
+    assert caught.value.__suppress_context__
