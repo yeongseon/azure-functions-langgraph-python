@@ -82,7 +82,8 @@ The first published successor, 0.14.2 (`9344729`, Release PR #964), contains bot
 its [publish run 45393218077](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45393218077)
 passed every gate, including real-Azure certification, and uploaded the wheel and sdist to PyPI on
 2026-11-24 at 12:32 UTC. The v0.14.0 per-graph authentication fix (#868) and breaking Durable cancel
-response change therefore ship in 0.14.2; read its release notes when upgrading from 0.13.0.
+response change therefore ship in 0.14.2. The 0.14.2 release page lists only its own change, so when
+upgrading from 0.13.0 read the release notes of v0.14.0, v0.14.1 and 0.14.2 together.
 
 How to read the table:
 
