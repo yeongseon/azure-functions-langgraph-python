@@ -145,3 +145,16 @@ def test_probe_http_failure_redacts_endpoint_and_backend_details() -> None:
         _request(failed_request)
     assert "sensitive" not in str(caught.value)
     assert caught.value.__suppress_context__
+
+
+def test_cancel_is_last_so_terminated_activity_cannot_overlap_next_scenario() -> None:
+    import inspect
+    from tests.e2e_durable import test_durable_e2e
+
+    scenarios = [
+        value
+        for name, value in vars(test_durable_e2e).items()
+        if name.startswith("test_") and inspect.isfunction(value)
+    ]
+    last = max(scenarios, key=lambda scenario: inspect.getsourcelines(scenario)[1])
+    assert last.__name__ == "test_cancel_during_work_records_when_activity_finishes"

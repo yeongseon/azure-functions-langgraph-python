@@ -196,7 +196,7 @@ def test_same_thread_contention_rejects_second_run() -> None:
     )
 
 
-def test_cancel_during_work_records_when_activity_finishes() -> None:
+def _cancel_during_work_records_when_activity_finishes() -> None:
     run_id = f"d-cancel-{uuid.uuid4().hex[:12]}"
     hold = 60
     _create(run_id, hold=hold)
@@ -267,3 +267,8 @@ def test_host_restart_during_activity(mode: str) -> None:
             "record": lambda data: _record(f"host_{mode}", data),
         },
     )
+
+
+def test_cancel_during_work_records_when_activity_finishes() -> None:
+    # Termination does not prove Activity completion; leave no later scenario to overlap it.
+    _cancel_during_work_records_when_activity_finishes()
