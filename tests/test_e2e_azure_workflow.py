@@ -63,6 +63,20 @@ def _pytest_and_validator(job: str) -> tuple[list[str], list[str]]:
 
 
 @pytest.mark.parametrize("job", SELECTED)
+def test_core_tools_install_uses_npm_and_checks_the_binary(job: str) -> None:
+    [step] = [
+        step
+        for step in _job(job)["steps"]
+        if step.get("name") == "Install Azure Functions Core Tools"
+    ]
+
+    assert _lines(step) == [
+        "npm install --global azure-functions-core-tools@4 --unsafe-perm true",
+        "func --version",
+    ]
+
+
+@pytest.mark.parametrize("job", SELECTED)
 def test_validator_runs_after_pytest_on_the_report_pytest_wrote(job: str) -> None:
     pytest_run, validator = _pytest_and_validator(job)
 
