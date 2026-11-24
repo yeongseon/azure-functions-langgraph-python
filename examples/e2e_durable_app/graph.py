@@ -168,6 +168,62 @@ def effect_applied_count(key: str) -> int:
     return sum(1 for _ in evidence_container().list_blobs(name_starts_with=f"effect-applied/{key}"))
 
 
+def evidence_snapshot(key: str) -> dict[str, Any]:
+    """One client/list per snapshot; derive counts and timestamps from the same reads.
+
+    This container is owned by a short-lived test app, not an unbounded production
+    store. Filtering its listing avoids repeated per-kind create/list/download calls.
+    """
+    kinds = (
+        "attempt",
+        "started",
+        "rejected",
+        "node-enter",
+        "hold-started",
+        "hold-finished",
+        "activity-finished",
+        "effect-call",
+    )
+    markers: dict[str, list[Marker]] = {kind: [] for kind in kinds}
+    applied = 0
+    container = evidence_container()
+    try:
+        for blob in container.list_blobs():
+            parts = blob.name.split("/")
+            if parts == ["effect-applied", key]:
+                applied += 1
+            elif len(parts) == 3 and parts[1] == key and parts[0] in markers:
+                markers[parts[0]].append(
+                    Marker(
+                        time_ms=int(parts[2].split("-", 1)[0]),
+                        process_tag=container.download_blob(blob.name).readall().decode(),
+                    )
+                )
+    finally:
+        container.close()
+    for events in markers.values():
+        events.sort(key=lambda event: event["time_ms"])
+    aliases = {
+        "attempts": "attempt",
+        "started": "started",
+        "rejected": "rejected",
+        "node_entries": "node-enter",
+        "hold_finished": "hold-finished",
+        "completions": "activity-finished",
+        "effect_calls": "effect-call",
+    }
+    return {
+        "run_id": key,
+        **{
+            name: [event["process_tag"] for event in markers[kind]]
+            for name, kind in aliases.items()
+        },
+        "completion_times_ms": [event["time_ms"] for event in markers["activity-finished"]],
+        "effects_applied": applied,
+        "markers": markers,
+    }
+
+
 builder = StateGraph(DurableE2EState)
 builder.add_node("enter", enter)
 builder.add_node("hold", hold)

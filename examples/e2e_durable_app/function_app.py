@@ -26,10 +26,7 @@ from azure.storage.blob import ContainerClient
 from graph import (
     EvidenceObserver,
     build_graph,
-    count_markers,
-    effect_applied_count,
-    marker_events,
-    marker_times_ms,
+    evidence_snapshot,
 )
 
 from azure_functions_langgraph import LangGraphApp
@@ -73,32 +70,4 @@ def e2e_runtime(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="e2e/evidence/{run_id}", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def e2e_evidence(req: func.HttpRequest) -> func.HttpResponse:
-    run_id = req.route_params["run_id"]
-    return _json(
-        {
-            "run_id": run_id,
-            # Activity deliveries (started + rejected); node entries are counted separately.
-            "attempts": count_markers("attempt", run_id),
-            "started": count_markers("started", run_id),
-            "rejected": count_markers("rejected", run_id),
-            "node_entries": count_markers("node-enter", run_id),
-            "hold_finished": count_markers("hold-finished", run_id),
-            # Emitted after graph invocation returned (effect + checkpointing done).
-            "completions": count_markers("activity-finished", run_id),
-            "completion_times_ms": marker_times_ms("activity-finished", run_id),
-            "effect_calls": count_markers("effect-call", run_id),
-            "effects_applied": effect_applied_count(run_id),
-            "markers": {
-                kind: marker_events(kind, run_id)
-                for kind in (
-                    "attempt",
-                    "started",
-                    "rejected",
-                    "hold-started",
-                    "hold-finished",
-                    "activity-finished",
-                    "effect-call",
-                )
-            },
-        }
-    )
+    return _json(evidence_snapshot(req.route_params["run_id"]))
