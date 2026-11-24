@@ -31,8 +31,8 @@ SELECTED = {
 }
 
 
-def _job(name: str) -> dict[str, Any]:
-    workflow = cast(dict[str, Any], yaml.safe_load(WORKFLOW.read_text()))
+def _job(name: str, path: Path = WORKFLOW) -> dict[str, Any]:
+    workflow = cast(dict[str, Any], yaml.safe_load(path.read_text()))
     return cast(dict[str, Any], workflow["jobs"][name])
 
 
@@ -62,11 +62,17 @@ def _pytest_and_validator(job: str) -> tuple[list[str], list[str]]:
     return shlex.split(pytest_line), shlex.split(validator_line)
 
 
-@pytest.mark.parametrize("job", SELECTED)
-def test_core_tools_install_uses_npm_and_checks_the_binary(job: str) -> None:
+@pytest.mark.parametrize(
+    ("workflow", "job"),
+    [
+        *((WORKFLOW, job) for job in SELECTED),
+        (WORKFLOW.with_name("e2e-azure-durable.yml"), "deploy_and_test"),
+    ],
+)
+def test_core_tools_install_uses_npm_and_checks_the_binary(workflow: Path, job: str) -> None:
     [step] = [
         step
-        for step in _job(job)["steps"]
+        for step in _job(job, workflow)["steps"]
         if step.get("name") == "Install Azure Functions Core Tools"
     ]
 
