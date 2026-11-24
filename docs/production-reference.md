@@ -7,17 +7,16 @@ This is the single native HTTP reference selected in [#882](https://github.com/y
 Managed Identity, no storage keys in app settings**. Table storage is only for the
 optional Platform surface and is not provisioned here. Postgres is deferred.
 
-**Evidence status: partial, not an all-green certification.** On 2026-11-24 UTC,
-one deployed reference passed persistence, isolation, contention and restart tests,
-and observed the expected 200/401/200 auth statuses. The five-test live run ended
-**4 passed, 1 failed, 0 skipped** because an additional invoke-response assertion
-expected the wrong LangChain message envelope. That parser is corrected and tested
-offline, but was **not rerun on Azure**. A fourth, explicitly authorized cycle
-at `d6605ae2647571fcf281a8ed5488d31aa50ea3f8` provisioned successfully but stopped
-before publishing when the temporary wrapper's new role-inventory CLI command
-returned nonzero. Its subprocess exception was not sanitized correctly. No live
-tests ran in cycle four, and the four-cycle budget is exhausted. Do not equate
-this evidence with release certification.
+**Evidence status: one all-green live run on one deployment; not a release certification and not a
+repeatability claim.** On 2026-11-24 UTC the commands of this page were run in order from a fresh
+checkout of commit `951e616` (the deviations are listed under "Dated Azure evidence"): the remote
+build installed the published 0.14.2 wheel and the isolated harness reported **5 passed, 0 failed,
+0 skipped** in 37.88 s. It observed anonymous liveness 200, keyless invoke 401 and keyed invoke 200,
+the installed versions, same-thread persistence and cross-thread isolation, four concurrent
+same-thread requests (409, 200, 200, 409) and persistence across an Azure restart. Four earlier
+cycles stopped on defects in the verification scaffolding and in the example's health
+configuration, not on the package; they are kept below for the record. One run, one region, one
+app: do not generalize it.
 
 Verified deployment: Korea Central, Linux FC1 Flex Consumption, Python 3.11,
 2048 MB, no always-ready instances; published adapter wheel 0.14.2; public HTTPS
@@ -74,8 +73,7 @@ do not change the ordinary example dependency bounds.
 ```bash
 git clone https://github.com/yeongseon/azure-functions-langgraph-python.git
 cd azure-functions-langgraph-python
-# Pin the reference implementation and corrected harness, not a removable PR branch.
-git checkout 75a2c04
+# For an exactly repeatable run, check out the release tag or commit you intend to verify.
 make install
 export RG="rg-af-ref-$(date -u +%Y%m%d%H%M)"
 export APP="af-ref-$(date -u +%m%d%H%M)-$RANDOM"
@@ -225,6 +223,45 @@ limits; buffered SSE and HTTP response deadlines do not disappear on Flex.
 
 ## Dated Azure evidence — 2026-11-24 UTC
 
+### Final run: the documented commands, all five live tests passing
+
+Commit `951e616`, 22:33 to 22:39 UTC. The commands above were executed in order as one script
+with an `EXIT` cleanup trap. Deviations, all forced by the workstation: a `python` shim on
+`PATH` pointing at the local Python 3.11 (see Prerequisites); the existing Hatch environment's
+Python in place of `hatch run`, because Hatch environment creation hangs offline there; and
+`make install` skipped for the same reason. The remote build installed the **published 0.14.2
+wheel**. The protected runtime endpoint, not the workstation venv, reported the package versions
+below; the Functions host version comes from the publish output.
+
+| Runtime item | Deployed version |
+| --- | --- |
+| Python | 3.11.18 |
+| azure-functions-langgraph | 0.14.2 |
+| azure-functions | 1.26.0 |
+| langgraph | 1.2.24 |
+| langchain-core | 1.8.4 |
+| azure-storage-blob | 12.31.1 |
+| azure-identity | 1.27.0 |
+| Functions host (publish output) | 4.1055.300 |
+
+| Check / operation | Actual observation |
+| --- | --- |
+| Bicep build / group create / ARM validate / provision | 5 s / 2 s / 5 s / 98 s, every exit code 0 |
+| Template as deployed | Linux FC1 Flex Consumption, Python 3.11, 2048 MB, maximum 40, no always-ready instances; system-assigned identity; deployment storage authentication `SystemAssignedIdentity` |
+| Shared Key / anonymous Blob access / TLS | false / false / TLS1_2 |
+| App setting names | `AzureWebJobsStorage__accountName`, `AzureWebJobsStorage__credential`, `AZURE_STORAGE_BLOB_ACCOUNT_URL`, `LANGGRAPH_BLOB_CONTAINER`, `AGENT_MODEL_MODE`, `LANGGRAPH_ENABLE_PLATFORM`, `LANGGRAPH_ENABLE_DISTRIBUTED_LOCK`, `LANGGRAPH_AUTO_CREATE_STORAGE`, `AZFUNC_LANGGRAPH_LOCK_BACKEND`, `LANGGRAPH_STRICT_MSGPACK`; no connection-string setting |
+| Role assignments listed for the storage account | Exactly one: Storage Blob Data Owner, principal type ServicePrincipal (the app's system-assigned identity). The compiled template defines its scope as the storage account. The helper's string comparison of the listed scope with the account id returned false, which is consistent with resource-ID casing differences but was not re-checked because the group had already been deleted |
+| Remote wheel build and publish | 113 s, exit 0 |
+| Auth | 200 / 401 / 200; 5.684 s, not a cold-start measurement |
+| Installed runtime versions | the table above |
+| Same-thread persistence and cross-thread isolation | passed; 19.657 s |
+| Four concurrent same-thread invokes | 409 / 200 / 200 / 409; 4.936 s; the harness asserts that both accepted turns persisted exactly once, no rejected input appears, and a later append works |
+| Restart persistence | passed; 2.546 s |
+| Live pytest aggregate | **5 passed / 0 failed / 0 skipped**, 37.88 s, exit 0 |
+| Cleanup | group deleted and waited on; `exists` false after 78 s; no owned `rg-af-ref-*` group remains |
+
+### Earlier cycles (one to four)
+
 Application/IaC revision `7f2e7d3`; harness live revision before the subsequent
 offline message-envelope correction. Remote build installed the **published
 0.14.2 wheel** via reference requirements. The protected runtime endpoint, not
@@ -246,12 +283,12 @@ the workstation venv, reported:
 | Remote wheel build/publish | Passed; 106.139 s; 13.92 KB source upload |
 | Shared Key / anonymous Blob access | Both false; TLS1_2; system identity for deployment; no connection-string setting names |
 | Auth | Anonymous health 200, keyless invoke 401, keyed invoke 200; combined 5.387 s, not cold start |
-| Auth test extra parser | Failed on missing direct message `content`; invoke uses `data.content`; corrected offline, **not rerun live** |
+| Auth test extra parser | Failed on missing direct message `content`; invoke uses `data.content`; corrected offline, then exercised live in the final run above |
 | Installed runtime versions | Passed, table above |
 | Same-thread persistence and cross-thread isolation | Passed; 3 invokes plus state reads; 21.728 s |
 | Four concurrent invokes | 409 / 200 / 409 / 200; 0.644 s; both accepted turns persisted, rejected absent; later append passed |
 | Restart persistence | Passed; state before restart preserved and next turn accumulated; 7.212 s including Azure restart/readiness/state/invoke |
-| Live pytest aggregate | **4 passed / 1 failed / 0 skipped**, 35.77 s; not all-green certification |
+| Live pytest aggregate (cycle three) | **4 passed / 1 failed / 0 skipped**, 35.77 s; superseded by the final run above |
 
 The first three provision cycles: first stopped on evidence wrapper's null CLI
 properties; second exposed example's protected-liveness misconfiguration; third
@@ -286,9 +323,8 @@ for that missing live inventory.
 | Same-thread contention | Not run |
 | Restart persistence | Not run |
 
-No fifth cycle or alternative role query was attempted. The corrected invoke
-parser therefore still has offline proof only. The previous deployed runtime
-version table remains cycle-three evidence, not a new running-process claim.
+A fifth cycle followed (the final run above). It exercised the corrected invoke
+parser live and listed the role assignments with a simpler command (no `--all`).
 
 | Created group | Contents | Deletion evidence |
 | --- | --- | --- |
@@ -296,16 +332,18 @@ version table remains cycle-three evidence, not a new running-process claim.
 | `rg-af-ref-202611242148` | Same topology, published app | EXIT delete/wait; exists false; no remaining owned `rg-af-*` names |
 | `rg-af-ref-202611242157` | Same topology, corrected example | EXIT delete/wait; exists false; no remaining owned `rg-af-*` names |
 | `rg-af-ref-202611242222` | Same provisioned topology; stopped before publish | EXIT delete/wait; exists false; remaining `rg-af-*` list empty |
+| `rg-af-ref-202611242233` | Same topology, the documented commands, corrected harness | EXIT delete/wait; `exists` false; no owned `rg-af-ref-*` name remains |
 
 Resource group names above identify disposable evidence resources, not reusable
 deployment names. Every group lived for minutes, below the three-hour limit.
 Local sanitized logs, evidence JSON, JUnit and command durations are under
-`/tmp/opencode/ref882/`; that workstation directory is **not a durable CI artifact**.
+`/tmp/opencode/ref882/` and `/tmp/opencode/ref882c/` (the final run); those workstation
+directories are **not durable CI artifacts**.
 The essential evidence is recorded here; no credentials/subscription IDs are included.
 
 ## Cost, cold starts and teardown
 
-Estimated marginal cost for all four short-lived cycles: **under US$1 total**,
+Estimated marginal cost for all five short-lived cycles: **under US$1 total**,
 not an invoice or measured regional tariff. One Standard_LRS account and FC1 with
 no always-ready capacity, tiny deterministic traffic, no model service or telemetry
 resource. Actual billing was not measured; no sustained-load estimate is claimed.
@@ -330,5 +368,5 @@ Confirm `exists=false` for your group and that your owned name is absent from th
 list; never delete another person's group. The group deletion removes the plan,
 app/system identity, account/data/containers and scoped role assignment. Check
 Cost Management later for actual charges. Maintainer follow-up: authorize final
-SHA/RBAC, decide whether to authorize further work after the exhausted four-cycle budget,
-and decide a separate re-certification workflow; do not close #882 automatically.
+SHA/RBAC and decide whether a separate re-certification workflow lane is wanted
+(the harness on this page can be driven from one); do not close #882 automatically.
