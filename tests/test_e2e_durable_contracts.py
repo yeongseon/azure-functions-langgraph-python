@@ -149,6 +149,7 @@ def test_probe_http_failure_redacts_endpoint_and_backend_details() -> None:
 
 def test_cancel_is_last_so_terminated_activity_cannot_overlap_next_scenario() -> None:
     import inspect
+
     from tests.e2e_durable import test_durable_e2e
 
     scenarios = [
