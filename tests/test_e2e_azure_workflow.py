@@ -143,3 +143,80 @@ def test_validator_accepts_a_report_that_covers_the_areas_the_job_passes(
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_topology_lane_is_opt_in_for_both_entrypoints_and_absent_from_publish() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    for event in ("workflow_dispatch", "workflow_call"):
+        assert workflow[True][event]["inputs"]["certify_topology"] == {
+            "description": (
+                "Also run the opt-in deployed topology refusal smoke on one Y1 app "
+                "(not a publish gate)."
+            ),
+            "required": False,
+            "default": False,
+            "type": "boolean",
+        }
+    job = _job("deploy_and_test_topology")
+    assert job["if"] == "${{ inputs.certify_topology }}"
+    assert job["environment"] == "azure-e2e"
+    assert "permissions" not in job
+    assert "continue-on-error" not in job
+    publish = yaml.safe_load((WORKFLOW.parent / "publish-pypi.yml").read_text())
+    assert "certify_topology" not in publish["jobs"]["azure-e2e"].get("with", {})
+
+
+def test_topology_tests_and_junit_are_isolated_from_gate_selection() -> None:
+    pytest_run, validator = _pytest_and_validator("deploy_and_test_topology")
+    assert [word for word in pytest_run if word.startswith("tests/")] == ["tests/e2e_topology"]
+    assert pytest_run[pytest_run.index("-m") + 1] == "e2e_topology"
+    assert "--junitxml=cert-topology/$PHASE.xml" in pytest_run
+    assert validator[2] == "cert-topology/$PHASE.xml"
+    assert validator[3:] == ["--area", "deployed topology=test_topology_azure"]
+    assert "--tb=short" in pytest_run
+    _, step = _e2e_step("deploy_and_test_topology")
+    assert not {"if", "continue-on-error"} & set(step)
+    assert "||" not in step["run"]
+    assert "set +e" not in step["run"]
+    phases = "for PHASE in safe lock recovered-lock store recovered-store checkpointer "
+    assert phases in step["run"]
+    assert "recovered-checkpointer warnings; do" in step["run"]
+    for gate in SELECTED:
+        assert "e2e_topology" not in _e2e_step(gate)[1]["run"]
+
+
+def test_topology_cleanup_waits_even_when_optional_job_is_skipped() -> None:
+    cleanup = _job("cleanup")
+    assert "deploy_and_test_topology" in cleanup["needs"]
+    assert cleanup["if"] == "always()"
+    [step] = [s for s in cleanup["steps"] if s.get("name") == "Delete topology Resource Group"]
+    assert "${{ needs.deploy_and_test_topology.outputs.resource_group }}" in step["run"]
+    assert 'if [ -n "$RG_TOPOLOGY" ]; then' in step["run"]
+    assert 'az group delete --name "$RG_TOPOLOGY" --yes --no-wait' in step["run"]
+
+
+def test_topology_deploys_only_its_candidate_payload_without_new_identity() -> None:
+    job = _job("deploy_and_test_topology")
+    steps = job["steps"]
+    [deploy] = [s for s in steps if s.get("name") == "Deploy one Y1 app (Bicep)"]
+    assert "infra/main.bicep" in deploy["run"]
+    assert "enableAppInsights=false" in deploy["run"]
+    assert "functionAppNameB" not in deploy["run"]
+    assert "streamingFunctionAppName" not in deploy["run"]
+    [publish] = [s for s in steps if s.get("name") == "Publish topology function app"]
+    assert publish["working-directory"] == "examples/e2e_topology_app"
+    [bundle] = [s for s in steps if "Bundle candidate wheel" in s.get("name", "")]
+    assert "python -m build --wheel" in bundle["run"]
+    assert "[azure-blob,azure-table]" in bundle["run"]
+    assert "examples/e2e_app/" not in bundle["run"]
+    [login] = [s for s in steps if s.get("name") == "Azure login (OIDC)"]
+    assert login == next(s for s in _job("deploy_and_test")["steps"] if s == login)
+
+
+def test_topology_core_tools_matches_existing_install() -> None:
+    def install(job: str) -> dict[str, Any]:
+        return next(
+            s for s in _job(job)["steps"] if s.get("name") == "Install Azure Functions Core Tools"
+        )
+
+    assert install("deploy_and_test_topology") == install("deploy_and_test")
