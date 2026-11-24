@@ -28,6 +28,7 @@ from graph import (
     build_graph,
     count_markers,
     effect_applied_count,
+    marker_events,
     marker_times_ms,
 )
 
@@ -87,5 +88,17 @@ def e2e_evidence(req: func.HttpRequest) -> func.HttpResponse:
             "completion_times_ms": marker_times_ms("activity-finished", run_id),
             "effect_calls": count_markers("effect-call", run_id),
             "effects_applied": effect_applied_count(run_id),
+            "markers": {
+                kind: marker_events(kind, run_id)
+                for kind in (
+                    "attempt",
+                    "started",
+                    "rejected",
+                    "hold-started",
+                    "hold-finished",
+                    "activity-finished",
+                    "effect-call",
+                )
+            },
         }
     )
