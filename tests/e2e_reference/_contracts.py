@@ -6,13 +6,13 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, AliasPath, BaseModel, ConfigDict, Field
 
 
 class Message(BaseModel):
     model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
     type: Literal["human", "ai"]
-    content: str
+    content: str = Field(validation_alias=AliasChoices("content", AliasPath("data", "content")))
 
 
 class Conversation(BaseModel):

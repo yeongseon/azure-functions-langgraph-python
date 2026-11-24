@@ -33,6 +33,21 @@ def test_complete_conversation() -> None:
     conversation.check_turns(["b", "a"])
 
 
+def test_invoke_message_to_dict_envelope() -> None:
+    from langchain_core.messages import AIMessage, HumanMessage, message_to_dict
+
+    from tests.e2e_reference._contracts import InvokeResponse
+
+    messages = [
+        HumanMessage(content="a"),
+        AIMessage(content="[fake model] observed 1 human turn(s)"),
+    ]
+    response = InvokeResponse.model_validate(
+        {"output": {"messages": [message_to_dict(message) for message in messages]}}
+    )
+    response.output.check_turns(["a"])
+
+
 @pytest.mark.parametrize(
     "messages",
     [
