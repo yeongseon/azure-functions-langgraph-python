@@ -112,7 +112,7 @@ jobs:
           # Selects ONLY tests/e2e_durable via its marker; the repo addopts are cleared as in
           # e2e-azure.yml. check_junit.py fails the step on zero tests, any skip (so a missing
           # restart command cannot pass silently) or failure.
-          pytest tests/e2e_durable -v -m e2e_durable -o addopts="" --tb=short --junitxml=cert-durable/e2e-results.xml
+          pytest tests/e2e_durable -x -v -m e2e_durable -o addopts="" --tb=short --junitxml=cert-durable/e2e-results.xml
           python tools/check_junit.py cert-durable/e2e-results.xml \
             --area "durable lifecycle/restart=test_durable_e2e"
 

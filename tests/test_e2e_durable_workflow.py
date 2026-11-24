@@ -31,6 +31,7 @@ def test_durable_controls_target_only_the_run_app_and_validator_stays_strict() -
     ]
     words = shlex.split(pytest_line)
     assert "tests/e2e_durable" in words and "--tb=short" in words
+    assert "-x" in words
     assert "--junitxml=cert-durable/e2e-results.xml" in words
     assert "cert-durable/e2e-results.xml" in shlex.split(validator)
     assert "test_durable_e2e" in validator
