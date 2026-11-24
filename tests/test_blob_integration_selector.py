@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import inspect
 from unittest.mock import Mock
 
@@ -37,7 +38,7 @@ def test_explicit_blob_endpoint_never_probes_emulator(monkeypatch: pytest.Monkey
     monkeypatch.setattr(integration, "require_tcp_service", emulator)
     service = Mock()
     service.BlobServiceClient.from_connection_string.side_effect = ValueError(secret)
-    monkeypatch.setattr(integration.importlib, "import_module", lambda _: service)
+    monkeypatch.setattr(importlib, "import_module", lambda _: service)
     # When constructing the fixture, then expose only the exception class, never its value.
     with pytest.raises(pytest.fail.Exception) as caught:
         next(inspect.unwrap(integration.azurite_container_client)())
