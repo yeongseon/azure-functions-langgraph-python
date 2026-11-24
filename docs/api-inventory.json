@@ -939,8 +939,8 @@
           "signature": "(authorize: ThreadAuthorizer | None, context: AuthorizationContext) -> int | None"
         }
       ],
-      "tier": "Beta",
-      "tier_basis": "provisional"
+      "tier": "Stable-intent Core",
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [
@@ -2866,8 +2866,8 @@
           "signature": "(app: LangGraphApp) -> int"
         }
       ],
-      "tier": "Beta",
-      "tier_basis": "provisional"
+      "tier": "Stable-intent Core",
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [],
@@ -3924,7 +3924,7 @@
         }
       ],
       "tier": "Experimental",
-      "tier_basis": "provisional"
+      "tier_basis": "maintainer decision"
     },
     {
       "module": "azure_functions_langgraph.stores._errors",
@@ -4130,7 +4130,7 @@
         }
       ],
       "tier": "Experimental",
-      "tier_basis": "provisional"
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [],
@@ -4231,7 +4231,7 @@
         }
       ],
       "tier": "Experimental",
-      "tier_basis": "provisional"
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [
