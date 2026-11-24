@@ -189,15 +189,37 @@ jobs:
         run: ls -lh coverage.xml
 
       - name: Upload coverage to Codecov
+        id: codecov
         if: matrix.python-version == '3.11' && github.actor != 'dependabot[bot]'
+        continue-on-error: true
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
           verbose: true
-          fail_ci_if_error: false
+          fail_ci_if_error: true
         env:
           CODECOV_RETRIES: 3
+
+      - name: Report Codecov upload failure
+        if: matrix.python-version == '3.11' && github.actor != 'dependabot[bot]' && steps.codecov.outcome == 'failure'
+        run: |
+          echo "::warning::Codecov coverage upload failed (non-blocking). Check the upload log and CODECOV_TOKEN repository secret in Settings > Secrets and variables > Actions. The 95% pytest coverage gate is unaffected."
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ### Codecov upload failed (non-blocking)
+
+          External coverage reporting failed; check the **Upload coverage to Codecov** log.
+          Possible causes include a missing/invalid `CODECOV_TOKEN`, a secret unavailable
+          to a fork PR, or a Codecov/network outage. Repository secrets are unavailable to fork PRs.
+
+          The owner can obtain the repository upload token from the Codecov dashboard
+          and create/update `CODECOV_TOKEN` in **Settings > Secrets and variables > Actions**,
+          then rerun CI. Never print the token. If Codecov is no longer wanted, explicitly
+          retire the integration and remove its badge/configuration instead.
+
+          The blocking local pytest coverage gate (`fail_under = 95`) on Python 3.11
+          is unchanged and unaffected by this external upload failure.
+          EOF
 
   minimum-dependencies:
     name: Minimum dependencies (Py 3.11)

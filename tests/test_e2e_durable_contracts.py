@@ -7,6 +7,7 @@ from typing import Any
 
 import azure.functions as func
 import pytest
+import requests
 
 from azure_functions_langgraph.durable._runtime import create_run_http, get_run_http
 from tests.e2e_durable._contracts import (
@@ -16,6 +17,7 @@ from tests.e2e_durable._contracts import (
     check_success_evidence,
     create_body,
 )
+from tests.e2e_durable._restart import classify
 
 
 class _Status:
@@ -105,3 +107,55 @@ def test_success_evidence_allows_redelivery_but_requires_one_applied_effect() ->
         check_success_evidence({"attempts": [], "effects_applied": 1})
     with pytest.raises(AssertionError):
         check_success_evidence({"attempts": ["a"], "effects_applied": 2})
+
+
+@pytest.mark.parametrize(
+    ("starts", "finishes", "terminal", "expected"),
+    [
+        (["p1"], ["p1"], True, "A"),
+        (["p1", "p2"], ["p2"], True, "B"),
+        (["p1"], [], False, "C"),
+        (["p1", "p2"], ["p1", "p2"], True, "D"),
+        (["p1", "p1"], ["p1"], True, "D"),
+        (["p1"], [], True, "D"),
+        ([], [], False, "D"),
+    ],
+)
+def test_restart_classification_requires_process_completion_evidence(
+    starts: list[str], finishes: list[str], terminal: bool, expected: str
+) -> None:
+    evidence = {
+        "attempts": starts,
+        "effects_applied": 1,
+        "markers": {
+            "started": [{"process_tag": tag} for tag in starts],
+            "activity-finished": [{"process_tag": tag} for tag in finishes],
+        },
+    }
+    assert classify(evidence, terminal) == expected
+
+
+def test_probe_http_failure_redacts_endpoint_and_backend_details() -> None:
+    from tests.e2e_durable.test_durable_e2e import _request
+
+    def failed_request() -> requests.Response:
+        raise requests.ReadTimeout("sensitive-host-and-backend-detail")
+
+    with pytest.raises(AssertionError, match="details redacted") as caught:
+        _request(failed_request)
+    assert "sensitive" not in str(caught.value)
+    assert caught.value.__suppress_context__
+
+
+def test_cancel_is_last_so_terminated_activity_cannot_overlap_next_scenario() -> None:
+    import inspect
+
+    from tests.e2e_durable import test_durable_e2e
+
+    scenarios = [
+        value
+        for name, value in vars(test_durable_e2e).items()
+        if name.startswith("test_") and inspect.isfunction(value)
+    ]
+    last = max(scenarios, key=lambda scenario: inspect.getsourcelines(scenario)[1])
+    assert last.__name__ == "test_cancel_during_work_records_when_activity_finishes"

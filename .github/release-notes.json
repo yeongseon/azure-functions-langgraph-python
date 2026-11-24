@@ -61,6 +61,16 @@
       "notes": [
         "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/38891888298) (installed-wheel tests failed with `No module named 'scripts'`), so v0.12.1 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.12.2**. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
       ]
+    },
+    "v0.14.0": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/43702945169) (real-Azure certification could not create its resource group: the Azure subscription was disabled and read-only), so v0.14.0 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.14.2**. It contains these changes, including the breaking change to the Durable cancel response listed below. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
+    },
+    "v0.14.1": {
+      "notes": [
+        "**Status: not published to PyPI.** The `Publish to PyPI` run for this tag [failed](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45200927573) (real-Azure certification could not create its resource group: the Azure subscription was disabled and read-only), so v0.14.1 has no files on PyPI and cannot be installed from PyPI with pip. First published successor: **0.14.2**. It contains these changes. See [Release status](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/docs/release-status.md). The tag is kept as a record of the source and is not moved."
+      ]
     }
   }
 }

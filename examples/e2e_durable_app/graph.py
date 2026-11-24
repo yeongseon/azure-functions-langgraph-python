@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from pathlib import Path
 import time
 from typing import Any, TypedDict
 import uuid
@@ -41,6 +42,7 @@ from azure_functions_langgraph.observability import RunContext, RunRejectedReaso
 EVIDENCE_CONTAINER = os.environ.get("E2E_EVIDENCE_CONTAINER", "e2e-durable-evidence")
 CHECKPOINT_CONTAINER = os.environ.get("E2E_CHECKPOINT_CONTAINER", "langgraph-checkpoints")
 MAX_HOLD_SECONDS = 600.0
+_PROCESS_SALT = uuid.uuid4().hex
 
 
 class DurableE2EState(TypedDict, total=False):
@@ -65,16 +67,23 @@ def evidence_container() -> ContainerClient:
     return _container(EVIDENCE_CONTAINER)
 
 
-def instance_tag() -> str:
-    """A short, non-reversible tag of the host instance (never the raw instance id)."""
-    raw = os.environ.get("WEBSITE_INSTANCE_ID", "local")
-    return hashlib.sha256(raw.encode()).hexdigest()[:8]
+def process_tag() -> str:
+    """Salted process identity; never expose a PID, start tick or VM identifier.
+
+    Linux /proc/self/stat field 22 is the process start time in clock ticks.
+    Split after the final ')' because the comm field can itself contain spaces.
+    The private random salt also prevents enumeration of low-entropy PID/start pairs.
+    This fixture targets Linux only; missing /proc is an instrumentation failure.
+    """
+    start = Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19]
+    raw = f"{_PROCESS_SALT}:{os.environ.get('WEBSITE_INSTANCE_ID', 'local')}:{os.getpid()}:{start}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 def _mark(prefix: str, key: str) -> None:
     evidence_container().upload_blob(
         f"{prefix}/{key}/{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}",
-        instance_tag().encode(),
+        process_tag().encode(),
     )
 
 
@@ -85,6 +94,7 @@ def enter(state: DurableE2EState) -> dict[str, Any]:
 
 
 def hold(state: DurableE2EState) -> dict[str, Any]:
+    _mark("hold-started", state["run_id"])
     time.sleep(min(float(state.get("hold_seconds", 0)), MAX_HOLD_SECONDS))
     _mark("hold-finished", state["run_id"])
     return {"completed": state["run_id"]}
@@ -134,8 +144,84 @@ def marker_times_ms(prefix: str, key: str) -> list[int]:
     return sorted(int(b.name.rsplit("/", 1)[1].split("-", 1)[0]) for b in blobs)
 
 
+class Marker(TypedDict):
+    time_ms: int
+    process_tag: str
+
+
+def marker_events(prefix: str, key: str) -> list[Marker]:
+    """Keep timestamp and process tag paired, including concurrent/redelivered attempts."""
+    container = evidence_container()
+    return sorted(
+        [
+            Marker(
+                time_ms=int(b.name.rsplit("/", 1)[1].split("-", 1)[0]),
+                process_tag=container.download_blob(b.name).readall().decode(),
+            )
+            for b in container.list_blobs(name_starts_with=f"{prefix}/{key}/")
+        ],
+        key=lambda marker: marker["time_ms"],
+    )
+
+
 def effect_applied_count(key: str) -> int:
     return sum(1 for _ in evidence_container().list_blobs(name_starts_with=f"effect-applied/{key}"))
+
+
+def evidence_snapshot(key: str) -> dict[str, Any]:
+    """One client/list per snapshot; derive counts and timestamps from the same reads.
+
+    This container is owned by a short-lived test app, not an unbounded production
+    store. Filtering its listing avoids repeated per-kind create/list/download calls.
+    """
+    kinds = (
+        "attempt",
+        "started",
+        "rejected",
+        "node-enter",
+        "hold-started",
+        "hold-finished",
+        "activity-finished",
+        "effect-call",
+    )
+    markers: dict[str, list[Marker]] = {kind: [] for kind in kinds}
+    applied = 0
+    container = evidence_container()
+    try:
+        for blob in container.list_blobs():
+            parts = blob.name.split("/")
+            if parts == ["effect-applied", key]:
+                applied += 1
+            elif len(parts) == 3 and parts[1] == key and parts[0] in markers:
+                markers[parts[0]].append(
+                    Marker(
+                        time_ms=int(parts[2].split("-", 1)[0]),
+                        process_tag=container.download_blob(blob.name).readall().decode(),
+                    )
+                )
+    finally:
+        container.close()
+    for events in markers.values():
+        events.sort(key=lambda event: event["time_ms"])
+    aliases = {
+        "attempts": "attempt",
+        "started": "started",
+        "rejected": "rejected",
+        "node_entries": "node-enter",
+        "hold_finished": "hold-finished",
+        "completions": "activity-finished",
+        "effect_calls": "effect-call",
+    }
+    return {
+        "run_id": key,
+        **{
+            name: [event["process_tag"] for event in markers[kind]]
+            for name, kind in aliases.items()
+        },
+        "completion_times_ms": [event["time_ms"] for event in markers["activity-finished"]],
+        "effects_applied": applied,
+        "markers": markers,
+    }
 
 
 builder = StateGraph(DurableE2EState)
