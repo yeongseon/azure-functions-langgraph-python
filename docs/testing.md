@@ -348,6 +348,60 @@ LSP is clean for the new guard file; the integration module retains existing
 unresolved local-package and `_HAS_CONFORMANCE` constant-redefinition diagnostics.
 Read-only advisory review found no concrete defect; it is not human approval or CI.
 
+### Real-Azure fault follow-up — 2026-11-24 (#860, still partial)
+
+**8 passed, 0 failed/skipped in 45.04 s**, once at `561ad6b`, using repository
+`pyproject.toml` (asyncio auto mode), not the failed scratch harness. Latency is
+**client-to-Azure from a local workstation, not in-region**. New
+`tests/integration/test_blob_live_faults.py` skips before resolving its network
+fixture unless `BLOB_TEST_CONNECTION_STRING_ENV=BENCH_BLOB_CS` is set. Cancellation
+mirrors the offline schedule at the real saver upload seam; it is not cancellation
+at an arbitrary TCP packet boundary. Fresh savers read through both APIs.
+
+| Live probe | Result / observed timing |
+|---|---|
+| Native cancellation before/after `checkpoint.bin` (2) | PASS: before marker no checkpoint is visible; after marker the complete checkpoint is visible. Dirty hint persists; explicit retry cleans it and preserves values, metadata, slots and history. Whole cancellation/recovery/retry schedules: 0.603/0.740 s. |
+| **CLIENT-INJECTED** lost marker response, sync/native (2) | PASS: real upload succeeds, injected `TimeoutError` propagates, fresh reader recovers the committed tuple, explicit retry repairs hint, duplicate slots retain originals. Whole schedules: 0.575/0.499 s. Not an SDK retry/503 test. |
+| Real lease break, guard off, sync/native (2) | PASS: `BlobLeaseClient(marker).break_lease(lease_break_period=0)` frees `thread-locks/live/t`; a separate lock acquires it. Normal next renewal returns HTTP 409 `LeaseIdMismatchWithLeaseOperation`; loss detected 4.945/4.957 s after break response. Stale checkpoint writes still succeed. |
+| Real lease break, guard on, sync/native (2) | PASS: same real break/successor; loss detected after 4.924/4.970 s. Stale writes raise `ThreadLeaseLostError(reason="lost")` and leave checkpoint blobs unchanged. |
+
+Break calls took 0.009–0.039 s; leases were 15 s with normal 5 s renewal cadence,
+no accelerated/fake clock or injected renewal error. Detection times include up
+to 20 ms polling granularity. Observations match the production guide: the marker
+lease does not fence checkpoint writes; the opt-in guard rejects only **detected**
+loss. No documentation mismatch observed. Service-generated 503 cannot be induced
+on demand and was not observed. Read-concurrency/pool safety, rolling compatibility
+and the full conflict matrix remain **NOT PROVEN live**; pool pressure remains
+**NOT MEASURED**. The #905 ownership contract still **NEEDS MAINTAINER DECISION**.
+
+Reproduce on an approved temporary account with credentials acquired only into a
+shell variable in the same invocation: `BLOB_TEST_CONNECTION_STRING_ENV=BENCH_BLOB_CS
+timeout 600 "$PY" -m pytest -v -s -m integration
+tests/integration/test_blob_live_faults.py --no-cov -p no:cacheprovider --tb=no
+--show-capture=no --junitxml=/tmp/opencode/bench860c/live.xml` (join wrapped command
+lines). Raw safe runner, JUnit and logs are local under `/tmp/opencode/bench860c/`,
+not permanent published artifacts. Python 3.11.15 reused the existing Hatch `table`
+environment; source plus the prior local 0.14.2 wheel target supplied metadata.
+
+Only `rg-af-bench-860c-202611241627` / `stafbench860c88cdf3` was created, in
+`koreacentral`, tagged `purpose=benchmark repo=azure-functions-langgraph issue=860
+owner=agent`; Standard_LRS StorageV2, public Blob access false, TLS1_2. Lifetime
+16:27:30–16:30:37 UTC. EXIT trap synchronously deleted the group and waited;
+`deleted.txt` is `false`, `remaining-groups.txt` is empty. No compute. Estimated
+cost **<US$0.10** (minutes of tiny-payload storage/requests, not an invoice).
+
+Validation: affected offline tests **15 passed/8 opt-in skips**; installed-wheel
+selection **37 passed/8 opt-in skips**. Full source suite **5407 passed, 117 skipped,
+37 deselected, 2 xfailed; 96.91% coverage** (optional-service/dependency skips).
+`make build` passed. `make lint` timed out at 45 s; format-check/typecheck/
+lint-workflows/docs/test timed out at 20 s during Hatch dependency setup. Direct
+existing-environment ruff check/format, mypy (303 files), three workflow linters
+passed; these are fallback results, not successful Make gates.
+Direct MkDocs build passed (existing link notices). Both new files have clean LSP
+diagnostics with a temporary local Python 3.11/source-path configuration (not
+committed). Subsequent edits only make the same guarded configuration type-safe;
+the live run remains attributed to its actual tested revision, not a later SHA.
+
 ## Test structure
 
 ```
