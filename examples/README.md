@@ -49,7 +49,7 @@ Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` wh
 
 The four primary learning-path examples and the default-path `simple_agent` (the example the
 5-minute tutorial installs) intentionally target the published
-`azure-functions-langgraph>=0.13.0,<0.14` line in their checked-in requirements.
+`azure-functions-langgraph>=0.14.2,<0.15` line in their checked-in requirements.
 They are onboarding artifacts that a newcomer can install from PyPI; they do not
 claim to install unreleased behavior from development `main`. Release Please
 does not manage these example bounds, so changing that published target is an

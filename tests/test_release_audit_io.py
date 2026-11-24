@@ -180,7 +180,7 @@ def test_registry_reasons_and_release_note_annotations_match_release_status() ->
         for line in page.splitlines()
         if re.match(r"\| v\d+\.\d+\.\d+ \|", line)
     }
-    # Then: the same ten tags carry identical run ids, successors and failure causes everywhere.
+    # Then: all registered tags carry identical run ids, successors and failure causes everywhere.
     assert set(notes) == set(rows) == {e.tag for e in registry.exceptions}
     for entry in registry.exceptions:
         note = " ".join(notes[entry.tag]["notes"])
