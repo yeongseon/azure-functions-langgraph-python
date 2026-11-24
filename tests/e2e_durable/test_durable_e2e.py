@@ -23,8 +23,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
-import subprocess
 import time
 from typing import Any
 import uuid
@@ -38,9 +36,13 @@ from ._contracts import (
     check_success_evidence,
     create_body,
 )
+from ._restart import HOLD_SECONDS, restart_probe
 
 BASE_URL = os.environ.get("E2E_DURABLE_BASE_URL", "").rstrip("/")
 RESTART_CMD = os.environ.get("E2E_DURABLE_RESTART_CMD", "")
+STOP_CMD = os.environ.get("E2E_DURABLE_STOP_CMD", "")
+START_CMD = os.environ.get("E2E_DURABLE_START_CMD", "")
+STATE_CMD = os.environ.get("E2E_DURABLE_STATE_CMD", "")
 EVIDENCE_PATH = os.environ.get("E2E_DURABLE_EVIDENCE", "")
 GRAPH = "e2e_durable"
 TERMINAL = {"success", "error", "cancelled"}
@@ -220,38 +222,28 @@ def test_cancel_during_work_records_when_activity_finishes() -> None:
     )
 
 
-@pytest.mark.skipif(
-    not RESTART_CMD, reason="E2E_DURABLE_RESTART_CMD not set; skipping host restart"
-)
-def test_host_restart_during_activity() -> None:
+@pytest.mark.parametrize("mode", ["restart", "stop_start"])
+def test_host_restart_during_activity(mode: str) -> None:
+    commands = {"restart": RESTART_CMD, "stop": STOP_CMD, "start": START_CMD, "state": STATE_CMD}
+    required = ["restart"] if mode == "restart" else ["stop", "start", "state"]
+    if not all(commands[name] for name in required):
+        pytest.skip("Durable restart control commands not configured")
     run_id = f"d-restart-{uuid.uuid4().hex[:12]}"
-    thread = f"t-{run_id}"
-    seen: list[str] = []
-    _create(run_id, hold=90, thread_id=thread)
-    _wait_entered(run_id)
-    before = _get(run_id)["status"]
-    subprocess.run(shlex.split(RESTART_CMD), check=True, timeout=300)  # noqa: S603
-    final = _wait_terminal(run_id, 900, seen)
-    ev = _evidence_for(run_id)
-    _record(
-        "host_restart",
+    _create(run_id, hold=HOLD_SECONDS)
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        ev = _evidence_for(run_id)
+        if ev["markers"]["hold-started"] and not ev["hold_finished"]:
+            break
+        time.sleep(2)
+    else:
+        raise AssertionError("Activity never observed inside hold")
+    restart_probe(
+        mode,
+        commands,
         {
-            "status_before_restart": before,
-            "statuses_after_restart": seen,
-            "final_status": final["status"],
-            "final_activity_status": (final.get("output") or {}).get("activity_status"),
-            "activity_attempts": len(ev["attempts"]),
-            "activity_started": len(ev["started"]),
-            "activity_rejected": len(ev["rejected"]),
-            "graph_node_entries": len(ev["node_entries"]),
-            "hold_finished": len(ev["hold_finished"]),
-            "attempt_instance_tags": sorted(set(ev["attempts"])),
-            "activity_completions": len(ev["completions"]),
-            "activity_completion_times_ms": ev["completion_times_ms"],
-            "effect_calls": len(ev["effect_calls"]),
-            "effects_applied": ev["effects_applied"],
+            "get": lambda: _get(run_id),
+            "evidence": lambda: _evidence_for(run_id),
+            "record": lambda data: _record(f"host_{mode}", data),
         },
     )
-    # Package-level promises only: a terminal normalized status, and the idempotency key holding.
-    assert final["status"] in TERMINAL
-    assert ev["effects_applied"] <= 1, "idempotency key failed to suppress a duplicate effect"

@@ -16,6 +16,7 @@ from tests.e2e_durable._contracts import (
     check_success_evidence,
     create_body,
 )
+from tests.e2e_durable._restart import classify
 
 
 class _Status:
@@ -105,3 +106,29 @@ def test_success_evidence_allows_redelivery_but_requires_one_applied_effect() ->
         check_success_evidence({"attempts": [], "effects_applied": 1})
     with pytest.raises(AssertionError):
         check_success_evidence({"attempts": ["a"], "effects_applied": 2})
+
+
+@pytest.mark.parametrize(
+    ("starts", "finishes", "terminal", "expected"),
+    [
+        (["p1"], ["p1"], True, "A"),
+        (["p1", "p2"], ["p2"], True, "B"),
+        (["p1"], [], False, "C"),
+        (["p1", "p2"], ["p1", "p2"], True, "D"),
+        (["p1", "p1"], ["p1"], True, "D"),
+        (["p1"], [], True, "D"),
+        ([], [], False, "D"),
+    ],
+)
+def test_restart_classification_requires_process_completion_evidence(
+    starts: list[str], finishes: list[str], terminal: bool, expected: str
+) -> None:
+    evidence = {
+        "attempts": starts,
+        "effects_applied": 1,
+        "markers": {
+            "started": [{"process_tag": tag} for tag in starts],
+            "activity-finished": [{"process_tag": tag} for tag in finishes],
+        },
+    }
+    assert classify(evidence, terminal) == expected
