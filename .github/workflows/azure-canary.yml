@@ -1,0 +1,26 @@
+name: azure-canary
+
+"on":
+  # GitHub runs scheduled workflows only on the default branch.
+  schedule:
+    - cron: "41 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize scheduled and manual canaries across refs without cancelling cleanup.
+concurrency:
+  group: azure-canary
+  cancel-in-progress: false
+
+jobs:
+  azure-e2e:
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/e2e-azure.yml
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
