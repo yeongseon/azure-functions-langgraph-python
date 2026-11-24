@@ -77,3 +77,22 @@ def test_deployment_container_is_created_before_the_site() -> None:
     assert value is not None
     assert "deploymentContainer.name" in value.group(1)
     assert "resource deploymentContainer " in _code()
+
+
+def test_identity_off_preserves_connection_string_defaults() -> None:
+    code = _code()
+    assert "param identityBasedStorage bool = false" in code
+    assert "param pythonVersion string = '3.13'" in code
+    assert "param maximumInstanceCount int = 40" in code
+    assert "identity: identityBasedStorage ? { type: 'SystemAssigned' } : null" in code
+    settings = re.search(
+        r"appSettings: identityBasedStorage\s*\?\s*\[.*?\]\s*:\s*\[(.*?)\]", code, re.S
+    )
+    assert settings is not None
+    assert set(re.findall(r"name:\s*'([^']+)'", settings.group(1))) == {
+        "AzureWebJobsStorage",
+        "DEPLOYMENT_STORAGE_CONNECTION_STRING",
+    }
+    assert settings.group(1).count("value: storageConnectionString") == 2
+    for resource in ("checkpointContainer", "hostStorageRole"):
+        assert re.search(rf"resource {resource} '[^']+' = if \(identityBasedStorage\)", code)

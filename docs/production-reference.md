@@ -70,8 +70,8 @@ do not change the ordinary example dependency bounds.
 ```bash
 git clone https://github.com/yeongseon/azure-functions-langgraph-python.git
 cd azure-functions-langgraph-python
-# Until merged, check out the reference PR branch explicitly.
-git checkout docs/flex-blob-production-reference-882
+# Pin the reference implementation and corrected harness, not a removable PR branch.
+git checkout 75a2c04
 make install
 export RG="rg-af-ref-$(date -u +%Y%m%d%H%M)"
 export APP="af-ref-$(date -u +%m%d%H%M)-$RANDOM"
@@ -123,13 +123,11 @@ az functionapp config appsettings list -g "$RG" -n "$APP" --query '[].name'
 ```bash
 export REF882_BASE_URL="https://$APP.azurewebsites.net"
 export REF882_RESOURCE_GROUP="$RG" REF882_APP="$APP"
-export REF882_EVIDENCE="$PWD/reference-evidence.json"
-REF882_FUNCTION_KEY=$(az functionapp keys list -g "$RG" -n "$APP" \
-  --query functionKeys.default -o tsv)
-export REF882_FUNCTION_KEY
+export REF882_EVIDENCE="$(mktemp)"
+REF882_FUNCTION_KEY="$(az functionapp keys list -g "$RG" -n "$APP" \
+  --query functionKeys.default -o tsv)" \
 hatch run python -m pytest tests/e2e_reference -m e2e_reference \
   -o addopts='' --tb=no --show-capture=no -q
-unset REF882_FUNCTION_KEY
 ```
 
 The harness checks anonymous liveness, rejected keyless and successful keyed
