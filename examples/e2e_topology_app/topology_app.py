@@ -42,16 +42,13 @@ def create_app(environ: Mapping[str, str]) -> LangGraphApp:
         auth_level=func.AuthLevel.FUNCTION,
         thread_lock=AzureBlobLeaseThreadLock(container_client=locks),
     )
-    app.thread_store = AzureTableThreadStore.from_table_client(
-        table_client=TableClient.from_connection_string(connection, "topologythreads")
-    )
     mode = environ.get("TOPOLOGY_MODE", "safe")
+    if mode not in {"store", "warnings"}:
+        app.thread_store = AzureTableThreadStore.from_table_client(
+            table_client=TableClient.from_connection_string(connection, "topologythreads")
+        )
     if mode in {"lock", "warnings"}:
         app.thread_lock = InProcessThreadLock()
-    if mode in {"store", "warnings"}:
-        from azure_functions_langgraph.platform.stores import InMemoryThreadStore
-
-        app.thread_store = InMemoryThreadStore()
     builder = StateGraph(State)
     builder.add_node("echo", echo)
     builder.add_edge(START, "echo")
