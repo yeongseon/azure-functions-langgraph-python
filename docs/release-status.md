@@ -9,12 +9,12 @@ This page lists the tagged versions that have no files on PyPI, what the retaine
 each one, and which published version to use instead. For every one of them the `Publish to PyPI` run
 for the tag failed.
 
-*Last verified: 2026-11-10, against PyPI, the GitHub Releases API, the git tags and the GitHub Actions
-run records. It covers the GitHub Releases from v0.2.0 to v0.13.0.*
+*Last verified: 2026-11-24, against PyPI, the GitHub Releases API, the git tags and the GitHub Actions
+run records. It covers the GitHub Releases from v0.2.0 to v0.14.2.*
 
 The read-only [release audit](release_process.md#release-audit), run with
 `make audit-releases` or by the `Release audit` workflow, compares GitHub and PyPI facts version by version. Its explicit
-`.github/release-audit-exceptions.json` registry mirrors the ten historical rows below,
+`.github/release-audit-exceptions.json` registry mirrors the twelve historical rows below,
 including the unconfirmed v0.5.3 cause; offline tests guard that correspondence.
 Covered findings remain visible as `EXCEPTED`, while new discrepancies fail the audit.
 Exceptions pin failed and skipped job names/conclusions, not diagnostic message text.
@@ -70,18 +70,32 @@ the versions below has no candidate on PyPI.
 | v0.11.2 | 2026-10-11 | [38144369700](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/38144369700) | Real-Azure certification: the same three tests failed in the same ways. #591 followed, and v0.11.3 failed the same three tests. | 0.11.4 |
 | v0.11.3 | 2026-10-11 | [38145575218](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/38145575218) | Real-Azure certification: the same three tests failed in the same ways. #593 followed, and 0.11.4 passed every gate. | 0.11.4 |
 | v0.12.1 | 2026-10-16 | [38891888298](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/38891888298) | Installed-wheel tests: `No module named 'scripts'` while collecting `tests/test_example_install_certification.py`. #636 followed, and 0.12.2 passed every gate. | 0.12.2 |
+| v0.14.0 | 2026-11-15 | [43702945169](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/43702945169) | Real-Azure certification: `Create Resource Group` failed with `ReadOnlyDisabledSubscription` because the Azure subscription was disabled. Cleanup also failed with `ResourceGroupNotFound` because the resource group was never created; publication was skipped. #914 tracks recovery, and 0.14.2 passed every gate. | 0.14.2 |
+| v0.14.1 | 2026-11-23 | [45200927573](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45200927573) | Real-Azure certification: the same `Create Resource Group` step failed with `ReadOnlyDisabledSubscription`. Cleanup also failed with `ResourceGroupNotFound` because the resource group was never created; publication was skipped. #914 tracks recovery, and 0.14.2 passed every gate. | 0.14.2 |
+
+After the subscription was restored on 2026-11-24, standalone certification of v0.14.1
+([run 45379612369](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45379612369))
+failed at `Install Azure Functions Core Tools` because `ubuntu-latest` resolved to Ubuntu 26.04 (#965).
+The fix landed in #967 (`e62aea4`). The tagged publish workflow calls the certification workflow at
+the same ref, so that workflow fix required a new tag, not a retry of either unchanged candidate.
+The first published successor, 0.14.2 (`9344729`, Release PR #964), contains both candidates' changes;
+its [publish run 45393218077](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45393218077)
+passed every gate, including real-Azure certification, and uploaded the wheel and sdist to PyPI on
+2026-11-24 at 12:32 UTC. The v0.14.0 per-graph authentication fix (#868) and breaking Durable cancel
+response change therefore ship in 0.14.2. The 0.14.2 release page lists only its own change, so when
+upgrading from 0.13.0 read the release notes of v0.14.0, v0.14.1 and 0.14.2 together.
 
 How to read the table:
 
 - Every row is a failed `Publish to PyPI` run, none of these versions has files on PyPI as of the
   verification date, and none of the tags lacks a publish run.
 - The first published successor is the first published version whose tag commit descends from the
-  unpublished tag. Every published version after it, through v0.13.0, descends from it as well. That
+  unpublished tag. Every published version after it, through v0.14.2, descends from it as well. That
   does not guarantee unchanged APIs or behavior, so read the release notes before moving. For a new
   install use the latest release.
 - GitHub keeps job logs for a limited time. By the verification date the logs of the April 2026 runs had
   expired, so those rows rest on the run record, the check annotations that GitHub still keeps and the
-  git history. The October rows rest on the job logs.
+  git history. The October and November rows rest on the job logs.
 - There is no v0.6.x: no tag, GitHub Release or PyPI version exists for it.
 - A tag whose publish run failed and that has no published successor yet is not a row, whatever
   its date: a row records a verified first published successor. Its GitHub Release carries a

@@ -104,3 +104,39 @@ def test_setup_python_cache_inputs_are_checked_out_first() -> None:
             continue
         assert job.index("actions/checkout@") < job.index("cache: pip")
         assert "cache-dependency-path:" in job
+
+
+def test_codecov_failure_is_visible_without_blocking_tests() -> None:
+    workflow = CI_WORKFLOW.read_text()
+    upload = workflow.split("      - name: Upload coverage to Codecov\n", 1)[1]
+    upload, report = upload.split("      - name: Report Codecov upload failure\n", 1)
+    report = report.split("\n  minimum-dependencies:", 1)[0]
+
+    eligibility = "matrix.python-version == '3.11' && github.actor != 'dependabot[bot]'"
+    assert f"if: {eligibility}" in upload
+    assert "id: codecov" in upload
+    assert "continue-on-error: true" in upload
+    assert "fail_ci_if_error: true" in upload
+    assert f"if: {eligibility} && steps.codecov.outcome == 'failure'" in report
+
+
+def test_codecov_failure_report_emits_warning_and_appends_summary(tmp_path: Path) -> None:
+    workflow = CI_WORKFLOW.read_text()
+    report = workflow.split("      - name: Report Codecov upload failure\n", 1)[1]
+    program = report.split("        run: |\n", 1)[1].split("\n  minimum-dependencies:", 1)[0]
+    program = "\n".join(line[10:] for line in program.splitlines())
+    summary = tmp_path / "summary.md"
+    summary.write_text("Existing summary\n")
+
+    result = subprocess.run(
+        ["bash", "-e", "-c", program],
+        env={"GITHUB_STEP_SUMMARY": str(summary)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "::warning::" in result.stdout
+    assert summary.read_text().startswith("Existing summary\n")
+    assert len(summary.read_text()) > len("Existing summary\n")

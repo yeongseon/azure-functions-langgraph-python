@@ -25,6 +25,11 @@ on:
         required: false
         default: false
         type: boolean
+      certify_topology:
+        description: "Also run the opt-in deployed topology refusal smoke on one Y1 app (not a publish gate)."
+        required: false
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       ref:
@@ -37,6 +42,11 @@ on:
         type: string
       certify_2x:
         description: "Also certify the azure-functions 2.x runtime on Flex Consumption (Python 3.13). Off by default; the 1.x Linux Consumption path is the release-gating certification (#350)."
+        required: false
+        default: false
+        type: boolean
+      certify_topology:
+        description: "Also run the opt-in deployed topology refusal smoke on one Y1 app (not a publish gate)."
         required: false
         default: false
         type: boolean
@@ -388,13 +398,160 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  deploy_and_test_topology:
+    name: Deploy & Test (topology refusal / Y1 / Py 3.12)
+    runs-on: ubuntu-latest
+    environment: azure-e2e
+    if: ${{ inputs.certify_topology }}
+    timeout-minutes: 35
+    outputs:
+      resource_group: ${{ steps.names.outputs.rg }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Compute resource names
+        id: names
+        run: |
+          RUN="${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
+          echo "rg=rg-af-e2e-${REPO_SHORT}-topology-${RUN}" >> "$GITHUB_OUTPUT"
+          echo "app=af-e2e-${REPO_SHORT}-topology-${RUN}" >> "$GITHUB_OUTPUT"
+          echo "st=stafe2et${RUN}" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create Resource Group
+        run: |
+          az group create --name "${{ steps.names.outputs.rg }}" \
+            --location "$AZURE_LOCATION" \
+            --tags purpose=e2e repo=azure-functions-langgraph lane=topology run="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --output none
+
+      - name: Deploy one Y1 app (Bicep)
+        run: |
+          az deployment group create --resource-group "${{ steps.names.outputs.rg }}" \
+            --template-file infra/main.bicep \
+            --parameters functionAppName="${{ steps.names.outputs.app }}" \
+              storageName="${{ steps.names.outputs.st }}" location="$AZURE_LOCATION" enableAppInsights=false \
+            --output none
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Azure Functions Core Tools
+        run: |
+          npm install --global azure-functions-core-tools@4 --unsafe-perm true
+          func --version
+
+      - name: Bundle candidate wheel into topology payload
+        run: |
+          python -m pip install build pytest requests
+          python -m build --wheel --outdir dist
+          mkdir -p examples/e2e_topology_app/wheels cert-topology
+          WHEEL=$(ls dist/azure_functions_langgraph-*.whl)
+          cp "$WHEEL" examples/e2e_topology_app/wheels/
+          echo "./wheels/$(basename "$WHEEL")[azure-blob,azure-table]" >> examples/e2e_topology_app/requirements.txt
+          sha256sum "$WHEEL" > cert-topology/candidate-wheel.sha256
+          git rev-parse HEAD > cert-topology/candidate-sha.txt
+
+      - name: Configure safe declared-distributed topology
+        run: |
+          az functionapp config appsettings set --resource-group "${{ steps.names.outputs.rg }}" \
+            --name "${{ steps.names.outputs.app }}" --settings \
+              AZFUNC_LANGGRAPH_LOCK_BACKEND=distributed AZFUNC_LANGGRAPH_THREAD_STORE=distributed \
+              TOPOLOGY_MODE=safe TOPOLOGY_CANDIDATE_SHA="$(git rev-parse HEAD)" --output none
+
+      - name: Publish topology function app
+        working-directory: examples/e2e_topology_app
+        timeout-minutes: 15
+        run: func azure functionapp publish "${{ steps.names.outputs.app }}" --python --build remote
+
+      - name: Read topology function key
+        id: topology_key
+        run: |
+          KEY=$(az functionapp keys list --resource-group "${{ steps.names.outputs.rg }}" \
+            --name "${{ steps.names.outputs.app }}" --query functionKeys.default --output tsv)
+          test -n "$KEY"
+          echo "::add-mask::$KEY"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Run topology safe refusal recovery and hosted-warning tests
+        env:
+          TOPOLOGY_BASE_URL: https://${{ steps.names.outputs.app }}.azurewebsites.net
+          TOPOLOGY_CODE: ${{ steps.topology_key.outputs.key }}
+          TOPOLOGY_RG: ${{ steps.names.outputs.rg }}
+          TOPOLOGY_APP: ${{ steps.names.outputs.app }}
+        run: |
+          export TOPOLOGY_CANDIDATE_SHA=$(git rev-parse HEAD)
+          for PHASE in safe lock recovered-lock store recovered-store checkpointer recovered-checkpointer warnings; do
+            export TOPOLOGY_PHASE="$PHASE"
+            export TOPOLOGY_CHANGED_AT=$(date +%s)
+            MODE=safe
+            LOCK=distributed
+            STORE=distributed
+            case "$PHASE" in
+              lock|store|checkpointer) MODE="$PHASE" ;;
+              warnings) MODE=warnings; LOCK=''; STORE='' ;;
+            esac
+            az functionapp config appsettings set --resource-group "$TOPOLOGY_RG" --name "$TOPOLOGY_APP" \
+              --settings TOPOLOGY_MODE="$MODE" AZFUNC_LANGGRAPH_LOCK_BACKEND="$LOCK" \
+                AZFUNC_LANGGRAPH_THREAD_STORE="$STORE" --output none
+            az functionapp restart --resource-group "$TOPOLOGY_RG" --name "$TOPOLOGY_APP" --output none
+            sleep 60
+            pytest tests/e2e_topology -v -s -m e2e_topology -o addopts="" --tb=short --junitxml="cert-topology/$PHASE.xml"
+            python tools/check_junit.py "cert-topology/$PHASE.xml" \
+              --area "deployed topology=test_topology_azure"
+          done
+
+      - name: Try existing Azure diagnostic logs without enabling logging
+        if: always()
+        env:
+          TOPOLOGY_RG: ${{ steps.names.outputs.rg }}
+          TOPOLOGY_APP: ${{ steps.names.outputs.app }}
+        run: |
+          mkdir -p cert-topology
+          if timeout 60 az webapp log download --resource-group "$TOPOLOGY_RG" --name "$TOPOLOGY_APP" \
+              --log-file "$RUNNER_TEMP/topology-logs.zip" --output none > "$RUNNER_TEMP/topology-log-download.txt" 2>&1; then
+            python - <<'PY'
+          import json, os, zipfile
+          from pathlib import Path
+          patterns = ["Worker failed to index functions", "requires a distributed thread_lock backend",
+                      "requires a distributed thread store", "process-local InMemorySaver checkpointer, but AZFUNC"]
+          with zipfile.ZipFile(Path(os.environ["RUNNER_TEMP"]) / "topology-logs.zip") as archive:
+              texts = [archive.read(name).decode(errors="replace") for name in archive.namelist()
+                       if not name.endswith("/")]
+          result = {pattern: any(pattern in text for text in texts) for pattern in patterns}
+          Path("cert-topology/diagnostics.json").write_text(json.dumps(result, indent=2))
+          print(json.dumps(result))
+          PY
+          else
+            echo 'diagnostic text on Azure: NOT OBSERVED (existing log download unavailable; no logging or permission changes)' | tee cert-topology/diagnostics.txt
+          fi
+
+      - name: Upload topology smoke evidence (not release certification)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: azure-topology-smoke
+          path: cert-topology/
+          if-no-files-found: error
+          retention-days: 30
+
   cleanup:
     name: Cleanup Azure Resources
     runs-on: ubuntu-latest
     # Pins the OIDC subject to environment:azure-e2e regardless of the triggering
     # ref, so one Azure federated credential covers tag pushes and dispatches.
     environment: azure-e2e
-    needs: [deploy_and_test, deploy_and_test_2x]
+    needs: [deploy_and_test, deploy_and_test_2x, deploy_and_test_topology]
     if: always()
     steps:
       - name: Azure login (OIDC)
@@ -422,4 +579,14 @@ jobs:
             az group delete --name "$RG_2X" --yes --no-wait
           else
             echo "No 2.x resource group to delete."
+          fi
+
+      - name: Delete topology Resource Group
+        run: |
+          RG_TOPOLOGY="${{ needs.deploy_and_test_topology.outputs.resource_group }}"
+          if [ -n "$RG_TOPOLOGY" ]; then
+            echo "Deleting topology resource group: $RG_TOPOLOGY"
+            az group delete --name "$RG_TOPOLOGY" --yes --no-wait
+          else
+            echo "No topology resource group to delete."
           fi
