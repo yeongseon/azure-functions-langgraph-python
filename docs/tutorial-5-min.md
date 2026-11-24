@@ -87,6 +87,14 @@ candidate behavior, not published-package behavior.
 > value, which is enough for local HTTP-only runs. No storage emulator is needed
 > for this path.
 
+> With Core Tools 4.8.0 and this empty setting, the host log shows
+> `Process reporting unhealthy: Unhealthy` with
+> `azure.functions.webjobs.storage ... Unable to create client for AzureWebJobsStorage`
+> a few seconds after `func start` and again about 30 seconds later, while the
+> web host and script host lifecycle entries stay Healthy and the routes keep
+> answering. It reflects that no storage account is configured for the host in this
+> local HTTP-only run; the deploy step below creates one.
+
 ## Step 3 — Run locally (30s)
 
 ```bash
@@ -252,16 +260,23 @@ The invoke request/response contract and the health-probe shape shown above are
 asserted against the **real `examples/simple_agent` graph** in CI by
 [`tests/test_tutorial_smoke.py`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/tests/test_tutorial_smoke.py), which drives
 the documented payload through the same native HTTP handler the deployed app
-uses. If the example or the endpoint contract changes, that test fails — so the
-commands here cannot silently drift out of date.
+uses. The CI `host-smoke` job (`make host-smoke`) also boots the example under a
+real Functions host with `func start`, using the example's own `host.json` and
+`local.settings.json` (an empty `AzureWebJobsStorage` and no storage emulator),
+and checks the routes, the health probe, the invoke response and the stream call
+shown above. That job runs the current source, not the package version pinned in
+`requirements.txt`. If the example or the endpoint contract changes, those checks
+fail — so the commands here cannot silently drift out of date.
 
-For a full local host boot (Core Tools + curl), run
+To repeat the host boot by hand against the package version pinned in the
+example's `requirements.txt` (Core Tools + curl), run
 [`tools/smoke_tutorial.sh`](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/tools/smoke_tutorial.sh).
 
 ## Next steps
 
 - [Configuration](configuration.md) — auth levels, per-graph overrides, route prefix
 - [Usage Guide](usage.md) — full endpoint reference and request/response formats
+- [Start from your own project](getting-started.md#start-from-a-new-functions-project): scaffold with `func init` and add the graph
 - **Optional, only when you need them:**
     - [Deployment (advanced guide)](deployment.md): Premium, Blob/Table storage, `platform_compat`
     - [Production Guide](production-guide.md): persistence, distributed locks, Managed Identity, hardening

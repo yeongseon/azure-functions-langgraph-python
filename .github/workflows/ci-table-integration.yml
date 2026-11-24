@@ -39,6 +39,7 @@ on:
       - "tests/test_production_persistent_agent_example.py"
       - "examples/production_persistent_agent/**"
       - "pyproject.toml"
+      - "tools/benchmark_blob_checkpointer.py"
       - "tools/check_junit.py"
       - ".github/workflows/ci-table-integration.yml"
   push:
@@ -79,6 +80,7 @@ on:
       - "tests/test_production_persistent_agent_example.py"
       - "examples/production_persistent_agent/**"
       - "pyproject.toml"
+      - "tools/benchmark_blob_checkpointer.py"
       - "tools/check_junit.py"
       - ".github/workflows/ci-table-integration.yml"
 

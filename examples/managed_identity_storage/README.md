@@ -201,3 +201,4 @@ still increments because state lives in storage.
 - [`examples/persistent_agent_blob_table/`](../persistent_agent_blob_table/) — same wiring driven by a connection string only.
 - [README → Persistent storage](../../README.md#persistent-storage-v04) — narrative docs and scale envelope.
 - [`docs/production-guide.md`](../../docs/production-guide.md) — Key Vault references and other production concerns.
+- [Troubleshooting → Storage and persistence settings](../../docs/troubleshooting.md#storage-and-persistence-settings) — verified startup and first-request storage failures.

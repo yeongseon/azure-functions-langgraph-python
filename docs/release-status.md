@@ -12,6 +12,19 @@ for the tag failed.
 *Last verified: 2026-11-10, against PyPI, the GitHub Releases API, the git tags and the GitHub Actions
 run records. It covers the GitHub Releases from v0.2.0 to v0.13.0.*
 
+The read-only [release audit](release_process.md#release-audit), run with
+`make audit-releases` or by the `Release audit` workflow, compares GitHub and PyPI facts version by version. Its explicit
+`.github/release-audit-exceptions.json` registry mirrors the ten historical rows below,
+including the unconfirmed v0.5.3 cause; offline tests guard that correspondence.
+Covered findings remain visible as `EXCEPTED`, while new discrepancies fail the audit.
+Exceptions pin failed and skipped job names/conclusions, not diagnostic message text.
+The audit selects the latest successful publish-job run (otherwise the latest run),
+retains later runs as notes, ignores numeric drafts with a note and flags numeric
+prereleases. It binds every PyPI-served attestation to its file, tagged source and
+publish run, but does not independently verify Sigstore signatures or transparency proofs.
+The `Release audit` workflow runs it read-only after each publish run, daily and on pull requests that change it,
+and turns red on a new defect; neither it nor the tool changes any release or publication.
+
 ## Why a GitHub Release can exist without a PyPI file
 
 The release process works like this today (see [Release Process](release_process.md)):
@@ -70,6 +83,12 @@ How to read the table:
   expired, so those rows rest on the run record, the check annotations that GitHub still keeps and the
   git history. The October rows rest on the job logs.
 - There is no v0.6.x: no tag, GitHub Release or PyPI version exists for it.
+- A tag whose publish run failed and that has no published successor yet is not a row, whatever
+  its date: a row records a verified first published successor. Its GitHub Release carries a
+  *not yet published* note (see [Release Process](release_process.md#when-the-audit-is-red-fix-forward-and-metadata-correction)),
+  and the release audit reports it as a defect until the version is published (by re-running the
+  publish workflow on the unchanged tag after a transient or external failure) or a later version
+  is published and the tag is recorded here.
 
 ## What to do
 

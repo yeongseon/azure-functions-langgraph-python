@@ -1482,7 +1482,7 @@ When PgBouncer is in **transaction pooling** mode, disable prepared statements:
 from azure_functions_langgraph.checkpointers.postgres import create_postgres_checkpointer
 
 checkpointer = create_postgres_checkpointer(
-    conn_string=os.environ["POSTGRES_CONN_STRING"],
+    conn_string=os.environ["LANGGRAPH_POSTGRES_CONNECTION_STRING"],
     prepare_threshold=None,  # required for transaction-pooling PgBouncer
 )
 ```
@@ -1517,7 +1517,7 @@ def get_checkpointer():
     global _checkpointer
     if _checkpointer is None:
         _checkpointer = create_postgres_checkpointer(
-            conn_string=os.environ["POSTGRES_CONN_STRING"],
+            conn_string=os.environ["LANGGRAPH_POSTGRES_CONNECTION_STRING"],
         )
     return _checkpointer
 ```

@@ -571,13 +571,19 @@ class AzureTableThreadStore(ThreadStore):
 
     def delete(self, thread_id: str) -> None:
         not_found_error = self._not_found_exception()
+        # TableClient.delete_entity returns without error when the entity is missing, so the
+        # ThreadStore contract (KeyError for a missing thread) needs its own read first.
         try:
-            self._table_client.delete_entity(
+            self._table_client.get_entity(
                 partition_key=self._partition_key(),
                 row_key=thread_id,
             )
         except not_found_error as exc:
             raise KeyError(thread_id) from exc
+        self._table_client.delete_entity(
+            partition_key=self._partition_key(),
+            row_key=thread_id,
+        )
 
     def try_acquire_run_lock(
         self,

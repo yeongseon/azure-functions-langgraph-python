@@ -46,7 +46,10 @@ Run `func start`, then POST `{"input":{"message":"hello"}}` to
 `http://localhost:7071/api/graphs/echo/invoke`; the result is
 `{"output":{"message":"hello"}}`. Deployed routes require a function key by
 default. Follow the [5-minute tutorial](docs/tutorial-5-min.md) for complete
-project files, local setup and deployment.
+project files, local setup and deployment. To start from a new Functions project
+of your own, the Quickstart's section
+[Start from a new Functions project](docs/getting-started.md#start-from-a-new-functions-project)
+shows the scaffolding.
 
 ## Deploy to Azure (default path)
 

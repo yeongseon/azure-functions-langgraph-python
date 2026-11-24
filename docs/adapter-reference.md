@@ -393,6 +393,18 @@ native invoke/stream run and every Platform `runs/wait` / `runs/stream` run. Eac
 callback receives an immutable `RunContext` of **correlation identifiers and
 timing only** — never input, output, config, headers, or secrets.
 
+A thread lock backend that raises while acquiring a native invoke or stream run is
+reported as `started` followed by `failed`, and the response is the standard JSON 500;
+a lock held elsewhere stays a `rejected` run with a 409.
+
+A backend that raises while *releasing* a native invoke or buffered stream run turns an
+otherwise successful run into `started` followed by `failed`, and the response is the
+standard JSON 500 (`Thread lock could not be released`), not the result. If the graph itself
+failed, its error is the one reported and the release failure is only logged. The run may
+already have changed state, so reconcile it before retrying (see
+[Troubleshooting](troubleshooting.md#native-invoke-or-stream-returns-500-thread-lock-could-not-be-released)).
+The bundled locks never raise from `release`.
+
 On the true-streaming surface, each started run receives exactly one terminal
 callback, including invoke cancellation, stream disconnection and iterator
 cleanup failures. Stream callbacks finish after iterator cleanup and lock

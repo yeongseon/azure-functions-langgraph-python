@@ -2,8 +2,8 @@
 
 What this measures
 ------------------
-Every number comes from a counting in-memory stand-in for the Azure Blob container
-clients. It counts **requests the saver issues**, by kind:
+By default every number comes from a counting in-memory stand-in for the Azure Blob container
+clients (``--backend fake``). It counts **requests the saver issues**, by kind:
 
 ``GET``   ``download_blob()`` (one request for payloads below the SDK's single-get size)
 ``HEAD``  ``get_blob_properties()``
@@ -19,11 +19,24 @@ request counts are a property of the saver's call pattern, not a performance cla
 the ``simulated_ms`` column. That column is a toy model of a fixed per-request latency;
 do not quote it as a wall-clock or Azure measurement.
 
+``--backend azurite`` runs the same workload through the real ``azure-storage-blob`` sync and
+async clients against Azurite and counts the HTTP requests at the transport (``requests`` and
+``aiohttp``), so requests the SDK makes itself, pagination and retries are included and nothing
+is modeled. Each request is classified from its method, query and headers: a GET with
+``comp=list`` is LIST, a PUT with ``If-None-Match: *`` is PUT*, container-level calls and
+anything unexpected are OTHER (shown as its own column only when it is not zero).
+``--latency-ms`` sleeps per request at the same point. Azurite is not Azure Storage: the counts
+are exact for what the SDK sends, the latency is injected and never measured, and neither
+backend says anything about throttling, retries by the service or real network behavior.
+``tests/integration/test_checkpoint_conformance.py`` asserts that both backends count the same
+requests for every scenario, so the fake cannot drift from the SDK unnoticed.
+
 Usage (repo root, with the ``azure-blob`` extra installed)::
 
     PYTHONPATH=src python tools/benchmark_blob_checkpointer.py
     PYTHONPATH=src python tools/benchmark_blob_checkpointer.py --channels 40 --writes 20 --json
     PYTHONPATH=src python tools/benchmark_blob_checkpointer.py --latency-ms 20
+    PYTHONPATH=src python tools/benchmark_blob_checkpointer.py --backend azurite --latency-ms 20
 
 To compare two revisions, run the same script with ``PYTHONPATH`` pointing at each
 revision's ``src`` directory and compare the printed counts.
@@ -34,14 +47,23 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import json
 import sys
 import time
-from typing import Any
+from typing import Any, NamedTuple
+from urllib.parse import parse_qs, urlsplit
+import uuid
 
 PAGE_SIZE = 5000  # List Blobs maximum results per response page
 KINDS = ("GET", "HEAD", "PUT", "PUT*", "LIST", "DEL")
+# Azurite's default Blob endpoint and its well-known development account key.
+AZURITE_CONNECTION_STRING = (
+    "DefaultEndpointsProtocol=http;"
+    "AccountName=devstoreaccount1;"
+    "AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;"
+    "BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1"
+)
 
 Blobs = dict[str, tuple[bytes, dict[str, str]]]
 
@@ -56,11 +78,37 @@ class Counters:
     def reset(self) -> None:
         self.counts.clear()
 
+    def record(self, kind: str) -> None:
+        self.counts[kind] += 1
+
     def total(self) -> int:
         return sum(self.counts.values())
 
     def snapshot(self) -> dict[str, int]:
         return {kind: self.counts.get(kind, 0) for kind in KINDS}
+
+
+def classify(method: str, url: str, headers: Mapping[str, str]) -> str:
+    """Counter kind of one HTTP request: a ``KINDS`` entry, or ``OTHER`` for anything else.
+
+    ``OTHER`` covers container-level calls (create, delete, properties) and any request the
+    model has no kind for, so unexpected traffic is visible instead of silently dropped.
+    """
+    query = parse_qs(urlsplit(url).query)
+    method = method.upper()
+    if method == "GET" and query.get("comp") == ["list"]:
+        return "LIST"
+    if "restype" in query:
+        return "OTHER"
+    if method == "GET":
+        return "GET"
+    if method == "HEAD":
+        return "HEAD"
+    if method == "DELETE":
+        return "DEL"
+    if method == "PUT":
+        return "PUT*" if headers.get("If-None-Match") == "*" else "PUT"
+    return "OTHER"
 
 
 class _Props:
@@ -273,38 +321,18 @@ def seed(saver: Any, history: int, channels: int, writes: int) -> str:
     return last
 
 
-def run(
-    channels: int, writes: int, history: int, latency_ms: float, async_api: bool
-) -> list[dict[str, Any]]:
-    """Run the workload through the sync or the async API and return per-scenario counts."""
-    import importlib
+Scenario = tuple[str, Callable[[], Any], Callable[[], Any]]
 
-    blob_mod = importlib.import_module("azure.storage.blob")
-    aio_mod = importlib.import_module("azure.storage.blob.aio")
-    exc_mod = importlib.import_module("azure.core.exceptions")
-    saver_mod = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
 
-    counters = Counters()
-    sync_cls, async_cls = make_counting_containers(
-        blob_mod.ContainerClient,
-        aio_mod.ContainerClient,
-        exc_mod.ResourceNotFoundError,
-        exc_mod.ResourceExistsError,
-        counters,
-    )
-    blobs: Blobs = {}
-    saver = saver_mod.AzureBlobCheckpointSaver(
-        container_client=sync_cls(blobs), aio_container_client=async_cls(blobs)
-    )
-    last = seed(saver, history, channels, writes)
-    counters.latency_ms = latency_ms
+def _scenarios(saver: Any, last: str, channels: int, history: int, writes: int) -> list[Scenario]:
+    """The measured operations as (name, sync call, async call), bound to ``saver``."""
     new_cp = _checkpoint(history + 1, channels)
     batch = [(f"n{i}", {"n": i}) for i in range(writes)]
 
     async def alist(limit: int | None, flt: dict[str, Any] | None = None) -> int:
         return len([t async for t in saver.alist(_config(), limit=limit, filter=flt)])
 
-    scenarios: list[tuple[str, Callable[[], Any], Callable[[], Any]]] = [
+    return [
         (
             "get_tuple(latest)",
             lambda: saver.get_tuple(_config()),
@@ -351,8 +379,48 @@ def run(
             lambda: saver.aput_writes(_config(last), batch, "task-new", "~__pregel_pull, n"),
         ),
     ]
+
+
+def _row(
+    name: str, async_api: bool, counters: Counters, elapsed_ms: float, latency_ms: float
+) -> dict[str, Any]:
+    row: dict[str, Any] = {"scenario": name, "api": "async" if async_api else "sync"}
+    row.update(counters.snapshot())
+    if counters.counts.get("OTHER"):
+        row["OTHER"] = counters.counts["OTHER"]
+    row["total"] = counters.total()
+    if latency_ms:
+        row["simulated_ms"] = round(elapsed_ms)
+    return row
+
+
+def run(
+    channels: int, writes: int, history: int, latency_ms: float, async_api: bool
+) -> list[dict[str, Any]]:
+    """Run the workload through the sync or the async API and return per-scenario counts."""
+    import importlib
+
+    blob_mod = importlib.import_module("azure.storage.blob")
+    aio_mod = importlib.import_module("azure.storage.blob.aio")
+    exc_mod = importlib.import_module("azure.core.exceptions")
+    saver_mod = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+
+    counters = Counters()
+    sync_cls, async_cls = make_counting_containers(
+        blob_mod.ContainerClient,
+        aio_mod.ContainerClient,
+        exc_mod.ResourceNotFoundError,
+        exc_mod.ResourceExistsError,
+        counters,
+    )
+    blobs: Blobs = {}
+    saver = saver_mod.AzureBlobCheckpointSaver(
+        container_client=sync_cls(blobs), aio_container_client=async_cls(blobs)
+    )
+    last = seed(saver, history, channels, writes)
+    counters.latency_ms = latency_ms
     results: list[dict[str, Any]] = []
-    for name, sync_call, async_call in scenarios:
+    for name, sync_call, async_call in _scenarios(saver, last, channels, history, writes):
         counters.reset()
         started = time.perf_counter()
         if async_api:
@@ -360,26 +428,134 @@ def run(
         else:
             sync_call()
         elapsed_ms = (time.perf_counter() - started) * 1000
-        row: dict[str, Any] = {"scenario": name, "api": "async" if async_api else "sync"}
-        row.update(counters.snapshot())
-        row["total"] = counters.total()
-        if latency_ms:
-            row["simulated_ms"] = round(elapsed_ms)
-        results.append(row)
+        results.append(_row(name, async_api, counters, elapsed_ms, latency_ms))
     return results
+
+
+class _AzuriteEnvironment(NamedTuple):
+    sync: Any
+    make_async: Callable[[], Any]
+    cleanup: Callable[[], None]
+
+
+def _azurite_environment(connection_string: str, counters: Counters) -> _AzuriteEnvironment:
+    """A private container on Azurite whose clients count every HTTP request they send."""
+    import importlib
+
+    blob_mod = importlib.import_module("azure.storage.blob")
+    aio_mod = importlib.import_module("azure.storage.blob.aio")
+    transports = importlib.import_module("azure.core.pipeline.transport")
+
+    class CountingTransport(transports.RequestsTransport):  # type: ignore[misc]
+        def send(self, request: Any, **kwargs: Any) -> Any:
+            counters.record(classify(request.method, request.url, request.headers))
+            if counters.latency_ms:
+                time.sleep(counters.latency_ms / 1000)
+            return super().send(request, **kwargs)
+
+    class CountingAioTransport(transports.AioHttpTransport):  # type: ignore[misc]
+        async def send(self, request: Any, **kwargs: Any) -> Any:
+            counters.record(classify(request.method, request.url, request.headers))
+            if counters.latency_ms:
+                await asyncio.sleep(counters.latency_ms / 1000)
+            return await super().send(request, **kwargs)
+
+    name = f"bench-{uuid.uuid4().hex[:12]}"
+    sync = blob_mod.ContainerClient.from_connection_string(
+        connection_string, name, transport=CountingTransport()
+    )
+    sync.create_container()
+
+    def make_async() -> Any:
+        return aio_mod.ContainerClient.from_connection_string(
+            connection_string, name, transport=CountingAioTransport()
+        )
+
+    def cleanup() -> None:
+        try:
+            sync.delete_container()
+        finally:
+            sync.close()
+
+    return _AzuriteEnvironment(sync, make_async, cleanup)
+
+
+def run_azurite(
+    channels: int,
+    writes: int,
+    history: int,
+    latency_ms: float,
+    async_api: bool,
+    connection_string: str = AZURITE_CONNECTION_STRING,
+) -> list[dict[str, Any]]:
+    """Run the workload through the real SDK clients on Azurite, counting at the transport.
+
+    Seeding uses the sync client with the counter idle. The async scenarios run in one event
+    loop with an async client created inside it, because an ``aiohttp`` session cannot be
+    reused across the separate loops ``asyncio.run`` makes.
+    """
+    import importlib
+
+    saver_mod = importlib.import_module("azure_functions_langgraph.checkpointers.azure_blob")
+    counters = Counters()
+    env = _azurite_environment(connection_string, counters)
+    try:
+        saver = saver_mod.AzureBlobCheckpointSaver(container_client=env.sync)
+        last = seed(saver, history, channels, writes)
+        counters.latency_ms = latency_ms
+        if not async_api:
+            rows: list[dict[str, Any]] = []
+            for name, sync_call, _ in _scenarios(saver, last, channels, history, writes):
+                counters.reset()
+                started = time.perf_counter()
+                sync_call()
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                rows.append(_row(name, False, counters, elapsed_ms, latency_ms))
+            return rows
+
+        async def measure() -> list[dict[str, Any]]:
+            aio = env.make_async()
+            try:
+                async_saver = saver_mod.AzureBlobCheckpointSaver(
+                    container_client=env.sync, aio_container_client=aio
+                )
+                measured: list[dict[str, Any]] = []
+                for name, _, async_call in _scenarios(async_saver, last, channels, history, writes):
+                    counters.reset()
+                    started = time.perf_counter()
+                    await async_call()
+                    elapsed_ms = (time.perf_counter() - started) * 1000
+                    measured.append(_row(name, True, counters, elapsed_ms, latency_ms))
+                return measured
+            finally:
+                await aio.close()
+
+        return asyncio.run(measure())
+    finally:
+        env.cleanup()
 
 
 async def _await(factory: Callable[[], Any]) -> Any:
     return await factory()
 
 
-def render(rows: list[dict[str, Any]], channels: int, writes: int, history: int) -> str:
-    cols = ["scenario", "api", *KINDS, "total"]
+def render(
+    rows: list[dict[str, Any]], channels: int, writes: int, history: int, backend: str = "fake"
+) -> str:
+    cols = ["scenario", "api", *KINDS]
+    if any("OTHER" in r for r in rows):
+        cols.append("OTHER")
+    cols.append("total")
     if any("simulated_ms" in r for r in rows):
         cols.append("simulated_ms")
+    origin = (
+        "requests issued by the saver against a counting fake; not Azure"
+        if backend == "fake"
+        else "HTTP requests the Azure SDK sent to Azurite, counted at the transport; "
+        "Azurite is not Azure Storage"
+    )
     lines = [
-        f"# channels={channels} pending_writes={writes} history={history} "
-        "(requests issued by the saver against a counting fake; not Azure)",
+        f"# channels={channels} pending_writes={writes} history={history} ({origin})",
         " | ".join(cols),
     ]
     lines += [" | ".join(str(r.get(c, "")) for c in cols) for r in rows]
@@ -392,15 +568,35 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--writes", type=int, default=10)
     parser.add_argument("--history", type=int, default=5)
     parser.add_argument("--latency-ms", type=float, default=0.0)
+    parser.add_argument("--backend", choices=("fake", "azurite"), default="fake")
+    parser.add_argument(
+        "--connection-string",
+        default=AZURITE_CONNECTION_STRING,
+        help="storage connection string for --backend azurite (default: Azurite's Blob port)",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    rows = run(args.channels, args.writes, args.history, args.latency_ms, async_api=False)
-    rows += run(args.channels, args.writes, args.history, args.latency_ms, async_api=True)
+    if args.backend == "azurite":
+        rows = [
+            row
+            for async_api in (False, True)
+            for row in run_azurite(
+                args.channels,
+                args.writes,
+                args.history,
+                args.latency_ms,
+                async_api,
+                args.connection_string,
+            )
+        ]
+    else:
+        rows = run(args.channels, args.writes, args.history, args.latency_ms, async_api=False)
+        rows += run(args.channels, args.writes, args.history, args.latency_ms, async_api=True)
     if args.json:
         json.dump(rows, sys.stdout, indent=2)
         sys.stdout.write("\n")
     else:
-        print(render(rows, args.channels, args.writes, args.history))
+        print(render(rows, args.channels, args.writes, args.history, args.backend))
     return 0
 
 

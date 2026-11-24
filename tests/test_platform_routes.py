@@ -305,6 +305,73 @@ class TestPlatformCompatFlag:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("endpoint", ["search", "count"])
+@pytest.mark.parametrize(
+    "metadata_body",
+    [{}, {"metadata": None}, {"metadata": {}}, {"metadata": {"key": "value"}}],
+    ids=["absent", "null", "empty", "nonempty"],
+)
+@pytest.mark.parametrize(
+    ("other_filters", "expected_ids"),
+    [
+        ({}, ["alpha", "beta", "alphabet"]),
+        ({"graph_id": "alpha"}, ["alpha"]),
+        ({"graph_id": "missing"}, []),
+        ({"name": "ALPH"}, ["alpha", "alphabet"]),
+        ({"name": "missing"}, []),
+        ({"graph_id": "beta", "name": "ALPH"}, []),
+    ],
+    ids=["all", "graph", "missing-graph", "name", "missing-name", "combined"],
+)
+def test_assistants_metadata_filter_cases(
+    endpoint: str,
+    metadata_body: dict[str, dict[str, str] | None],
+    other_filters: dict[str, str],
+    expected_ids: list[str],
+) -> None:
+    # Given: assistants without metadata and independent graph/name filters.
+    app = _build_platform_app(
+        graphs={name: FakeCompiledGraph() for name in ("alpha", "beta", "alphabet")}
+    )
+    fn = _get_fn(app.function_app, f"aflg_platform_assistants_{endpoint}")
+    expected = [] if metadata_body.get("metadata") else expected_ids
+
+    # When: the metadata case is submitted to either endpoint.
+    response = fn(_post_request(f"/api/assistants/{endpoint}", metadata_body | other_filters))
+
+    # Then: search and total count describe the same filtered set.
+    assert response.status_code == 200
+    result = json.loads(response.get_body())
+    assert (result if endpoint == "count" else [a["assistant_id"] for a in result]) == (
+        len(expected) if endpoint == "count" else expected
+    )
+
+
+@pytest.mark.parametrize("offset", [0, 1, 2, 3])
+def test_assistants_empty_metadata_preserves_pagination(offset: int) -> None:
+    # Given: three name matches interleaved with a non-match.
+    app = _build_platform_app(
+        graphs={name: FakeCompiledGraph() for name in ("alpha", "beta", "alphabet", "alpine")}
+    )
+    fn = _get_fn(app.function_app, "aflg_platform_assistants_search")
+
+    # When: paging is applied after an empty metadata filter and a name filter.
+    response = fn(
+        _post_request(
+            "/api/assistants/search",
+            {"metadata": {}, "name": "AL", "offset": offset, "limit": 1},
+        )
+    )
+
+    # Then: the selected page is unchanged, including an exhausted offset.
+    assert response.status_code == 200
+    assert [a["assistant_id"] for a in json.loads(response.get_body())] == [
+        "alpha",
+        "alphabet",
+        "alpine",
+    ][offset : offset + 1]
+
+
 class TestAssistantsSearch:
     def test_search_returns_all(self, graph: FakeCompiledGraph, store: InMemoryThreadStore) -> None:
         app = _build_platform_app(graphs={"agent": graph}, store=store)
@@ -461,7 +528,7 @@ class TestAssistantsCount:
         graph: FakeCompiledGraph,
         store: InMemoryThreadStore,
     ) -> None:
-        """Assistants don't have user metadata, so any metadata filter yields 0."""
+        """Assistants don't have user metadata, so a non-empty filter yields 0."""
         app = _build_platform_app(graphs={"agent": graph}, store=store)
         fa = app.function_app
         fn = _get_fn(fa, "aflg_platform_assistants_count")

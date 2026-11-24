@@ -2,6 +2,16 @@
 
 We welcome contributions to the `azure-functions-langgraph` project.
 
+
+## Contributor-reserved issues
+
+Issues labeled `good first issue` or `help wanted`, and issues assigned to or actively claimed by an external contributor, are **reserved for outside human-led contributors** (including code prepared with AI tools under a contributor's direction and review).
+
+- You may start an **unclaimed** issue and submit a PR without advance maintainer approval or GitHub Assignee permission. First check the issue, Assignees, discussion and open PRs. A comment expressing interest is encouraged but optional; coordinate rather than duplicate someone else's work.
+- The owner, maintainer-operated coding agents, and automated backlog-clearing jobs must not take these issues away, implement competing solutions, silently change their labels/scope or close them. A generic instruction to clear the backlog is **not** an exception.
+- Maintainers are available to answer questions, confirm assignments, run protected verification, review and merge contributor PRs. They may change a reservation only through a **documented, issue-specific decision**, after coordinating any active contributor handoff; claims are not automatically expired.
+- See [AGENTS.md — Contributor-reserved issues](AGENTS.md#contributor-reserved-issues) for the full owner/agent workflow. Required CI, review and release rules remain unchanged.
+
 ## Branch Strategy
 
 Use GitHub Flow and branch from `main`.
@@ -13,6 +23,17 @@ Recommended branch prefixes:
 - `docs/` for documentation-only changes
 - `chore/` for tooling and maintenance
 - `ci/` for workflow updates
+
+## PR review outcomes
+
+Use the same decision labels for every PR, whether human-authored or AI-assisted:
+
+- **`APPROVE`** a reviewed, non-blocking change; optional suggestions can accompany approval instead of delaying it.
+- **`REQUEST_CHANGES`** for an actionable must-fix defect, with the affected code and required correction clearly identified.
+- **`COMMENT`** when asking a question or when a review is not yet decisive. The author cannot approve their own PR; never imply an AI review is an independent human approval.
+- Code approval and GitHub Actions **run approval** are separate. `action_required`, pending, failed or stale required CI checks do not permit merge, even if a code review is approved. Confirm final-head CI, resolved blocking findings, applicable independent/security/integration requirements and the maintainer's merge decision before merging.
+
+See [AGENTS.md — PR review outcomes](AGENTS.md#pr-review-outcomes-common-decision-rules). Existing repository-specific branch, release, security and required-review safeguards continue to apply.
 
 ## Pull Request Review and Merge Policy
 
@@ -90,6 +111,14 @@ It starts native and true-streaming hosts on run-selected ports, exercises nativ
 invoke plus incremental streaming/error/disconnect cases, rejects startup/indexing
 log failures, and reaps its own process groups and temporary storage on success,
 failure or interrupt. It does not stop existing hosts or emulators.
+
+`make host-lanes` needs the same tools and runs in the `table` Hatch environment
+(the Blob and Table extras). It starts two lock-test hosts, a Platform SDK host and
+topology-refusal hosts over one Azurite, runs `tests/e2e/test_langgraph_lock_e2e.py` and
+`tests/host_lanes/test_platform_sdk.py` through `tools/check_junit.py` so that a skip
+fails the run, and reaps its own process groups and temporary storage the same way. Pass
+`--lane locks|platform|topology` to the runner (`python -m tools.run_host_lanes`) to run
+one lane. The result is local evidence on an emulator, not Azure certification.
 
 `make e2e-azure` needs `E2E_BASE_URL`, `E2E_BASE_URL_B` and `E2E_STREAM_BASE_URL`
 pointing at deployed native, second lock-test and streaming apps. Configure keys

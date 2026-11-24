@@ -3,6 +3,9 @@ PYTHON ?= python3
 PIP := $(VENV_DIR)/bin/pip
 HATCH ?= hatch
 HOST_PYTHON ?= $(HATCH) run python
+LANES_PYTHON ?= $(HATCH) run table:python
+AUDIT_PYTHON ?= $(HATCH) run python
+AUDIT_ARGS ?=
 
 .PHONY: bootstrap
 bootstrap:
@@ -170,6 +173,15 @@ e2e-azure: ensure-hatch
 host-smoke: ensure-hatch
 	@$(HOST_PYTHON) tools/run_host_smoke.py
 
+# The lanes import the Blob and Table SDKs, so they run in the table environment by default.
+.PHONY: host-lanes
+host-lanes: ensure-hatch
+	@$(LANES_PYTHON) -m tools.run_host_lanes
+
+.PHONY: audit-releases
+audit-releases:
+	@$(AUDIT_PYTHON) -m tools.audit_releases $(AUDIT_ARGS)
+
 .PHONY: build
 build: ensure-hatch
 	@$(HATCH) build
@@ -204,6 +216,7 @@ doctor:
 	@echo 'check/test require Hatch, Python 3.11+, ruff, mypy, pytest, pytest-cov and project dependencies.'
 	@echo 'test-table/test-cosmos require Docker Compose and free loopback ports; test-cosmos also needs curl and the cosmos extra.'
 	@echo 'host-smoke requires func, azurite and the dev extra; e2e-azure requires deployed E2E_BASE_URL, E2E_BASE_URL_B and E2E_STREAM_BASE_URL.'
+	@echo 'host-lanes requires func, azurite and the table environment (dev, azure-table and azure-blob extras).'
 	@command -v "$(HATCH)" >/dev/null || { echo 'Missing Hatch: run make bootstrap'; exit 1; }
 	@env_path="$$($(HATCH) env find)"; \
 	test -x "$$env_path/bin/python" || { echo 'Missing Hatch environment: run make install'; exit 1; }; \
