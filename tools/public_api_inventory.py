@@ -724,7 +724,8 @@ def render_markdown(data: dict[str, Any]) -> str:
     add("")
     add(
         "Tier basis: `README` = named by the README stability table; `maintainer decision` = "
-        "confirmed on 2026-11-24 in [API boundary section 7](api-boundary.md#7-maintainer-decisions)."
+        "confirmed on 2026-11-24 in "
+        "[API boundary section 7](api-boundary.md#7-maintainer-decisions)."
     )
     add("")
     root = data["root"]
