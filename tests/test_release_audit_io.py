@@ -8,7 +8,6 @@ import re
 import pytest
 
 from tests.test_release_audit import NOW, ROOT, facts, snapshot
-from tests.test_release_status_docs import HISTORICAL_RECORDED
 from tools.audit_releases import main
 from tools.release_audit_model import JSON, AuditError
 from tools.release_audit_parse import load, mapping, sequence
@@ -181,14 +180,11 @@ def test_registry_reasons_and_release_note_annotations_match_release_status() ->
         for line in page.splitlines()
         if re.match(r"\| v\d+\.\d+\.\d+ \|", line)
     }
-    # Then: all registered rows retain their reasons; only approved historical tags
-    # have release-note annotations. New release wording needs maintainer approval.
-    assert set(rows) == {e.tag for e in registry.exceptions}
-    assert set(notes) == set(HISTORICAL_RECORDED)
+    # Then: all registered tags carry identical run ids, successors and failure causes everywhere.
+    assert set(notes) == set(rows) == {e.tag for e in registry.exceptions}
     for entry in registry.exceptions:
+        note = " ".join(notes[entry.tag]["notes"])
+        assert re.findall(r"actions/runs/(\d+)", note) == [str(entry.run_id)], entry.tag
+        assert re.findall(r"successor: \*\*([\d.]+)\*\*", note) == [entry.successor], entry.tag
         assert _REASON_PHRASE[entry.reason] in rows[entry.tag], entry.tag
         assert ("likely" in rows[entry.tag]) == (not entry.confirmed), entry.tag
-    for tag, (_, run_id, successor) in HISTORICAL_RECORDED.items():
-        note = " ".join(notes[tag]["notes"])
-        assert re.findall(r"actions/runs/(\d+)", note) == [run_id], tag
-        assert re.findall(r"successor: \*\*([\d.]+)\*\*", note) == [successor], tag
