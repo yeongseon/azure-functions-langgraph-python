@@ -39,11 +39,21 @@ def _app_setting_names() -> set[str]:
 
 def test_deployment_storage_authentication_type_is_a_documented_value() -> None:
     # Given: the authentication block of the deployment storage configuration
-    match = re.search(r"authentication:\s*\{[^}]*?type:\s*'([^']+)'", _code(), re.S)
+    match = re.search(
+        r"authentication:\s*(?:identityBasedStorage\s*\?\s*)?"
+        r"\{([^}]+)\}(?:\s*:\s*\{([^}]+)\})?",
+        _code(),
+        re.S,
+    )
 
     # Then: its type is one of the values Azure accepts
     assert match is not None
-    assert match.group(1) in VALID_AUTH_TYPES
+    blocks = [block for block in match.groups() if block]
+    for block in blocks:
+        auth_type = re.search(r"type:\s*'([^']+)'", block)
+        assert auth_type is not None
+        assert auth_type.group(1) in VALID_AUTH_TYPES
+    assert len(blocks) == 2
 
 
 def test_connection_string_authentication_names_an_existing_app_setting() -> None:
@@ -67,3 +77,22 @@ def test_deployment_container_is_created_before_the_site() -> None:
     assert value is not None
     assert "deploymentContainer.name" in value.group(1)
     assert "resource deploymentContainer " in _code()
+
+
+def test_identity_off_preserves_connection_string_defaults() -> None:
+    code = _code()
+    assert "param identityBasedStorage bool = false" in code
+    assert "param pythonVersion string = '3.13'" in code
+    assert "param maximumInstanceCount int = 40" in code
+    assert "identity: identityBasedStorage ? { type: 'SystemAssigned' } : null" in code
+    settings = re.search(
+        r"appSettings: identityBasedStorage\s*\?\s*\[.*?\]\s*:\s*\[(.*?)\]", code, re.S
+    )
+    assert settings is not None
+    assert set(re.findall(r"name:\s*'([^']+)'", settings.group(1))) == {
+        "AzureWebJobsStorage",
+        "DEPLOYMENT_STORAGE_CONNECTION_STRING",
+    }
+    assert settings.group(1).count("value: storageConnectionString") == 2
+    for resource in ("checkpointContainer", "hostStorageRole"):
+        assert re.search(rf"resource {resource} '[^']+' = if \(identityBasedStorage\)", code)

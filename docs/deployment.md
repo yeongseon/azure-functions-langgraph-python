@@ -41,6 +41,9 @@ If your own graph uses OpenAI or another provider, you will set those API keys i
 
 ## Optional application storage
 
+For one bounded keyless deployment and its actual evidence, use the
+[Flex Consumption + Blob production reference](production-reference.md).
+
 Two different things share the word "storage". Only the first is needed for a basic deployment:
 
 | | Required? | Purpose |

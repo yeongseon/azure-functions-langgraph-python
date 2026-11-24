@@ -22,13 +22,15 @@ thread/run/assistant endpoints.
 
 from __future__ import annotations
 
+from importlib.metadata import version
+import json
 import logging
 import os
-
-from azure.storage.blob import ContainerClient
-from graph import build_graph
+import platform
 
 import azure.functions as func
+from azure.storage.blob import ContainerClient
+from graph import build_graph
 
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
@@ -128,8 +130,8 @@ if _ENABLE_DISTRIBUTED_LOCK:
 langgraph_app = LangGraphApp(
     platform_compat=_ENABLE_PLATFORM,
     auth_level=func.AuthLevel.FUNCTION,
-    # Explicitly protect the health-details inventory in production.
-    health_auth_level=func.AuthLevel.FUNCTION,
+    health_auth_level=func.AuthLevel.ANONYMOUS,
+    health_details_auth_level=func.AuthLevel.FUNCTION,
     # Distributed per-thread lock (None -> in-process default when disabled).
     thread_lock=thread_lock,
 )
@@ -184,3 +186,22 @@ langgraph_app.register(
 )
 
 app = langgraph_app.function_app
+
+
+@app.route(route="reference/runtime", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
+def reference_runtime(req: func.HttpRequest) -> func.HttpResponse:
+    """Report installed versions, not local build assumptions; no environment inventory."""
+    return func.HttpResponse(
+        json.dumps(
+            {
+                "python": platform.python_version(),
+                "adapter": version("azure-functions-langgraph"),
+                "functions": version("azure-functions"),
+                "langgraph": version("langgraph"),
+                "langchain_core": version("langchain-core"),
+                "blob": version("azure-storage-blob"),
+                "identity": version("azure-identity"),
+            }
+        ),
+        mimetype="application/json",
+    )
