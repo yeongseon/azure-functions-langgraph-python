@@ -15,7 +15,7 @@ import pytest
 
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
 from azure_functions_langgraph.locks.azure_blob import AzureBlobLeaseThreadLock
-from azure_functions_langgraph.locks.guard import ThreadLeaseLostError, config_with_ownership_guard
+from azure_functions_langgraph.locks.guard import OWNERSHIP_GUARD_CONFIG_KEY, ThreadLeaseLostError
 from tests.integration.test_checkpoint_conformance import (
     _blob_connection_string,
 )
@@ -184,7 +184,10 @@ async def test_live_real_lease_break_stale_checkpoint_write(
         token = holder.acquire("live", "t")
         assert token is not None
         assert successor.acquire("live", "t") is None
-        cfg = config_with_ownership_guard(_cfg(), holder.ownership_guard("live", "t", token))
+        cfg = _cfg()
+        guard = holder.ownership_guard("live", "t", token)
+        if guard is not None:
+            cfg["configurable"][OWNERSHIP_GUARD_CONFIG_KEY] = guard
         marker = live_container.get_blob_client("thread-locks/live/t")
         assert marker.get_blob_properties().lease.state == "leased"
         started = time.monotonic()
@@ -195,9 +198,12 @@ async def test_live_real_lease_break_stale_checkpoint_write(
         successor_token = successor.acquire("live", "t", timeout=10)
         assert successor_token is not None
         state = holder._active_leases[("live", "t")]
-        async with asyncio.timeout(20):
+
+        async def await_detection() -> None:
             while not state.lost:
                 await asyncio.sleep(0.02)
+
+        await asyncio.wait_for(await_detection(), timeout=20)
         detected = time.monotonic()
         assert state.last_error is not None
         assert holder.acquire("live", "t") is None
