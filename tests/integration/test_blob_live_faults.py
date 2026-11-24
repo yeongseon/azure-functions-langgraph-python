@@ -187,7 +187,10 @@ async def test_live_real_lease_break_stale_checkpoint_write(
         cfg = _cfg()
         guard = holder.ownership_guard("live", "t", token)
         if guard is not None:
-            cfg["configurable"][OWNERSHIP_GUARD_CONFIG_KEY] = guard
+            cfg["configurable"] = {
+                **cfg.get("configurable", {}),
+                OWNERSHIP_GUARD_CONFIG_KEY: guard,
+            }
         marker = live_container.get_blob_client("thread-locks/live/t")
         assert marker.get_blob_properties().lease.state == "leased"
         started = time.monotonic()
