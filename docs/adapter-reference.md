@@ -71,6 +71,102 @@ This package provides a focused adapter for serving LangGraph graphs on Azure Fu
 
 > See [COMPATIBILITY.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md) for the per-feature SDK support matrix, including which `RunCreate` fields, thread filters, and SDK calls return `501 Not Implemented`.
 
+### SDK adoption checklist
+
+Choose the [Platform SDK example](../examples/platform_compat_sdk/) only when you
+need SDK request/response shapes. Native `LangGraphApp()` remains the default
+for new clients. This optional surface is **Experimental**, not Platform parity.
+Start with the exact [SDK feature support matrix](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md#sdk-feature-support-matrix):
+assistant discovery, thread metadata CRUD/search/count, blocking wait, buffered
+stream and state read/update/history each have their own limits. The example's
+client demonstrates discovery, thread creation, `runs.wait` and state retrieval;
+it is not evidence that every SDK call is available.
+
+#### Persistence and hosting topology
+
+The SDK example uses an in-memory checkpointer; Platform thread records default
+to `InMemoryThreadStore`, and `thread_lock` defaults to `InProcessThreadLock`.
+These are process-local: checkpoints and thread records disappear on process
+restart, and one Azure instance can run multiple Python workers. Choose three
+things independently before deployment:
+
+1. A persistent checkpointer compiled into the graph for conversation state.
+2. A shared Platform `ThreadStore`, assigned to `app.thread_store` **before**
+   exporting `app.function_app`, for thread metadata, status and Platform run locks.
+   The [Managed Identity storage recipe](../examples/managed_identity_storage/)
+   wires Blob checkpoints and Azure Table records explicitly.
+3. A distributed `ThreadLock` for shared checkpoint writers, including mixed
+   native/Platform writers. A Table run lock alone is not mixed-surface exclusion.
+   Use the [distributed deployment decision table](production-guide.md#distributed-deployment)
+   and [lock limitations](production-guide.md#distributed-thread-locking), rather
+   than treating persistent storage as a concurrency guarantee.
+
+No backend is selected automatically. Build-time
+[topology validation](production-guide.md#topology-validation-880) rejects declared
+distributed configurations that retain incompatible process-local defaults:
+`AZFUNC_LANGGRAPH_LOCK_BACKEND=distributed` requires a supplied distributed lock;
+either that declaration or `AZFUNC_LANGGRAPH_THREAD_STORE=distributed` rejects an
+in-memory Platform store or detected `InMemorySaver` checkpointer. Without an
+explicit distributed declaration, Azure-host detection can warn instead of
+rejecting local defaults. These checks do not prove the actual instance/worker
+count or certify a deployment's scale-out safety (the remaining verification
+scope is tracked in [#880](https://github.com/yeongseon/azure-functions-langgraph-python/issues/880)).
+
+#### Checkpoint retention and thread deletion
+
+`threads.delete` deletes only the `ThreadStore` record (metadata, status and
+Platform lock state); it does **not** delete graph checkpoints. Select an explicit,
+application-owned retention policy for the checkpointer independently of thread
+record retention. For Blob storage, `AzureBlobCheckpointSaver.delete_thread(thread_id)`
+removes a whole thread's checkpoint data; `delete_old_checkpoints` and
+`delete_checkpoints_before` support partial pruning. See the
+[checkpoint retention recipe and orphan-value cleanup](production-guide.md#checkpoint-retention)
+for the helpers' limits and scheduling.
+
+Keep the IDs needed for cleanup before removing thread records, or schedule
+checkpoint cleanup separately: a job that enumerates only surviving thread
+records will miss deleted threads. Coordinate cleanup with writers; deleting a
+metadata record is neither cancellation of graph execution nor a data-erasure
+workflow for the checkpoint store.
+
+#### Search and scale
+
+Thread metadata filters run **in-process**, for both `InMemoryThreadStore` and
+`AzureTableThreadStore`. Table scan candidates can be narrowed by status, but
+metadata is matched after fetching candidates, with sorting and pagination
+after filtering. A small `limit` is not a storage-read budget.
+
+The Table status index is opt-in and off by default. Only an explicit `idle`,
+`interrupted` or `error` search with **no metadata filter**, a `ready` marker and
+an offset within `status_index_offset_cap` can use it. Unfiltered search,
+metadata-filtered search, `status="busy"` and **all counts** still scan; deep
+offsets and unavailable/not-ready index state also fall back to scanning.
+Review [index rollout, mixed-writer hazards and costs](#table-status-index-opt-in-experimental)
+and the remaining measurement/operational work in
+[#801](https://github.com/yeongseon/azure-functions-langgraph-python/issues/801)
+before relying on it for scale. This is not a general metadata or global search index.
+
+#### SDK lifecycle and transport
+
+`runs.wait` executes while the HTTP request is open; `runs.stream` returns
+**buffered SSE** after graph execution, not incremental tokens. Threadless calls
+require a graph that can disable checkpointing per call, and streaming requires
+the graph's streaming capability; the matrix specifies their `501` boundaries.
+
+The Platform routes do not expose `runs.create` (fire-and-forget), `runs.get`,
+`runs.list`, `runs.cancel`, `runs.delete`, `runs.join` or `runs.join_stream`.
+SDK requests to those unregistered paths receive HTTP **404 Not Found**, not a
+run handle, persisted run status or the explicit `501` JSON feature errors
+returned for unsupported fields on **registered** routes. SDK error/exception
+wrapping depends on the client version and request method; do not interpret a
+404 as successful cancellation or as proof that no graph work happened.
+
+True incremental SSE uses the separate native
+[`StreamingLangGraphApp` transport](#streaming-behavior), not the Platform SDK
+stream routes. Enabling the separate native Durable lifecycle likewise does not
+implement SDK lifecycle calls; see the
+[non-SDK distinction in the compatibility matrix](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md#durable-async-run-lifecycle-experimental-non-sdk).
+
 ## Scope
 
 - Azure Functions Python **v2 programming model**
