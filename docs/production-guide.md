@@ -330,6 +330,21 @@ A failed poll lookup returns a sanitized `502` with `run_id` and
 of an unknown run still returns `404`; successful create and poll responses are
 unchanged. Backend exceptions are logged server-side, not returned in either body.
 
+#### Durable create request validation
+
+Before scheduling, create requires `config` and `config.configurable` to be JSON
+objects or null (omitted values remain supported). The effective `thread_id` must
+be a non-empty printable ASCII string of at most 256 characters, or null/omitted.
+An explicit non-null `thread_id` takes precedence over
+`config.configurable.thread_id`; only the selected ID is validated. Legacy scalar,
+list and omitted `input`, null config and other config fields remain supported.
+
+The app's `max_input_depth` and `max_input_nodes` apply separately to Durable
+`input` and `config`, before submission. Invalid shapes or structural-limit
+violations return a value-free `400 {"error": "..."}` without scheduling a run.
+Oversized bodies still return `413`, before JSON parsing. These checks do not add
+application authorization, submission deduplication or an Activity retry policy.
+
 #### Cancellation of Durable runs
 
 Durable termination is **asynchronous** and ends the *orchestration*. It does not
