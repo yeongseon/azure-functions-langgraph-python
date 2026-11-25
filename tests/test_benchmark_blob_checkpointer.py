@@ -23,6 +23,8 @@ from typing import Any
 
 import pytest
 
+from tests.blob_hint_support import install_hint_sdk
+
 _PATH = Path(__file__).resolve().parents[1] / "tools" / "benchmark_blob_checkpointer.py"
 
 
@@ -90,7 +92,7 @@ def bench(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
         ("azure.storage", types.ModuleType("azure.storage")),
         ("azure.storage.blob", blob_mod),
         ("azure.storage.blob.aio", aio_mod),
-        ("azure.core", types.ModuleType("azure.core")),
+        ("azure.core", install_hint_sdk(types.ModuleType("azure.core"), exc_mod)),
         ("azure.core.exceptions", exc_mod),
         ("azure.core.pipeline", types.ModuleType("azure.core.pipeline")),
         ("azure.core.pipeline.transport", transport_mod),

@@ -6,7 +6,9 @@ import asyncio
 from collections import Counter
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 import importlib
+from itertools import count
 import sys
 import threading
 import types
@@ -15,6 +17,10 @@ from typing import Any, cast
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
 import pytest
+
+from tests.blob_hint_support import install_hint_sdk
+
+_ETAGS = count()
 
 
 class _NotFound(Exception):
@@ -26,16 +32,17 @@ class _Exists(Exception):
 
 
 class _Props:
-    def __init__(self, metadata: dict[str, str]) -> None:
-        self.metadata = metadata
+    def __init__(self, metadata: dict[str, str], etag: str = "fixture") -> None:
+        self.metadata: dict[str, str] | None = metadata
+        self.etag = etag
 
 
 class _Stream:
     """Mirrors ``StorageStreamDownloader``: ``properties.metadata`` comes with the body."""
 
-    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str], etag: str = "fixture") -> None:
         self._data = data
-        self.properties = _Props(dict(metadata))
+        self.properties = _Props(dict(metadata), etag)
 
     def readall(self) -> bytes:
         return self._data
@@ -46,6 +53,7 @@ class _Store:
 
     def __init__(self) -> None:
         self.blobs: dict[str, tuple[bytes, dict[str, str]]] = {}
+        self.etags: dict[str, str] = {}
         self.ops: Counter[str] = Counter()
         self.in_flight = 0
         self.max_in_flight = 0
@@ -67,13 +75,21 @@ class _SyncClient:
         self._s = store
         self._n = name
 
-    def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+    def upload_blob(
+        self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+    ) -> dict[str, str]:
         self._s.ops["upload"] += 1
+        if "etag" in kwargs and kwargs["etag"] != self._s.etags.get(self._n, "fixture"):
+            from azure.core.exceptions import ResourceModifiedError
+
+            raise ResourceModifiedError("hint changed", status_code=412)
         if not overwrite:
             self._s.ops["create_only"] += 1
             if self._n in self._s.blobs:
                 raise _Exists(self._n)
         self._s.blobs[self._n] = (data, dict(metadata))
+        etag = self._s.etags[self._n] = str(next(_ETAGS))
+        return {"etag": etag}
 
     def download_blob(self) -> _Stream:
         store = self._s
@@ -95,7 +111,7 @@ class _SyncClient:
                 store.gate.set()
             if self._n not in store.blobs:
                 raise _NotFound(self._n)
-            return _Stream(*store.blobs[self._n])
+            return _Stream(*store.blobs[self._n], store.etags.get(self._n, "fixture"))
         finally:
             with store.lock:
                 store.in_flight -= 1
@@ -113,7 +129,7 @@ class _SyncClient:
 class _Item:
     def __init__(self, name: str) -> None:
         self.name = name
-        self.last_modified = None
+        self.last_modified: datetime | None = None
 
 
 class _SyncContainer:
@@ -129,9 +145,9 @@ class _SyncContainer:
 
 
 class _AsyncStream:
-    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str], etag: str = "fixture") -> None:
         self._data = data
-        self.properties = _Props(dict(metadata))
+        self.properties = _Props(dict(metadata), etag)
 
     async def readall(self) -> bytes:
         return self._data
@@ -142,13 +158,21 @@ class _AsyncClient:
         self._s = store
         self._n = name
 
-    async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+    async def upload_blob(
+        self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+    ) -> dict[str, str]:
         self._s.ops["upload"] += 1
+        if "etag" in kwargs and kwargs["etag"] != self._s.etags.get(self._n, "fixture"):
+            from azure.core.exceptions import ResourceModifiedError
+
+            raise ResourceModifiedError("hint changed", status_code=412)
         if not overwrite:
             self._s.ops["create_only"] += 1
             if self._n in self._s.blobs:
                 raise _Exists(self._n)
         self._s.blobs[self._n] = (data, dict(metadata))
+        etag = self._s.etags[self._n] = str(next(_ETAGS))
+        return {"etag": etag}
 
     async def download_blob(self) -> _AsyncStream:
         self._s.ops["download"] += 1
@@ -172,7 +196,7 @@ class _AsyncClient:
                 raise RuntimeError("boom")
             if self._n not in self._s.blobs:
                 raise _NotFound(self._n)
-            return _AsyncStream(*self._s.blobs[self._n])
+            return _AsyncStream(*self._s.blobs[self._n], self._s.etags.get(self._n, "fixture"))
         finally:
             self._s.in_flight -= 1
 
@@ -215,7 +239,7 @@ def _fake_azure(monkeypatch: Any) -> None:
         ("azure.storage", types.ModuleType("azure.storage")),
         ("azure.storage.blob", blob_mod),
         ("azure.storage.blob.aio", aio_mod),
-        ("azure.core", types.ModuleType("azure.core")),
+        ("azure.core", install_hint_sdk(types.ModuleType("azure.core"), exc_mod)),
         ("azure.core.exceptions", exc_mod),
     ):
         monkeypatch.setitem(sys.modules, name, mod)
