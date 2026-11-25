@@ -555,7 +555,8 @@ class LangGraphApp:
         if self.platform_compat or self.async_runs or self._sb_registrations:
             raise ValueError("to_blueprint() supports native HTTP routes only")
         self._validate_topology()
-        blueprint = func.Blueprint()
+        blueprint_factory: Callable[[], func.Blueprint] = func.Blueprint
+        blueprint = blueprint_factory()
         self._register_native_routes(blueprint)
         return blueprint
 

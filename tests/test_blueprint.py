@@ -35,7 +35,9 @@ def test_blueprint_preserves_existing_triggers() -> None:
     functions = {f.get_function_name(): f for f in existing.get_functions()}
     request = func.HttpRequest("POST", "/", body=b'{"input":{"message":"hello"}}')
     assert functions["existing_http"].get_user_function()(request).get_body() == b"existing"
-    assert functions["existing_timer"].get_trigger().get_dict_repr()["type"] == "timerTrigger"
+    timer = functions["existing_timer"].get_trigger()
+    assert timer is not None
+    assert timer.get_dict_repr()["type"] == "timerTrigger"
     response = functions["aflg_agent_invoke"].get_user_function()(request)
     assert response.status_code == 200
     assert json.loads(response.get_body())["output"] == {"message": "hello", "processed": True}
