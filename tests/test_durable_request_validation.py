@@ -75,6 +75,7 @@ async def test_create_preserves_legacy_requests_and_thread_precedence(
 async def test_configured_limits_reject_durable_input_before_scheduling(
     field: str, limit: str
 ) -> None:
+    pytest.importorskip("azure.durable_functions")  # the registered route needs the durable extra
     # Given: use the registered route to cover LangGraphApp -> deps -> HTTP wiring.
     app = LangGraphApp(async_runs="durable", max_input_depth=2, max_input_nodes=2)
     app.register(FakeGraph(), "echo")
