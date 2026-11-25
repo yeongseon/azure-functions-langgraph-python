@@ -28,6 +28,16 @@ from langgraph.checkpoint.base import (
 )
 from langgraph.checkpoint.serde.base import SerializerProtocol
 
+from azure_functions_langgraph.checkpointers._blob_hint import (
+    BlobCheckpointConflictError as BlobCheckpointConflictError,
+)
+from azure_functions_langgraph.checkpointers._blob_hint import (
+    HintSnapshot,
+    conflict_error,
+    download_etag,
+    hint_conditions,
+    response_etag,
+)
 from azure_functions_langgraph.locks.guard import (
     OwnershipGuard,
     ThreadLeaseLostError,
@@ -171,7 +181,9 @@ class _BlobPropertiesProtocol(Protocol):
 
 
 class _BlobClientProtocol(Protocol):
-    def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None: ...
+    def upload_blob(
+        self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+    ) -> dict[str, Any]: ...
 
     def download_blob(self) -> _BlobDownloadProtocol: ...
 
@@ -199,7 +211,9 @@ class _AsyncBlobDownloadProtocol(Protocol):
 
 
 class _AsyncBlobClientProtocol(Protocol):
-    async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None: ...
+    async def upload_blob(
+        self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+    ) -> dict[str, Any]: ...
 
     async def download_blob(self) -> _AsyncBlobDownloadProtocol: ...
 
@@ -227,7 +241,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         DESIGN.md decision #7 for details.
 
     Note:
-        Writes are unconditional: nothing at the storage layer fences a stale
+        Data writes are unconditional: nothing at the storage layer fences a stale
         writer. When a write is accompanied by an
         :class:`~azure_functions_langgraph.locks.guard.OwnershipGuard` (handed
         out by a lock created with ``guard_checkpoint_writes=True``, for
@@ -527,16 +541,24 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         # hint is below this id is not equivalent either (case b). Pinned by
         # ``test_put_probes_the_hinted_checkpoint_before_trusting_it`` in
         # tests/test_blob_format_compat.py; see docs/blob-checkpoint-format.md.
-        current_latest = self._read_latest_checkpoint_id(thread_id, checkpoint_ns, for_write=True)
+        latest_path = self._latest_blob_path(thread_id, checkpoint_ns)
+        snapshot = self._hint_snapshot(latest_path)
+        current_latest = (
+            self._parse_latest_checkpoint_id(snapshot.payload, latest_path, for_write=True)
+            if snapshot.payload is not None
+            else None
+        )
         if current_latest is None or not self._blob_exists(
             self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
         ):
             current_latest = self._find_latest_checkpoint_id(thread_id, checkpoint_ns)
         check_ownership_guard(guard)
-        self._upload_blob(
-            self._latest_blob_path(thread_id, checkpoint_ns),
+        dirty_etag = self._upload_blob(
+            latest_path,
             b'{"version":1,"dirty":true}',
             {},
+            overwrite=snapshot.etag is not None,
+            etag=snapshot.etag,
         )
         checkpoint_data: dict[str, Any] = dict(checkpoint)
         channel_values: dict[str, Any] = checkpoint_data.pop("channel_values", {})
@@ -584,7 +606,26 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             separators=(",", ":"),
         ).encode()
         check_ownership_guard(guard)
-        self._upload_blob(self._latest_blob_path(thread_id, checkpoint_ns), latest_payload, {})
+        try:
+            self._upload_blob(latest_path, latest_payload, {}, etag=dirty_etag)
+        except BlobCheckpointConflictError:
+            # The commit exists: invalidate the optimization before reporting the conflict.
+            # This is best effort, not a transaction with the checkpoint marker.
+            observed = self._hint_snapshot(latest_path)
+            if observed.payload is not None:
+                try:
+                    self._parse_latest_checkpoint_id(observed.payload, latest_path, for_write=True)
+                except BlobCheckpointFormatError:
+                    raise conflict_error() from None
+            check_ownership_guard(guard)
+            self._upload_blob(
+                latest_path,
+                b'{"version":1,"dirty":true}',
+                {},
+                overwrite=observed.etag is not None,
+                etag=observed.etag,
+            )
+            raise
         return self._checkpoint_config(thread_id, checkpoint_ns, checkpoint_id)
 
     def put_writes(
@@ -1225,6 +1266,13 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         except self._not_found_error:
             return None
 
+    def _hint_snapshot(self, blob_path: str) -> HintSnapshot:
+        try:
+            stream = self._container_client.get_blob_client(blob_path).download_blob()
+            return HintSnapshot(stream.readall(), download_etag(stream.properties))
+        except self._not_found_error:
+            return HintSnapshot(None, None)
+
     def _blob_exists(self, blob_path: str) -> bool:
         try:
             self._container_client.get_blob_client(blob_path).get_blob_properties()
@@ -1233,13 +1281,31 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         return True
 
     def _upload_blob(
-        self, blob_path: str, payload: bytes, metadata: dict[str, str], overwrite: bool = True
-    ) -> None:
-        self._container_client.get_blob_client(blob_path).upload_blob(
-            payload,
-            metadata=metadata,
-            overwrite=overwrite,
-        )
+        self,
+        blob_path: str,
+        payload: bytes,
+        metadata: dict[str, str],
+        overwrite: bool = True,
+        *,
+        etag: str | None = None,
+    ) -> str:
+        client = self._container_client.get_blob_client(blob_path)
+        if not blob_path.endswith("/latest.json"):
+            client.upload_blob(payload, metadata=metadata, overwrite=overwrite)
+            return ""
+        conditions = hint_conditions(etag) if etag is not None else {}
+        http_error = importlib.import_module("azure.core.exceptions").HttpResponseError
+        try:
+            result = client.upload_blob(
+                payload, metadata=metadata, overwrite=overwrite, **conditions
+            )
+        except self._exists_error as exc:
+            raise conflict_error() from exc
+        except http_error as exc:
+            if getattr(exc, "status_code", None) == 412:
+                raise conflict_error() from exc
+            raise
+        return response_etag(result)
 
     def _create_blob(self, blob_path: str, payload: bytes, metadata: dict[str, str]) -> bool:
         """Create ``blob_path`` only if absent; return ``False`` when it already exists.
@@ -1365,6 +1431,14 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         except self._not_found_error:
             return None
 
+    async def _ahint_snapshot(self, blob_path: str) -> HintSnapshot:
+        client = self._require_aio_container_client().get_blob_client(blob_path)
+        try:
+            stream = await client.download_blob()
+            return HintSnapshot(await stream.readall(), download_etag(stream.properties))
+        except self._not_found_error:
+            return HintSnapshot(None, None)
+
     async def _ablob_metadata(self, blob_path: str) -> dict[str, str]:
         client = self._require_aio_container_client().get_blob_client(blob_path)
         try:
@@ -1404,10 +1478,31 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         return True
 
     async def _aupload_blob(
-        self, blob_path: str, payload: bytes, metadata: dict[str, str], overwrite: bool = True
-    ) -> None:
+        self,
+        blob_path: str,
+        payload: bytes,
+        metadata: dict[str, str],
+        overwrite: bool = True,
+        *,
+        etag: str | None = None,
+    ) -> str:
         client = self._require_aio_container_client().get_blob_client(blob_path)
-        await client.upload_blob(payload, metadata=metadata, overwrite=overwrite)
+        if not blob_path.endswith("/latest.json"):
+            await client.upload_blob(payload, metadata=metadata, overwrite=overwrite)
+            return ""
+        conditions = hint_conditions(etag) if etag is not None else {}
+        http_error = importlib.import_module("azure.core.exceptions").HttpResponseError
+        try:
+            result = await client.upload_blob(
+                payload, metadata=metadata, overwrite=overwrite, **conditions
+            )
+        except self._exists_error as exc:
+            raise conflict_error() from exc
+        except http_error as exc:
+            if getattr(exc, "status_code", None) == 412:
+                raise conflict_error() from exc
+            raise
+        return response_etag(result)
 
     async def _acreate_blob(self, blob_path: str, payload: bytes, metadata: dict[str, str]) -> bool:
         """Async twin of :meth:`_create_blob`."""
@@ -1737,18 +1832,24 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         parent_checkpoint_id = get_checkpoint_id(config)
 
         # Same hinted-checkpoint existence probe as in ``put`` (see the comment there, #860).
-        current_latest = await self._aread_latest_checkpoint_id(
-            thread_id, checkpoint_ns, for_write=True
+        latest_path = self._latest_blob_path(thread_id, checkpoint_ns)
+        snapshot = await self._ahint_snapshot(latest_path)
+        current_latest = (
+            self._parse_latest_checkpoint_id(snapshot.payload, latest_path, for_write=True)
+            if snapshot.payload is not None
+            else None
         )
         if current_latest is None or not await self._ablob_exists(
             self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
         ):
             current_latest = await self._afind_latest_checkpoint_id(thread_id, checkpoint_ns)
         check_ownership_guard(guard)
-        await self._aupload_blob(
-            self._latest_blob_path(thread_id, checkpoint_ns),
+        dirty_etag = await self._aupload_blob(
+            latest_path,
             b'{"version":1,"dirty":true}',
             {},
+            overwrite=snapshot.etag is not None,
+            etag=snapshot.etag,
         )
 
         checkpoint_data: dict[str, Any] = dict(checkpoint)
@@ -1797,9 +1898,24 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             separators=(",", ":"),
         ).encode()
         check_ownership_guard(guard)
-        await self._aupload_blob(
-            self._latest_blob_path(thread_id, checkpoint_ns), latest_payload, {}
-        )
+        try:
+            await self._aupload_blob(latest_path, latest_payload, {}, etag=dirty_etag)
+        except BlobCheckpointConflictError:
+            observed = await self._ahint_snapshot(latest_path)
+            if observed.payload is not None:
+                try:
+                    self._parse_latest_checkpoint_id(observed.payload, latest_path, for_write=True)
+                except BlobCheckpointFormatError:
+                    raise conflict_error() from None
+            check_ownership_guard(guard)
+            await self._aupload_blob(
+                latest_path,
+                b'{"version":1,"dirty":true}',
+                {},
+                overwrite=observed.etag is not None,
+                etag=observed.etag,
+            )
+            raise
         return self._checkpoint_config(thread_id, checkpoint_ns, checkpoint_id)
 
     async def aput_writes(

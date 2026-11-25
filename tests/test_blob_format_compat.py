@@ -39,6 +39,7 @@ from azure_functions_langgraph.locks.guard import (
     OWNERSHIP_GUARD_CONFIG_KEY,
     ThreadLeaseLostError,
 )
+from tests.blob_hint_support import install_hint_sdk
 from tests.ownership_guard_support import ScriptedGuard
 
 ROOT = Path(__file__).parent / "fixtures" / "blob_compat"
@@ -108,7 +109,7 @@ def _fake_azure(monkeypatch: pytest.MonkeyPatch) -> None:
         ("azure.storage", types.ModuleType("azure.storage")),
         ("azure.storage.blob", blob_mod),
         ("azure.storage.blob.aio", aio_mod),
-        ("azure.core", types.ModuleType("azure.core")),
+        ("azure.core", install_hint_sdk(types.ModuleType("azure.core"), exc_mod)),
         ("azure.core.exceptions", exc_mod),
     ):
         monkeypatch.setitem(sys.modules, name, mod)
@@ -250,10 +251,12 @@ def test_every_emitted_format_version_has_fixture_sets() -> None:
     )
     real_upload = saver._upload_blob
 
-    def spy(path: str, payload: bytes, metadata: dict[str, str], overwrite: bool = True) -> None:
+    def spy(
+        path: str, payload: bytes, metadata: dict[str, str], overwrite: bool = True, **kwargs: Any
+    ) -> Any:
         if path.endswith("/latest.json"):
             seen.add(_hint_version(payload))
-        real_upload(path, payload, metadata, overwrite)
+        return real_upload(path, payload, metadata, overwrite, **kwargs)
 
     saver._upload_blob = spy
     saver_state = random.getstate()
@@ -843,7 +846,9 @@ async def test_stale_owner_after_dirty_marker_cannot_commit_and_new_owner_wins(k
     assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": False, "checkpoint_id": NEXT}
 
 
-def _race(blobs: Blobs, first_id: str, second_id: str) -> tuple[Any, Any]:
+def _race(
+    blobs: Blobs, first_id: str, second_id: str, *, expect_conflict: bool = False
+) -> tuple[Any, Any]:
     """A begins ``put`` (id ``first_id``), B runs a whole ``put`` (``second_id``) inside A's window.
 
     The interleave point is A's dirty-marker upload, the first thing a writer
@@ -857,14 +862,20 @@ def _race(blobs: Blobs, first_id: str, second_id: str) -> tuple[Any, Any]:
     real_upload = saver_a._upload_blob
     fired: list[bool] = []
 
-    def hook(path: str, payload: bytes, metadata: dict[str, str]) -> None:
-        real_upload(path, payload, metadata)
+    def hook(path: str, payload: bytes, metadata: dict[str, str], **kwargs: Any) -> Any:
+        result = real_upload(path, payload, metadata, **kwargs)
         if path.endswith("/latest.json") and not fired:
             fired.append(True)
             saver_b.put(prev.config, cp_b, meta, nv_b)
+        return result
 
     saver_a._upload_blob = hook
-    saver_a.put(prev.config, cp_a, meta, nv_a)
+    if expect_conflict:
+        module = importlib.import_module(GRAPH_MODULE)
+        with pytest.raises(module.BlobCheckpointConflictError):
+            saver_a.put(prev.config, cp_a, meta, nv_a)
+    else:
+        saver_a.put(prev.config, cp_a, meta, nv_a)
     assert fired
     return saver_a, saver_b
 
@@ -872,7 +883,7 @@ def _race(blobs: Blobs, first_id: str, second_id: str) -> tuple[Any, Any]:
 def test_two_savers_racing_commit_both_checkpoints_and_never_lose_data() -> None:
     blobs, _ = _load_set("current")
     low, high = "1f000000-0000-6000-8000-000000000004", "1f000000-0000-6000-8000-000000000005"
-    saver, _ = _race(blobs, low, high)
+    saver, _ = _race(blobs, low, high, expect_conflict=True)
     ids = [t.checkpoint["id"] for t in saver.list(_cfg("thread-sync", ""))]
     assert ids[:2] == [high, low], "both commits exist; neither writer's data was overwritten"
     for cp_id in (low, high):
@@ -882,19 +893,18 @@ def test_two_savers_racing_commit_both_checkpoints_and_never_lose_data() -> None
 def test_two_savers_racing_where_the_later_commit_has_the_higher_id() -> None:
     blobs, _ = _load_set("current")
     low, high = "1f000000-0000-6000-8000-000000000004", "1f000000-0000-6000-8000-000000000005"
-    saver, _ = _race(blobs, high, low)  # A (id=high) publishes last
-    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": False, "checkpoint_id": high}
+    saver, _ = _race(blobs, high, low, expect_conflict=True)  # A (id=high) publishes last
+    assert json.loads(blobs[_hint()][0]) == {"version": 1, "dirty": True}
     assert saver.get_tuple(_cfg("thread-sync", "")).config["configurable"]["checkpoint_id"] == high
 
 
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "Known gap (docs/blob-checkpoint-format.md, 'Concurrent writers'): the adapter assumes one "
-        "writer per thread. A writer whose own id is lower publishes a clean hint computed from "
-        "the hint it read before a concurrent writer committed a higher id, so get_tuple() "
-        "without a checkpoint id returns the lower one. The thread lock (and, opt-in, the "
-        "ownership guard) is what prevents this; it is not enforced by the saver."
+        "Concurrent put success is unsupported: one writer per thread is enforced by the thread "
+        "lock. ETag preconditions detect overlapping hint publication and raise "
+        "BlobCheckpointConflictError after commit rather than reporting two successful writes. "
+        "Conflict invalidation can itself fail; this is not multi-writer transaction safety."
     ),
 )
 def test_two_savers_racing_do_not_hide_the_higher_checkpoint_behind_the_hint() -> None:

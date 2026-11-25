@@ -205,18 +205,28 @@ async def test_latest_publication_failure_recovers_on_azurite(
         aupload = saver._aupload_blob
 
         def fail_clean(
-            path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
-        ) -> None:
+            path: str,
+            data: bytes,
+            metadata: dict[str, str],
+            overwrite: bool = True,
+            *,
+            etag: str | None = None,
+        ) -> str:
             if path.endswith("latest.json") and json.loads(data).get("dirty") is not True:
                 raise TimeoutError(path)
-            upload(path, data, metadata, overwrite)
+            return upload(path, data, metadata, overwrite, etag=etag)
 
         async def afail_clean(
-            path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
-        ) -> None:
+            path: str,
+            data: bytes,
+            metadata: dict[str, str],
+            overwrite: bool = True,
+            *,
+            etag: str | None = None,
+        ) -> str:
             if path.endswith("latest.json") and json.loads(data).get("dirty") is not True:
                 raise TimeoutError(path)
-            await aupload(path, data, metadata, overwrite)
+            return await aupload(path, data, metadata, overwrite, etag=etag)
 
         monkeypatch.setattr(saver, "_upload_blob", fail_clean)
         monkeypatch.setattr(saver, "_aupload_blob", afail_clean)

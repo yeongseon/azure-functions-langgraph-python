@@ -23,6 +23,7 @@ import pytest
 
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
 from azure_functions_langgraph.locks.azure_blob import AzureBlobLeaseThreadLock
+from tests.blob_hint_support import MatchConditions, ResourceModifiedError
 from tests.test_blob_lease_evaluation import _TimedContainer, _TimedLease
 from tests.test_checkpointers_azure_blob import (
     FakeResourceExistsError as CheckpointResourceExistsError,
@@ -56,12 +57,15 @@ def _fake_azure_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
         "ResourceExistsError",
         (FakeResourceExistsError, CheckpointResourceExistsError),
     )
-    setattr(exceptions_mod, "HttpResponseError", FakeHttpResponseError)
+    setattr(exceptions_mod, "HttpResponseError", (FakeHttpResponseError, ResourceModifiedError))
+    setattr(exceptions_mod, "ResourceModifiedError", ResourceModifiedError)
+    core_mod = types.ModuleType("azure.core")
+    setattr(core_mod, "MatchConditions", MatchConditions)
     for name, module in (
         ("azure", types.ModuleType("azure")),
         ("azure.storage", types.ModuleType("azure.storage")),
         ("azure.storage.blob", blob_mod),
-        ("azure.core", types.ModuleType("azure.core")),
+        ("azure.core", core_mod),
         ("azure.core.exceptions", exceptions_mod),
     ):
         monkeypatch.setitem(sys.modules, name, module)

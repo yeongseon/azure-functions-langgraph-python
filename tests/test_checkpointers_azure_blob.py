@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import importlib
+from itertools import count
 import json
 import re
 import sys
@@ -17,11 +18,15 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
 from langgraph.checkpoint.serde.types import ERROR, INTERRUPT
 
+from tests.blob_hint_support import install_hint_sdk
+
 pytest = cast(Any, importlib.import_module("pytest"))
 
 
 class _CheckpointSaverProtocol(Protocol):
-    def _upload_blob(self, path: str, data: bytes, metadata: dict[str, str]) -> None: ...
+    def _upload_blob(
+        self, path: str, data: bytes, metadata: dict[str, str], **kwargs: Any
+    ) -> str: ...
 
     def get_next_version(self, current: str | None, channel: None) -> str: ...
 
@@ -89,6 +94,7 @@ class FakeResourceExistsError(Exception):
 
 
 _DEFAULT_BLOB_LAST_MODIFIED = datetime(2020, 1, 1, tzinfo=UTC)
+_ETAGS = count()
 
 
 @dataclass
@@ -96,6 +102,7 @@ class _BlobRecord:
     data: bytes
     metadata: dict[str, str]
     last_modified: datetime = field(default=_DEFAULT_BLOB_LAST_MODIFIED)
+    etag: str = field(default_factory=lambda: str(next(_ETAGS)))
 
 
 @dataclass
@@ -107,17 +114,18 @@ class _BlobItem:
 class _MockDownloadStream:
     """Mirrors ``StorageStreamDownloader``: ``properties.metadata`` comes with the body."""
 
-    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str], etag: str = "fixture") -> None:
         self._data = data
-        self.properties = _MockBlobProperties(dict(metadata))
+        self.properties = _MockBlobProperties(dict(metadata), etag)
 
     def readall(self) -> bytes:
         return self._data
 
 
 class _MockBlobProperties:
-    def __init__(self, metadata: dict[str, str]) -> None:
+    def __init__(self, metadata: dict[str, str], etag: str = "fixture") -> None:
         self.metadata: dict[str, str] | None = metadata
+        self.etag = etag
 
 
 class MockBlobClient:
@@ -125,22 +133,29 @@ class MockBlobClient:
         self._container = container
         self._blob_name = blob_name
 
-    def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+    def upload_blob(
+        self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+    ) -> dict[str, str]:
         if not overwrite and self._blob_name in self._container.blobs:
             raise FakeResourceExistsError(self._blob_name)
         existing = self._container.blobs.get(self._blob_name)
+        if "etag" in kwargs and (existing is None or kwargs["etag"] != existing.etag):
+            from azure.core.exceptions import ResourceModifiedError
+
+            raise ResourceModifiedError("hint changed", status_code=412)
         last_modified = (
             existing.last_modified if existing is not None else _DEFAULT_BLOB_LAST_MODIFIED
         )
         self._container.blobs[self._blob_name] = _BlobRecord(
             data=data, metadata=dict(metadata), last_modified=last_modified
         )
+        return {"etag": self._container.blobs[self._blob_name].etag}
 
     def download_blob(self) -> _MockDownloadStream:
         record = self._container.blobs.get(self._blob_name)
         if record is None:
             raise FakeResourceNotFoundError(self._blob_name)
-        return _MockDownloadStream(record.data, record.metadata)
+        return _MockDownloadStream(record.data, record.metadata, record.etag)
 
     def get_blob_properties(self) -> _MockBlobProperties:
         record = self._container.blobs.get(self._blob_name)
@@ -170,9 +185,9 @@ class MockContainerClient:
 
 
 class _AsyncMockDownloadStream:
-    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str], etag: str = "fixture") -> None:
         self._data = data
-        self.properties = _MockBlobProperties(dict(metadata))
+        self.properties = _MockBlobProperties(dict(metadata), etag)
 
     async def readall(self) -> bytes:
         return self._data
@@ -183,22 +198,18 @@ class AsyncMockBlobClient:
         self._container = container
         self._blob_name = blob_name
 
-    async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
-        if not overwrite and self._blob_name in self._container.blobs:
-            raise FakeResourceExistsError(self._blob_name)
-        existing = self._container.blobs.get(self._blob_name)
-        last_modified = (
-            existing.last_modified if existing is not None else _DEFAULT_BLOB_LAST_MODIFIED
-        )
-        self._container.blobs[self._blob_name] = _BlobRecord(
-            data=data, metadata=dict(metadata), last_modified=last_modified
+    async def upload_blob(
+        self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+    ) -> dict[str, str]:
+        return MockBlobClient(self._container, self._blob_name).upload_blob(
+            data, metadata, overwrite, **kwargs
         )
 
     async def download_blob(self) -> _AsyncMockDownloadStream:
         record = self._container.blobs.get(self._blob_name)
         if record is None:
             raise FakeResourceNotFoundError(self._blob_name)
-        return _AsyncMockDownloadStream(record.data, record.metadata)
+        return _AsyncMockDownloadStream(record.data, record.metadata, record.etag)
 
     async def get_blob_properties(self) -> _MockBlobProperties:
         record = self._container.blobs.get(self._blob_name)
@@ -255,6 +266,7 @@ def _install_fake_azure_modules(monkeypatch: Any) -> None:
     azure_core_exceptions_mod = types.ModuleType("azure.core.exceptions")
     setattr(azure_core_exceptions_mod, "ResourceNotFoundError", FakeResourceNotFoundError)
     setattr(azure_core_exceptions_mod, "ResourceExistsError", FakeResourceExistsError)
+    install_hint_sdk(azure_core_mod, azure_core_exceptions_mod)
 
     monkeypatch.setitem(sys.modules, "azure", azure_mod)
     monkeypatch.setitem(sys.modules, "azure.storage", azure_storage_mod)
@@ -455,7 +467,7 @@ def _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
     )
     original_upload = saver._upload_blob
 
-    def fail_selected_phase(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    def fail_selected_phase(path: str, data: bytes, metadata: dict[str, str], **kwargs: Any) -> str:
         is_selected = {
             "value": "/values/messages/v2.bin" in path,
             "metadata": path.endswith("/cp-002/metadata.bin"),
@@ -463,7 +475,7 @@ def _assert_partial_checkpoint_write_keeps_last_committed_checkpoint(
         }[failed_phase]
         if is_selected:
             raise TimeoutError(path)
-        original_upload(path, data, metadata)
+        return original_upload(path, data, metadata, **kwargs)
 
     monkeypatch.setattr(saver, "_upload_blob", fail_selected_phase)
 
@@ -519,10 +531,10 @@ def test_latest_hint_failure_preserves_committed_checkpoint(
     cfg = _config(thread_id="latest-fault", checkpoint_ns="ns")
     original_upload = saver._upload_blob
 
-    def fail_latest(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    def fail_latest(path: str, data: bytes, metadata: dict[str, str], **kwargs: Any) -> str:
         if path.endswith("latest.json") and json.loads(data).get("dirty") is not True:
             raise TimeoutError(path)
-        original_upload(path, data, metadata)
+        return original_upload(path, data, metadata, **kwargs)
 
     monkeypatch.setattr(saver, "_upload_blob", fail_latest)
 
