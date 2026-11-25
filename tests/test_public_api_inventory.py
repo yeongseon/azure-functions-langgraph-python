@@ -121,6 +121,17 @@ def test_every_public_symbol_has_a_tier() -> None:
             assert any(part.startswith("_") for part in m["module"].split("."))
 
 
+def test_blueprint_method_is_experimental_without_downgrading_class() -> None:
+    app = next(e for e in DATA["root"]["exports"] if e["name"] == "LangGraphApp")
+    module = next(m for m in DATA["modules"] if m["module"] == f"{inv.PKG}.app")
+    symbol = next(s for s in module["symbols"] if s["name"] == "LangGraphApp")
+    method = next(m for m in symbol["methods"] if m["name"] == "to_blueprint")
+    assert method["signature"] == "() -> func.Blueprint"
+    assert method["tier"] == inv.EXPERIMENTAL
+    assert app["tier"] == inv.CORE
+    assert gate.tier_for(f"{inv.PKG}.app") == "stable"
+
+
 def test_inventory_and_gate_scan_the_same_public_modules() -> None:
     inventory_modules = {m["module"] for m in DATA["modules"] if m["public"]}
     gate_modules = set(gate.ApiExtractor(ROOT / "src").public_modules())

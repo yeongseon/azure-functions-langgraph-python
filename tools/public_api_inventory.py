@@ -59,6 +59,10 @@ MODULE_TIERS: dict[str, tuple[str, str]] = {
     f"{PKG}.durable": (EXPERIMENTAL, "README"),
 }
 
+METHOD_TIERS: dict[str, tuple[str, str]] = {
+    f"{PKG}.app.LangGraphApp.to_blueprint": (EXPERIMENTAL, "proposed in #993"),
+}
+
 # Dotted third-party import prefix -> optional extra that supplies it.
 IMPORT_EXTRA: dict[str, str] = {
     "azure.storage.blob": "azure-blob",
@@ -285,6 +289,10 @@ def _top_level_symbols(mod: Module) -> dict[str, dict[str, Any]]:
     for node in mod.tree.body:
         if isinstance(node, ast.ClassDef):
             symbols[node.name] = _class_info(node)
+            for method in symbols[node.name]["methods"]:
+                declared = METHOD_TIERS.get(f"{mod.name}.{node.name}.{method['name']}")
+                if declared:
+                    method["tier"], method["tier_basis"] = declared
         elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             symbols[node.name] = {
                 "kind": "async function" if isinstance(node, ast.AsyncFunctionDef) else "function",
@@ -786,6 +794,23 @@ def render_markdown(data: dict[str, Any]) -> str:
                 f"| `{s['name']}` | {s['kind']} | {'yes' if s['in_all'] else 'no'} | "
                 f"`{_flags(s['consumers'])}` |"
             )
+    add("")
+    add("### Method-level tier exceptions")
+    add("")
+    add("Methods not listed here inherit their module's tier.")
+    add("")
+    add("| Method | Signature | Tier | Basis |")
+    add("| --- | --- | --- | --- |")
+    for m in data["modules"]:
+        if not m["public"]:
+            continue
+        for symbol in m["symbols"]:
+            for method in symbol["methods"]:
+                if "tier" in method:
+                    add(
+                        f"| `{m['module']}.{symbol['name']}.{method['name']}` | "
+                        f"`{method['signature']}` | {method['tier']} | {method['tier_basis']} |"
+                    )
     add("")
     pack = data["packaging"]
     add("## Packaging and optional extras")
