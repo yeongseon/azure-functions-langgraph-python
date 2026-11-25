@@ -144,13 +144,17 @@ for the operational guide (RBAC, lease renewal, production checklist).
 ## OpenAPI integration
 
 Bridges a `LangGraphApp` into
-[azure-functions-openapi-python](https://pypi.org/project/azure-functions-openapi-python/).
+[azure-functions-openapi](https://pypi.org/project/azure-functions-openapi/).
 
 ### register_with_openapi
 
 Registers all graph and app-level routes with the OpenAPI package and returns the
 number of routes registered. Requires the optional dependency
-`azure-functions-openapi-python`.
+`azure-functions-openapi`. Install it through the adapter's extra:
+
+```bash
+pip install "azure-functions-langgraph[openapi]"
+```
 
 ```python
 from azure_functions_langgraph import LangGraphApp
