@@ -31,8 +31,12 @@ Save as `function_app.py` in a Functions app with `host.json`:
 from typing import TypedDict
 from langgraph.graph import START, END, StateGraph
 from azure_functions_langgraph import LangGraphApp
+
+
 class State(TypedDict):
     message: str
+
+
 builder = StateGraph(State)
 builder.add_node("echo", lambda state: {"message": state["message"]})
 builder.add_edge(START, "echo")
@@ -50,6 +54,9 @@ project files, local setup and deployment. To start from a new Functions project
 of your own, the Quickstart's section
 [Start from a new Functions project](docs/getting-started.md#start-from-a-new-functions-project)
 shows the scaffolding.
+
+For upstream provenance and separately recorded Azure deployment evidence, see
+the [official LangGraph example](examples/official_langgraph_basic/).
 
 ## Deploy to Azure (default path)
 
