@@ -14,6 +14,100 @@ When you register a graph named `my_agent`, the following endpoints are created:
 | `GET` | `/api/health` | Anonymous liveness probe (`{"status": "ok"}`) |
 | `GET` | `/api/health/details` | Registered-graph inventory (protected by default) |
 
+## Existing-app composition (Experimental)
+
+Keep your existing `azure.functions.FunctionApp` and attach a native HTTP
+Blueprint. Do not pass `langgraph_app.function_app` to `register_functions`:
+Azure's SDK rejects a FunctionApp as a child. Do not export both FunctionApps;
+the Python worker requires exactly one top-level application instance.
+
+```python
+import azure.functions as func
+from azure_functions_langgraph import LangGraphApp
+from my_graph import graph  # your existing compiled graph
+
+app = func.FunctionApp()
+
+@app.route(route="existing", methods=["GET"])
+def existing_http(req: func.HttpRequest) -> func.HttpResponse:
+    return func.HttpResponse("existing")
+
+langgraph_app = LangGraphApp()
+langgraph_app.register(graph, "agent")
+app.register_functions(langgraph_app.to_blueprint())
+```
+
+The [runnable example](https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/existing_function_app)
+adds the unchanged official basic LangGraph graph next to an existing HTTP and
+timer trigger. The timer is ordinary application code, not a new adapter trigger.
+
+### Registration timing and ownership
+
+1. Configure the adapter and register **all** graphs before calling
+   `to_blueprint()`. It runs the same topology checks as `.function_app` before
+   creating any routes and returns a fresh Blueprint on each call.
+2. Call `app.register_functions(blueprint)` **once**, during module import and
+   before host indexing. Existing app decorators can run before or after that
+   call, provided they also finish before indexing and do not conflict.
+3. Late graph registrations, whether before or after `register_functions`, do
+   **not** add routes to a previously exported Blueprint or parent app. Azure
+   registration copies the current set of builders; it is not a live mount.
+   Rebuild the application from scratch after changing graph registrations;
+   do not register another full export onto the same app.
+4. Handlers retain the adapter and its runtime dependencies. The route set is
+   captured, but the adapter is not deep-copied: for example, health details
+   reads its live registry. Do not mutate configuration after export. The
+   standalone `.function_app` cache and its invalidation behavior are unchanged.
+
+This initial Blueprint API supports **native classic HTTP only**, including
+sync/async invocation, buffered SSE, state and health/readiness. Configured
+`platform_compat`, `async_runs="durable"` or Service Bus registrations raise
+`ValueError` rather than being dropped. This does not expand Platform, Durable,
+Service Bus or true-streaming hosting support.
+
+### Generated names and conflicts
+
+These are the same names and paths as the standalone app. Paths are relative to
+the existing host's `extensions.http.routePrefix` (`api` by default).
+
+| Function name | Method | Relative route | Included when |
+| --- | --- | --- | --- |
+| `aflg_health` | GET | `health` | Always |
+| `aflg_health_details` | GET | `health/details` | Always |
+| `aflg_health_ready` | GET | `health/ready` | Readiness checks configured |
+| `aflg_<name>_invoke` | POST | `graphs/<name>/invoke` | Each graph |
+| `aflg_<name>_stream` | POST | `graphs/<name>/stream` | `stream=True` (default) |
+| `aflg_<name>_state` | GET | `graphs/<name>/threads/{thread_id}/state` | Graph has supported state capability |
+
+Reserve both function names and overlapping method/path combinations, including
+parameterized and catch-all routes. Azure's SDK rejects duplicate function
+names at indexing; a Blueprint cannot inspect the receiving app, and this API
+does **not** detect or resolve HTTP route collisions. Do not rely on route
+registration order. Rename or remove an existing conflicting route before
+composition, or use a separate app if its public path cannot change. Health
+routes cannot currently be disabled or renamed. Multiple complete adapter
+Blueprints in one app collide on health function names even with different
+graph names; use one adapter with multiple registered graphs instead.
+
+`LangGraphApp(route_prefix=...)` changes **metadata only**: it must match
+`host.json`; it does not add a Blueprint mount prefix or avoid collisions.
+
+### Authorization and topology
+
+Adapter auth is explicit on every generated route, so the existing app's
+`http_auth_level` does not override it. Graph invoke/stream/state use a
+registration-level override when supplied, otherwise `LangGraphApp.auth_level`
+(default `FUNCTION`). Liveness uses `health_auth_level` (default `ANONYMOUS`);
+health details and readiness default to the adapter's auth level unless their
+respective overrides are set. Existing triggers keep their own auth levels.
+
+Function keys do not identify users or authorize thread ownership; the existing
+`authorize` callback still applies. Core Tools does not enforce keys by default,
+so local successful HTTP requests are not deployed-auth proof. Lock/checkpointer
+topology validation is unchanged and re-evaluated at export; it cannot validate
+unrelated application triggers that independently write the same checkpoint
+storage. Operators remain responsible for coordinating those writers.
+
 ## Invoke endpoint
 
 ### Request
