@@ -82,6 +82,11 @@ and [security boundaries](docs/security.md). A Blob lease does not fence checkpo
 writes once it is lost; the opt-in `guard_checkpoint_writes` guard only reduces writes
 after the lock *detects* loss and is not fencing ([contract and limits](docs/production-guide.md#opt-in-guard-for-blob-checkpoint-writes-790)).
 
+Choosing the experimental [Platform SDK example](examples/platform_compat_sdk/)?
+Read its [SDK adoption checklist](docs/adapter-reference.md#sdk-adoption-checklist)
+before deployment: supported operations, separate checkpoint/thread retention,
+process-local defaults, scanning searches and unavailable async lifecycle calls.
+
 ## Recommended learning path
 
 Optional, after the [default path](docs/tutorial-5-min.md). These are independent,
