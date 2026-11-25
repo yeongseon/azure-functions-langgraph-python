@@ -223,6 +223,23 @@ def test_checker_accepts_installed_adapter(tmp_path: Path) -> None:
     )
 
 
+def test_checker_accepts_an_installed_adapter_below_the_checkout() -> None:
+    proof = _proof()
+    proof.require_installed_adapter(
+        ROOT / "output/example/venv/lib/site-packages/azure_functions_langgraph/__init__.py"
+    )
+
+
+def test_host_runner_unwinds_on_termination_signals(monkeypatch: pytest.MonkeyPatch) -> None:
+    host = _host()
+    registered: dict[int, Any] = {}
+    monkeypatch.setattr(host.signal, "signal", registered.__setitem__)
+    host.install_termination_handlers()
+    assert set(registered) == {host.signal.SIGTERM, host.signal.SIGHUP}
+    with pytest.raises(KeyboardInterrupt):
+        registered[host.signal.SIGTERM](host.signal.SIGTERM, None)
+
+
 def test_offline_checker_rejects_shared_baseline_and_handler_regression(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

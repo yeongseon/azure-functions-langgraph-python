@@ -132,6 +132,15 @@ def executable(name: str) -> str:
     return str(Path(resolved).resolve())
 
 
+def interrupted(signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt(f"signal {signum}")
+
+
+def install_termination_handlers() -> None:
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, interrupted)
+
+
 def run(args: argparse.Namespace) -> None:
     func = executable("func")
     azurite_executable = executable("azurite")
@@ -245,4 +254,5 @@ if __name__ == "__main__":
     parser.add_argument("--host-port", type=int, default=7571)
     parser.add_argument("--storage-port", type=int, default=15000)
     parser.add_argument("--evidence", type=Path, required=True)
+    install_termination_handlers()
     run(parser.parse_args())

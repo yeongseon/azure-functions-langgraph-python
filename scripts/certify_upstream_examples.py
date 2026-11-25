@@ -18,6 +18,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from azure_functions_langgraph import LangGraphApp
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_PACKAGE = ROOT / "src" / "azure_functions_langgraph"
 BASELINES = Path(__file__).resolve().parent / "upstream_baselines"
 CONVERSATION_SOURCE = (BASELINES / "conversation.py").read_text()
 
@@ -123,7 +124,7 @@ def run(example: str) -> dict[str, Any]:
 
 
 def require_installed_adapter(module_path: Path) -> None:
-    if module_path.resolve().is_relative_to(ROOT):
+    if module_path.resolve().is_relative_to(SOURCE_PACKAGE):
         raise RuntimeError("certification requires an installed adapter, not the source tree")
 
 
