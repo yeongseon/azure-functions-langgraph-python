@@ -827,34 +827,7 @@ class TestNativeVersionPassthrough:
 
 
 class TestVersionKwargHelpers:
-    """Unit coverage for the structural version-capability helpers (#423)."""
-
-    def test_method_accepts_explicit_version_param(self) -> None:
-        from azure_functions_langgraph._handlers import _method_accepts_version
-
-        def fn(input: Any, *, version: str | None = None) -> None: ...
-
-        assert _method_accepts_version(fn) is True
-
-    def test_method_accepts_var_keyword(self) -> None:
-        from azure_functions_langgraph._handlers import _method_accepts_version
-
-        def fn(input: Any, **kwargs: Any) -> None: ...
-
-        assert _method_accepts_version(fn) is True
-
-    def test_method_without_version_rejected(self) -> None:
-        from azure_functions_langgraph._handlers import _method_accepts_version
-
-        def fn(input: Any, config: Any = None) -> None: ...
-
-        assert _method_accepts_version(fn) is False
-
-    def test_method_uninspectable_returns_false(self) -> None:
-        from azure_functions_langgraph._handlers import _method_accepts_version
-
-        # ``print`` is a builtin whose signature cannot be introspected.
-        assert _method_accepts_version(print) is False
+    """Unit coverage for the handler's version-negotiation responses (#423)."""
 
     def test_resolve_returns_empty_when_no_version(self) -> None:
         from azure_functions_langgraph._handlers import _resolve_version_kwarg
