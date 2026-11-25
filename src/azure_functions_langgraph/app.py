@@ -783,6 +783,8 @@ class LangGraphApp:
             thread_lock=thread_lock,
             observer=self.observer or NoOpRunObserver(),
             max_request_body_bytes=self.max_request_body_bytes,
+            max_input_depth=self.max_input_depth,
+            max_input_nodes=self.max_input_nodes,
         )
         register_durable_runtime(app, deps)
 

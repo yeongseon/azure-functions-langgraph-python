@@ -2004,6 +2004,12 @@
       "tier_basis": "private module"
     },
     {
+      "module": "azure_functions_langgraph.durable._request",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
       "module": "azure_functions_langgraph.durable._runtime",
       "public": false,
       "tier": "Internal",
