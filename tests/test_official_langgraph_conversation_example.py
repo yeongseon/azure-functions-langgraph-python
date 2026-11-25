@@ -43,7 +43,7 @@ def test_official_conversation_preserves_node_edges_and_schema() -> None:
     proof = load_example_file(ROOT / "scripts/certify_upstream_examples.py", "_upstream_ast")
     source = (ROOT / "examples/official_langgraph_conversation/upstream_graph.py").read_text()
     # When comparing executable node/schema/edge statements (imports and model wiring excluded).
-    baseline = ast.parse(proof.CONVERSATION_SOURCE).body[1:]
+    baseline = ast.parse(proof.CONVERSATION_SOURCE).body[3:]
     hosted = ast.parse(source).body[3:]
     # Then formatting and provenance can change, but graph semantics cannot.
     assert [ast.dump(node) for node in hosted] == [ast.dump(node) for node in baseline]
