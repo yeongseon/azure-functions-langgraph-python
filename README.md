@@ -146,7 +146,10 @@ Looking for something to work on?
 - [Good first issue](https://github.com/yeongseon/azure-functions-langgraph-python/labels/good%20first%20issue): small, self-contained starter tasks.
 - [Help wanted](https://github.com/yeongseon/azure-functions-langgraph-python/labels/help%20wanted): tasks that may need more familiarity with this codebase or Azure Functions.
 
-Please comment on an issue to request assignment before you open a pull request. Either list can be empty at any time, so bug reports and small documentation suggestions are always welcome too.
+Before starting, follow [Issue or direct PR?](CONTRIBUTING.md#issue-or-direct-pr)
+and [Contributor-reserved issues](CONTRIBUTING.md#contributor-reserved-issues)
+for the lightest contribution path and how to check existing claims. Either list
+can be empty at any time; bug reports and small documentation corrections are welcome.
 
 Part of the Azure Functions Python DX Toolkit. Integrated application recipes
 live in the [cookbook](https://github.com/yeongseon/azure-functions-cookbook-python);

@@ -16,25 +16,15 @@ make install
 
 ### Before submitting a PR
 
-```bash
-make check-all
-```
+Start with [Issue or direct PR?](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CONTRIBUTING.md#issue-or-direct-pr)
+for the small-correction boundary, minimal steps and walkthroughs. Check existing
+work under [Contributor-reserved issues](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CONTRIBUTING.md#contributor-reserved-issues)
+before either path.
 
-This runs:
-
-- `ruff check` — linting
-- `mypy` — type checking
-- `pytest` — test suite
-- `bandit` — security scan
-
-### PR checklist
-
-- [ ] Tests added for new functionality
-- [ ] All existing tests pass (`make test`)
-- [ ] Linting passes (`make lint`)
-- [ ] Type checking passes (`make typecheck`)
-- [ ] Documentation updated if public API changed
-- [ ] Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+Use the canonical [Development Workflow](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CONTRIBUTING.md#development-workflow)
+and [Project Commands](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/CONTRIBUTING.md#project-commands)
+for applicable validation, and report checks actually run or omitted. Required
+GitHub CI and the existing review/merge safeguards remain authoritative.
 
 ### Commit message format
 
