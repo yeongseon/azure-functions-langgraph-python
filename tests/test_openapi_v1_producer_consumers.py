@@ -69,30 +69,35 @@ def test_recorded_fixture_matches_native_v1_producer(producer_app: LangGraphApp)
     }
 
     # Then: no route or payload changed, and the existing local contract still holds.
-    assert actual == {
-        name: recorded["payloads"][kind] for name, kind in recorded["routes"].items()
-    }
+    assert actual == {name: recorded["payloads"][kind] for name, kind in recorded["routes"].items()}
     for payload in actual.values():
         assert not _validate(payload, _load_vendored_schema())
-    assert producer_app.get_app_metadata().graphs["ordinary"].description == recorded[
-        "documentation"
-    ]["description"]
+    assert (
+        producer_app.get_app_metadata().graphs["ordinary"].description
+        == recorded["documentation"]["description"]
+    )
 
 
 @pytest.mark.usefixtures("companion_registry")
 def test_installed_consumer_generates_recorded_v1_routes(producer_app: LangGraphApp) -> None:
     # Given: documentation-only registration avoids the deprecated bridge's shapes.
-    from azure_functions_openapi import generate_openapi_spec, register_openapi_metadata
+    from azure_functions_openapi import (
+        OpenAPIRegistry,
+        generate_openapi_spec,
+        register_openapi_metadata,
+    )
 
     recorded = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    registry = OpenAPIRegistry()
     register_openapi_metadata(
         path="/api/graphs/ordinary/invoke",
         method="POST",
         description=recorded["documentation"]["description"],
+        registry=registry,
     )
 
     # When: the installed consumer scans the real producer's handler namespaces.
-    spec = generate_openapi_spec(app=producer_app.function_app)
+    spec = generate_openapi_spec(app=producer_app.function_app, registry=registry)
 
     # Then: binding methods/paths and successful statuses survive version-aware reading.
     expected = {
@@ -126,9 +131,10 @@ def test_installed_consumer_generates_recorded_v1_routes(producer_app: LangGraph
     state = spec["paths"]["/api/graphs/stateful/threads/{thread_id}/state"]["get"]
     assert "requestBody" not in state
     assert state["parameters"] == recorded["payloads"]["state"]["parameters"]
-    assert spec["paths"]["/api/graphs/ordinary/invoke"]["post"]["description"] == recorded[
-        "documentation"
-    ]["description"]
+    assert (
+        spec["paths"]["/api/graphs/ordinary/invoke"]["post"]["description"]
+        == recorded["documentation"]["description"]
+    )
 
 
 @pytest.mark.usefixtures("companion_registry")

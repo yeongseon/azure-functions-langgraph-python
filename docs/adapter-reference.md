@@ -310,7 +310,9 @@ belongs to the consumer; no producer runtime warning or v2 emission is required.
 Bridge-only generation does not inspect endpoint versions. Combining the full
 deprecated bridge with app scanning currently raises `OpenAPISpecConfigError`
 for conflicting request metadata; use native scanning for shapes and separate
-documentation-only registration for custom prose.
+documentation-only registration for custom prose. Pass the same explicit
+`OpenAPIRegistry()` to registration and generation: 0.31.0 app scanning
+otherwise creates an isolated registry and cannot see global documentation.
 
 The recorded fixture in `tests/fixtures/openapi_native_producer.v1.json` is
 checked by `tests/test_openapi_v1_producer_consumers.py`. To update it, build
