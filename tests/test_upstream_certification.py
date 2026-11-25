@@ -27,6 +27,10 @@ def _host() -> Any:
 @pytest.mark.parametrize("example", ["official_langgraph_basic", "official_langgraph_conversation"])
 def test_offline_checker_executes_baseline_and_registered_handler(example: str) -> None:
     # Given the installed adapter or source-tree test tier and real deterministic graphs.
+    if example.endswith("basic"):
+        pytest.importorskip(
+            "langchain", reason="Basic baseline requires the example-only langchain package"
+        )
     proof = _proof()
     # When checking without subprocesses, storage or network.
     result = proof.run(example)
@@ -147,6 +151,9 @@ def test_loader_reports_an_unsupported_source(tmp_path: Path) -> None:
 def test_offline_checker_rejects_invalid_handler_output(
     failure: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    pytest.importorskip(
+        "langchain", reason="Basic baseline requires the example-only langchain package"
+    )
     proof = _proof()
     original_app = proof.LangGraphApp
 
