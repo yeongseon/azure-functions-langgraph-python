@@ -6,6 +6,8 @@ import logging
 import pytest
 
 from azure_functions_langgraph.durable._runtime import get_run_http
+from azure_functions_langgraph.durable._state import DurableRunResult
+from tests.e2e_durable._contracts import check_public_error
 from tests.test_durable import FakeDurableClient, FakeStatus, _req
 
 
@@ -45,6 +47,28 @@ async def test_failed_output_is_fixed_when_backend_output_is_untrusted(
         },
     }
     assert caplog.records
+
+
+async def test_failed_output_is_fixed_when_activity_is_rejected() -> None:
+    # Given: contention completes the orchestration with a rejected Activity result.
+    rejected = DurableRunResult.rejected("r1", "private-contention-detail").to_dict()
+    client = FakeDurableClient(FakeStatus("Completed", rejected))
+
+    # When
+    response = await get_run_http(client, _req(route_params={"run_id": "r1"}, method="GET"))
+
+    # Then: neither rejection metadata nor its private reason is public.
+    assert response.status_code == 200
+    final = json.loads(response.get_body())
+    check_public_error(final)
+    assert final == {
+        "run_id": "r1",
+        "status": "error",
+        "output": {
+            "activity_status": "error",
+            "error": {"code": "run_failed", "message": "The run failed."},
+        },
+    }
 
 
 @pytest.mark.parametrize("output", [{"activity_status": "success", "result": {"y": 1}}, "ok"])
