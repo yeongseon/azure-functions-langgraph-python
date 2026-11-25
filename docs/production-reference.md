@@ -66,34 +66,70 @@ shell tracing or print keys, full app settings, resource IDs or raw HTTP bodies.
 
 ## Deploy from a clean checkout
 
-Run the following in one Bash shell. Choose globally unique names. These commands
+Run the following in one dedicated Bash 4 or newer shell (errors exit it; the block
+uses `${var,,}`, which macOS's default Bash 3.2 and zsh do not support). Set `SUBSCRIPTION`
+to your intended subscription name or ID before pasting. Choose globally unique app
+and storage names. These commands
 use a **published wheel**, not editable source. The separate reference requirements
 do not change the ordinary example dependency bounds.
 
 ```bash
+set -euo pipefail
+(( ${BASH_VERSINFO[0]:-0} >= 4 )) || { echo 'This block requires Bash 4 or newer.' >&2; exit 1; }
+: "${SUBSCRIPTION:?Set SUBSCRIPTION to the intended subscription name or ID}"
 git clone https://github.com/yeongseon/azure-functions-langgraph-python.git
 cd azure-functions-langgraph-python
 # For an exactly repeatable run, check out the release tag or commit you intend to verify.
 make install
-export RG="rg-af-ref-$(date -u +%Y%m%d%H%M)"
+SUBSCRIPTION_ID=$(az account show --subscription "$SUBSCRIPTION" --query id -o tsv)
+test -n "$SUBSCRIPTION_ID"
+EXECUTION=$(python3 -c 'import uuid; print(uuid.uuid4().hex)')
+RG="rg-af-ref-$EXECUTION"
+readonly SUBSCRIPTION_ID EXECUTION RG
+export RG
+az account set --subscription "$SUBSCRIPTION_ID"
 export APP="af-ref-$(date -u +%m%d%H%M)-$RANDOM"
 export ST="stafref$(date -u +%m%d%H%M)$RANDOM"
 export LOCATION=koreacentral
-cleanup() {
-  az group delete --name "$RG" --yes --output none
-  az group wait --name "$RG" --deleted
-  az group exists --name "$RG" --output tsv  # must be false
+verify_owned_group() {
+  local actual_id actual_tag expected_id
+  expected_id="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG"
+  actual_id=$(az group show --subscription "$SUBSCRIPTION_ID" --name "$RG" --query id -o tsv) || return 1
+  actual_tag=$(az group show --subscription "$SUBSCRIPTION_ID" --name "$RG" --query tags.execution -o tsv) || return 1
+  if [[ "${actual_id,,}" != "${expected_id,,}" || "$actual_tag" != "$EXECUTION" ]]; then
+    echo 'Refusing resource group operation: subscription/group or execution tag differs.' >&2
+    return 1
+  fi
 }
-trap cleanup EXIT
-trap 'exit 130' INT TERM HUP
-az account show --query '{name:name,state:state}' -o json
+cleanup() {
+  if ! verify_owned_group; then
+    echo 'Cleanup refused: ownership verification failed; inspect the group manually.' >&2
+    return 1
+  fi
+  az group delete --subscription "$SUBSCRIPTION_ID" --name "$RG" --yes --output none || {
+    echo 'Cleanup failed: resource group delete failed.' >&2; return 1;
+  }
+  az group wait --subscription "$SUBSCRIPTION_ID" --name "$RG" --deleted || {
+    echo 'Cleanup failed: resource group deletion wait failed.' >&2; return 1;
+  }
+}
+az account show --subscription "$SUBSCRIPTION_ID" --query '{name:name,state:state}' -o json
 az bicep build --file infra/flex.bicep --outfile /tmp/flex-reference.json
-az group create --name "$RG" --location "$LOCATION" --tags \
-  purpose=production-reference repo=azure-functions-langgraph issue=882 owner=agent -o none
-az deployment group validate --resource-group "$RG" --template-file infra/flex.bicep \
+group_exists=$(az group exists --subscription "$SUBSCRIPTION_ID" --name "$RG" -o tsv)
+if [[ "$group_exists" != false ]]; then
+  echo 'Refusing to create or clean up a resource group that already exists or could not be checked.' >&2
+  exit 1
+fi
+az group create --subscription "$SUBSCRIPTION_ID" --name "$RG" --location "$LOCATION" --tags \
+  purpose=production-reference repo=azure-functions-langgraph issue=882 owner=agent execution="$EXECUTION" -o none
+verify_owned_group
+trap 'status=$?; trap - EXIT; cleanup || exit 1; exit "$status"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+az deployment group validate --subscription "$SUBSCRIPTION_ID" --resource-group "$RG" --template-file infra/flex.bicep \
   --parameters functionAppName="$APP" storageName="$ST" location="$LOCATION" \
   pythonVersion=3.11 identityBasedStorage=true -o none
-az deployment group create --resource-group "$RG" --template-file infra/flex.bicep \
+az deployment group create --subscription "$SUBSCRIPTION_ID" --resource-group "$RG" --template-file infra/flex.bicep \
   --parameters functionAppName="$APP" storageName="$ST" location="$LOCATION" \
   pythonVersion=3.11 identityBasedStorage=true -o none
 ROOT="$PWD"
@@ -104,6 +140,20 @@ cp "$PAYLOAD/requirements-reference.txt" "$PAYLOAD/requirements.txt"
 cd "$ROOT"
 ```
 
+The random execution ID avoids minute-based group collisions. Cleanup is armed
+only after create succeeds and the group's resource ID (including subscription)
+and execution tag match; it rechecks both immediately before deletion. A failed
+create or initial ownership check leaves cleanup unarmed: inspect any partial
+group manually. Errors remain on stderr and produce a failing exit status. Keep
+this shell's subscription selected for Core Tools and the later harness; group
+operations below are explicitly scoped as well. Tags are an accidental-deletion
+guard, not an authorization boundary or atomic protection against another writer
+replacing a group between verification and deletion. Never share this group.
+The deployment block is exercised offline by
+`tests/test_production_reference_cleanup.py` with a fake Azure CLI. These cleanup
+changes postdate the recorded 2026-11-24 run and have **not** been run live; the
+dated evidence below describes the earlier command sequence, not this revision.
+
 The `.funcignore` excludes local environments, settings and caches; the observed
 source upload was 13.92 KB, not a local venv. Keep the payload free of secrets.
 Identity roles are created after the Function App identity exists. Allow RBAC
@@ -112,12 +162,12 @@ The first cycle's `az functionapp show` returned null Flex properties: use the
 ARM query below, not that null as evidence of absent runtime settings.
 
 ```bash
-az resource show --resource-group "$RG" --name "$APP" \
+az resource show --subscription "$SUBSCRIPTION_ID" --resource-group "$RG" --name "$APP" \
   --resource-type Microsoft.Web/sites --api-version 2024-04-01 \
   --query '{runtime:properties.functionAppConfig.runtime,scale:properties.functionAppConfig.scaleAndConcurrency,auth:properties.functionAppConfig.deployment.storage.authentication.type}'
-az storage account show -g "$RG" -n "$ST" \
+az storage account show --subscription "$SUBSCRIPTION_ID" -g "$RG" -n "$ST" \
   --query '{sharedKey:allowSharedKeyAccess,publicBlob:allowBlobPublicAccess,tls:minimumTlsVersion}'
-az functionapp config appsettings list -g "$RG" -n "$APP" --query '[].name'
+az functionapp config appsettings list --subscription "$SUBSCRIPTION_ID" -g "$RG" -n "$APP" --query '[].name'
 ```
 
 ## Run the isolated verification harness
@@ -360,7 +410,8 @@ above, exiting runs cleanup; to do it explicitly:
 ```bash
 cleanup
 trap - EXIT
-az group list --query "[?starts_with(name,'rg-af-ref-')].name" -o tsv
+az group exists --subscription "$SUBSCRIPTION_ID" --name "$RG" -o tsv
+az group list --subscription "$SUBSCRIPTION_ID" --query "[?starts_with(name,'rg-af-ref-')].name" -o tsv
 rm -rf "$PAYLOAD"
 ```
 
