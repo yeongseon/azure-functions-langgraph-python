@@ -158,14 +158,90 @@ format change must be assumed unreadable by older releases unless a probe shows 
 Not safe. The adapter assumes a single writer per thread; the blob thread-lock scope also changed
 between releases (see the Production Guide's rolling-deployment warning). On top of that:
 
-* A pre-current writer overwrites `latest.json` with the legacy shape, so the version-1 hint is lost
+* A pre-0.13 writer overwrites `latest.json` with the legacy shape, so the version-1 hint is lost
   (harmless: readers scan).
 * If an old writer **commits a checkpoint and dies before rewriting `latest.json`**, a version-1
   clean hint written earlier by a current writer keeps pointing at the previous checkpoint and
   `get_tuple` without a checkpoint id keeps returning it. The newer checkpoint exists and is visible
   through `list` and by id. This is a known gap, pinned by a strict `xfail` test; drain old writers
-  for a thread before a current writer touches it.
+  for a thread before a current writer touches it. For an already affected namespace, use the
+  [offline recovery procedure](#offline-recovery-of-a-stale-clean-hint) below.
 * A hint written in an unknown **newer** version makes the current writer refuse (see Known gaps).
+
+#### Offline recovery of a stale clean hint
+
+This procedure recovers **visibility of existing committed data**, not a failed run or lost external
+side effects. It uses the current persisted layout and existing public saver operations; there is no
+new API, format migration or checkpoint rewrite. Use the same container and serializer as the app.
+
+1. **Stop admission and drain all activity for the affected thread**, old and new processes, including
+   retries, background Activities, pending-write producers, retention and orphan collection. Hold
+   that maintenance boundary through verification. A lease alone is not proof of quiescence: old
+   releases can use different lock scopes, and a lost lease does not fence storage writes. Stop if
+   you cannot exclude another writer. Back up the whole affected thread prefix before mutation
+   (see [Rollback and backup guidance](#rollback-and-backup-guidance)); keep checkpoint contents out
+   of incident logs.
+2. **Detect, read-only, per namespace.** Supply explicit `thread_id` and `checkpoint_ns` (including
+   `""` for the root); omit `checkpoint_id`, `before` and metadata filters. Compare
+   `saver.get_tuple(config)` with `next(saver.list(config, limit=1), None)`. `list` ignores the hint
+   and enumerates commit markers in descending checkpoint-id order. The precise stale-read signal
+   is that the listed tuple's `config["configurable"]["checkpoint_id"]` is lexicographically greater
+   than the unqualified read's id, while `latest.json` is a version-1 clean hint naming that older
+   id. There is **no automatic warning**, and a clean hint's age or well-formedness is not a detection
+   signal. Equal ids mean this check found no stale latest read. No tuple, unexpected hint contents
+   or inconsistent results require investigation rather than deletion.
+3. **Validate the recovery target.** In the namespace's `checkpoints/` listing, only paths ending in
+   `/checkpoint.bin` are commit markers; metadata/value/write-only prefixes are not committed
+   checkpoints. The greatest decoded checkpoint id must match the candidate returned by `list`.
+   Read it with `saver.get_tuple(candidate.config)` to bypass the hint, and confirm the payload id,
+   channel values, metadata, parent and pending writes are the expected recoverable state. Use
+   checkpoint-id ordering, not timestamps or blob last-modified time: "latest" here means greatest
+   committed id, not necessarily last wall-clock completion. If the greatest marker cannot be read,
+   differs from the payload id, or has missing/corrupt dependencies, stop and investigate/restore the
+   backup; do not silently select an older readable checkpoint.
+4. **Invalidate only the affected namespace's hint.** After confirming it is the known stale
+   version-1 clean hint, delete the base blob
+   `threads/{quote(thread_id, safe="")}/ns/{quote(checkpoint_ns, safe="")}/latest.json` using the
+   authenticated storage client already targeting that container (Python SDK:
+   `container.get_blob_client(hint_path).delete_blob()`). Preserve percent encoding, empty namespace
+   and the exact container; do not delete a prefix. A missing hint on a repeat run is already
+   invalidated (handle only that blob's `BlobNotFound` as success). Authentication, lease, snapshot,
+   policy or other errors are **not** success: stop rather than broadening the deletion, removing
+   snapshots or changing storage policy. Do not hand-publish a replacement clean hint or call `put`
+   just to repair visibility. Checkpoint, metadata, channel-value and pending-write blobs stay intact.
+5. **Verify before resuming.** Repeat the unqualified `get_tuple(config)` and by-id read and compare
+   their config ids and full checkpoint tuples with the scanned candidate. They must agree. Repeat
+   for each affected namespace, including subgraphs; repairing the root does not repair children.
+   Reads leave the hint absent and scan on every latest lookup. Resume only a drained, single-writer
+   deployment of the chosen current release, under its supported locking configuration. Its next
+   normal checkpoint write restores the hint through the existing writer behavior; do not manufacture
+   a checkpoint or replay a graph solely to restore the optimization.
+
+**Cost and risk.** `list(..., limit=1)` bounds tuple reconstruction, **not** discovery: it lists the
+whole namespace's `checkpoints/` prefix (including metadata and pending-write names), materializes and
+sorts the ids, then downloads the candidate's metadata, checkpoint, referenced values and pending
+writes. Expect paginated listing cost proportional to history, id-sort memory/CPU, tuple downloads
+proportional to state and pending writes, plus the original hinted read, a by-id read and verification
+reads. Marker inspection adds another full listing if performed separately. Invalidation adds one
+DELETE per affected hint; the backup has its own full-prefix cost. While the hint is absent, every
+latest read pays the scan cost and orphan collection conservatively skips that namespace until a
+normal current write restores a usable hint. No checkpoint data is lost by hint invalidation, but
+resuming from the newly visible state can change application behavior; pending tasks/external side
+effects still need application-level idempotency and operator review.
+
+**Safe to re-run only while quiesced.** Detection, by-id inspection and scans are read-only; deleting
+an already missing hint changes nothing. Re-running verification returns the same committed tuple.
+Once writers resume, start again with draining and a fresh diagnosis, not a saved candidate.
+Do **not** use this for live mixed-version operation, concurrent-writer repair, format-version refusal
+(never delete an unknown-version hint to bypass the writer guard), data corruption, incomplete
+commits, retention recovery, rollback to an older checkpoint, or forced cancellation/fencing.
+
+`tests/test_blob_legacy_recovery.py` verifies detection, by-id recovery and repeated hint invalidation
+over the real `0.8.2`, `0.9.4`, `0.12.2`, `0.13.0` and `current` fixture bytes with synthetic stale
+version-1 hints, for sync, native-async and executor-fallback readers. It checks full expected state,
+namespaces, encoded thread ids and unchanged non-hint blobs. These are in-memory format/adapter tests,
+not evidence of Azure authorization, delete policy, service consistency or runtime cancellation.
+The original strict expected-failure remains: ordinary reads are not automatically repaired.
 
 #### Why the stale hint is not mitigated on the read path
 
@@ -231,14 +307,21 @@ This adapter never migrates data, so rollback means restoring *storage*, not a c
    prefer a point-in-time or whole-prefix copy to restoring single blobs.
 2. **Quiesce writers** for the affected threads (drain old and new instances) before the code
    rollout and before any rollback; see Mixed fleets above.
-3. **Rolling forward** needs no data step for releases covered by the fixtures: the current reader
-   reads existing data and the first new write per namespace publishes the version-1 hint.
+3. **Rolling forward** from the fixtured releases supports backward reads after a drained cutover,
+   not overlapping old and new writers on one thread. In particular, drain pre-0.13 writers before
+   any 0.13-or-newer writer touches their threads. Ordinary legacy hints need no data step: the
+   current reader scans and the first normal new write per namespace publishes a version-1 hint.
+   If old writers may have run after newer ones, audit each affected namespace with the
+   [offline detection and recovery procedure](#offline-recovery-of-a-stale-clean-hint) before
+   resuming; draining alone does not invalidate an already stale clean hint.
 4. **Rolling back code** after the new release has written data: older releases are only *probed* for
    reading it (see above). If you must be certain, restore the pre-upgrade backup instead of running the
    older release on data the newer one touched. Writes made after the backup are lost by that choice.
-5. `latest.json` is a hint; the saver treats a missing one as "scan". Deleting it forces a scan but also
-   makes `collect_orphaned_values` skip the namespace until the next write. Do not hand-edit other
-   blobs.
+5. A code rollback is not permission to reintroduce a pre-0.13 writer into a newer fleet. Drain both
+   generations first and restore a consistent backup for a guaranteed rollback boundary. If a later
+   forward cutover reuses data touched by both generations, perform the offline audit again. Hint
+   invalidation restores latest visibility only; it neither makes reverse reads supported nor
+   converts newer data into an older format. Never remove an unknown-version hint to force a downgrade.
 
 [soft-delete]: https://learn.microsoft.com/en-us/azure/storage/blobs/soft-delete-blob-overview
 [versioning]: https://learn.microsoft.com/en-us/azure/storage/blobs/versioning-overview
