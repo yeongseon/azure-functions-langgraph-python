@@ -20,6 +20,40 @@ feature. For the default deployment path see the
 
 ## Upstream baseline (original LangGraph run)
 
+### Current local wheel evidence (2026-11-25)
+
+The repeatable checker now includes this graph and the
+[official conversation graph](../official_langgraph_conversation/). See that
+README for the exact published/candidate commands, owned-process cleanup and
+artifact layout. The three pinned source snippets above were fetched again
+from their immutable raw GitHub URLs on 2026-11-25 before running the baseline.
+Nodes, edges, schema and the original compile call remain unchanged.
+
+**Plan: local Functions host only. No Azure plan was exercised in this change;
+the Azure lane remains opt-in and unrun pending a separate release-gate decision.**
+The historical Azure run below is separate evidence, not renewed certification.
+
+| Item | Observed result |
+| --- | --- |
+| Date / Python | 2026-11-25 / 3.11.15 |
+| Adapter | Published PyPI **0.14.2** (`requirements.txt` unchanged) and separately built candidate wheel **0.14.2** |
+| Dependencies | `azure-functions==1.26.0`, `langgraph==1.2.24`, `langchain==1.5.2`, `langchain-core==1.8.4`, `langgraph-checkpoint==4.3.2` |
+| Baseline / handler | Independent pinned snippets executed; both yield `Hi`, `Hello!`, `extra_field=10` |
+| Real local host | Core Tools **4.8.0**, `func start --python --port 7571 --enableAuth` |
+| Local storage | Azurite **3.35.0**, explicit Blob/Queue/Table connection on **15000/15001/15002** |
+| Keyless first attempt | **401**, both lanes |
+| Authorized first invoke | **200**, both lanes; `Hi`, `Hello!`, `extra_field=10` |
+| Cleanup | Owned hosts/emulators stopped; temporary keys and raw logs deleted |
+
+The runtime inventories and baseline/HTTP results are recorded per example by
+`scripts/certify_primary_examples.py`. The checker installs into throwaway
+virtualenvs and asserts that imports come from the installed package, not `src/`.
+Regular offline unit tests never install packages or start these processes;
+the live local-host option requires `--local-host` explicitly.
+Existing-app insertion (#994 item 3) is a follow-up to #993 / Draft PR #998.
+
+### Historical baseline (2026-11-05)
+
 Scratch virtualenv, Python 3.11.15, `langgraph==1.2.20`, `langchain==1.4.9`,
 `langchain-core==1.7.6` (current releases on 2026-11-05), no Azure involved:
 
@@ -131,7 +165,8 @@ unchanged. Deltas for this example only:
 
 Deployed routes use function-level auth: a request without a key gets `401`,
 and the key goes in the `x-functions-key` header or `?code=`. `func start`
-enforces no keys locally. A function key is a shared secret for the whole
+enforces no keys locally unless `--enableAuth` is supplied (as in the repeatable
+local check above). A function key is a shared secret for the whole
 function app; it does not identify a user and it does not authorize access to
 a thread or run. Do not infer per-user or per-thread authorization from it;
 see [security](../../docs/security.md).
@@ -163,9 +198,9 @@ streaming, thread storage or multi-user authorization.
   the hosted call passes a message dict. Neither LangGraph (no reducer in this
   schema) nor the adapter converts it, so the first message stays a dict in
   the output. Native `HumanMessage` input is covered by the test.
-- **Output shape**: JSON cannot carry message objects. Released `0.12.2`
-  returns the AI message as a flat object on `invoke`; the unreleased
-  development line (after #730) wraps it as `{"type": "ai", "data": {...}}`
+- **Output shape**: JSON cannot carry message objects. Historical `0.12.2`
+  returns the AI message as a flat object on `invoke`; the tested `0.14.2`
+  line (after #730) wraps it as `{"type": "ai", "data": {...}}`
   like the stream route already does. The text content is identical.
 - **Streaming** is buffered SSE; the graph has one node, so you see the input
   state then the final state.
