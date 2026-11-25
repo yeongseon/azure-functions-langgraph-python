@@ -45,37 +45,29 @@ environment with the candidate adapter wheel and `requirements.txt` dependencies
 Build the candidate from the repository root with `make build`; use your normal
 isolated environment to install that wheel rather than replacing a shared SDK.
 
-Start Azurite in a separate terminal (these non-default ports avoid the usual
-emulator instance):
+Start Azurite in a separate terminal (default ports, scratch data directory):
 
 ```bash
-azurite --silent --location /tmp/opencode/azurite-blueprint \
-  --blobPort 14000 --queuePort 14001 --tablePort 14002
+azurite --silent --location .azurite
 ```
 
 Configure **only your local process environment**, not checked-in credentials:
 
 - `FUNCTIONS_WORKER_RUNTIME=python`
-- `AzureWebJobsStorage`: the explicit Azurite emulator connection string, with
-  `BlobEndpoint=http://127.0.0.1:14000/devstoreaccount1`,
-  `QueueEndpoint=http://127.0.0.1:14001/devstoreaccount1`, and
-  `TableEndpoint=http://127.0.0.1:14002/devstoreaccount1`, plus the emulator's
-  documented development account/key. `UseDevelopmentStorage=true` alone uses
-  default ports and is not sufficient for this setup. See
-  [Azurite connection strings](https://learn.microsoft.com/en-us/azure/storage/common/storage-use-azurite#connection-strings).
+- `AzureWebJobsStorage=UseDevelopmentStorage=true`
 
 From this example directory, with your Python environment active:
 
 ```bash
-func start --port 7471
+func start
 ```
 
 From another terminal:
 
 ```bash
-curl --fail http://localhost:7471/api/existing
-curl --fail http://localhost:7471/api/health
-curl --fail http://localhost:7471/api/graphs/official_basic/invoke \
+curl --fail http://localhost:7071/api/existing
+curl --fail http://localhost:7071/api/health
+curl --fail http://localhost:7071/api/graphs/official_basic/invoke \
   -H 'Content-Type: application/json' \
   -d '{"input":{"messages":[{"role":"human","content":"Hi"}]}}'
 ```
