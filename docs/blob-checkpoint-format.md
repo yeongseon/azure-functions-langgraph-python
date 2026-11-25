@@ -286,8 +286,9 @@ The same rules apply to sync, native async and executor-fallback writes.
   the hint with a fresh GET and a conditional dirty PUT, then raises the conflict. If another change
   races this cleanup, or storage/ownership checks fail, that failure propagates. An unknown hint
   version is preserved. No unconditional cleanup write or blind retry replaces another writer's state.
-- With successful invalidation, an unqualified read scans and returns the largest committed ID,
-  regardless of commit/publication order. Both distinct checkpoints remain directly readable.
+- With successful invalidation and no further overlapping publication, an unqualified read scans
+  and returns the largest committed ID, regardless of commit/publication order. Both distinct
+  checkpoints remain directly readable.
 - **Failed invalidation or a process exit can still leave a stale clean hint under unsupported
   overlapping writers.** For example, B cleans its lower ID while A is paused; A commits a higher ID
   and dies before invalidation. A hint precondition cannot atomically fence a different checkpoint blob.
@@ -298,10 +299,20 @@ The same rules apply to sync, native async and executor-fallback writes.
   operator deletion of the hint. A timeout after the service accepted a clean write is also safe to
   inspect/retry under the same exclusion contract.
 
-On conflict, stop the overlapping writers, inspect committed IDs through `list` and by-ID reads,
-and resume only under the shared thread lock. A dirty hint can be repaired by the next serialized
-write. A clean hint suspected of being stale needs the quiescent recovery procedure described in
-[Mixed fleets](#mixed-fleets-old-and-new-writers-on-one-thread), not a blind write retry.
+On conflict, **stop and drain overlapping writers first**, including retries and maintenance activity,
+then inspect committed IDs through `list` and by-ID reads. A dirty hint can be repaired by the next
+serialized write under the shared thread lock. **Restoring the lock alone does not repair a stale
+clean hint**: subsequent reads and writes can still trust the older committed ID it names.
+
+For stale clean hints left by legacy writers, #991's
+[offline recovery procedure](#offline-recovery-of-a-stale-clean-hint) (merged in #1024) documents
+quiescent detection, target validation, hint-only invalidation and verification. Its fixture tests
+verify visibility recovery for that legacy-writer scenario, not concurrent-writer repair or Azure
+service behavior; the procedure explicitly excludes concurrent-writer repair. Recovery after failed
+post-commit invalidation by overlapping writers remains **unverified by this PR and #1024**, even
+after those writers are stopped. Do not treat the legacy procedure as verified steps for that case,
+or resume on the assumption that a blind write retry will repair it; incident-specific investigation
+and validation are still required before resuming under shared exclusion.
 Lease-loss fencing remains outside this protocol; a stale writer with a newly read ETag can still
 write checkpoint data. Pending-write semantics and retention maintenance are unchanged.
 

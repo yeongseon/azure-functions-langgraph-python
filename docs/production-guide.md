@@ -836,16 +836,20 @@ Concurrent-writer conflict resolution remains a non-goal.
 The saver conditionally writes `latest.json` using ETags from the hint GET and dirty PUT responses.
 Detected overlap raises `BlobCheckpointConflictError`; a final-publication conflict can happen
 **after the checkpoint committed**. The saver attempts a conditional invalidation to make readers
-scan, but that cleanup can itself fail. Inspect `list` and explicit checkpoint IDs, stop overlapping
-writers, and restore the shared exclusion scope before retrying. This detector adds no requests on
+scan, but that cleanup can itself fail. Stop and drain overlapping writers, including retries and
+maintenance activity, before inspecting `list` and explicit checkpoint IDs. This detector adds no requests on
 the normal single-writer path and does not fence checkpoint writes after lease loss.
 
 A dirty hint left by a crashed single writer is not permanent: the next lock-holding writer scans
 committed checkpoints and publishes a clean maximum-ID hint, restoring fast reads. Failed cleanup
-under overlapping writers can instead leave a stale **clean** hint; that is outside the supported
-contract and requires quiescent recovery, not a blind retry. See
-[conditional hint publication](blob-checkpoint-format.md#conditional-hint-publication-and-recovery)
-and the [mixed-fleet recovery discussion](blob-checkpoint-format.md#mixed-fleets-old-and-new-writers-on-one-thread).
+under overlapping writers can instead leave a stale **clean** hint. Restoring the shared lock alone
+does not repair it: subsequent reads and writes can still trust it. The
+[offline legacy-writer recovery procedure](blob-checkpoint-format.md#offline-recovery-of-a-stale-clean-hint)
+from #991 / #1024 verifies visibility recovery over legacy fixtures under quiescence, and explicitly
+excludes concurrent-writer repair. It is not verified recovery for failed post-commit invalidation
+under overlapping writers, even after they stop. That case remains outside the supported contract
+and needs incident-specific investigation and validation before resuming under shared exclusion,
+not a blind retry. See [conditional hint publication and its recovery limits](blob-checkpoint-format.md#conditional-hint-publication-and-recovery).
 
 ⚠️ **Operator impact**: Concurrent writes to the same thread/checkpoint namespace from multiple instances can produce inconsistent checkpoint state.
 If your deployment runs multiple Function App instances, ensure each thread's writes are serialized (see Recommended production pattern below).
