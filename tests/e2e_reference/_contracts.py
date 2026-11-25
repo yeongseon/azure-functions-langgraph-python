@@ -63,3 +63,7 @@ def accepted_indexes(statuses: Sequence[int]) -> list[int]:
     indexes = [index for index, status in enumerate(statuses) if status == 200]
     assert indexes, "no successful contender"
     return indexes
+
+
+def check_runtime_access(statuses: tuple[int, int]) -> None:
+    assert statuses == (401, 200), "runtime authentication status differs"
