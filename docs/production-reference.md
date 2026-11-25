@@ -288,7 +288,7 @@ Python in place of `hatch run`, because Hatch environment creation hangs offline
 wheel**. The protected runtime endpoint, not the workstation venv, reported the package versions
 below; the Functions host version comes from the publish output.
 
-| Runtime item | Deployed version |
+| Runtime item | Observed resolved version (final run only) |
 | --- | --- |
 | Python | 3.11.18 |
 | azure-functions-langgraph | 0.14.2 |
@@ -298,6 +298,27 @@ below; the Functions host version comes from the publish output.
 | azure-storage-blob | 12.31.1 |
 | azure-identity | 1.27.0 |
 | Functions host (publish output) | 4.1055.300 |
+
+These are the resolved versions reported by that deployment, not a complete
+dependency snapshot or an exact-replay specification. The final run's sanitized
+`/tmp/opencode/ref882c/evidence.json` records Python and the six distributions
+above; `/tmp/opencode/ref882/LOG.md` also records those versions for an earlier
+cycle. Neither is a full inventory of transitive dependencies. The host version
+is separately sourced from the publish output, not the runtime endpoint.
+
+A **new deployment is a new verification run**, not a reproduction certified by
+this result. `requirements-reference.txt` fixes the adapter wheel but allows
+`azure-functions>=1.21,<2`, `langgraph>=1.0,<2` and `langchain-core>=1.0,<2`;
+the Blob/identity extras and transitive dependencies are not fully pinned there.
+Package-index contents and dependency resolution may therefore produce different
+installed versions even from the same source checkout. A chosen source revision,
+local Python/CLI/Core Tools versions, remote build environment, Azure-managed
+Python patch and Functions host versions, deployment names, region/parameters,
+identity/RBAC propagation and request timing are also inputs to record for the
+new run, rather than values established for future runs by this evidence.
+Selecting a source commit alone cannot freeze those inputs. No exact dependency
+replay has been verified or is offered here; capture the new runtime inventory
+and evaluate the harness results and limitations for that deployment separately.
 
 | Check / operation | Actual observation |
 | --- | --- |
