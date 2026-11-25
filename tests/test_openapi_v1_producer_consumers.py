@@ -50,6 +50,14 @@ def _normalize_generated_schema(value: JsonValue) -> JsonValue:
             assert_never(unreachable)
 
 
+def _component_ref(schema: JsonValue) -> str:
+    match _normalize_generated_schema(schema):
+        case {"$ref": str() as ref}:
+            return ref
+        case other:
+            raise AssertionError(f"expected a component reference, got {other!r}")
+
+
 @pytest.fixture
 def producer_app() -> LangGraphApp:
     app = LangGraphApp()
@@ -144,10 +152,10 @@ def test_installed_consumer_generates_recorded_v1_routes(producer_app: LangGraph
         assert request["required"] is True
         schema = request["content"]["application/json"]["schema"]
         assert schema["required"] == ["input"]
-        assert schema["properties"]["input"]["$ref"].startswith("#/components/schemas/")
+        assert _component_ref(schema["properties"]["input"]).startswith("#/components/schemas/")
         response = operation["responses"]["200"]["content"]["application/json"]["schema"]
         assert response["required"] == ["output"]
-        ref = response["properties"]["output"]["$ref"]
+        ref = _component_ref(response["properties"]["output"])
         body = spec["components"]["schemas"][ref.removeprefix("#/components/schemas/")]
         assert body["properties"]["value"]["type"] == "string"
         stream = spec["paths"][f"/api/graphs/{graph}/stream"]["post"]
