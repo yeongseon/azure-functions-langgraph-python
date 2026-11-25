@@ -128,8 +128,14 @@ async def create_run_impl(
 
     ``body`` is the parsed request payload: ``input`` (required-ish, defaulted to
     ``None``), optional ``config``, ``thread_id``, ``assistant_id``, and an
-    optional client-supplied ``run_id`` (idempotency key). When ``run_id`` is
-    omitted a fresh one is minted here (HTTP side — non-determinism is fine).
+    optional client-supplied ``run_id`` (orchestration identity, not an
+    idempotency key). Every submission calls ``start_new``; repeated IDs can
+    restart or replace a run according to backend behavior. The adapter does
+    not deduplicate submissions. When ``run_id`` is omitted a fresh one is
+    minted here (HTTP side — non-determinism is fine). Poll or reconcile an
+    uncertain submission using its known ID; retryable submission requires
+    application-owned deduplication, separate from Activity redelivery and
+    tool-side-effect idempotency.
     """
 
     run_id = str(body.get("run_id") or uuid4().hex)

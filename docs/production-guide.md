@@ -301,6 +301,22 @@ orchestration; it does not forcibly stop an already-running activity or Python
 worker thread. Bound tools and storage calls and apply the
 [mixed-surface requirements](#interaction-with-platform-compatible-runs).
 
+#### Submission identity and uncertain outcomes
+
+An optional client-supplied `run_id` is the **orchestration identity** (the Durable
+`instance_id`), not an idempotency key. Every create request submits to the backend;
+the adapter does not deduplicate repeated submissions. Submitting the same ID again
+can restart or replace a run according to backend behavior. The Python SDK's
+[`start_new` contract](https://learn.microsoft.com/en-us/python/api/azure-functions-durable/azure.durable_functions.durableorchestrationclient#azure-durable-functions-durableorchestrationclient-start-new)
+documents replacement of an existing instance.
+
+If submission times out or its acceptance is uncertain, **poll or reconcile using
+the known ID**, rather than blindly submitting it again. A transient `404` does not
+prove that submission was rejected. Applications requiring retryable submission
+must own their deduplication and reconciliation policy; a supplied ID alone gives
+no exactly-once guarantee. This HTTP submission concern is separate from Activity
+redelivery, orchestrator replay and idempotency of tool side effects described below.
+
 #### Cancellation of Durable runs
 
 Durable termination is **asynchronous** and ends the *orchestration*. It does not
