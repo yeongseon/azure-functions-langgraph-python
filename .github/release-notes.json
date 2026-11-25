@@ -1,6 +1,7 @@
 {
   "repo": "yeongseon/azure-functions-langgraph-python",
   "owner_login": "yeongseon",
+  "pypi_project": "azure-functions-langgraph",
   "legacy_repos": [],
   "non_human_logins": [
     "sisyphus-dev-ai"

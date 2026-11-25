@@ -205,6 +205,15 @@ Layout (empty sections are omitted):
    hides maintenance types, but historical bodies can contain them.
 8. `**Full Changelog**` compare link
 
+When one or more GitHub releases sit between the current tag and the preceding
+version with distribution files on PyPI, the renderer adds a note near the top.
+It links the intervening release notes and the comparison from the preceding
+PyPI version. Check those linked notes for breaking changes and migration
+steps. The usual Full Changelog link still describes the immediate GitHub tag
+range. The lookup uses PyPI's public package history at render time. If the lookup
+fails, the job emits a warning and still standardizes the release body using
+the immediate tag range.
+
 Credit rules:
 
 - This is a primarily solo-maintained project: omit repetitive `by @yeongseon` on owner-authored changes, while retaining PR/issue references.
