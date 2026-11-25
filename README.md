@@ -92,8 +92,9 @@ capability-focused apps, not cumulative production templates or prerequisites:
 3. [Tool calling](examples/tool_calling_agent/)
 4. [Persistent production wiring](examples/production_persistent_agent/)
 
-For one repeatable keyless topology and its measured limitations, see the
+For one observed keyless deployment and its measured limitations, see the
 [Flex Consumption + Blob production reference](docs/production-reference.md).
+It records one successful live run, not repeatability or release certification.
 
 Also optional: [an official LangGraph guide graph hosted with minimal changes](examples/official_langgraph_basic/), an official-example adaptation (not one of the custom examples above).
 
