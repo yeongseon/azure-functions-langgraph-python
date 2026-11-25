@@ -245,14 +245,20 @@ from azure_functions_langgraph.openapi import register_with_openapi
 app = LangGraphApp()
 app.register(graph=graph, name="agent", request_model=MyRequest)
 
-# Forward route metadata to azure-functions-openapi-python
+# Forward route metadata to azure-functions-openapi
 count = register_with_openapi(app)
-print(f"Registered {count} routes with azure-functions-openapi-python")
+print(f"Registered {count} routes with azure-functions-openapi")
 ```
 
 The bridge reads route metadata from `LangGraphApp.get_app_metadata()` and forwards it
-to `azure-functions-openapi-python`'s `register_openapi_metadata()` programmatic API.
-Requires `azure-functions-openapi-python >= 0.16.0`.
+to `azure_functions_openapi.register_openapi_metadata()`. The Python import package
+is `azure_functions_openapi`; the installable distribution is `azure-functions-openapi`
+(the project repository retains the `azure-functions-openapi-python` name).
+Install the companion through the adapter's extra:
+
+```bash
+pip install "azure-functions-langgraph[openapi]"
+```
 
 ## Error responses
 
