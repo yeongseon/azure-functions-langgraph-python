@@ -39,8 +39,8 @@ from azure_functions_langgraph.locks.guard import (
     OWNERSHIP_GUARD_CONFIG_KEY,
     ThreadLeaseLostError,
 )
-from tests.blob_hint_support import install_hint_sdk
 from tests.ownership_guard_support import ScriptedGuard
+from tests.test_checkpointers_azure_blob import install_hint_sdk
 
 ROOT = Path(__file__).parent / "fixtures" / "blob_compat"
 SETS_DIR = ROOT / "sets"

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import Enum
 import importlib
 from itertools import count
 import json
@@ -18,9 +19,24 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
 from langgraph.checkpoint.serde.types import ERROR, INTERRUPT
 
-from tests.blob_hint_support import install_hint_sdk
-
 pytest = cast(Any, importlib.import_module("pytest"))
+
+
+class MatchConditions(Enum):
+    IfNotModified = 2
+
+
+class ResourceModifiedError(Exception):
+    def __init__(self, message: str, *, status_code: int = 412) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def install_hint_sdk(core: types.ModuleType, exceptions: types.ModuleType) -> types.ModuleType:
+    setattr(core, "MatchConditions", MatchConditions)
+    setattr(exceptions, "ResourceModifiedError", ResourceModifiedError)
+    setattr(exceptions, "HttpResponseError", ResourceModifiedError)
+    return core
 
 
 class _CheckpointSaverProtocol(Protocol):

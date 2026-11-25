@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from tests.blob_hint_support import install_hint_sdk
+from tests.test_checkpointers_azure_blob import install_hint_sdk
 
 _PATH = Path(__file__).resolve().parents[1] / "tools" / "benchmark_blob_checkpointer.py"
 

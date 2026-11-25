@@ -18,7 +18,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import Checkpoint, CheckpointMetadata
 import pytest
 
-from tests.blob_hint_support import install_hint_sdk
+from tests.test_checkpointers_azure_blob import install_hint_sdk
 
 _ETAGS = count()
 

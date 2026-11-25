@@ -23,14 +23,15 @@ import pytest
 
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
 from azure_functions_langgraph.locks.azure_blob import AzureBlobLeaseThreadLock
-from tests.blob_hint_support import MatchConditions, ResourceModifiedError
 from tests.test_blob_lease_evaluation import _TimedContainer, _TimedLease
 from tests.test_checkpointers_azure_blob import (
     FakeResourceExistsError as CheckpointResourceExistsError,
 )
 from tests.test_checkpointers_azure_blob import (
     FakeResourceNotFoundError,
+    MatchConditions,
     MockContainerClient,
+    ResourceModifiedError,
     _checkpoint,
     _config,
     _metadata,
