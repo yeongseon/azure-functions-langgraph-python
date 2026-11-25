@@ -293,6 +293,37 @@ latest within the corrected range, document migration impact, and widen again
 only after the formerly failing release or its replacement passes. Never
 convert a failure to a skip/xfail to preserve a compatibility claim.
 
+### Endpoint metadata v1 producer certification
+
+Native handlers still emit endpoint metadata **v1**. A metadata v2 producer
+would be needed to describe response media types or headers not representable
+by v1 (for example buffered SSE), not merely because a consumer supports v2
+or a graph uses LangGraph's separate `version="v2"` output option. The core
+package remains installable and importable without OpenAPI; only optional
+consumer tests and bridge calls need the companion.
+
+With `generate_openapi_spec(app=app.function_app)`, the tested consumers log a
+warning for an unsupported endpoint metadata version and fall back to a
+binding-derived operation without its endpoint schema hints. Treat that warning
+as a compatibility failure, not successful schema certification. This signal
+belongs to the consumer; no producer runtime warning or v2 emission is required.
+Bridge-only generation does not inspect endpoint versions. Combining the full
+deprecated bridge with app scanning currently raises `OpenAPISpecConfigError`
+for conflicting request metadata; use native scanning for shapes and separate
+documentation-only registration for custom prose.
+
+The recorded fixture in `tests/fixtures/openapi_native_producer.v1.json` is
+checked by `tests/test_openapi_v1_producer_consumers.py`. To update it, build
+the test's producer app and capture its handler endpoint namespaces, retaining
+the route-to-payload mapping and custom documentation field. Review schema
+changes rather than blindly refreshing expectations, then run that module and
+the existing conformance/real-companion modules with `--no-cov -q -rs` in fresh
+exact-pin 0.30.0 and 0.31.0 environments; every consumer case must execute.
+The local vendored `endpoint_metadata_schema.v1.json` is not proof of an
+immutable Validation-package schema: that upstream artifact/ref or digest must
+be identified before claiming cross-producer schema certification. Fixture
+maintenance adds no mandatory runtime dependency and does not require v2.
+
 ## Installation
 
 ```bash
