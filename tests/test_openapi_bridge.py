@@ -25,7 +25,7 @@ class TestImportGuard:
         with patch.dict("sys.modules", {"azure_functions_openapi": None}):
             from azure_functions_langgraph.openapi import register_with_openapi
 
-            with pytest.raises(ImportError, match="azure-functions-openapi-python"):
+            with pytest.raises(ImportError, match="azure-functions-openapi is required"):
                 register_with_openapi(app)
 
 
