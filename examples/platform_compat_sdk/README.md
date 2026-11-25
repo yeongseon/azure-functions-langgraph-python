@@ -1,8 +1,30 @@
 # Platform-compatible SDK example
 
-Demonstrates the package's headline feature: serving compiled LangGraph graphs as a drop-in target for [`langgraph-sdk`](https://pypi.org/project/langgraph-sdk/) clients on Azure Functions.
+Demonstrates the **experimental, partial** compatibility path for
+[`langgraph-sdk`](https://pypi.org/project/langgraph-sdk/) clients on Azure Functions,
+not a drop-in replacement for LangGraph Platform.
 
-`LangGraphApp(platform_compat=True)` exposes the LangGraph Platform-compatible REST surface (`/assistants`, `/threads`, `/runs`, `/threads/{id}/state`, …) so existing `langgraph-sdk` code targeting LangGraph Cloud works against your local `func start` host.
+`LangGraphApp(platform_compat=True)` exposes assistant discovery, thread metadata,
+blocking wait, buffered stream and state operations. Check your client's exact
+calls against the [SDK feature support matrix](../../COMPATIBILITY.md#sdk-feature-support-matrix)
+before choosing this example; unsupported lifecycle routes are not added by this opt-in.
+
+## Before choosing this example
+
+- **Local defaults:** the graph's in-memory checkpointer, default Platform thread
+  records and default lock are process-local. For restart persistence and shared
+  writers, choose checkpoint storage, a shared `ThreadStore` and distributed
+  locking separately; see the [SDK adoption checklist](../../docs/adapter-reference.md#sdk-adoption-checklist).
+- **Retention:** `threads.delete` removes the thread record, not its checkpoints.
+  Plan explicit checkpoint deletion or scheduled pruning, including cleanup for
+  deleted thread IDs; see [checkpoint retention](../../docs/adapter-reference.md#checkpoint-retention-and-thread-deletion).
+- **Search cost:** metadata filtering runs in-process. Unfiltered searches,
+  metadata-filtered searches and counts still scan Azure Table even with its
+  optional status index; see [search and scale](../../docs/adapter-reference.md#search-and-scale).
+- **Lifecycle and streaming:** `runs.create/get/list/cancel/delete/join/join_stream`
+  have no registered Platform routes (HTTP 404, rather than a run handle or a 501
+  feature response). `runs.stream` delivers buffered SSE after graph execution,
+  not incremental tokens. See [SDK lifecycle and transport](../../docs/adapter-reference.md#sdk-lifecycle-and-transport).
 
 ## Files
 
