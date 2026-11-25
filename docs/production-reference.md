@@ -194,9 +194,15 @@ The runtime keyless-denial assertion is covered offline with fake HTTP responses
 the dated run below predates that assertion. A new live run is needed to establish
 its result on a deployment. Only status codes and validated versions are recorded.
 
-Concurrent invokes may return **200 or 409**: the default lock waits up to five
-seconds, so short requests can serialize successfully rather than yield exactly
-one winner. At least one must succeed. Persisted state must contain every accepted
+Concurrent invokes may return **200 or 409**. Native invoke calls
+`thread_lock.acquire(graph_name, thread_id)` without a timeout; the Blob lease
+backend defaults to `timeout=0.0` and does not poll on contention. A locally
+tracked owner or an Azure lease conflict returns no token, which native invoke
+maps to 409. Storage calls still take time; zero lock wait is not zero storage-call
+latency. Multiple requests can succeed when their acquisition attempts occur
+after earlier owners release: concurrent HTTP requests do not establish
+overlapping graph execution. The harness requires at least one success, not
+exactly one winner. Persisted state must contain every accepted
 turn exactly once and its matching assistant turn, and no rejected input. A later
 append must work. This is not a fairness or cross-instance scale-out assertion.
 
@@ -264,7 +270,7 @@ reachability is deliberate and untested private networking must not be inferred.
 | --- | --- |
 | 401 on invoke | Missing/invalid function key; use header, never log it |
 | 401 on liveness | Wrong example health configuration; liveness must be anonymous while details remain protected |
-| 409 on invoke | Same-thread lock acquisition budget exhausted; bounded client backoff, no blind replay of uncertain side effects |
+| 409 on invoke | Same-thread lock contention: native invoke uses the Blob backend's zero-wait default, without contention polling; use bounded client backoff, no blind replay of uncertain side effects |
 | 500 on invoke/state | Storage permission/container failure or graph error; inspect redacted host diagnostics, do not infer 404 |
 | Storage 403 | Check identity role, scope and propagation; never enable Shared Key as a workaround |
 | Lease loss warning | Pause conflicting work, reconcile checkpoints/side effects; [recovery procedure](production-guide.md#blob-lease-safety-and-recovery) |
