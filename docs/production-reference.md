@@ -66,7 +66,8 @@ shell tracing or print keys, full app settings, resource IDs or raw HTTP bodies.
 
 ## Deploy from a clean checkout
 
-Run the following in one dedicated Bash shell (errors exit it). Set `SUBSCRIPTION`
+Run the following in one dedicated Bash 4 or newer shell (errors exit it; the block
+uses `${var,,}`, which macOS's default Bash 3.2 and zsh do not support). Set `SUBSCRIPTION`
 to your intended subscription name or ID before pasting. Choose globally unique app
 and storage names. These commands
 use a **published wheel**, not editable source. The separate reference requirements
