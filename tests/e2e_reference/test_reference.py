@@ -19,7 +19,9 @@ from ._contracts import (
     Conversation,
     InvokeResponse,
     Observation,
+    RestartResponse,
     Runtime,
+    RuntimeResponse,
     StateResponse,
     accepted_indexes,
     check_runtime_access,
@@ -80,7 +82,9 @@ class Reference:
             Path(destination).write_text(
                 json.dumps(
                     {
-                        "observations": [item.model_dump() for item in self.observations],
+                        "observations": [
+                            item.model_dump(exclude_none=True) for item in self.observations
+                        ],
                         "runtime": self.runtime.model_dump() if self.runtime else None,
                     },
                     indent=2,
@@ -130,7 +134,8 @@ def test_deployed_runtime(reference: Reference) -> None:
         Observation(tag="runtime_auth", statuses=statuses, seconds=time.monotonic() - start)
     )
     check_runtime_access(statuses)
-    reference.runtime = Runtime.model_validate_json(response.content)
+    deployed = RuntimeResponse.model_validate_json(response.content)
+    reference.runtime = Runtime.model_validate(deployed.model_dump())
     reference.save()
     assert reference.runtime.adapter == "0.14.2", "adapter is not the selected published wheel"
     assert reference.runtime.python.startswith("3.11."), "unexpected deployed Python"
@@ -180,28 +185,60 @@ def test_persistence_across_restart(reference: Reference) -> None:
         pytest.skip("REF882_RESOURCE_GROUP and REF882_APP required for restart")
     start = time.monotonic()
     thread = "restart-" + uuid.uuid4().hex
-    assert reference.invoke(thread, "before").status_code == 200, "pre-restart invoke failed"
-    reference.state(thread).check_turns(["before"])
+    probe = "/api/reference/runtime?restart_thread=" + thread
+    written = reference.request("POST", probe)
+    assert written.status_code == 200, "pre-restart write status differs"
+    before = RestartResponse.model_validate_json(written.content)
+    before.values.check_turns(["before"])
     result = subprocess.run(
         ["az", "functionapp", "restart", "--resource-group", group, "--name", app],
         capture_output=True,
         timeout=120,
         check=False,
     )
-    assert result.returncode == 0, "Azure restart failed; output suppressed"
+    if result.returncode != 0:
+        pytest.fail("Azure restart failed; output suppressed", pytrace=False)
     deadline = time.monotonic() + 180
+    http_available = False
     while time.monotonic() < deadline:
         try:
-            ready = requests.get(reference.base + "/api/health", timeout=(5, 15))
+            ready = requests.request(
+                "GET",
+                reference.base + probe,
+                headers={"x-functions-key": reference.key},
+                timeout=(5, 15),
+                allow_redirects=False,
+            )
             if ready.status_code == 200:
-                break
+                http_available = True
+                recovered = RestartResponse.model_validate_json(ready.content)
+                if recovered.process_token != before.process_token:
+                    recovered.values.check_turns(["before"])
+                    break
         except requests.RequestException:
             time.sleep(2)
             continue
         time.sleep(2)
     else:
-        pytest.fail("host did not recover within restart budget", pytrace=False)
-    reference.state(thread).check_turns(["before"])
+        reference.record(
+            Observation(
+                tag="restart",
+                seconds=time.monotonic() - start,
+                restart_accepted=True,
+                http_available=http_available,
+                turnover_confirmed=False,
+            )
+        )
+        pytest.fail("process turnover unverified within restart budget", pytrace=False)
     assert reference.invoke(thread, "after").status_code == 200, "post-restart invoke failed"
     reference.state(thread).check_turns(["before", "after"])
-    reference.record(Observation(tag="restart", count=2, seconds=time.monotonic() - start))
+    reference.record(
+        Observation(
+            tag="restart",
+            count=2,
+            seconds=time.monotonic() - start,
+            restart_accepted=True,
+            http_available=True,
+            turnover_confirmed=True,
+        )
+    )

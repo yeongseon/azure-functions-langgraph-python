@@ -8,7 +8,9 @@ import pytest
 from tests.e2e_reference._contracts import (
     Conversation,
     Observation,
+    RestartResponse,
     Runtime,
+    RuntimeResponse,
     accepted_indexes,
     check_runtime_access,
 )
@@ -84,7 +86,7 @@ def test_evidence_forbids_arbitrary_tags(tag: str) -> None:
 
 def test_evidence_round_trip() -> None:
     observed = Observation(tag="contention", statuses=(200, 409), count=1, seconds=0.25)
-    assert json.loads(observed.model_dump_json()) == {
+    assert json.loads(observed.model_dump_json(exclude_none=True)) == {
         "tag": "contention",
         "statuses": [200, 409],
         "count": 1,
@@ -105,3 +107,20 @@ def test_runtime_access_rejects_incorrect_auth(statuses: tuple[int, int]) -> Non
 
 def test_runtime_access_accepts_keyless_denial_and_keyed_success() -> None:
     check_runtime_access((401, 200))
+
+
+def test_process_tokens_stay_out_of_evidence() -> None:
+    versions = dict.fromkeys(Runtime.model_fields, "1.2.3")
+    runtime = RuntimeResponse.model_validate({**versions, "process_token": "a" * 32})
+    assert runtime.model_dump() == versions
+    restart = RestartResponse.model_validate({"process_token": "b" * 32, "values": {}})
+    assert restart.model_dump() == {"values": {"messages": ()}}
+    assert "process_token" not in repr(restart)
+
+
+@pytest.mark.parametrize("token", [None, "", "private-host", "g" * 32, "a" * 31])
+def test_restart_rejects_missing_or_invalid_identity(token: str | None) -> None:
+    payload = {"values": {}} if token is None else {"process_token": token, "values": {}}
+    with pytest.raises(ValidationError) as error:
+        RestartResponse.model_validate(payload)
+    assert "private-host" not in str(error.value)

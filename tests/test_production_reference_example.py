@@ -4,6 +4,7 @@ from importlib.metadata import version
 import json
 from pathlib import Path
 import platform
+import re
 
 import azure.functions as func
 import pytest
@@ -29,7 +30,11 @@ def test_runtime_reports_installed_distributions(monkeypatch: pytest.MonkeyPatch
             func.HttpRequest(method="GET", url="/api/reference/runtime", body=b"")
         )
         # Then it reflects this process's installed distributions, and is FUNCTION-protected.
-        assert json.loads(response.get_body()) == {
+        payload = json.loads(response.get_body())
+        token = payload.pop("process_token")
+        assert re.fullmatch(r"[a-f0-9]{32}", token)
+        assert response.headers["Cache-Control"] == "no-store"
+        assert payload == {
             "python": platform.python_version(),
             "adapter": version("azure-functions-langgraph"),
             "functions": version("azure-functions"),
@@ -40,12 +45,57 @@ def test_runtime_reports_installed_distributions(monkeypatch: pytest.MonkeyPatch
         }
         binding = module.reference_runtime.build().get_bindings_dict()["bindings"][0]
         assert binding["authLevel"] == func.AuthLevel.FUNCTION
+        assert set(binding["methods"]) == {func.HttpMethod.GET, func.HttpMethod.POST}
         bindings = {
             function.get_function_name(): function.get_bindings_dict()["bindings"][0]
             for function in module.app.get_functions()
         }
         assert bindings["aflg_health"]["authLevel"] == func.AuthLevel.ANONYMOUS
         assert bindings["aflg_health_details"]["authLevel"] == func.AuthLevel.FUNCTION
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        monkeypatch.setattr(
+            module, "compiled_graph", module.build_graph().compile(checkpointer=InMemorySaver())
+        )
+        from tests.e2e_reference._contracts import RestartResponse
+
+        thread = "restart-" + "a" * 32
+        handler = module.reference_runtime.build().get_user_function()
+        for method in ("POST", "GET"):
+            probe = handler(
+                func.HttpRequest(
+                    method=method,
+                    url="/api/reference/runtime",
+                    params={"restart_thread": thread},
+                    body=b"",
+                )
+            )
+            parsed = RestartResponse.model_validate_json(probe.get_body())
+            assert parsed.process_token == token
+            parsed.values.check_turns(["before"])
+            assert "process_token" not in parsed.model_dump()
+        for thread in ("private-thread", "restart-" + "g" * 32):
+            rejected = handler(
+                func.HttpRequest(
+                    method="GET",
+                    url="/api/reference/runtime",
+                    params={"restart_thread": thread},
+                    body=b"",
+                )
+            )
+            assert rejected.status_code == 400
+            assert rejected.get_body() == b""
+        monkeypatch.setenv("AGENT_MODEL_MODE", "azure_openai")
+        rejected = handler(
+            func.HttpRequest(
+                method="POST",
+                url="/api/reference/runtime",
+                params={"restart_thread": "restart-" + "a" * 32},
+                body=b"",
+            )
+        )
+        assert rejected.status_code == 400
+        assert rejected.get_body() == b""
     finally:
         module.thread_lock.close()
         module.container_client.close()

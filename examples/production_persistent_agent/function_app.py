@@ -27,6 +27,9 @@ import json
 import logging
 import os
 import platform
+import re
+from typing import Final
+import uuid
 
 import azure.functions as func
 from azure.storage.blob import ContainerClient
@@ -186,11 +189,38 @@ langgraph_app.register(
 )
 
 app = langgraph_app.function_app
+_PROCESS_TOKEN: Final = uuid.uuid4().hex
 
 
-@app.route(route="reference/runtime", methods=["GET"], auth_level=func.AuthLevel.FUNCTION)
+@app.route(route="reference/runtime", methods=["GET", "POST"], auth_level=func.AuthLevel.FUNCTION)
 def reference_runtime(req: func.HttpRequest) -> func.HttpResponse:
-    """Report installed versions, not local build assumptions; no environment inventory."""
+    """Keep process-correlated checkpoint probes behind the runtime route's function key."""
+    thread = req.params.get("restart_thread")
+    if thread is not None:
+        if (
+            not re.fullmatch(r"restart-[a-f0-9]{32}", thread)
+            or os.environ.get("AGENT_MODEL_MODE") != "fake"
+        ):
+            return func.HttpResponse(status_code=400)
+        from langchain_core.messages import messages_to_dict
+        from langchain_core.runnables import RunnableConfig
+
+        config: RunnableConfig = {"configurable": {"thread_id": thread}}
+        if req.method == "POST":
+            compiled_graph.invoke(
+                {"messages": [{"role": "human", "content": "before"}]}, config=config
+            )
+        snapshot = compiled_graph.get_state(config)
+        return func.HttpResponse(
+            json.dumps(
+                {
+                    "process_token": _PROCESS_TOKEN,
+                    "values": {"messages": messages_to_dict(snapshot.values.get("messages", []))},
+                }
+            ),
+            mimetype="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
     return func.HttpResponse(
         json.dumps(
             {
@@ -201,7 +231,9 @@ def reference_runtime(req: func.HttpRequest) -> func.HttpResponse:
                 "langchain_core": version("langchain-core"),
                 "blob": version("azure-storage-blob"),
                 "identity": version("azure-identity"),
+                "process_token": _PROCESS_TOKEN,
             }
         ),
         mimetype="application/json",
+        headers={"Cache-Control": "no-store"},
     )
