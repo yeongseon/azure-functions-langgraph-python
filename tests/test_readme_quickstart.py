@@ -49,6 +49,7 @@ def test_copied_quickstart_invokes_registered_native_route(
 
 
 def test_copied_quickstart_is_ruff_format_clean(quickstart_snippet: str, tmp_path: Path) -> None:
+    pytest.importorskip("ruff")
     # Given: the verbatim Python fence saved as the documented filename.
     snippet_path = tmp_path / "function_app.py"
     snippet_path.write_text(quickstart_snippet, encoding="utf-8")
