@@ -333,7 +333,8 @@ unchanged. Backend exceptions are logged server-side, not returned in either bod
 #### Durable create request validation
 
 Before scheduling, create requires `config` and `config.configurable` to be JSON
-objects or null (omitted values remain supported). The effective `thread_id` must
+objects or null (omitted values remain supported; a null `configurable` is treated
+as omitted when the Activity rehydrates the payload). The effective `thread_id` must
 be a non-empty printable ASCII string of at most 256 characters, or null/omitted.
 An explicit non-null `thread_id` takes precedence over
 `config.configurable.thread_id`; only the selected ID is validated. Legacy scalar,

@@ -3,8 +3,33 @@ import json
 import pytest
 
 from azure_functions_langgraph.app import LangGraphApp
-from azure_functions_langgraph.durable._runtime import create_run_http
-from tests.test_durable import FakeDurableClient, FakeGraph, FakeReg, _req
+from azure_functions_langgraph.durable._activity import execute_langgraph_run_impl
+from azure_functions_langgraph.durable._lifecycle import create_run_impl
+from azure_functions_langgraph.durable._runtime import ORCHESTRATOR_NAME, create_run_http
+from azure_functions_langgraph.durable._state import DurableRunPayload
+from azure_functions_langgraph.locks import InProcessThreadLock
+from tests.test_durable import FakeAsyncGraph, FakeDurableClient, FakeGraph, FakeReg, _req
+
+
+@pytest.mark.parametrize("config", [{"configurable": None}, {"configurable": None, "tags": ["a"]}])
+async def test_null_configurable_with_a_thread_id_runs_to_success(
+    config: dict[str, object],
+) -> None:
+    # Given a request the admission layer accepts: an explicit thread id with a null configurable.
+    client = FakeDurableClient()
+    body = {"input": {"x": 1}, "thread_id": "t1", "config": config}
+    status, _ = await create_run_impl(client, ORCHESTRATOR_NAME, body, graph_name="echo")
+    assert status == 202
+    # When the scheduled payload is executed by the Activity itself, not only admitted.
+    graph = FakeAsyncGraph(checkpointer=object(), result={"a": 4})
+    result = await execute_langgraph_run_impl(
+        DurableRunPayload.from_dict(client.started[0][2]),
+        registry={"echo": FakeReg(graph, "echo")},
+        thread_lock=InProcessThreadLock(),
+    )
+    # Then it succeeds and the graph sees the thread id in a mapping configurable.
+    assert result.activity_status == "success"
+    assert graph.calls[0][1]["configurable"] == {"thread_id": "t1"}
 
 
 @pytest.mark.parametrize(
