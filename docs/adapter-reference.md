@@ -315,7 +315,13 @@ documentation-only registration for custom prose. Pass the same explicit
 otherwise creates an isolated registry and cannot see global documentation.
 
 The recorded fixture in `tests/fixtures/openapi_native_producer.v1.json` is
-checked by `tests/test_openapi_v1_producer_consumers.py`. To update it, build
+checked by `tests/test_openapi_v1_producer_consumers.py`. Generated schema details
+can vary with the Pydantic version: the comparison normalizes singleton
+`allOf: [{"$ref": ...}]` to a direct reference and object
+`additionalProperties: true` to its equivalent omitted default. All other
+fields, including titles, definitions, property names and required lists,
+remain exact; the full JSON records one reference generation (Pydantic 2.14.4).
+To update it, build
 the test's producer app and capture its handler endpoint namespaces, retaining
 the route-to-payload mapping and custom documentation field. Review schema
 changes rather than blindly refreshing expectations, then run that module and

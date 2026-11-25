@@ -6,9 +6,9 @@ from collections.abc import Iterator
 import json
 import logging
 from pathlib import Path
-from typing import Final
+from typing import Final, assert_never
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 import pytest
 
 from azure_functions_langgraph import LangGraphApp
@@ -25,6 +25,29 @@ _FIXTURE: Final = Path(__file__).parent / "fixtures" / "openapi_native_producer.
 
 class ProducerBody(BaseModel):
     value: str
+
+
+def _normalize_generated_schema(value: JsonValue) -> JsonValue:
+    """Canonicalize only equivalent forms observed across supported Pydantic versions."""
+    match value:
+        case dict() as node:
+            normalized = {key: _normalize_generated_schema(item) for key, item in node.items()}
+            if (
+                normalized.get("type") == "object"
+                and normalized.get("additionalProperties") is True
+            ):
+                del normalized["additionalProperties"]
+            match normalized.get("allOf"):
+                case [{"$ref": str() as ref, **extras}] if not extras and "$ref" not in normalized:
+                    del normalized["allOf"]
+                    normalized["$ref"] = ref
+            return normalized
+        case list() as items:
+            return [_normalize_generated_schema(item) for item in items]
+        case str() | int() | float() | bool() | None:
+            return value
+        case unreachable:
+            assert_never(unreachable)
 
 
 @pytest.fixture
@@ -68,8 +91,11 @@ def test_recorded_fixture_matches_native_v1_producer(producer_app: LangGraphApp)
         if not name.startswith("aflg_health")
     }
 
-    # Then: no route or payload changed, and the existing local contract still holds.
-    assert actual == {name: recorded["payloads"][kind] for name, kind in recorded["routes"].items()}
+    # Then: adapter semantics match, allowing only equivalent generated schema forms.
+    expected = {name: recorded["payloads"][kind] for name, kind in recorded["routes"].items()}
+    assert {name: _normalize_generated_schema(payload) for name, payload in actual.items()} == {
+        name: _normalize_generated_schema(payload) for name, payload in expected.items()
+    }
     for payload in actual.values():
         assert not _validate(payload, _load_vendored_schema())
     assert (
