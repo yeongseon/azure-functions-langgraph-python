@@ -292,7 +292,7 @@ Revisit when:
 - Any Azure-hosted behavior (Flex Consumption or Premium), and other Core Tools or
   `azure-functions` versions.
 
-## 9. Existing-app Blueprint composition (#993)
+### Existing-app Blueprint composition follow-up (#993)
 
 `LangGraphApp.to_blueprint() -> azure.functions.Blueprint` is an additive,
 **Experimental** native-HTTP composition method, proposed for maintainer tier
