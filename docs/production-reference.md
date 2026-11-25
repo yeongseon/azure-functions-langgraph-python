@@ -301,10 +301,9 @@ below; the Functions host version comes from the publish output.
 
 These are the resolved versions reported by that deployment, not a complete
 dependency snapshot or an exact-replay specification. The final run's sanitized
-`/tmp/opencode/ref882c/evidence.json` records Python and the six distributions
-above; `/tmp/opencode/ref882/LOG.md` also records those versions for an earlier
-cycle. Neither is a full inventory of transitive dependencies. The host version
-is separately sourced from the publish output, not the runtime endpoint.
+runtime inventory recorded Python and the six distributions above; it is not a
+full inventory of transitive dependencies. The host version is separately
+sourced from the publish output, not the runtime endpoint.
 
 A **new deployment is a new verification run**, not a reproduction certified by
 this result. `requirements-reference.txt` fixes the adapter wheel but allows
