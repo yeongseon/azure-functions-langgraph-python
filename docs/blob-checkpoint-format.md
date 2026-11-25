@@ -7,8 +7,8 @@ releases (see [Evidence](#evidence)). Nothing here is a claim about real Azure B
 fixtures and tests use in-memory containers.
 
 !!! note "Scope"
-    The saver's on-blob format is **unchanged**; the only runtime change since this page was introduced is
-    that writers refuse to replace a hint of an unknown version (see Known gaps). No migration
+    The saver's on-blob format is **unchanged**. Writers refuse to replace an unknown hint version and
+    use ETag preconditions to detect overlapping hint publication (see Known gaps). No migration
     exists, and no stored data is ever rewritten or re-serialized by a read. A format change is
     proposed, not shipped, in [Proposal](#proposal-versioned-format-marker-not-implemented).
 
@@ -266,11 +266,57 @@ test and forces this page to change.
 
 * **Stale clean hint after an old writer's crash** (see Mixed fleets). Not fixed; see
   [Why the stale hint is not mitigated on the read path](#why-the-stale-hint-is-not-mitigated-on-the-read-path).
-* **Concurrent writers.** Two savers writing one thread at once, without the thread lock, can leave a
-  clean hint that points at the lower of two committed checkpoints (the writer that publishes last
-  computes `max(hint it read before the other commit, its own id)`). Both checkpoints are committed
-  and visible through `list` and by id. Pinned by a strict `xfail`; the thread lock (and, opt-in, the
-  ownership guard) is the protection, not the saver.
+* **Concurrent writers.** The supported contract is **one writer per thread, enforced by the
+  thread lock**. All instances and direct maintenance writers must share that exclusion scope.
+  The saver now detects overlapping hint changes, rather than offering concurrent-write success:
+  a stale initial snapshot or final publication raises `BlobCheckpointConflictError` (a
+  `RuntimeError`, importable from `azure_functions_langgraph.checkpointers.azure_blob`). The strict
+  `xfail` remains visible because two overlapping `put` calls are not promised to succeed.
+
+### Conditional hint publication and recovery
+
+`put` / `aput` read the hint body and its ETag in the same GET. The dirty upload uses
+`If-Match` against that snapshot, or create-only `If-None-Match: *` when the hint was absent.
+The final clean upload uses `If-Match` against the ETag returned by **that writer's dirty upload**.
+ETags are request/response state; no blob name, payload, version or metadata field changes.
+The same rules apply to sync, native async and executor-fallback writes.
+
+- An initial conflict is reported before uploading any checkpoint data. There is no automatic retry.
+- A final conflict occurs **after the checkpoint commit marker**. The saver attempts to invalidate
+  the hint with a fresh GET and a conditional dirty PUT, then raises the conflict. If another change
+  races this cleanup, or storage/ownership checks fail, that failure propagates. An unknown hint
+  version is preserved. No unconditional cleanup write or blind retry replaces another writer's state.
+- With successful invalidation, an unqualified read scans and returns the largest committed ID,
+  regardless of commit/publication order. Both distinct checkpoints remain directly readable.
+- **Failed invalidation or a process exit can still leave a stale clean hint under unsupported
+  overlapping writers.** For example, B cleans its lower ID while A is paused; A commits a higher ID
+  and dies before invalidation. A hint precondition cannot atomically fence a different checkpoint blob.
+  Do not interpret a write error as rollback, or use this detector instead of the thread lock.
+- Under the supported single-writer contract, a writer that dies after marking dirty leaves readers
+  on the authoritative scan path. **The next lock-holding writer scans, commits, and cleans the hint**,
+  including when its own ID sorts below an already committed ID. This restores the fast path without
+  operator deletion of the hint. A timeout after the service accepted a clean write is also safe to
+  inspect/retry under the same exclusion contract.
+
+On conflict, stop the overlapping writers, inspect committed IDs through `list` and by-ID reads,
+and resume only under the shared thread lock. A dirty hint can be repaired by the next serialized
+write. A clean hint suspected of being stale needs the quiescent recovery procedure described in
+[Mixed fleets](#mixed-fleets-old-and-new-writers-on-one-thread), not a blind write retry.
+Lease-loss fencing remains outside this protocol; a stale writer with a newly read ETag can still
+write checkpoint data. Pending-write semantics and retention maintenance are unchanged.
+
+**Cost:** the normal clean-hint single-writer path adds **zero requests**: one hint GET, one
+checkpoint-existence HEAD and the same dirty/data/clean PUTs. A first write replaces one PUT with
+one create-only PUT, without changing the total. A final detected conflict adds a GET and one attempted
+conditional dirty PUT; that attempted cleanup can itself fail. Dirty recovery still pays the existing
+checkpoint-prefix LIST cost (including pagination); clean latest reads retain their fast path.
+
+Why not automatic multi-writer reconciliation? Post-commit ID comparison/ETag retries or read-back
+repair handle successful publishers but cannot close the commit-to-hint crash window. Permanently
+retaining dirty after overlap avoids trusting a stale hint but also prevents the next single writer
+from automatically restoring the fast path: the unchanged dirty shape cannot distinguish a dead
+writer from one that may still commit. This proposal therefore keeps lock-based exclusion, adds
+loud detection, and preserves automatic recovery rather than claiming a multi-blob transaction.
 
 Resolved: **a hint of an unknown version is no longer overwritten.** `put` / `aput` raise
 `BlobCheckpointFormatError` (a `RuntimeError`, importable from
