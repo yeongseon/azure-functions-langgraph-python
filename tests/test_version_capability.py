@@ -1,3 +1,5 @@
+import inspect
+
 import pytest
 
 from azure_functions_langgraph._execution_plan import method_accepts_version
@@ -16,7 +18,7 @@ def test_method_accepts_explicit_version_param() -> None:
 
 def test_method_accepts_var_keyword() -> None:
     # Given a callable accepting arbitrary keyword arguments.
-    def fn(input: str, **kwargs: str) -> None: ...
+    def fn(input: str, **kwargs: object) -> None: ...
 
     # When probing its version capability.
     accepts_version = method_accepts_version(fn)
@@ -52,7 +54,7 @@ def test_uninspectable_method_rejected(error_type: type[Exception]) -> None:
     # Given a callable whose signature cannot be inspected.
     class Opaque:
         @property
-        def __signature__(self) -> None:
+        def __signature__(self) -> inspect.Signature:
             raise error_type("no signature")
 
         def __call__(self, input: str) -> None: ...
