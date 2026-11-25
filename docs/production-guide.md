@@ -317,6 +317,19 @@ must own their deduplication and reconciliation policy; a supplied ID alone give
 no exactly-once guarantee. This HTTP submission concern is separate from Activity
 redelivery, orchestrator replay and idempotency of tool side effects described below.
 
+#### Create and poll backend failures
+
+If the backend raises during create, the response is a sanitized `502` with
+`run_id` and `error.code: "submission_unknown"`. This is not a client validation
+failure: acceptance may already have occurred. Poll or reconcile that ID before
+resubmitting; the adapter makes no implicit retry. This applies to generated IDs
+as well as supplied IDs. Repeated submission is not deduplicated.
+
+A failed poll lookup returns a sanitized `502` with `run_id` and
+`error.code: "status_unavailable"`, not a missing-run response. A successful lookup
+of an unknown run still returns `404`; successful create and poll responses are
+unchanged. Backend exceptions are logged server-side, not returned in either body.
+
 #### Cancellation of Durable runs
 
 Durable termination is **asynchronous** and ends the *orchestration*. It does not
