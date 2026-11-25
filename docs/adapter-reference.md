@@ -187,6 +187,112 @@ This package does not own:
 
 > **Note:** For OpenAPI spec generation, use the [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python) package with the bridge module (`azure_functions_langgraph.openapi.register_with_openapi`).
 
+### OpenAPI companion compatibility policy
+
+The optional `openapi` extra permits `azure-functions-openapi>=0.30,<1`.
+The distribution name is `azure-functions-openapi`; the import name is
+`azure_functions_openapi`. The bridge remains deprecated and retained for
+documentation metadata; this policy covers `register_with_openapi(app)`, not
+every companion feature or automatic endpoint-metadata scanning.
+
+#### Published-range evidence (2026-11-25)
+
+The [PyPI JSON index](https://pypi.org/pypi/azure-functions-openapi/json) listed
+exactly these non-yanked stable releases in the advertised range. `>=0.30`
+means the actual floor is **0.30.0**, not the newest 0.30 patch. Each release
+declares Python `>=3.11,<3.15`.
+
+| Companion | First upload (UTC) | Python 3.11 focused checks |
+| --- | --- | --- |
+| 0.30.0 (floor) | 2026-10-11 08:49:06 | 57 passed, 0 failed, 0 skipped |
+| 0.30.1 (intermediate patch) | 2026-10-14 00:21:03 | 57 passed, 0 failed, 0 skipped |
+| 0.31.0 (latest eligible) | 2026-11-01 08:05:18 | 57 passed, 0 failed, 0 skipped |
+
+Each throwaway environment installed the candidate package from the checkout
+plus an exact companion pin from PyPI, without modifying shared Hatch
+environments. Floor and latest used separate fresh virtualenvs; the intermediate
+patch was also checked in the floor environment before restoring its floor pin.
+All three used the same focused selection: `test_openapi_bridge.py`,
+`test_openapi_real_companion_interop.py`, `test_endpoint_metadata.py`, and
+`test_endpoint_conformance.py` under `tests/`. The eight real-companion cases
+executed, rather than silently skipping. These are local in-process integration
+checks, not Functions-host or Azure certification, and not a Python 3.12–3.14
+or minimum-transitive-dependency matrix.
+
+All three resolved the companion's runtime dependencies to `azure-functions
+1.26.0`, `pydantic 2.14.4`, `pydantic-core 2.50.5`, and `PyYAML 6.0.4`;
+the graph stack resolved to `langgraph 1.2.24`, `langchain-core 1.8.4`,
+`langgraph-checkpoint 4.3.2`, and `langgraph-sdk 0.4.14`. The companion metadata
+requires `pydantic>=2,<3`, unbounded `pyyaml`, and `azure-functions>=1.21,<2`
+below Python 3.13 (`>=1.21,<3` on Python 3.13+).
+
+For comparison, the shared Table test environment had **no companion**:
+49 checks passed and the real-companion module skipped explicitly. Its versions
+were `azure-functions 1.26.0`, `pydantic 2.14.3`, `pydantic-core 2.50.4`,
+`PyYAML 6.0.4`, `langgraph 1.2.22`, `langchain-core 1.8.1`,
+`langgraph-checkpoint 4.3.2`, and `langgraph-sdk 0.4.14`. That comparison proves
+the independent absent-package lane remains usable; a skip is not companion
+certification. `TestImportGuard` and the optional-package-absent example test
+remain independent of real-companion installation.
+
+#### Emitted native-route semantics and known limitations
+
+After registering one default stateful graph named `agent`, calling
+`register_with_openapi(app)` and then the companion's `generate_openapi_spec()`
+emitted the following **same** OpenAPI 3.1 document semantics on all three
+releases (bridge-only generation, without `app=` scanning):
+
+| Emitted path | Method | Emitted successful response |
+| --- | --- | --- |
+| `/api/graphs/agent/invoke` | POST | `200 application/json`, component schema with required `output` object envelope |
+| `/api/graphs/agent/stream` | POST | `200 application/json`, generic object schema |
+| `/api/graphs/agent/threads/{thread_id}/state` | GET | `200 application/json`, generic object schema; required string `thread_id` path parameter |
+| `/api/health` | GET | `200 application/json`, generic object schema |
+| `/api/health/details` | GET | `200 application/json`, generic object schema |
+
+The generated paths preserve a matching custom `v1` or empty route prefix
+without doubling it. The tests assert exact paths/methods, the state parameter,
+and the invoke response's component reference and `output` envelope.
+
+**Findings, not wire-fidelity certification:** the bridge-only stream response
+above does **not** describe the runtime's buffered `text/event-stream` SSE.
+State and health bodies are generic, and error responses are absent. Both
+invoke and stream request bodies also contain an extra Request Body Object
+inside `requestBody.content.application/json.schema` (its own `required` and
+`content.application/json.schema`), rather than the request schema directly.
+Registration success therefore does not imply a fully accurate document or
+safe client generation. These limitations occur at both ends of the range;
+narrowing to another tested release would not fix them. They require separate
+bridge/schema work, not a dependency downgrade or weaker tests.
+
+#### Maintaining the range
+
+Retain `>=0.30,<1`: all currently published eligible releases pass the bridge
+checks and preserve the recorded semantics; there is no observed
+version-specific regression justifying a higher floor or lower ceiling.
+This is evidence for the versions above, **not** a guarantee that every future
+pre-1.0 minor will be compatible.
+
+The maintainer reviewing a companion update or a user compatibility report
+owns re-running the same selection in fresh floor and latest-eligible
+environments. Check the PyPI release list and Python requirements, record
+resolved versions and generated paths/responses, and inspect `-rs`: any skipped
+interop case leaves that candidate uncertified. Keep the primary environment
+without the companion to exercise optional-dependency absence independently.
+The existing optional OpenAPI test entry point alone is not a two-ended matrix.
+
+If a new release breaks registration, parameter conversion, generation, paths
+or response semantics, report the exact failing version, dependencies, command
+and failure. Users should pin their application lock/constraints to the last
+verified exact companion version while the maintainer reproduces it. The
+maintainer must then either adapt the bridge with a regression test or publish
+a dependency-bound correction excluding the incompatible release (`!=` for an
+isolated bad release, or an upper bound at the first incompatible line). Do not
+raise the floor merely to hide a latest-release failure. Re-test floor and
+latest within the corrected range, document migration impact, and widen again
+only after the formerly failing release or its replacement passes. Never
+convert a failure to a skip/xfail to preserve a compatibility claim.
+
 ## Installation
 
 ```bash

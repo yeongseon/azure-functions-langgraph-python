@@ -139,3 +139,51 @@ def test_invoke_route_request_and_response_schemas_present() -> None:
     assert invoke_route["request_body"] is not None
     assert "application/json" in invoke_route["request_body"]["content"]
     assert invoke_route["response_model"] is not None
+
+
+@pytest.mark.parametrize("prefix", ["api", "v1", ""])
+def test_generated_document_preserves_native_paths_when_prefix_changes(prefix: str) -> None:
+    # Given: a stateful graph and metadata matching the host's route prefix.
+    app = LangGraphApp(route_prefix=prefix)
+    app.register(graph=_StatefulGraph(), name="agent")
+    register_with_openapi(app)
+
+    # When: the real companion generates the bridge-only document.
+    spec = azure_functions_openapi.generate_openapi_spec(
+        route_prefix=f"/{prefix}" if prefix else ""
+    )
+
+    # Then: prefixes occur once, and native path parameters survive generation.
+    root = f"/{prefix}" if prefix else ""
+    assert {path: set(operations) for path, operations in spec["paths"].items()} == {
+        f"{root}/graphs/agent/invoke": {"post"},
+        f"{root}/graphs/agent/stream": {"post"},
+        f"{root}/graphs/agent/threads/{{thread_id}}/state": {"get"},
+        f"{root}/health": {"get"},
+        f"{root}/health/details": {"get"},
+    }
+    state = spec["paths"][f"{root}/graphs/agent/threads/{{thread_id}}/state"]["get"]
+    assert state["parameters"] == [
+        {"name": "thread_id", "in": "path", "required": True, "schema": {"type": "string"}}
+    ]
+
+
+def test_generated_document_keeps_invoke_output_envelope_when_using_real_companion() -> None:
+    # Given: the default native invoke response model forwarded through the bridge.
+    app = LangGraphApp()
+    app.register(graph=_OrdinaryGraph(), name="agent")
+    register_with_openapi(app)
+
+    # When: registration metadata is compiled into an OpenAPI document.
+    spec = azure_functions_openapi.generate_openapi_spec()
+
+    # Then: the emitted successful response references a required output envelope.
+    responses = spec["paths"]["/api/graphs/agent/invoke"]["post"]["responses"]
+    assert set(responses) == {"200"}
+    content = responses["200"]["content"]
+    assert set(content) == {"application/json"}
+    reference = content["application/json"]["schema"]["$ref"]
+    assert reference.startswith("#/components/schemas/")
+    schema = spec["components"]["schemas"][reference.removeprefix("#/components/schemas/")]
+    assert schema["required"] == ["output"]
+    assert schema["properties"]["output"]["type"] == "object"
