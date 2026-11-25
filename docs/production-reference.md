@@ -75,6 +75,7 @@ do not change the ordinary example dependency bounds.
 
 ```bash
 set -euo pipefail
+(( ${BASH_VERSINFO[0]:-0} >= 4 )) || { echo 'This block requires Bash 4 or newer.' >&2; exit 1; }
 : "${SUBSCRIPTION:?Set SUBSCRIPTION to the intended subscription name or ID}"
 git clone https://github.com/yeongseon/azure-functions-langgraph-python.git
 cd azure-functions-langgraph-python

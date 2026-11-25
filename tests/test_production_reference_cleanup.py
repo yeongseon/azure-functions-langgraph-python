@@ -75,6 +75,24 @@ class Run:
     group_exists: bool
 
 
+def documented_commands(source: str | None = None) -> str:
+    """Return the copy-paste deployment block exactly as the page shows it."""
+    page = source if source is not None else (ROOT / "docs/production-reference.md").read_text()
+    block = page.split("## Deploy from a clean checkout", 1)[1].split("```bash\n", 1)[1]
+    return block.split("```", 1)[0]
+
+
+def test_bash_version_guard_precedes_every_cloud_call() -> None:
+    # Given the documented block, which uses Bash 4 expansions after a group is created.
+    commands = documented_commands()
+    # When a shell without them (macOS's Bash 3.2) pastes it.
+    # Then the very first cloud call must already be behind a fail-fast version guard,
+    # otherwise the shell could die between group creation and arming cleanup.
+    guard = commands.index("BASH_VERSINFO")
+    assert guard < commands.index("az "), "the Bash version guard must run before any az call"
+    assert "exit 1" in commands[guard : guard + 120], "an unsupported Bash must stop the block"
+
+
 def run_deployment(tmp_path: Path, scenario: str, page: str | None = None) -> Run:
     """Use a fresh, allow-listed PATH; unexpected tools cannot reach cloud credentials."""
     sandbox = tmp_path / "bin"
@@ -96,8 +114,7 @@ def run_deployment(tmp_path: Path, scenario: str, page: str | None = None) -> Ru
         (tmp_path / "group").write_text("existing-group")
         (tmp_path / "tag").write_text("someone-else")
     source = page if page is not None else (ROOT / "docs/production-reference.md").read_text()
-    block = source.split("## Deploy from a clean checkout", 1)[1].split("```bash\n", 1)[1]
-    commands = block.split("```", 1)[0]
+    commands = documented_commands(source)
     process = subprocess.run(
         [str(sandbox / "bash"), "--noprofile", "--norc", "-c", commands],
         cwd=tmp_path,
