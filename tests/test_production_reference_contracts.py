@@ -5,7 +5,13 @@ import json
 from pydantic import ValidationError
 import pytest
 
-from tests.e2e_reference._contracts import Conversation, Observation, Runtime, accepted_indexes
+from tests.e2e_reference._contracts import (
+    Conversation,
+    Observation,
+    Runtime,
+    accepted_indexes,
+    check_runtime_access,
+)
 
 
 @pytest.mark.parametrize("statuses,expected", [([200] * 4, [0, 1, 2, 3]), ([409, 200], [1])])
@@ -89,3 +95,13 @@ def test_evidence_round_trip() -> None:
 def test_runtime_rejects_non_version_text() -> None:
     with pytest.raises(ValidationError):
         Runtime.model_validate(dict.fromkeys(Runtime.model_fields, "private-host"))
+
+
+@pytest.mark.parametrize("statuses", [(200, 200), (401, 401), (302, 200), (500, 200)])
+def test_runtime_access_rejects_incorrect_auth(statuses: tuple[int, int]) -> None:
+    with pytest.raises(AssertionError, match="runtime authentication status differs"):
+        check_runtime_access(statuses)
+
+
+def test_runtime_access_accepts_keyless_denial_and_keyed_success() -> None:
+    check_runtime_access((401, 200))

@@ -183,11 +183,16 @@ hatch run python -m pytest tests/e2e_reference -m e2e_reference \
 ```
 
 The harness checks anonymous liveness, rejected keyless and successful keyed
-invoke, deployed installed-distribution versions, two-request accumulated state
+invoke, explicit keyless denial on `/api/reference/runtime` alongside authenticated
+installed-distribution versions, two-request accumulated state
 through the state endpoint, cross-thread isolation, four concurrent same-thread
 requests and persistence across `az functionapp restart`. The runtime endpoint
 `GET /api/reference/runtime` is function-key protected and returns only versions.
 Run only against an expendable app: the restart is disruptive.
+
+The runtime keyless-denial assertion is covered offline with fake HTTP responses;
+the dated run below predates that assertion. A new live run is needed to establish
+its result on a deployment. Only status codes and validated versions are recorded.
 
 Concurrent invokes may return **200 or 409**: the default lock waits up to five
 seconds, so short requests can serialize successfully rather than yield exactly

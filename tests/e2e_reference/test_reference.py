@@ -22,6 +22,7 @@ from ._contracts import (
     Runtime,
     StateResponse,
     accepted_indexes,
+    check_runtime_access,
 )
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_reference]
@@ -116,8 +117,19 @@ def test_liveness_and_function_key(reference: Reference) -> None:
 
 
 def test_deployed_runtime(reference: Reference) -> None:
+    start = time.monotonic()
+    try:
+        keyless = requests.get(
+            reference.base + "/api/reference/runtime", timeout=(10, 120), allow_redirects=False
+        )
+    except requests.RequestException:
+        pytest.fail("anonymous runtime transport failed; details suppressed", pytrace=False)
     response = reference.request("GET", "/api/reference/runtime")
-    assert response.status_code == 200, "runtime endpoint status differs"
+    statuses = (keyless.status_code, response.status_code)
+    reference.record(
+        Observation(tag="runtime_auth", statuses=statuses, seconds=time.monotonic() - start)
+    )
+    check_runtime_access(statuses)
     reference.runtime = Runtime.model_validate_json(response.content)
     reference.save()
     assert reference.runtime.adapter == "0.14.2", "adapter is not the selected published wheel"
