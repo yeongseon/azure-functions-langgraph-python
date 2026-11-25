@@ -157,7 +157,21 @@ async def create_run_impl(
         correlation_id=body.get("correlation_id"),
     )
 
-    await client.start_new(orchestrator_name, instance_id=run_id, client_input=payload.to_dict())
+    try:
+        await client.start_new(
+            orchestrator_name, instance_id=run_id, client_input=payload.to_dict()
+        )
+    except Exception:  # noqa: BLE001 - HTTP backend boundary, logged and answered generically
+        logger.exception("Durable submission outcome unknown for run %r", run_id)
+        return 502, {
+            "run_id": run_id,
+            "error": {
+                "code": "submission_unknown",
+                "message": (
+                    "Unable to confirm run submission. Poll using the run ID before resubmitting."
+                ),
+            },
+        }
     return 202, {"run_id": run_id, "status": "pending"}
 
 
@@ -169,7 +183,14 @@ async def get_run_impl(client: DurableClientLike, run_id: str) -> tuple[int, dic
     status and ``output`` is the orchestration output (present once completed).
     """
 
-    status = await client.get_status(run_id)
+    try:
+        status = await client.get_status(run_id)
+    except Exception:  # noqa: BLE001 - HTTP backend boundary, logged and answered generically
+        logger.exception("Durable status lookup failed for run %r", run_id)
+        return 502, {
+            "run_id": run_id,
+            "error": {"code": "status_unavailable", "message": "Unable to retrieve run status."},
+        }
     runtime = runtime_status_str(status)
     if runtime is None:
         return 404, {"run_id": run_id, "error": "run not found"}
