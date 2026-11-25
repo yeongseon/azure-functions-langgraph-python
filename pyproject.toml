@@ -189,7 +189,7 @@ test = "pytest -v -m integration tests/integration/test_table_store_integration.
 features = ["dev", "openapi"]
 
 [tool.hatch.envs.openapi.scripts]
-test = "pytest -v tests/test_openapi_real_companion_interop.py --no-cov"
+test = "pytest -v tests/test_openapi_real_companion_interop.py tests/test_openapi_rich_metadata_registration.py tests/test_openapi_v1_producer_consumers.py --no-cov"
 
 [tool.ruff]
 line-length = 100
