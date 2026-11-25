@@ -21,6 +21,7 @@ import tempfile
 import time
 from typing import Any
 
+from certify_primary_examples import _run
 from certify_upstream_examples import message_contents
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,25 +89,33 @@ def verify_calls(port: int, name: str, key: str) -> dict[str, Any]:
         "config": {"configurable": {"thread_id": "a"}},
     }
     status, _ = request(port, path, payload)
-    assert status == 401, "keyless invoke must be rejected"
+    if status != 401:
+        raise RuntimeError("keyless invoke must be rejected")
     status, output = request(port, path, payload, key)
-    assert status == 200, "authorized first invoke failed"
+    if status != 200:
+        raise RuntimeError("authorized first invoke failed")
     first = message_contents(output["output"])
     if name == "official_basic":
-        assert first == ["Hi", "Hello!"] and output["output"]["extra_field"] == 10
+        if first != ["Hi", "Hello!"] or output["output"]["extra_field"] != 10:
+            raise RuntimeError("basic host output differs from upstream baseline")
         return {"keyless_status": 401, "authorized_status": 200, "contents": [first]}
     payload["input"]["messages"][0]["content"] = "Continue"
     status, output = request(port, path, payload, key)
-    assert status == 200
+    if status != 200:
+        raise RuntimeError("authorized continuation invoke failed")
     second = message_contents(output["output"])
     payload["config"]["configurable"]["thread_id"] = "b"
     payload["input"]["messages"][0]["content"] = "Separate"
     status, output = request(port, path, payload, key)
-    assert status == 200
+    if status != 200:
+        raise RuntimeError("authorized isolated invoke failed")
     isolated = message_contents(output["output"])
-    assert first == ["Hi", "observed 1 human turn(s)"]
-    assert second == ["Hi", "observed 1 human turn(s)", "Continue", "observed 2 human turn(s)"]
-    assert isolated == ["Separate", "observed 1 human turn(s)"]
+    if first != ["Hi", "observed 1 human turn(s)"]:
+        raise RuntimeError("first invoke differs from upstream baseline")
+    if second != ["Hi", "observed 1 human turn(s)", "Continue", "observed 2 human turn(s)"]:
+        raise RuntimeError("continuation lost conversation state")
+    if isolated != ["Separate", "observed 1 human turn(s)"]:
+        raise RuntimeError("isolated thread contains unexpected conversation state")
     return {
         "keyless_status": 401,
         "authorized_status": 200,
@@ -116,7 +125,16 @@ def verify_calls(port: int, name: str, key: str) -> dict[str, Any]:
     }
 
 
+def executable(name: str) -> str:
+    resolved = shutil.which(name)
+    if resolved is None:
+        raise RuntimeError(f"local certification requires {name} on PATH")
+    return str(Path(resolved).resolve())
+
+
 def run(args: argparse.Namespace) -> None:
+    func = executable("func")
+    azurite_executable = executable("azurite")
     for port in (args.host_port, *range(args.storage_port, args.storage_port + 3)):
         with socket.socket() as listener:
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -164,7 +182,13 @@ def run(args: argparse.Namespace) -> None:
                 "PYTHON_ISOLATE_WORKER_DEPENDENCIES": "1",
             }
         )
-        azurite = ["azurite", "--silent", "--skipApiVersionCheck", "--location", str(root / "data")]
+        azurite = [
+            azurite_executable,
+            "--silent",
+            "--skipApiVersionCheck",
+            "--location",
+            str(root / "data"),
+        ]
         for offset, service in enumerate(("blob", "queue", "table")):
             azurite.extend(
                 [
@@ -176,7 +200,7 @@ def run(args: argparse.Namespace) -> None:
             )
         with child(azurite, root, env):
             with child(
-                ["func", "start", "--python", "--port", str(args.host_port), "--enableAuth"],
+                [func, "start", "--python", "--port", str(args.host_port), "--enableAuth"],
                 app,
                 env,
             ) as host:
@@ -205,8 +229,8 @@ def run(args: argparse.Namespace) -> None:
                     d: version(d)
                     for d in ("azure-functions-langgraph", "langgraph", "langchain-core")
                 },
-                "core_tools": subprocess.check_output(["func", "--version"], text=True).strip(),
-                "azurite": subprocess.check_output(["azurite", "--version"], text=True).strip(),
+                "core_tools": _run([func, "--version"]).strip(),
+                "azurite": _run([azurite_executable, "--version"]).strip(),
             }
         )
         args.evidence.write_text(json.dumps(result, indent=2) + "\n")
