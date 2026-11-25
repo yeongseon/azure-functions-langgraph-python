@@ -50,12 +50,23 @@ class Runtime(BaseModel):
     identity: str = Field(pattern=r"^\d+\.\d+\.\d+$")
 
 
+class RuntimeResponse(Runtime):
+    process_token: str = Field(pattern=r"^[a-f0-9]{32}$", exclude=True, repr=False)
+
+
+class RestartResponse(StateResponse):
+    process_token: str = Field(pattern=r"^[a-f0-9]{32}$", exclude=True, repr=False)
+
+
 class Observation(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
     tag: str = Field(pattern=r"^[a-z_]{1,32}$")
     statuses: tuple[int, ...] = ()
     count: int = Field(default=0, ge=0)
     seconds: float = Field(ge=0)
+    restart_accepted: bool | None = None
+    http_available: bool | None = None
+    turnover_confirmed: bool | None = None
 
 
 def accepted_indexes(statuses: Sequence[int]) -> list[int]:

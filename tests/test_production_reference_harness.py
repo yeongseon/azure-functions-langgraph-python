@@ -52,6 +52,7 @@ def _runtime_target(monkeypatch: pytest.MonkeyPatch, keyless_status: int) -> har
         assert kwargs["headers"] == {"x-functions-key": "synthetic-key"}
         versions = dict.fromkeys(Runtime.model_fields, "1.2.3")
         versions.update(adapter="0.14.2", python="3.11.18")
+        versions["process_token"] = "a" * 32
         response = requests.Response()
         response.status_code = 200
         response._content = json.dumps(versions).encode()

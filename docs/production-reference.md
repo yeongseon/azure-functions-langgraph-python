@@ -187,12 +187,38 @@ invoke, explicit keyless denial on `/api/reference/runtime` alongside authentica
 installed-distribution versions, two-request accumulated state
 through the state endpoint, cross-thread isolation, four concurrent same-thread
 requests and persistence across `az functionapp restart`. The runtime endpoint
-`GET /api/reference/runtime` is function-key protected and returns only versions.
+`GET /api/reference/runtime` is function-key protected and returns versions plus
+an opaque random token created once per worker-process import. Bare PIDs are
+insufficient: separate containers can reuse the same PID. The token is compared
+in memory only, excluded from evidence serialization and never printed.
 Run only against an expendable app: the restart is disruptive.
 
 The runtime keyless-denial assertion is covered offline with fake HTTP responses;
 the dated run below predates that assertion. A new live run is needed to establish
 its result on a deployment. Only status codes and validated versions are recorded.
+
+Restart verification separates **restart-command acceptance**, **HTTP availability**
+and **confirmed process turnover** into boolean evidence fields. For correlation,
+the same protected runtime route accepts `restart_thread=restart-<32 hex digits>`:
+POST writes the fixed fake-model `before` turn and reads its checkpoint; GET reads
+that checkpoint. Both return the process token from the process performing the
+operation, with `Cache-Control: no-store`. These probes reject non-reference thread
+names and any model mode other than explicit `fake`; they use the existing Blob
+checkpointer and add no dependency or change to function-key authentication.
+The probe thread is unique to this run and must have no concurrent writers.
+
+After the restart command returns success, the harness polls authenticated GET
+probes for up to 180 seconds. An old worker returning 200 proves availability only:
+its unchanged token cannot pass recovery. A changed token must accompany the
+actual state read containing the pre-restart turn before the normal native append
+and state assertions run. Timeout records turnover as unverified and fails, even
+when HTTP stayed available. This proves an observed different serving process,
+not the retirement of every old worker, scale-out, or recovery during active work.
+
+The dated 2026-11-24 restart observations below establish command acceptance and
+HTTP/state availability only; process turnover was **unverified**. The stronger
+correlated check has offline fake-HTTP/CLI coverage only and awaits an authorized
+live re-run on an expendable app. Historical timings and outcomes are unchanged.
 
 Concurrent invokes may return **200 or 409**. Native invoke calls
 `thread_lock.acquire(graph_name, thread_id)` without a timeout; the Blob lease
@@ -208,8 +234,9 @@ append must work. This is not a fairness or cross-instance scale-out assertion.
 
 Missing base URL/key skips the live tests; missing group/app skips restart. A
 verification run requires **all five tests passing, zero skips**. Evidence JSON
-contains allow-listed status/count/timing tags and numeric versions only, not keys,
-URLs, bodies or resource IDs. Use `--tb=no --show-capture=no`; never `--showlocals`.
+contains allow-listed status/count/timing tags, restart booleans and numeric versions,
+not keys, URLs, bodies, process tokens or resource IDs.
+Use `--tb=no --show-capture=no`; never `--showlocals`.
 This directory is outside `tests/e2e/`: release collection stays at its original
 12 tests. Marker `e2e_reference` is registered alongside `e2e`; no workflow is
 changed. A re-certification CI lane is follow-up work, not part of this PR.
