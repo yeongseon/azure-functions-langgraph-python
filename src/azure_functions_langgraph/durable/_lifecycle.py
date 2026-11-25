@@ -198,18 +198,20 @@ async def get_run_impl(client: DurableClientLike, run_id: str) -> tuple[int, dic
     output = getattr(status, "output", None)
     output_mapping = output if isinstance(output, Mapping) else None
     normalized: DurableRunStatus = normalize_status(runtime, output_mapping)
-    if normalized == "error" and output_mapping is not None:
-        error = output_mapping.get("error")
+    if normalized == "error":
+        error = output_mapping.get("error") if output_mapping is not None else None
         if isinstance(error, Mapping):
             logger.error(
                 "Durable run failed: type=%s message=%s",
                 error.get("type", "unknown"),
                 error.get("message", "unknown"),
             )
-            output = {
-                **output_mapping,
-                "error": {"code": "run_failed", "message": "The run failed."},
-            }
+        else:
+            logger.error("Durable run failed: run_id=%r runtime_status=%s", run_id, runtime)
+        output = {
+            "activity_status": "error",
+            "error": {"code": "run_failed", "message": "The run failed."},
+        }
     return 200, {"run_id": run_id, "status": normalized, "output": output}
 
 
