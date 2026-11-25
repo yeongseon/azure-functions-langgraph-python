@@ -1,0 +1,56 @@
+{
+  "documentation": {"description": "Recorded graph documentation"},
+  "routes": {
+    "aflg_ordinary_invoke": "invoke",
+    "aflg_ordinary_stream": "stream",
+    "aflg_stateful_invoke": "invoke",
+    "aflg_stateful_stream": "stream",
+    "aflg_stateful_state": "state"
+  },
+  "payloads": {
+    "invoke": {
+      "version": 1,
+      "request_body": {
+        "$defs": {"ProducerBody": {"properties": {"value": {"title": "Value", "type": "string"}}, "required": ["value"], "title": "ProducerBody", "type": "object"}},
+        "properties": {
+          "input": {"$ref": "#/$defs/ProducerBody", "description": "Input to the graph"},
+          "config": {"anyOf": [{"additionalProperties": true, "type": "object"}, {"type": "null"}], "default": null, "description": "LangGraph config, e.g. {'configurable': {'thread_id': '...'}}", "title": "Config"},
+          "version": {"anyOf": [{"enum": ["v1", "v2"], "type": "string"}, {"type": "null"}], "default": null, "description": "Optional LangGraph output version ('v1' or 'v2'); forwarded to graph.invoke only when set (requires langgraph>=1.1).", "title": "Version"}
+        },
+        "required": ["input"], "title": "InvokeRequest_ProducerBody", "type": "object"
+      },
+      "request_body_required": true,
+      "parameters": [],
+      "responses": {
+        "200": {"schema": {
+          "$defs": {"ProducerBody": {"properties": {"value": {"title": "Value", "type": "string"}}, "required": ["value"], "title": "ProducerBody", "type": "object"}},
+          "properties": {"output": {"$ref": "#/$defs/ProducerBody", "description": "Graph output state"}},
+          "required": ["output"], "title": "InvokeResponse_ProducerBody", "type": "object"
+        }}
+      }
+    },
+    "stream": {
+      "version": 1,
+      "request_body": {
+        "$defs": {"ProducerBody": {"properties": {"value": {"title": "Value", "type": "string"}}, "required": ["value"], "title": "ProducerBody", "type": "object"}},
+        "properties": {
+          "input": {"$ref": "#/$defs/ProducerBody", "description": "Input to the graph"},
+          "config": {"anyOf": [{"additionalProperties": true, "type": "object"}, {"type": "null"}], "default": null, "description": "LangGraph config, e.g. {'configurable': {'thread_id': '...'}}", "title": "Config"},
+          "stream_mode": {"default": "values", "description": "Stream mode: 'values', 'updates', 'messages', or 'custom'", "title": "Stream Mode", "type": "string"},
+          "version": {"anyOf": [{"enum": ["v1", "v2"], "type": "string"}, {"type": "null"}], "default": null, "description": "Optional LangGraph output version ('v1' or 'v2'); forwarded to graph.stream only when set (requires langgraph>=1.1).", "title": "Version"}
+        },
+        "required": ["input"], "title": "StreamRequest_ProducerBody", "type": "object"
+      },
+      "request_body_required": true,
+      "parameters": [],
+      "responses": null
+    },
+    "state": {
+      "version": 1,
+      "request_body": null,
+      "request_body_required": false,
+      "parameters": [{"name": "thread_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+      "responses": null
+    }
+  }
+}
