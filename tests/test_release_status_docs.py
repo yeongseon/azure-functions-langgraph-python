@@ -22,7 +22,7 @@ RUN_CELL = re.compile(
 )
 # Tag -> (GitHub Release date, failed "Publish to PyPI" run id, first published successor), as
 # checked against the GitHub Releases API, the Actions run records, PyPI and git ancestry on
-# 2026-11-10.
+# 2026-11-10 and 2026-11-24.
 RECORDED = {
     "v0.2.0": ("2026-04-04", "23981822989", "0.5.0"),
     "v0.3.0": ("2026-04-04", "23984989252", "0.5.0"),
@@ -34,6 +34,8 @@ RECORDED = {
     "v0.11.2": ("2026-10-11", "38144369700", "0.11.4"),
     "v0.11.3": ("2026-10-11", "38145575218", "0.11.4"),
     "v0.12.1": ("2026-10-16", "38891888298", "0.12.2"),
+    "v0.14.0": ("2026-11-15", "43702945169", "0.14.2"),
+    "v0.14.1": ("2026-11-23", "45200927573", "0.14.2"),
 }
 # Statements that were wrong or that the release process does not make, kept out on purpose.
 FORBIDDEN = (

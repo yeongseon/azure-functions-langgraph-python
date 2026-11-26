@@ -22,13 +22,18 @@ thread/run/assistant endpoints.
 
 from __future__ import annotations
 
+from importlib.metadata import version
+import json
 import logging
 import os
-
-from azure.storage.blob import ContainerClient
-from graph import build_graph
+import platform
+import re
+from typing import Final
+import uuid
 
 import azure.functions as func
+from azure.storage.blob import ContainerClient
+from graph import build_graph
 
 from azure_functions_langgraph import LangGraphApp
 from azure_functions_langgraph.checkpointers.azure_blob import AzureBlobCheckpointSaver
@@ -128,8 +133,8 @@ if _ENABLE_DISTRIBUTED_LOCK:
 langgraph_app = LangGraphApp(
     platform_compat=_ENABLE_PLATFORM,
     auth_level=func.AuthLevel.FUNCTION,
-    # Explicitly protect the health-details inventory in production.
-    health_auth_level=func.AuthLevel.FUNCTION,
+    health_auth_level=func.AuthLevel.ANONYMOUS,
+    health_details_auth_level=func.AuthLevel.FUNCTION,
     # Distributed per-thread lock (None -> in-process default when disabled).
     thread_lock=thread_lock,
 )
@@ -184,3 +189,51 @@ langgraph_app.register(
 )
 
 app = langgraph_app.function_app
+_PROCESS_TOKEN: Final = uuid.uuid4().hex
+
+
+@app.route(route="reference/runtime", methods=["GET", "POST"], auth_level=func.AuthLevel.FUNCTION)
+def reference_runtime(req: func.HttpRequest) -> func.HttpResponse:
+    """Keep process-correlated checkpoint probes behind the runtime route's function key."""
+    thread = req.params.get("restart_thread")
+    if thread is not None:
+        if (
+            not re.fullmatch(r"restart-[a-f0-9]{32}", thread)
+            or os.environ.get("AGENT_MODEL_MODE") != "fake"
+        ):
+            return func.HttpResponse(status_code=400)
+        from langchain_core.messages import messages_to_dict
+        from langchain_core.runnables import RunnableConfig
+
+        config: RunnableConfig = {"configurable": {"thread_id": thread}}
+        if req.method == "POST":
+            compiled_graph.invoke(
+                {"messages": [{"role": "human", "content": "before"}]}, config=config
+            )
+        snapshot = compiled_graph.get_state(config)
+        return func.HttpResponse(
+            json.dumps(
+                {
+                    "process_token": _PROCESS_TOKEN,
+                    "values": {"messages": messages_to_dict(snapshot.values.get("messages", []))},
+                }
+            ),
+            mimetype="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
+    return func.HttpResponse(
+        json.dumps(
+            {
+                "python": platform.python_version(),
+                "adapter": version("azure-functions-langgraph"),
+                "functions": version("azure-functions"),
+                "langgraph": version("langgraph"),
+                "langchain_core": version("langchain-core"),
+                "blob": version("azure-storage-blob"),
+                "identity": version("azure-identity"),
+                "process_token": _PROCESS_TOKEN,
+            }
+        ),
+        mimetype="application/json",
+        headers={"Cache-Control": "no-store"},
+    )

@@ -1,6 +1,13 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.14.2](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.14.1...v0.14.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **platform:** treat an empty assistant metadata filter as no filter ([#948](https://github.com/yeongseon/azure-functions-langgraph-python/issues/948)) ([f0dabeb](https://github.com/yeongseon/azure-functions-langgraph-python/commit/f0dabeb50d4f784341a393bbeba2096a0c838f3e)), closes [#944](https://github.com/yeongseon/azure-functions-langgraph-python/issues/944)
+
 ## [0.14.1](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.14.0...v0.14.1) (2026-11-22)
 
 

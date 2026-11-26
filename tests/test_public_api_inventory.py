@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 import azure_functions_langgraph as pkg
+from tools import api_contract as gate
 from tools import public_api_inventory as inv
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,6 +119,52 @@ def test_every_public_symbol_has_a_tier() -> None:
         else:
             assert m["tier"] == inv.INTERNAL
             assert any(part.startswith("_") for part in m["module"].split("."))
+
+
+def test_blueprint_method_is_experimental_without_downgrading_class() -> None:
+    app = next(e for e in DATA["root"]["exports"] if e["name"] == "LangGraphApp")
+    module = next(m for m in DATA["modules"] if m["module"] == f"{inv.PKG}.app")
+    symbol = next(s for s in module["symbols"] if s["name"] == "LangGraphApp")
+    method = next(m for m in symbol["methods"] if m["name"] == "to_blueprint")
+    assert method["signature"] == "() -> func.Blueprint"
+    assert method["tier"] == inv.EXPERIMENTAL
+    assert app["tier"] == inv.CORE
+    assert gate.tier_for(f"{inv.PKG}.app") == "stable"
+
+
+def test_inventory_and_gate_scan_the_same_public_modules() -> None:
+    inventory_modules = {m["module"] for m in DATA["modules"] if m["public"]}
+    gate_modules = set(gate.ApiExtractor(ROOT / "src").public_modules())
+    assert inventory_modules == gate_modules, (
+        "Public module inventories differ; update both scanners: "
+        f"inventory-only={sorted(inventory_modules - gate_modules)}, "
+        f"gate-only={sorted(gate_modules - inventory_modules)}"
+    )
+
+
+def test_public_module_tiers_match_the_contract_gate() -> None:
+    normalized = {inv.CORE: "stable", inv.BETA: "beta", inv.EXPERIMENTAL: "experimental"}
+    for module in DATA["modules"]:
+        if module["public"] and module["module"] != inv.PKG:
+            name, inventory_tier = module["module"], module["tier"]
+            gate_tier = gate.tier_for(name)
+            assert normalized[inventory_tier] == gate_tier, (
+                f"{name}: inventory={inventory_tier!r}, gate={gate_tier!r}; "
+                "align MODULE_TIERS and TIER_RULES with the maintainer's tier decision"
+            )
+
+
+def test_package_root_labels_preserve_the_intended_distinction() -> None:
+    inventory_modules = {m["module"]: m for m in DATA["modules"] if m["public"]}
+    gate_modules = gate.ApiExtractor(ROOT / "src").snapshot()["modules"]
+    # The root aggregates exports; the gate tiers symbols by their defining module.
+    assert gate_modules[inv.PKG]["tier"] == "package", (
+        f"{inv.PKG}: gate root label={gate_modules[inv.PKG]['tier']!r}; expected 'package'"
+    )
+    assert inventory_modules[inv.PKG]["tier"] == inv.CORE, (
+        f"{inv.PKG}: inventory root label={inventory_modules[inv.PKG]['tier']!r}; "
+        f"expected {inv.CORE!r}"
+    )
 
 
 def _readme_rows() -> dict[str, str]:

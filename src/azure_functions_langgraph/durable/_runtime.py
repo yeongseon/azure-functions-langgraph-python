@@ -46,6 +46,7 @@ from azure_functions_langgraph.durable._lifecycle import (
     get_run_impl,
 )
 from azure_functions_langgraph.durable._orchestrator import run_orchestration
+from azure_functions_langgraph.durable._request import validate_run_request
 from azure_functions_langgraph.durable._state import DurableRunPayload, DurableRunResult
 from azure_functions_langgraph.locks import ThreadLock
 from azure_functions_langgraph.observability import (
@@ -102,6 +103,8 @@ class DurableRuntimeDeps:
     thread_lock: ThreadLock
     observer: RunObserver = NOOP_OBSERVER
     max_request_body_bytes: int = 1024 * 1024
+    max_input_depth: int = 32
+    max_input_nodes: int = 10_000
 
 
 def create_durable_function_app(auth_level: func.AuthLevel) -> func.FunctionApp:
@@ -162,6 +165,8 @@ async def create_run_http(
     registry: Mapping[str, GraphRegistrationLike],
     orchestrator_name: str = ORCHESTRATOR_NAME,
     max_request_body_bytes: int = 1024 * 1024,
+    max_input_depth: int = 32,
+    max_input_nodes: int = 10_000,
 ) -> func.HttpResponse:
     """Adapt ``POST graphs/{name}/runs`` to :func:`create_run_impl`."""
 
@@ -176,6 +181,10 @@ async def create_run_http(
     if error is not None or body is None:
         status_code = 413 if len(req.get_body() or b"") > max_request_body_bytes else 400
         return _json_response(status_code, {"error": error or "invalid request body"}, request_id)
+
+    error = validate_run_request(body, max_input_depth, max_input_nodes)
+    if error is not None:
+        return _json_response(400, {"error": error}, request_id)
 
     status_code, result = await create_run_impl(
         client, orchestrator_name, body, graph_name=graph_name
@@ -242,6 +251,8 @@ def register_durable_runtime(app: func.FunctionApp, deps: DurableRuntimeDeps) ->
             registry=registry,
             orchestrator_name=ORCHESTRATOR_NAME,
             max_request_body_bytes=max_body,
+            max_input_depth=deps.max_input_depth,
+            max_input_nodes=deps.max_input_nodes,
         )
 
     @app.function_name(name="aflg_durable_get_run")

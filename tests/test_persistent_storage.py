@@ -253,6 +253,8 @@ class FakeResourceExistsError(Exception):
 class FakeResourceModifiedError(Exception):
     """Raised when an ETag-based update fails optimistic concurrency."""
 
+    status_code = 412
+
 
 class FakeMatchConditions:
     IfNotModified = "if-not-modified"
@@ -262,6 +264,7 @@ class FakeMatchConditions:
 class _BlobRecord:
     data: bytes
     metadata: dict[str, str]
+    etag: str
 
 
 @dataclass
@@ -270,16 +273,17 @@ class _BlobItem:
 
 
 class _MockBlobProperties:
-    def __init__(self, metadata: dict[str, str]) -> None:
+    def __init__(self, metadata: dict[str, str], etag: str) -> None:
         self.metadata = metadata
+        self.etag = etag
 
 
 class _MockDownloadStream:
     """Mirrors ``StorageStreamDownloader``: ``properties.metadata`` comes with the body."""
 
-    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str], etag: str) -> None:
         self._data = data
-        self.properties = _MockBlobProperties(dict(metadata))
+        self.properties = _MockBlobProperties(dict(metadata), etag)
 
     def readall(self) -> bytes:
         return self._data
@@ -290,25 +294,35 @@ class MockBlobClient:
         self._container = container
         self._blob_name = blob_name
 
-    def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+    def upload_blob(
+        self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+    ) -> dict[str, str]:
         with self._container.lock:
             if not overwrite and self._blob_name in self._container.blobs:
                 raise FakeResourceExistsError(self._blob_name)
-            self._container.blobs[self._blob_name] = _BlobRecord(data=data, metadata=dict(metadata))
+            previous = self._container.blobs.get(self._blob_name)
+            if "etag" in kwargs and (previous is None or kwargs["etag"] != previous.etag):
+                raise FakeResourceModifiedError("hint changed")
+            self._container.version += 1
+            etag = str(self._container.version)
+            self._container.blobs[self._blob_name] = _BlobRecord(
+                data=data, metadata=dict(metadata), etag=etag
+            )
+            return {"etag": etag}
 
     def download_blob(self) -> _MockDownloadStream:
         with self._container.lock:
             record = self._container.blobs.get(self._blob_name)
             if record is None:
                 raise FakeResourceNotFoundError(self._blob_name)
-            return _MockDownloadStream(record.data, record.metadata)
+            return _MockDownloadStream(record.data, record.metadata, record.etag)
 
     def get_blob_properties(self) -> _MockBlobProperties:
         with self._container.lock:
             record = self._container.blobs.get(self._blob_name)
             if record is None:
                 raise FakeResourceNotFoundError(self._blob_name)
-            return _MockBlobProperties(metadata=dict(record.metadata))
+            return _MockBlobProperties(metadata=dict(record.metadata), etag=record.etag)
 
     def delete_blob(self) -> None:
         with self._container.lock:
@@ -321,6 +335,7 @@ class MockContainerClient:
     def __init__(self) -> None:
         self.blobs: dict[str, _BlobRecord] = {}
         self.lock = threading.RLock()
+        self.version = 0
 
     def get_blob_client(self, blob: str) -> MockBlobClient:
         return MockBlobClient(self, blob)
@@ -447,6 +462,9 @@ def _install_fake_azure_modules() -> Callable[[], None]:
     azure_core_exceptions_mod = types.ModuleType("azure.core.exceptions")
     setattr(azure_core_exceptions_mod, "ResourceNotFoundError", FakeResourceNotFoundError)
     setattr(azure_core_exceptions_mod, "ResourceExistsError", FakeResourceExistsError)
+    setattr(azure_core_exceptions_mod, "HttpResponseError", FakeResourceModifiedError)
+    setattr(azure_core_exceptions_mod, "ResourceModifiedError", FakeResourceModifiedError)
+    setattr(azure_core_mod, "MatchConditions", FakeMatchConditions)
 
     azure_data_tables_mod = types.ModuleType("azure.data.tables")
     setattr(azure_data_tables_mod, "TableClient", MockTableClient)

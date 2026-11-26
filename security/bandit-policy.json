@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "inline_suppressions": [
-    {"id":"B311","file":"src/azure_functions_langgraph/checkpointers/azure_blob.py","line":366,"kind":"reviewed-static","reason":"Random suffix orders checkpoint versions; not a credential or security token","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B311","file":"src/azure_functions_langgraph/checkpointers/azure_blob.py","line":380,"kind":"reviewed-static","reason":"Random suffix orders checkpoint versions; not a credential or security token","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B110","file":"src/azure_functions_langgraph/locks/azure_blob.py","line":814,"kind":"reviewed-static","reason":"Existing destructor best-effort cleanup; explicit close retains diagnostics","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B105","file":"src/azure_functions_langgraph/platform/stores.py","line":478,"kind":"reviewed-static","reason":"None clears a lease token; no password literal","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"}
   ],
@@ -16,6 +16,8 @@
     {"id":"B404","file":"scripts/certify_primary_examples.py","line":10,"kind":"reviewed-static","reason":"Developer certification invokes explicit argv without a shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B603","file":"scripts/certify_primary_examples.py","line":80,"kind":"reviewed-static","reason":"Developer-owned argv and environment; no shell or HTTP inputs","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B603","file":"scripts/certify_primary_examples.py","line":174,"kind":"reviewed-static","reason":"Explicit uv install argv against checked-in negative fixture","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
+    {"id":"B404","file":"scripts/certify_upstream_host.py","line":19,"kind":"reviewed-static","reason":"Opt-in local certification owns Functions Core Tools and Azurite argv, child environments and process groups; no shell or request-derived executable","owner":"yeongseon","added":"2026-11-25","expires":"2027-01-20"},
+    {"id":"B603","file":"scripts/certify_upstream_host.py","line":38,"kind":"reviewed-static","reason":"Developer-owned Core Tools and Azurite launches use absolute which-resolved executable paths, explicit argv and run-owned temporary cwd/environment; shell is disabled and owned process groups are reaped","owner":"yeongseon","added":"2026-11-25","expires":"2027-01-20"},
     {"id":"B404","file":"tools/check_pr_format.py","line":5,"kind":"reviewed-static","reason":"CI formatting tool invokes git and ruff without shell evaluation","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B603","file":"tools/check_pr_format.py","line":10,"kind":"reviewed-static","reason":"git diff uses explicit argv and revision operands; no shell","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},
     {"id":"B607","file":"tools/check_pr_format.py","line":10,"kind":"reviewed-static","reason":"git resolved from controlled CI developer PATH","owner":"yeongseon","added":"2026-10-22","expires":"2027-01-20"},

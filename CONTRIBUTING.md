@@ -41,8 +41,8 @@ Apply identical PR review criteria to human-only and AI-assisted work
 (OpenCode, Codex, Claude Code, ChatGPT, Copilot, and others).
 Implementation tool choice never adds a mandatory AI review route.
 
-- Open an issue-linked, focused PR with relevant tests, docs and a
-  truthful account of checks performed or omitted.
+- Open a focused PR following [Issue or direct PR?](#issue-or-direct-pr), with
+  relevant tests, docs and a truthful account of checks performed or omitted.
 - Trust required **GitHub CI** checks at the final head for official
   automated validation. Running `make check-all` locally is recommended,
   not a separate merge condition; do not assume a specific runner model.
@@ -53,7 +53,51 @@ Implementation tool choice never adds a mandatory AI review route.
   release and integration safeguards. Permission/publishing changes
   receive explicit independent scrutiny.
 
+## Issue or direct PR?
+
+A docs-only correction that only fixes attribution, a link target, a typo, formatting or a factual detail already verifiable against the code or the cited source, and that does not alter an official graph, a support/stability/compatibility claim, a public API, an example's behavior, release/CI/credential files, or work under a contributor-reserved issue, MAY go straight to a pull request without a prior issue; everything else needs an issue first.
+
+Before either path, search [existing issues](https://github.com/yeongseon/azure-functions-langgraph-python/issues)
+and [open PRs](https://github.com/yeongseon/azure-functions-langgraph-python/pulls)
+for the same work. Inspect matching issues' labels, Assignees, comments and linked
+PRs; follow [Contributor-reserved issues](#contributor-reserved-issues). A direct PR
+is not a way to bypass a reservation or an active claim. If the scope is uncertain,
+use the issue-first path and describe what needs deciding.
+
+### Minimal steps for a small correction
+
+1. Check the boundary above and search for existing work. No assignment request or
+   advance maintainer permission is needed for an eligible, unclaimed correction.
+2. Fork the repository if you do not have push access. Edit the documentation on a
+   branch from current `main`; GitHub's web editor is sufficient for a one-line fix.
+3. Verify the corrected text against the code or cited source and preview the diff.
+   For site-page changes, run `make docs` when practical. Describe the source and
+   checks actually performed, and any checks not run; a prose-only fix needs no new
+   runtime test. Required GitHub CI and existing review/merge safeguards still apply.
+4. Open a focused PR using the [Title Convention](#title-convention) and the PR
+   template. In Related Issues, explain why the correction qualifies without a
+   prior issue, or link existing related work. Use a Draft PR if unfinished.
+
+**Trivial correction walkthrough:** a documentation link points to the wrong
+upstream attribution page. After checking for reserved/claimed or duplicate work,
+verify the intended page and attribution against the cited upstream source. On
+your fork's branch, change only that link target, preview and check it, then open a
+PR explaining the old and corrected targets and your verification. With no change
+to the graph, behavior or claims, no prior issue is needed.
+
+**Issue-first walkthrough:** you want to describe an Experimental surface as
+Stable. Even if the edit is one word in Markdown, it changes a stability claim.
+Search for existing work, inspect reservations and claims, then open or use an
+issue describing the evidence, proposed scope and acceptance criteria under
+[Issue Scope](#issue-scope). Coordinate any active contribution before editing;
+link that issue in the eventual PR. The same issue-first path applies to changing
+an official example's graph or behavior. Opening an issue is not a new approval
+gate; existing review and merge requirements remain unchanged.
+
 ## Development Workflow
+
+Choose the [issue or direct-PR path](#issue-or-direct-pr) first. For changes that
+need a local checkout (rather than the small-correction web-editor path):
 
 1. Create a branch from `main`.
    ```bash
@@ -86,6 +130,15 @@ Before opening a PR, run `ruff format --check <changed-python-files>` (or
 `ruff format <changed-python-files>` to fix them). `make format-check` checks
 `src` and `tests` without changing files. CI checks those same trees and also
 reports formatting failures on changed Python files in a dedicated step.
+
+In **Test and Coverage** CI, the blocking coverage gate is pytest's
+`fail_under = 95` on the Python 3.11 matrix cell. Uploading its report to
+Codecov is **non-blocking but visible**: an upload failure emits a warning
+annotation and an actionable job summary, without relaxing the pytest gate.
+Check the upload log for authentication or service/network errors; the owner
+maintains the `CODECOV_TOKEN` repository secret from the Codecov dashboard in
+**Settings > Secrets and variables > Actions**. Fork PRs do not receive repository
+secrets, and Dependabot skips the upload and its failure-reporting step.
 
 Integration tests (Azurite, Cosmos) require docker-compose services. The
 Cosmos emulator is known-flaky on GitHub-hosted runners, so CI does not run

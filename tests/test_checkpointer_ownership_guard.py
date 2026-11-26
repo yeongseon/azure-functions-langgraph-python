@@ -224,16 +224,26 @@ async def test_check_immediately_precedes_every_upload(
     upload, aupload = store.saver._upload_blob, store.saver._aupload_blob
 
     def logged_upload(
-        path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
-    ) -> None:
+        path: str,
+        data: bytes,
+        metadata: dict[str, str],
+        overwrite: bool = True,
+        *,
+        etag: str | None = None,
+    ) -> str:
         events.append("upload")
-        upload(path, data, metadata, overwrite)
+        return upload(path, data, metadata, overwrite, etag=etag)
 
     async def logged_aupload(
-        path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
-    ) -> None:
+        path: str,
+        data: bytes,
+        metadata: dict[str, str],
+        overwrite: bool = True,
+        *,
+        etag: str | None = None,
+    ) -> str:
         events.append("upload")
-        await aupload(path, data, metadata, overwrite)
+        return await aupload(path, data, metadata, overwrite, etag=etag)
 
     monkeypatch.setattr(store.saver, "_upload_blob", logged_upload)
     monkeypatch.setattr(store.saver, "_aupload_blob", logged_aupload)

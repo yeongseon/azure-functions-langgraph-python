@@ -230,6 +230,10 @@ CI tests include:
 
 ## Optional checkpoint backends
 
+For the optional `openapi` companion range (`>=0.30,<1`), tested release
+resolutions, emitted-document limitations and the incompatible-release response
+policy, see the [OpenAPI companion compatibility policy](docs/adapter-reference.md#openapi-companion-compatibility-policy).
+
 | Extra | Dependency | Python | Notes |
 |---|---|---|---|
 | `postgres` | `langgraph-checkpoint-postgres>=3.0,<4` | 3.11+ | Production DB checkpoint backend |

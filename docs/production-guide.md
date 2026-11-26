@@ -282,7 +282,7 @@ connection open for the duration of the run:
 
 The graph executes inside a Durable **activity**, never the orchestrator, so
 replay determinism is preserved. Durable history is not a replacement for
-LangGraph checkpoints. See the README "Durable async run lifecycle" section and
+LangGraph checkpoints. See the [support-scope decision draft](architecture.md#durable-support-scope-current-behavior-and-proposed-direction) and
 [`examples/durable_async_agent/`](../examples/durable_async_agent/).
 
 Durable removes the **HTTP request-response** ceiling, not the Function execution
@@ -300,6 +300,141 @@ delivery still requires idempotent side effects. Cancellation terminates the
 orchestration; it does not forcibly stop an already-running activity or Python
 worker thread. Bound tools and storage calls and apply the
 [mixed-surface requirements](#interaction-with-platform-compatible-runs).
+
+#### Submission identity and uncertain outcomes
+
+An optional client-supplied `run_id` is the **orchestration identity** (the Durable
+`instance_id`), not an idempotency key. Every create request submits to the backend;
+the adapter does not deduplicate repeated submissions. Submitting the same ID again
+can restart or replace a run according to backend behavior. The Python SDK's
+[`start_new` contract](https://learn.microsoft.com/en-us/python/api/azure-functions-durable/azure.durable_functions.durableorchestrationclient#azure-durable-functions-durableorchestrationclient-start-new)
+documents replacement of an existing instance.
+
+If submission times out or its acceptance is uncertain, **poll or reconcile using
+the known ID**, rather than blindly submitting it again. A transient `404` does not
+prove that submission was rejected. Applications requiring retryable submission
+must own their deduplication and reconciliation policy; a supplied ID alone gives
+no exactly-once guarantee. This HTTP submission concern is separate from Activity
+redelivery, orchestrator replay and idempotency of tool side effects described below.
+
+#### Create and poll backend failures
+
+If the backend raises during create, the response is a sanitized `502` with
+`run_id` and `error.code: "submission_unknown"`. This is not a client validation
+failure: acceptance may already have occurred. Poll or reconcile that ID before
+resubmitting; the adapter makes no implicit retry. This applies to generated IDs
+as well as supplied IDs. Repeated submission is not deduplicated.
+
+A failed poll lookup returns a sanitized `502` with `run_id` and
+`error.code: "status_unavailable"`, not a missing-run response. A successful lookup
+of an unknown run still returns `404`; successful create and poll responses are
+unchanged. Backend exceptions are logged server-side, not returned in either body.
+
+#### Durable create request validation
+
+Before scheduling, create requires `config` and `config.configurable` to be JSON
+objects or null (omitted values remain supported; a null `configurable` is treated
+as omitted when the Activity rehydrates the payload). The effective `thread_id` must
+be a non-empty printable ASCII string of at most 256 characters, or null/omitted.
+An explicit non-null `thread_id` takes precedence over
+`config.configurable.thread_id`; only the selected ID is validated. Legacy scalar,
+list and omitted `input`, null config and other config fields remain supported.
+
+The app's `max_input_depth` and `max_input_nodes` apply separately to Durable
+`input` and `config`, before submission. Invalid shapes or structural-limit
+violations return a value-free `400 {"error": "..."}` without scheduling a run.
+Oversized bodies still return `413`, before JSON parsing. These checks do not add
+application authorization, submission deduplication or an Activity retry policy.
+
+#### App-owned DFApp migration (decision draft)
+
+**Optional migration design, pending the maintainer decisions in
+[#984](https://github.com/yeongseon/azure-functions-langgraph-python/issues/984).**
+Existing `async_runs="durable"` callers can keep the current API; this is not a
+removal notice or a requirement to migrate now. The proposed integrated example
+belongs to [Cookbook issue #350](https://github.com/yeongseon/azure-functions-cookbook-python/issues/350).
+The steps below describe application responsibilities, not a shipped replacement
+or a drop-in wire-compatible sample.
+
+The current built-in routes use the app-level host authentication and **do not
+invoke `LangGraphApp(authorize=...)`**. Function keys are not principal-to-run
+ownership. Do not expose the built-in routes to mutually untrusted principals
+on the assumption that the native callback protects them. See the
+[app-wide boundary and proposals](architecture.md#durable-support-scope-current-behavior-and-proposed-direction).
+
+1. **Own the Functions entry point.** Create an application-owned
+   `azure.durable_functions.DFApp(http_auth_level=func.AuthLevel.FUNCTION)` and
+   register a fixed HTTP starter with `route` and
+   `durable_client_input(client_name="client")`. Retain the same compiled graph
+   and checkpointer configuration in application code. Do not import this
+   package's private `durable/_*` handlers or assume that passing your `DFApp`
+   into `LangGraphApp` is a supported composition API. If native HTTP remains
+   needed, retain its existing host separately until composition is explicitly
+   supported and tested; coordinate shared checkpoint writers across both hosts.
+2. **Authorize before submission.** In the starter, authenticate a verified
+   principal, parse bounded input/config, allow-list graph selection and check
+   graph entitlement plus thread ownership. Derive tenant/thread identity from
+   protected application policy, not an asserted body field. Establish a
+   durable application-owned binding of principal/tenant, run ID and thread
+   before submitting. With the injected `DurableOrchestrationClient`, call
+   `await client.start_new("app_graph_orchestrator", instance_id=run_id,
+   client_input=payload)`. Use a fixed orchestrator name, not a caller-selected
+   management target. Handle the crash/unknown-outcome window between ownership
+   recording and submission with reconciliation, not blind duplicate creation.
+3. **Keep graph work in Activities.** Register a deterministic generator with
+   `orchestration_trigger(context_name="context")`; it reads `context.get_input()`
+   and yields `context.call_activity("app_graph_activity", payload)`. Register
+   the Activity with `activity_trigger(input_name="payload")`. Only the Activity
+   resolves and invokes the existing graph using `graph.invoke(...)` or
+   `await graph.ainvoke(...)`, with the authorized thread config. Keep network,
+   tools, clocks and business side effects out of the replayed orchestrator.
+4. **Own poll and cancel too.** Register app-owned routes that authenticate each
+   request and verify its protected principal-to-run binding **before** calling
+   `await client.get_status(run_id)` or
+   `await client.terminate(run_id, reason)`. Scope result visibility, sanitize
+   failures and keep reasons free of secrets. Decide a non-disclosing denial/
+   not-found policy. Do not return privileged Durable management URLs/keys to
+   callers as a shortcut around these checks; restrict direct backend and
+   alternate management access. Native `authorize` does not run inside your
+   Activity either: admission and any later revocation policy are app-owned.
+
+Moving invocation into your Activity transfers adapter responsibilities; it
+does not automatically retain the built-in lock, observer or result envelope:
+
+| Concern | Application-owned responsibility |
+| --- | --- |
+| Ownership | Enforce graph/thread entitlement at create and run ownership at every poll/cancel; protect the ownership mapping, retention and tenant isolation. This guide ships no run registry. |
+| Submission deduplication | Define tenant-scoped request keys, atomic claims, payload-conflict behavior and unknown-submission reconciliation. A chosen Durable instance ID or a check-then-start lookup is not an application-wide exactly-once protocol. Do not infer this guarantee from the built-in `run_id` field. |
+| Side-effect deduplication | Assume Activity redelivery. Carry a stable logical-operation key to tools/providers that atomically enforce it, covering the post-effect/pre-checkpoint crash window. Checkpoints and orchestrator replay do not make tool effects exactly-once. |
+| Bounded execution | Budget each Activity under plan/host execution limits; set independent LLM, tool, storage and retry budgets. Divide genuinely long workflows into bounded resumable operations, not a single unlimited graph call. A durable timer or orchestration termination does not abort an in-flight Activity. |
+| Checkpoint recovery and exclusion | Preserve checkpoint storage/namespace, authorized thread identity and schema compatibility. Acquire/release the shared distributed lock for all writers and retain it until graph work actually quiesces. Define resume versus fresh-input behavior and lease-loss handling; direct graph invocation does not acquire the adapter's lock automatically. Blob leases/guards are not storage fencing. |
+| Cancellation | Distinguish request acknowledgement, terminal orchestration status and actual worker quiescence. Add cooperative stop checks between bounded steps if needed; do not unlock or start conflicting recovery work merely because the orchestration is terminated. External effects need idempotency/compensation, not an assumed rollback. |
+| Results and operations | Specify the app's status/output schema, redaction, telemetry, retention/purge and backend-error policy. Durable's raw status is not automatically the adapter's normalized envelope. Test deployment changes against in-flight histories. |
+
+**Cut over without abandoning existing runs.** First validate app-owned create,
+poll, cancel, cross-principal denial, duplicate submission, interrupted Activity
+redelivery and checkpoint recovery with the actual graph. Give the new routes
+and orchestration functions distinct names, and use an isolated task hub for a
+separate host. Route only new submissions to the replacement. Keep old lifecycle
+routes, credentials policy and compatible orchestrator/Activity code available
+for outstanding old run IDs until their retention/drain policy permits removal;
+do not rewrite their histories or repoint old IDs into a new task hub. Preserve
+the mapping from run IDs to their owning host so poll/cancel still reach the
+right backend. A rollback must stop new submissions to the new path without
+resubmitting accepted work; neither terminal status nor elapsed drain time
+alone proves old Activities have stopped writing shared checkpoints.
+
+The API names above were checked against `azure-functions-durable` 1.7.0. They
+are wiring fragments, not a deployable security implementation. Follow the
+[Python v2 quickstart](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/quickstart-python-vscode),
+[instance-management APIs](https://learn.microsoft.com/en-us/azure/durable-task/common/durable-task-instance-management)
+and [orchestrator constraints](https://learn.microsoft.com/en-us/azure/durable-task/common/durable-task-code-constraints)
+for SDK details. App-specific validation and bounded real-runtime evidence
+remain necessary; the existing [#811](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811)
+work stays separate from release gates. The detailed cancellation and redelivery
+boundaries below correspond to
+[#809](https://github.com/yeongseon/azure-functions-langgraph-python/issues/809)
+and [#810](https://github.com/yeongseon/azure-functions-langgraph-python/issues/810).
 
 #### Cancellation of Durable runs
 
@@ -370,7 +505,10 @@ only what it observed:
   raw exception is logged server-side by the Activity (`logger.exception`, with `run_id`
   and graph name but no input, config or result), so read it in Application Insights or
   the host log. `GET /api/runs/{run_id}` returns `{"code": "run_failed", "message": "The
-  run failed."}`. The graph `input` and `result` are still stored in history as
+  run failed."}` in a fixed `output.error` envelope for every failed status,
+  including opaque backend failures and rejected Activities. No backend output
+  fields or diagnostics are copied into failed responses; successful outputs
+  retain their existing shape. The graph `input` and `result` are still stored in history as
   application data and need the access controls described in
   [Security](security.md#shared-persistence-is-a-trust-boundary).
 
@@ -379,6 +517,144 @@ only what it observed:
   terminal, and one that accepted only `202` must also accept `200` (the run had
   already finished). The Durable lifecycle is experimental and may change between minor
   releases; this change is marked breaking so release notes flag it.
+
+#### Activity observer terminal outcomes
+
+For a registered graph, each Activity attempt emits exactly one terminal observer
+event. Completion waits for graph execution, output serialization and the entire
+lock lifecycle, including release. `started` is emitted only after admission to
+execution, so acquisition failures and contention have no preceding `started`.
+
+| Outcome | Observer events, in order | Activity outcome |
+| --- | --- | --- |
+| Graph succeeds and lock lifecycle succeeds | `started`, `completed` | Normalized success with serialized result |
+| Graph, ownership check or serialization fails | `started`, `failed` | Sanitized failure for the original exception |
+| Lock acquisition raises | `failed` | Sanitized failure for the acquisition exception; graph is not invoked |
+| Lock release raises after graph success | `started`, `failed` | Sanitized failure for the release exception; graph output is withheld |
+| Graph fails and release also raises | `started`, `failed` | Original graph failure is preserved; both exceptions are logged server-side |
+| Lock contention (no token) | `rejected` (`lock_contention`) | Normalized rejection; graph is not invoked |
+| Cancellation during acquisition | `failed` | Cancellation propagates; no normalized failure result |
+| Cancellation during graph execution or release | `started`, `failed` | Cancellation propagates, including when graph cancellation is followed by a release exception |
+
+Failure results retain only the exception class and `The run failed.`, as described
+above. Observer failure callbacks receive the original exception server-side;
+custom observers must apply their own redaction policy. An unregistered graph
+returns a sanitized failure without observer events because no graph context was
+resolved. These are **per-attempt** events, not an exactly-once delivery guarantee:
+Activity redelivery can emit another lifecycle for the same `run_id`. A release
+failure can occur after graph side effects; it neither rolls them back nor proves
+the lock remains held. This adds no retries, lease fencing or forced cancellation.
+
+#### Live Durable observations (2026-11-24, Y1 / Python 3.12)
+
+**Scope and limits first.** This is bounded evidence, **not restart/recovery
+certification**. Durable lifecycle remains **Experimental**. The dispatch-only
+`e2e-azure-durable.yml` lane deployed a candidate wheel to one Linux Consumption
+(Y1) app in `koreacentral`, using the Azure Storage task-hub provider, Blob
+checkpoints and a Blob lease thread lock. Both Azure artifacts report Python
+3.12.16, `azure-functions` 1.26.0, `azure-functions-durable` 1.7.0 and
+`azure-functions-langgraph` 0.14.2. The extension bundle range is `[4.*, 5.0.0)`;
+its resolved extension version was not captured. No scale-out topology was
+deliberately exercised, and one app is not proof of one worker process.
+
+**All live runs.** Each linked run uploads `azure-durable-evidence` containing
+`evidence.json` and JUnit results. Read the failed run as well as the passing one:
+
+| Run / candidate | Observed result and interpretation |
+| --- | --- |
+| [45424662376](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45424662376), `main` at `f13ad5d` | 5 tests passed, zero skipped; deploy/test and cleanup jobs succeeded. Success: one attempt and one node entry, `pending → running → success`. Failure reporting passed with the sanitized public error. Same-thread second run: `rejected`, one attempt. |
+| Same run, cancellation, 60 s hold | `cancelled_after_seconds=1.0`, `activity_completed_after_terminate=false`, `hold_finished=0`, `effects_applied=0`, `node_entries=1`, `attempts=1`, after observing for hold + 90 s. **No completion was observed within the bound**; this does not establish worker abort or its cause. |
+| Same run, `az functionapp restart`, 90 s hold | **D — inconclusive interruption evidence.** Status `running → success`; attempts/started/completions all 1, effect calls/applied both 1, one VM-instance tag; test 108.575 s. `WEBSITE_INSTANCE_ID` identifies a VM, not a process. Same-process completion after a graceful drain/no-op is consistent with this record; recovery from interruption is not demonstrated. |
+| [45429722085](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45429722085), probe candidate `7b362c6` | **Failed: 3 passed, 3 failed, zero skipped.** Login, provisioning, Core Tools, wheel build, publish and artifact upload succeeded. Success had one attempt/node entry (first observed status already `success`); failure reporting and contention (`rejected`, one attempt) passed. Cancellation observation raised an HTTP read timeout; no final cancel evidence was written. Both restart variants failed before control commands: restart while reading in-flight evidence, stop/start while creating its run. **D for both modes: neither interruption was exercised.** Cleanup deleted its resource group and verified removal. Precise timeout cause remains unproven; see the diagnosis below. |
+| [45436237291](https://github.com/yeongseon/azure-functions-langgraph-python/actions/runs/45436237291), corrected probe `c56ced1` | **6 passed, zero skipped; every deploy/test/upload/cleanup step succeeded.** Success `pending → running → success`, one attempt/node entry; failure sanitized; contention second run rejected once. Cancellation, now last, reached `cancelled` in 0.8 s; its Activity subsequently completed (`hold_finished=1`, `effects_applied=1`, one attempt/node entry). |
+| Same corrected run, restart, 240 s hold | **B — interrupted attempt redelivered on another process.** Attempts/started 2, completions 1, rejections 0, node entries 2, hold-finished 1. Initial process had no completion; different-process attempt at +339.714 s, hold finished +580.406 s, completion +580.735 s; terminal `success` at +583.186 s. Effect calls/applied 1/1. Restart returned at +3.952 s. |
+| Same corrected run, stop/start, 240 s hold | **B.** Stop returned +2.960 s; `Stopped` observed +5.480 s; start returned +6.533 s. Attempts/started 2, completions 1, rejections 0, node entries 2, hold-finished 1. Different-process redelivery +392.606 s, hold finished +633.177 s, completion +633.501 s; terminal `success` +635.805 s. Effect calls/applied 1/1. |
+
+**Timeout diagnosis and probe correction.** The failed run's first timeout was
+during cancellation's unchanged 60 s hold, before any 240 s restart Activity was
+created. Contention's 45 s first run had already reached success. Thus the retained
+data does not support several long restart holds starving HTTP workers as the
+initial cause. An owned local Core Tools 4.8.0 / Azurite 3.35.0 rehearsal with
+three overlapping 60 s holds (one cancelled orchestration) kept health/evidence
+requests responsive: maximum 0.368 s. This is not a Y1 CPU/worker reproduction.
+
+A fake-storage call-count experiment did prove an introduced instrumentation
+defect: the paired-marker endpoint constructed 23 container clients (each attempting
+container creation), listed 16 times and downloaded 14 marker bodies for a
+representative snapshot. The corrected endpoint uses one closed client, one listing
+and one download per matching marker, deriving counts and paired timestamps from
+those same reads. The regression test enforces that bound. Cancellation runs last
+because a terminal orchestration is not proof its Activity stopped, and the lane
+stops on its first failed scenario to avoid cascading observations. No thread-pool
+setting or HTTP timeout was increased. A local host repeat passed before dispatch.
+The passing Azure run shows this probe completes; it does **not** isolate which
+change or transient host/storage condition caused the earlier timeout.
+
+[Python concurrency guidance](https://learn.microsoft.com/en-us/azure/azure-functions/python-scale-performance-reference)
+distinguishes sync worker-pool invocations from event-loop coroutines;
+[`PYTHON_THREADPOOL_THREAD_COUNT`](https://learn.microsoft.com/en-us/azure/azure-functions/functions-app-settings#python_threadpool_thread_count)
+defaults to `None` for Python 3.9+. The package offloads synchronous graph execution;
+do not equate that executor with the worker's sync-invocation pool without measuring.
+[Durable concurrency limits](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-perf-and-scale#concurrency-throttles)
+bound loaded Activities, not proof of actual simultaneous sleeping threads.
+
+**Probe settings and interpretation.** The strengthened fixture emits 16-hex
+salted process tags derived from PID and Linux `/proc/self/stat` field 22 (start
+ticks), also scoped by VM identity; raw values and the salt are not exposed.
+Timestamp/tag pairs at Activity start, hold start/finish and Activity completion
+separate deliveries from node entries. The harness records command timing,
+timestamped status samples relative to the control command, attempts and process
+tags, effect calls versus effects applied, and time to terminal status. Management
+command output is not evidence that a worker was interrupted.
+
+The requested modes are `az functionapp restart` and `stop → show state=Stopped
+→ start`, targeting only the dispatch's own app. Each uses a 240 s hold: with a
+fresh hold observation (at most 30 s old), a 90 s control-command cap and a 90 s
+stop-state poll bound, stopping should precede natural hold completion; actual
+markers, not that timing budget, determine the finding. The hold stays below the
+unchanged default Consumption function timeout. Terminal observation allows
+1,200 s from the first control command, within the unchanged 90-minute job limit.
+The Azure Storage provider's
+[`workItemQueueVisibilityTimeout` defaults to five minutes](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-host-json-settings),
+and [Activity message visibility is renewed while the host is healthy](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/durable-functions-bindings#trigger-behavior).
+Recovery after a killed worker can therefore take minutes, plus another hold and
+cold-start/polling delays; it must not be inferred from a short wait.
+
+Classification is **A** when one started Activity completes in that same process
+(restart did not interrupt it); **B** when a previously unfinished attempt is
+redelivered and completes in a different process, with the idempotent effect
+applied once; **C** when no completion or terminal status appears within the
+bound (stuck observation, not independent proof of a kill); **D** for other or
+insufficient evidence. A failed bound remains a failing test, not permission to
+weaken the terminal-status requirement. Classification is recorded, not asserted
+as a package promise. Terminal normalized status, no duplicate applied effect
+and no raw exception-text exposure are the restart outcome assertions; failed
+control commands and unconfirmed stop state also fail probe integrity checks.
+
+**Cancellation promise comparison.** The absence of a completion marker in the
+passing Azure run differs from the
+[2026-11-19 local Azurite rehearsal](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811#issuecomment-7012783127),
+which reported continued Activity completion and an effect after cancellation.
+The Azure record is **consistent** with the acknowledgement/status warning above:
+neither `cancel_requested` nor `cancelled` proves tool or worker stoppage. It does
+**not cover** the categorical “does not interrupt” wording, continued checkpoint
+writes, lock retention, or an already-in-flight external tool call. No statement
+is conclusively contradicted by missing markers alone, so existing cancellation
+promises were not changed on that basis. Do not turn either observation into a
+guarantee of automatic abort or guaranteed continued execution. The corrected Azure
+run directly observed completion and one applied effect after orchestration
+cancellation, **consistent** with the warning that Activity work can continue.
+Lock retention and an external tool already in flight remain **not covered**.
+
+**What remains unproven.** One corrected Azure run observed interrupted-Activity
+redelivery/recovery in both modes, but does not establish repeatability or direct
+owner-token handoff evidence, the post-effect / pre-checkpoint duplicate window,
+or universal checkpoint fencing. Premium/Flex, other Python/SDK lines,
+other task-hub providers, multi-instance scale-out, sustained load, deployment
+changes, long-running workflow compatibility and cross-region recovery are not
+covered. These are in-region, point-in-time observations only. Keep
+[#811](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811)
+open; the native release gate is unchanged.
 
 ### Configure timeout explicitly
 
@@ -553,7 +829,27 @@ new writes already persist URL-encoded task paths. This ordering does not
 provide concurrent-writer exclusion.
 
 `AzureBlobCheckpointSaver` is designed around single-writer-per-thread semantics.
-The implementation documents concurrent-writer conflict resolution as a non-goal.
+**One writer per thread is enforced by the thread lock**, not by the hint protocol. Use a shared
+lock backend for shared storage writers, including direct saver calls and maintenance writes.
+Concurrent-writer conflict resolution remains a non-goal.
+
+The saver conditionally writes `latest.json` using ETags from the hint GET and dirty PUT responses.
+Detected overlap raises `BlobCheckpointConflictError`; a final-publication conflict can happen
+**after the checkpoint committed**. The saver attempts a conditional invalidation to make readers
+scan, but that cleanup can itself fail. Stop and drain overlapping writers, including retries and
+maintenance activity, before inspecting `list` and explicit checkpoint IDs. This detector adds no requests on
+the normal single-writer path and does not fence checkpoint writes after lease loss.
+
+A dirty hint left by a crashed single writer is not permanent: the next lock-holding writer scans
+committed checkpoints and publishes a clean maximum-ID hint, restoring fast reads. Failed cleanup
+under overlapping writers can instead leave a stale **clean** hint. Restoring the shared lock alone
+does not repair it: subsequent reads and writes can still trust it. The
+[offline legacy-writer recovery procedure](blob-checkpoint-format.md#offline-recovery-of-a-stale-clean-hint)
+from #991 / #1024 verifies visibility recovery over legacy fixtures under quiescence, and explicitly
+excludes concurrent-writer repair. It is not verified recovery for failed post-commit invalidation
+under overlapping writers, even after they stop. That case remains outside the supported contract
+and needs incident-specific investigation and validation before resuming under shared exclusion,
+not a blind retry. See [conditional hint publication and its recovery limits](blob-checkpoint-format.md#conditional-hint-publication-and-recovery).
 
 ⚠️ **Operator impact**: Concurrent writes to the same thread/checkpoint namespace from multiple instances can produce inconsistent checkpoint state.
 If your deployment runs multiple Function App instances, ensure each thread's writes are serialized (see Recommended production pattern below).

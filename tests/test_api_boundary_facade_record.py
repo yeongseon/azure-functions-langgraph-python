@@ -8,7 +8,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 BOUNDARY = (ROOT / "docs" / "api-boundary.md").read_text()
 BASELINE = (ROOT / "docs" / "onboarding-baseline.md").read_text()
-HEADING = "## 8. A thin entrypoint facade (proposal, #930)"
+HEADING = "## 8. A thin entrypoint facade (decision, #930)"
 VERIFIED_HOST_TEXTS = (
     "Worker failed to index functions",
     "ValueError: Could not find top level function app instances in function_app.py.",
@@ -40,7 +40,7 @@ def test_section_is_the_last_one_and_follows_the_decisions_list() -> None:
     # When/Then: section 8 exists once, after section 7, and nothing follows it
     assert headings == [str(number) for number in range(1, 9)]
     assert BOUNDARY.count(HEADING) == 1
-    assert "## 7. Decisions needed from a maintainer" in BOUNDARY
+    assert "## 7. Maintainer decisions" in BOUNDARY
     assert BOUNDARY.index("## 7. ") < BOUNDARY.index(HEADING)
 
 
@@ -58,7 +58,7 @@ def test_section_names_three_options_recommends_none_and_lists_what_is_not_valid
     section = _flat(_section())
 
     # When/Then: the options, the recommendation, the triggers and the gaps are all present
-    assert "**A. No facade (proposed)**" in section
+    assert "**A. No facade (decided)**" in section
     assert "B. A function that builds and returns the function app" in section
     assert "C. `LangGraphApp` is itself the function app the worker finds" in section
     assert "**Option A: do not add a facade now.**" in section
@@ -92,11 +92,14 @@ def test_quoted_numbers_equal_the_frozen_baseline() -> None:
     assert parameters.group(1) == _baseline("Public LangGraphApp parameters (snapshot)")
 
 
-def test_decision_is_listed_for_the_maintainer_and_the_banner_names_the_issue() -> None:
+def test_decision_is_recorded_with_approval_and_the_banner_names_the_issue() -> None:
     # Given: the page
-    decisions = _flat(BOUNDARY.split("## 7. Decisions needed from a maintainer", 1)[1])
+    decisions = _flat(BOUNDARY.split("## 7. Maintainer decisions", 1)[1])
     banner = _flat(BOUNDARY[BOUNDARY.index("> **Status") :].split("\n\n", 1)[0])
 
     # When/Then: the facade is a numbered decision pointing at section 8, and #930 is named
-    assert "4. Decide on the entrypoint facade of section 8." in decisions
+    assert "4. **No thin entrypoint facade now:** option A of section 8 is decided" in decisions
+    assert "2026-11-24" in decisions
+    assert "issues/878#issuecomment-7145038007" in decisions
+    assert "approved by the maintainer on 2026-11-24" in banner
     assert "issues #878 and #930" in banner
