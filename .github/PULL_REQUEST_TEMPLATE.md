@@ -1,4 +1,5 @@
 <!-- Title: `type: description` or `type(scope): description`. See "Title Convention" in CONTRIBUTING.md. Link issues in the body (Closes #123), not in the title. -->
+<!-- Use concrete change-focused wording. Avoid unexplained internal codes, review-round counters, and vague process jargon. Describe actual risks in plain English; separate published changes from local or planned work. Check the title and description before review. See AGENTS.md: Pull Request Writing. -->
 
 ## Summary
 
@@ -55,7 +56,7 @@
 
 <!-- Required: Closes #123 (include every issue this PR resolves). -->
 
-<!-- For the full high-risk R3 scope in docs/review-evidence-policy.md (including
+<!-- For the full high-risk scope in docs/review-evidence-policy.md (including
      security/release, checkpoint/state mutation, ownership/fencing/cancellation,
      and policy-bearing files), record the reviewed commit, material findings and
      explicit maintainer authorization. Avoid agent transcripts and empty fields. -->
