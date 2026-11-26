@@ -200,8 +200,15 @@ target-version = "py311"
 # unions, comprehension forms) instead of the legacy `typing.List` /
 # `Optional[...]` spellings. target-version = "py311" bounds every fix to
 # syntax the declared floor supports.
-select = ["C4", "E", "F", "I", "UP"]
+# B904 keeps exception chaining explicit in `except` blocks, G004 rejects
+# f-strings in logging calls, and C901 flags functions above the complexity
+# threshold set in [tool.ruff.lint.mccabe]. Existing cases carry a line-level
+# `noqa` with a reason.
+select = ["B904", "C4", "C901", "E", "F", "G004", "I", "UP"]
 fixable = ["ALL"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
 
 [tool.ruff.lint.isort]
 known-first-party = ["azure_functions_langgraph"]

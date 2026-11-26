@@ -132,7 +132,7 @@ def _release_outer_state_lock(
         logger.exception("Unexpected error releasing thread lock for thread %s", thread_id)
 
 
-def register_thread_routes(
+def register_thread_routes(  # noqa: C901 - refactor tracked in #1005
     app: func.FunctionApp,
     deps: PlatformRouteDeps,
 ) -> None:

@@ -615,8 +615,8 @@ class AzureTableThreadStore(ThreadStore):
                     partition_key=self._partition_key(),
                     row_key=thread_id,
                 )
-            except not_found_error:
-                raise KeyError(thread_id)
+            except not_found_error as exc:
+                raise KeyError(thread_id) from exc
 
             thread = self._entity_to_thread(entity)
             if (
@@ -661,8 +661,8 @@ class AzureTableThreadStore(ThreadStore):
             except modified_error as exc:
                 last_exc = exc
                 continue
-            except not_found_error:
-                raise KeyError(thread_id)
+            except not_found_error as exc:
+                raise KeyError(thread_id) from exc
 
             new_data = thread.model_dump()
             new_data["status"] = "busy"
