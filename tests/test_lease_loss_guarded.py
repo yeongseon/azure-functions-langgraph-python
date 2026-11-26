@@ -202,11 +202,16 @@ def test_a_check_can_pass_just_before_an_upload_that_is_then_accepted(
     real_upload = c.saver_a._upload_blob
 
     def marker_upload_races_the_renewal(
-        path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
-    ) -> None:
+        path: str,
+        data: bytes,
+        metadata: dict[str, str],
+        overwrite: bool = True,
+        *,
+        etag: str | None = None,
+    ) -> str:
         if path.endswith("/cp-002a/checkpoint.bin"):
             c.lock_a._renew_all_once()
-        real_upload(path, data, metadata, overwrite)
+        return real_upload(path, data, metadata, overwrite, etag=etag)
 
     monkeypatch.setattr(c.saver_a, "_upload_blob", marker_upload_races_the_renewal)
 

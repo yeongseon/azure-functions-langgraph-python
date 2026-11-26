@@ -112,7 +112,7 @@ Tier basis: `README` = named by the README stability table; `maintainer decision
 | `triggers` | Experimental | README | 8 | 8 |
 | `triggers.service_bus` | Experimental | README | 0 | 9 |
 
-29 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
+30 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
 
 ### Symbols by module
 

@@ -24,6 +24,7 @@ import base64
 import importlib
 import importlib.metadata as md
 import inspect
+from itertools import count
 import json
 from pathlib import Path
 import platform
@@ -36,8 +37,9 @@ TS = "2026-01-01T00:00:00+00:00"
 
 
 class _Props:
-    def __init__(self, metadata: dict[str, str]) -> None:
+    def __init__(self, metadata: dict[str, str], etag: str = "fixture") -> None:
         self.metadata = metadata
+        self.etag = etag
 
 
 class _Item:
@@ -49,18 +51,18 @@ class _Item:
 class _Stream:
     """Mirrors ``StorageStreamDownloader``: ``properties.metadata`` comes with the body."""
 
-    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str], etag: str = "fixture") -> None:
         self._data = data
-        self.properties = _Props(dict(metadata))
+        self.properties = _Props(dict(metadata), etag)
 
     def readall(self) -> bytes:
         return self._data
 
 
 class _AStream:
-    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str], etag: str = "fixture") -> None:
         self._data = data
-        self.properties = _Props(dict(metadata))
+        self.properties = _Props(dict(metadata), etag)
 
     async def readall(self) -> bytes:
         return self._data
@@ -98,21 +100,36 @@ def make_containers(
     before the conditional create never pass ``overwrite=False``, so it is optional.
     """
 
+    etags: dict[tuple[int, str], str] = {}
+    versions = count()
+
     class _Client:
         def __init__(self, blobs: Blobs, name: str) -> None:
             self._b, self._n = blobs, name
 
-        def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+        def upload_blob(
+            self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+        ) -> dict[str, str]:
+            if "etag" in kwargs and kwargs["etag"] != etags.get((id(self._b), self._n), "fixture"):
+                from azure.core.exceptions import ResourceModifiedError
+
+                raise ResourceModifiedError("hint changed", status_code=412)
             if not overwrite and self._n in self._b:
                 if exists is None:
                     raise AssertionError("create-only upload without an 'exists' error type")
                 raise exists(self._n)
             self._b[self._n] = (bytes(data), dict(metadata))
+            etag = etags[(id(self._b), self._n)] = str(next(versions))
+            return {"etag": etag}
 
         def download_blob(self) -> _Stream:
             if self._n not in self._b:
                 raise not_found(self._n)
-            return _Stream(self._b[self._n][0], self._b[self._n][1])
+            return _Stream(
+                self._b[self._n][0],
+                self._b[self._n][1],
+                etags.get((id(self._b), self._n), "fixture"),
+            )
 
         def get_blob_properties(self) -> _Props:
             if self._n not in self._b:
@@ -124,13 +141,13 @@ def make_containers(
 
     class _AClient(_Client):
         async def upload_blob(  # type: ignore[override]
-            self, data: bytes, metadata: dict[str, str], overwrite: bool
-        ) -> None:
-            _Client.upload_blob(self, data, metadata, overwrite)
+            self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+        ) -> dict[str, str]:
+            return _Client.upload_blob(self, data, metadata, overwrite, **kwargs)
 
         async def download_blob(self) -> _AStream:  # type: ignore[override]
             stream = _Client.download_blob(self)
-            return _AStream(stream.readall(), stream.properties.metadata)
+            return _AStream(stream.readall(), stream.properties.metadata, stream.properties.etag)
 
         async def get_blob_properties(self) -> _Props:  # type: ignore[override]
             return _Client.get_blob_properties(self)

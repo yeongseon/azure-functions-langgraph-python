@@ -53,16 +53,21 @@ async def test_live_cancelled_native_publication_recovers(
         blocked = False
 
         async def paused(
-            path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
-        ) -> None:
+            path: str,
+            data: bytes,
+            metadata: dict[str, str],
+            overwrite: bool = True,
+            *,
+            etag: str | None = None,
+        ) -> str:
             nonlocal blocked
             if path.endswith("checkpoint.bin") and not blocked:
                 blocked = True
                 if after_marker:
-                    await upload(path, data, metadata, overwrite)
+                    await upload(path, data, metadata, overwrite, etag=etag)
                 entered.set()
                 await release.wait()
-            await upload(path, data, metadata, overwrite)
+            return await upload(path, data, metadata, overwrite, etag=etag)
 
         monkeypatch.setattr(saver, "_aupload_blob", paused)
         started = time.monotonic()
@@ -116,21 +121,35 @@ async def test_live_client_injected_accepted_marker_timeout_retry(
         fault = TimeoutError("CLIENT-INJECTED accepted marker response lost")
         fired = False
 
-        def fail(path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True) -> None:
+        def fail(
+            path: str,
+            data: bytes,
+            metadata: dict[str, str],
+            overwrite: bool = True,
+            *,
+            etag: str | None = None,
+        ) -> str:
             nonlocal fired
-            upload(path, data, metadata, overwrite)
+            result = upload(path, data, metadata, overwrite, etag=etag)
             if path.endswith("checkpoint.bin") and not fired:
                 fired = True
                 raise fault
+            return result
 
         async def afail(
-            path: str, data: bytes, metadata: dict[str, str], overwrite: bool = True
-        ) -> None:
+            path: str,
+            data: bytes,
+            metadata: dict[str, str],
+            overwrite: bool = True,
+            *,
+            etag: str | None = None,
+        ) -> str:
             nonlocal fired
-            await aupload(path, data, metadata, overwrite)
+            result = await aupload(path, data, metadata, overwrite, etag=etag)
             if path.endswith("checkpoint.bin") and not fired:
                 fired = True
                 raise fault
+            return result
 
         monkeypatch.setattr(saver, "_upload_blob", fail)
         monkeypatch.setattr(saver, "_aupload_blob", afail)
