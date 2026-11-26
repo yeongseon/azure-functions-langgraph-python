@@ -151,8 +151,9 @@ guard, not an authorization boundary or atomic protection against another writer
 replacing a group between verification and deletion. Never share this group.
 The deployment block is exercised offline by
 `tests/test_production_reference_cleanup.py` with a fake Azure CLI. These cleanup
-changes postdate the recorded 2026-11-24 run and have **not** been run live; the
-dated evidence below describes the earlier command sequence, not this revision.
+changes postdate the 2026-11-24 run, whose evidence below describes the earlier
+command sequence. The revised block ran live on 2026-11-26 (first dated section
+below): both group deletions verified ownership first and completed in 79 s.
 
 The `.funcignore` excludes local environments, settings and caches; the observed
 source upload was 13.92 KB, not a local venv. Keep the payload free of secrets.
@@ -216,9 +217,9 @@ when HTTP stayed available. This proves an observed different serving process,
 not the retirement of every old worker, scale-out, or recovery during active work.
 
 The dated 2026-11-24 restart observations below establish command acceptance and
-HTTP/state availability only; process turnover was **unverified**. The stronger
-correlated check has offline fake-HTTP/CLI coverage only and awaits an authorized
-live re-run on an expendable app. Historical timings and outcomes are unchanged.
+HTTP/state availability only; process turnover was **unverified** there. The stronger
+correlated check ran live on an expendable app on 2026-11-26 and confirmed turnover
+(see the first dated section below). Historical timings and outcomes are unchanged.
 
 Concurrent invokes may return **200 or 409**. Native invoke calls
 `thread_lock.acquire(graph_name, thread_id)` without a timeout; the Blob lease
@@ -308,6 +309,63 @@ lease-renewal warnings, and drain old writers during deployments. No Application
 Insights or production alerting configuration is certified. See the existing
 [production guide](production-guide.md#distributed-deployment) for operational
 limits; buffered SSE and HTTP response deadlines do not disappear on Flex.
+
+## Dated Azure evidence — 2026-11-26 UTC
+
+### Worker turnover and the revised cleanup, revision `5e33cc0`
+
+Run from a clean detached checkout of `5e33cc0` (the harness with the process-token
+turnover check and the revised cleanup block), 01:14 to 01:22 UTC, with Azure CLI 2.83.0,
+Bicep 0.41.2 and Core Tools 4.8.0. The commands above were executed in order as one script
+with an `EXIT` cleanup trap. The remote build installed the **published 0.14.2 wheel**.
+The protected runtime endpoint reported:
+
+| Runtime item | Observed resolved version |
+| --- | --- |
+| Python | 3.11.18 |
+| azure-functions-langgraph | 0.14.2 |
+| azure-functions | 1.26.0 |
+| langgraph | 1.2.24 |
+| langchain-core | 1.8.5 |
+| azure-storage-blob | 12.31.1 |
+| azure-identity | 1.27.0 |
+
+`langchain-core` resolved to 1.8.5 here and to 1.8.4 on 2026-11-24 from the same reference
+requirements: a concrete instance of the dependency drift described below.
+
+| Check / operation | Actual observation |
+| --- | --- |
+| Bicep build / group create / ARM validate / provision | 5 s / 3 s / 6 s / 68 s |
+| Template as deployed | Linux FC1 Flex Consumption, Python 3.11, 2048 MB, maximum 40, no always-ready instances; system-assigned identity; deployment storage authentication `SystemAssignedIdentity` |
+| Shared Key / anonymous Blob access / TLS | false / false / TLS1_2 |
+| App setting names | the ten names listed under Settings and RBAC; no connection-string setting |
+| Remote wheel build and publish | 146 s for the whole step, which includes waiting for ARM to list the new app and a fixed 30 s pause |
+| Auth | 200 / 401 / 200; 10.240 s, not a cold-start measurement |
+| Protected runtime endpoint | keyless 401, keyed 200 |
+| Same-thread persistence and cross-thread isolation | passed; 3 invokes plus state reads; 6.739 s |
+| Four concurrent same-thread invokes | two 200 and two 409; 0.783 s; the harness asserts that both accepted turns persisted exactly once, no rejected input appears, and a later append works |
+| Restart | command accepted **true**, HTTP available **true**, process turnover confirmed **true**; the post-restart state read contained the pre-restart turn and the next append accumulated; 7.018 s |
+| Live pytest aggregate | **5 passed / 0 failed / 0 skipped**, 26.05 s, exit 0 |
+| Cleanup | ownership verified, group deleted and waited on in 79 s; `exists` false afterwards and no resource with the run's tags remained |
+
+A first attempt at 01:09 UTC on the same revision stopped at publish: Core Tools reported
+that it could not find the app, about two minutes after the template deployment finished.
+The cleanup trap verified ownership and deleted the group in 79 s, so this was also the
+first live run of the revised cleanup block on a failure path. The second attempt restored
+the `az account set` line of the commands above, which the first attempt's script had
+omitted, and waited for ARM to list the app before publishing; it published on the first
+try. Which of the two changes mattered is not established.
+
+Deviations, all forced by the workstation: a `python` shim on `PATH` for the local Python
+3.11; the existing Hatch environment's Python in place of `hatch run`, because Hatch
+environment creation hangs offline there; `make install` skipped for the same reason. Output
+went to a private directory and was masked before it was read.
+
+This establishes, for one deployment on one plan: the harness's turnover check observed a
+different serving process (the opaque token changed) and the pre-restart turn was readable
+afterwards; and the revised cleanup removed the group after a failed publish and after a
+passing run. It does **not** establish scale-out, restart during active work, how long an
+old worker keeps answering, other plans or regions, or any cold start.
 
 ## Dated Azure evidence — 2026-11-24 UTC
 
@@ -451,10 +509,11 @@ The essential evidence is recorded here; no credentials/subscription IDs are inc
 
 ## Cost, cold starts and teardown
 
-Estimated marginal cost for all five short-lived cycles: **under US$1 total**,
+Estimated marginal cost for all five short-lived cycles of 2026-11-24: **under US$1 total**,
 not an invoice or measured regional tariff. One Standard_LRS account and FC1 with
 no always-ready capacity, tiny deterministic traffic, no model service or telemetry
-resource. Actual billing was not measured; no sustained-load estimate is claimed.
+resource. The 2026-11-26 run added two short-lived cycles of the same shape. Actual billing
+was not measured; no sustained-load estimate is claimed.
 Use the [Azure calculator](https://azure.microsoft.com/pricing/calculator/) for
 your region/workload. [Flex billing](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan#billing)
 distinguishes on-demand execution from always-ready baseline charges.
