@@ -55,7 +55,352 @@ Negative-path tests (invalid JSON, a graph that raises, a missing graph state) u
 
 The Azure Table benchmark (`tools/benchmark_table_store.py`) is a measurement tool, not a test level. Its `fake` backend models no network or service latency, and its `azurite` backend measures SDK plus emulator latency only. Neither is Azure Storage: do not quote those numbers as Azure measurements or derive a supported thread count from them. The optional real-Azure mode measures only the endpoint and network path where you run it.
 
-The Blob checkpointer benchmark (`tools/benchmark_blob_checkpointer.py`) counts the requests `AzureBlobCheckpointSaver` issues, by kind (GET, HEAD, PUT, create-only PUT, LIST, DELETE). By default it counts against an in-memory counting fake; `--backend azurite` runs the same workload through the real `azure-storage-blob` sync and async clients on Azurite and counts the HTTP requests at the transport, so requests the SDK makes itself are included and anything unexpected shows up as its own column. `--latency-ms` adds a fixed simulated delay per request in either backend. Neither backend is Azure Storage: request counts describe what the saver and the SDK send, and the timing column is injected latency plus emulator overhead, not an Azure measurement, so do not derive a service latency or throughput from it. `tests/test_benchmark_blob_checkpointer.py` pins the request budgets and the backend's classification, and `tests/integration/test_checkpoint_conformance.py` (the `make test-table` lane) requires the fake and the real SDK to count the same requests for every scenario.
+The Blob checkpointer benchmark (`tools/benchmark_blob_checkpointer.py`) counts the requests `AzureBlobCheckpointSaver` issues, by kind (GET, HEAD, PUT, create-only PUT, LIST, DELETE). By default it counts against an in-memory counting fake; `--backend azurite` runs the same workload through the real `azure-storage-blob` sync and async clients on Azurite and counts the HTTP requests at the transport, so requests the SDK makes itself are included and anything unexpected shows up as its own column. `--latency-ms` adds a fixed simulated delay per request in either offline backend. Neither fake nor Azurite is Azure Storage: do not derive service latency or throughput from them. `--backend azure --connection-string-env VAR` uses the same counting transports against real Azure, reads credentials only from the named environment variable, and reports measured `wall_ms`; injected latency is prohibited there. `tests/test_benchmark_blob_checkpointer.py` pins the request budgets and the backend's classification, and `tests/integration/test_checkpoint_conformance.py` (the `make test-table` lane) requires the fake and the real SDK to count the same requests for every scenario.
+
+### Real-Azure Blob comparison — 2026-11-24 (initial partial evidence for #860)
+
+**Scope and limits first:** real Azure Blob Storage, one temporary Standard_LRS
+StorageV2 account in `koreacentral`, Python 3.11.15, `azure-storage-blob` 12.31.1,
+`azure-core` 1.41.0. Latency is **client-to-Azure from a local workstation, not
+in-region**. No injected delay. Requests are counted at the HTTP transport, including
+SDK retries and started list pages; setup, seeding and container deletion are outside
+the per-operation counts. Counts do not depend on client location; latency does.
+Payloads are the script's small structured values, not large application payloads.
+No throughput, production capacity, service-side retry or throttling claim is made.
+
+Compared `3a1c92f5a2f0fea68344c65f224da8df873a2d23` (parent of #874) with
+`1fd7acb48824918a92caa2c2e58679dff9b4a0d5` (current base), using the identical
+script at tooling commit `6db908f`. This includes intervening correctness changes,
+not an isolated causal measurement of each optimization. Small means channels=6,
+pending writes=3, history=2; medium means 20/10/5. Each API starts with a separately
+seeded container. All seven scenarios execute in the script's fixed order.
+
+**Interrupted sampling:** three alternating before/after repetitions per size were
+planned. One complete pair per size and a second small-after invocation survived.
+The Linux process sampler then received `PermissionError` reading the child's
+`/proc/<pid>/fd`; it was not bypassed. The shell's EXIT trap deleted the resource
+group immediately. No second group was created. Therefore the following are
+**individual observations, not medians**; repeated before/after variance is **NOT
+PROVEN**. The second small-after invocation has matching request counts.
+
+Each cell is **HTTP requests / wall milliseconds**. Small-after parentheses contain
+the second invocation's milliseconds. Sync and async request counts agreed.
+
+| Scenario | API | Small before | Small after (second) | Medium before | Medium after |
+| --- | --- | ---: | ---: | ---: | ---: |
+| get latest | sync | 24 / 232.025 | 13 / 135.201 (142.379) | 66 / 547.005 | 34 / 126.184 |
+| get by ID | sync | 23 / 167.614 | 12 / 78.351 (78.948) | 65 / 592.969 | 33 / 91.055 |
+| list limit=1 | sync | 41 / 385.852 | 13 / 126.217 (92.407) | 111 / 1015.743 | 34 / 277.787 |
+| list no-match filter | sync | 41 / 328.417 | 3 / 38.173 (39.515) | 246 / 2025.630 | 6 / 84.058 |
+| put new checkpoint | sync | 12 / 111.406 | 12 / 145.433 (134.661) | 26 / 269.348 | 26 / 351.091 |
+| first pending writes | sync | 6 / 72.996 | 3 / 32.329 (47.808) | 20 / 171.006 | 10 / 118.194 |
+| retry existing writes | sync | 3 / 28.666 | 3 / 24.880 (34.996) | 10 / 70.045 | 10 / 79.330 |
+| get latest | async | 24 / 455.930 | 13 / 113.512 (187.862) | 66 / 637.502 | 34 / 156.242 |
+| get by ID | async | 23 / 189.872 | 12 / 87.762 (56.901) | 65 / 567.461 | 33 / 131.206 |
+| list limit=1 | async | 41 / 388.770 | 13 / 93.307 (92.566) | 111 / 1088.000 | 34 / 106.806 |
+| list no-match filter | async | 41 / 358.337 | 3 / 31.771 (29.504) | 246 / 2212.543 | 6 / 63.977 |
+| put new checkpoint | async | 12 / 108.459 | 12 / 132.715 (113.311) | 26 / 270.746 | 26 / 284.939 |
+| first pending writes | async | 6 / 49.597 | 3 / 40.553 (32.050) | 20 / 230.737 | 10 / 109.298 |
+| retry existing writes | async | 3 / 19.358 | 3 / 22.986 (25.306) | 10 / 114.175 | 10 / 83.159 |
+
+The measured medium counts reproduce #937's emulator budgets: 66→34, 65→33,
+111→34, 246→6, 26→26, 20→10 and 10→10. There is no request reduction on put or
+already-written retries. Medium sync put was **30% slower in this sample** despite
+unchanged requests; medium sync duplicate retries were 13% slower, whereas async
+duplicate retries were faster. Sparse samples cannot establish a latency regression
+or resolve the HEAD-versus-rejected-create trade-off. Do not describe every path as
+faster. No shipped-runtime defect was established and no runtime code was changed.
+
+Whole-child-process observations, sampled every 20 ms while running both APIs:
+
+| Size/revision | Peak RSS KiB | Peak socket descriptors | Peak threads |
+| --- | ---: | ---: | ---: |
+| small before | 74316 | 4 | 2 |
+| small after | 80800 | 9 | 8 |
+| medium before | 74924 | 4 | 2 |
+| medium after | 83788 | 11 | 11 |
+
+These are Linux `/proc` samples including interpreter/import/seed/cleanup overhead,
+not operation-local allocations, simultaneous HTTP requests, TCP connection counts,
+pool occupancy, or exact maxima. Async event-loop sockets are included. They are
+consistent with higher resource pressure from parallel reads, not proof of pool
+safety. Per-operation memory and connection-pool pressure were **NOT MEASURED**.
+The interrupted fifth sample has no resource-observation row.
+
+Reproduction (with the approved temporary account already created; never enable
+shell tracing, print the variable, or pass its value on argv):
+
+```bash
+export BENCH_BLOB_CS="$(az storage account show-connection-string \
+  --name "$ACCOUNT" --resource-group "$RG" --query connectionString -o tsv)"
+# Execute each command with the same Python/SDK environment, alternating revisions.
+PYTHONPATH=/tmp/opencode/wt-860-before/src python tools/benchmark_blob_checkpointer.py \
+  --backend azure --connection-string-env BENCH_BLOB_CS \
+  --channels 6 --writes 3 --history 2 --json
+PYTHONPATH=/tmp/opencode/wt-860/src python tools/benchmark_blob_checkpointer.py \
+  --backend azure --connection-string-env BENCH_BLOB_CS \
+  --channels 6 --writes 3 --history 2 --json
+# Repeat with --channels 20 --writes 10 --history 5; repeat whole pairs three times.
+unset BENCH_BLOB_CS
+```
+
+Actual benchmark invocations used the existing Hatch `table/bin/python` directly,
+wrapped with `timeout 240` and an external standard-library `/proc` sampler.
+The connection string was acquired only in the same shell invocation as the runs.
+Raw JSON and the credential-free sampler/runner remain locally in
+`/tmp/opencode/bench860/`; this directory is not a permanent published artifact.
+
+**Cleanup:** the only resource group was `rg-af-bench-860-202611241425`, containing
+only account `stafbench860d7262d` (public Blob access disabled, minimum TLS1_2).
+The EXIT trap ran `az group delete --yes --no-wait`, then `az group wait --deleted`.
+`az group exists --name rg-af-bench-860-202611241425` returned `false` and
+`az group list --query "[?starts_with(name,'rg-af-bench-')].name" -o tsv` returned
+empty, captured in `deleted.txt` and `remaining-groups.txt`. Storage-only use lasted
+minutes, not hours. Estimated cost is **under US$0.10**, not an Azure billing report;
+no compute was provisioned.
+
+**Still not proven / decisions:** recovery, actual lease loss, SDK 503 retry/small
+pool behavior, cancellation, concurrent slot writes and historical fixture replay
+were not run against Azure before cleanup. Existing offline tests are not live
+proof. The newest #860 comment (#949) explicitly leaves those items open and records
+that #905 rejects a lost-owner duplicate retry where the older code skipped it:
+whether that meets the historical "unchanged ownership guards" criterion **needs a
+maintainer decision**. The unchecked historical description of sequential reads and
+existence-check writes is stale; #874/#905/#909/#937/#949 already merged. Existing
+strict-xfail tests also document lower-hint concurrent-writer and pre-0.13
+mixed-fleet crash gaps; this evidence does not remove either limit, promise fencing,
+or justify closing #860.
+
+### Real-Azure Blob continuation — 2026-11-24 (still partial, #860)
+
+**Scope and limits first.** The continuation completed three independent before/after
+pairs per size and the existing Blob integration suite on one new temporary Azure account.
+Latency is **client-to-Azure from a local workstation, not in-region**. This supersedes
+the initial run's single-pair timing limitation, not its honest interruption record above.
+It does **not** complete the broader fault/lease/compatibility acceptance: a supplemental
+scratch harness failed before those probes could supply usable evidence. No `src/`
+behavior changed, no issue boxes changed, and this remains partial evidence.
+
+**Method.** Same tooling `6db908f`, before `3a1c92f5a2f0fea68344c65f224da8df873a2d23`,
+after `1fd7acb48824918a92caa2c2e58679dff9b4a0d5` as the initial PR run; the latter is
+the original comparison baseline, **not today's main**. Conformance used evidence branch
+`acbe9e1`, after mechanically merging main `f13ad5d`. Python 3.11.15, Blob SDK 12.31.1,
+azure-core 1.41.0, conformance harness 0.0.2. Small is channels/writes/history 6/3/2;
+medium is 20/10/5. Each invocation seeds separate sync/async containers, executes the
+same seven scenarios in order, and deletes them. Revision order is before/after for
+repetitions 1 and 3, after/before for repetition 2. All 12 invocations completed:
+168 operation observations. No injected latency. Counts exclude setup/seed/cleanup,
+include transport sends, and were identical across all three repetitions per cell.
+
+**Location-independent request counts and workstation latency are separate columns.**
+Times are median/max milliseconds of exactly three samples; they are not percentiles
+or throughput. Small structured payloads are not a production workload certification.
+
+| Size | Scenario | API | Requests before→after | Median/max ms before | Median/max ms after |
+|---|---|---|---:|---:|---:|
+| small | latest | sync | 24→13 | 189.246/199.705 | 94.044/96.367 |
+| small | by ID | sync | 23→12 | 164.712/174.497 | 63.757/123.419 |
+| small | list limit=1 | sync | 41→13 | 298.584/348.232 | 95.150/96.221 |
+| small | no-match filter | sync | 41→3 | 318.346/324.524 | 31.945/32.790 |
+| small | put new | sync | 12→12 | 114.900/134.790 | 134.214/147.906 |
+| small | first writes | sync | 6→3 | 50.750/53.754 | 32.065/33.408 |
+| small | duplicate retry | sync | 3→3 | 21.147/22.105 | 26.356/26.745 |
+| small | latest | async | 24→13 | 200.567/204.186 | 110.518/121.057 |
+| small | by ID | async | 23→12 | 169.759/185.910 | 67.562/68.358 |
+| small | list limit=1 | async | 41→13 | 309.854/328.867 | 64.753/67.623 |
+| small | no-match filter | async | 41→3 | 314.199/318.503 | 30.736/31.475 |
+| small | put new | async | 12→12 | 121.482/125.687 | 119.845/137.930 |
+| small | first writes | async | 6→3 | 48.305/58.456 | 31.530/33.747 |
+| small | duplicate retry | async | 3→3 | 19.769/22.958 | 24.019/26.062 |
+| medium | latest | sync | 66→34 | 537.459/540.514 | 148.250/160.563 |
+| medium | by ID | sync | 65→33 | 529.645/539.875 | 97.566/102.373 |
+| medium | list limit=1 | sync | 111→34 | 889.320/895.938 | 158.802/166.819 |
+| medium | no-match filter | sync | 246→6 | 1991.650/2077.053 | 59.277/102.212 |
+| medium | put new | sync | 26→26 | 284.364/286.812 | 256.470/283.463 |
+| medium | first writes | sync | 20→10 | 170.660/188.769 | 103.463/114.188 |
+| medium | duplicate retry | sync | 10→10 | 69.277/71.442 | 81.653/94.043 |
+| medium | latest | async | 66→34 | 550.981/558.394 | 149.302/170.001 |
+| medium | by ID | async | 65→33 | 494.786/501.788 | 98.010/98.344 |
+| medium | list limit=1 | async | 111→34 | 883.927/921.034 | 149.146/157.066 |
+| medium | no-match filter | async | 246→6 | 1928.636/1953.930 | 63.967/114.295 |
+| medium | put new | async | 26→26 | 268.866/271.105 | 295.882/305.836 |
+| medium | first writes | async | 20→10 | 192.776/389.905 | 113.381/125.967 |
+| medium | duplicate retry | async | 10→10 | 69.412/73.451 | 78.410/79.981 |
+
+Duplicate retries are slower in all four sampled size/API medians, with unchanged
+request counts: medium sync +17.9%, async +13.0%. Small sync put is slower; medium
+sync put is faster, while medium async put is slower. These observations do not
+establish a causal regression or universal speedup; HEAD versus rejected-create
+remains a maintainer trade-off, not grounds for a runtime edit in this evidence PR.
+
+**Safe resources.** The wrapper runs the unchanged benchmark in its own process and
+records only `resource.getrusage(resource.RUSAGE_SELF).ru_maxrss` in `finally`.
+It never inspects child/other-user `/proc` entries. Values include imports, seed,
+both APIs and cleanup, not operation-local allocations. Connections, sockets,
+pool occupancy, threads and per-operation memory are **NOT MEASURED** in this run.
+
+| Size/revision | Peak RSS KiB samples 1/2/3 | Median/max KiB |
+|---|---|---|
+| small before | 73692/73660/73420 | 73660/73692 |
+| small after | 79576/79604/79460 | 79576/79604 |
+| medium before | 73588/73448/73712 | 73588/73712 |
+| medium after | 82428/82016/82268 | 82268/82428 |
+
+**Existing live integration/conformance: 10 passed, 0 failed, 0 skipped, 38.44 s.**
+`BLOB_TEST_CONNECTION_STRING_ENV=BENCH_BLOB_CS` selects the named credential for
+all sync/native-async clients and benchmark checks; unset retains Azurite. Missing
+or empty named credentials fail with a value-free message, never an emulator fallback.
+Four offline guard cases cover selection, failure sanitization and unchanged defaults.
+
+| Existing scenario | Passed | Failed/skipped | What it demonstrates |
+|---|---:|---|---|
+| `test_conformance_base_capabilities_azurite` | 1 | 0/0 | Upstream put/writes/get/list/delete via sync-forwarding wrapper |
+| `test_native_and_fallback_conformance_azurite[False/True]` | 2 | 0/0 | Upstream contract via executor fallback and native async |
+| `test_latest_publication_failure_recovers_on_azurite[sync/native/fallback]` | 3 | 0/0 | Real committed marker, client-injected failure before clean hint; fresh reader recovers B, retains A/history |
+| `test_benchmark_fake_issues_the_requests_the_real_sdk_sends[6-3-2/20-10-5 × sync/async]` | 4 | 0/0 | All seven fake request budgets match actual Azure sends |
+
+The legacy test names still say Azurite; the explicit selector and account prove the
+backend here was Azure. No emulator-only scenario was silently omitted. Conformance
+is a sampled API contract, not all failure schedules or multi-process certification.
+
+**Supplemental harness: 0 passed, 4 failed; not product failures or live proof.**
+`extra.xml`/`extra.log` preserve the failures verbatim. Three async cases (the old
+scratch recovery/conflict/timeout/fixture runner and two cancellation cases) were
+collected outside the repository configuration, so pytest used strict rather than
+auto asyncio mode: `async def functions are not natively supported.` Their bodies
+did not execute. The lease probe acquired/contended and wrote ordinary state, then
+failed at `BlobClient.break_lease` with
+`AttributeError: 'BlobClient' object has no attribute 'break_lease'` (the operation
+belongs to `BlobLeaseClient`). Thus it did not break a lease or verify loss detection.
+The EXIT trap cleaned up before this was investigated. No second group was created;
+no runtime change or Azure-vs-Azurite saver defect is established by these harness errors.
+
+**Evidence map (issue unchanged).**
+
+| #860 acceptance / remaining requirement | Status after continuation |
+|---|---|
+| Realistic counts/pending writes, simulated latency, sync/async baseline | **PROVEN for sampled counts**: prior fake/Azurite coverage plus 168 live observations; large payload/production realism NOT PROVEN |
+| Bounded parallel reads, deterministic order and cleanup | **NOT PROVEN live** as a complete invariant; upstream conformance passes, but neither an eight-read cap nor pool/cancellation safety was measured |
+| limit=0 / stop before over-building / metadata prefilter | **PROVEN sampled reductions** for limit=1 and no-match across three repetitions; limit=0 remains offline/emulator proof only |
+| Conditional first-write keys and preserved mapped-write semantics | **PROVEN sampled requests** and upstream put_writes contract; explicit racing/mapped-overwrite fault matrix NOT PROVEN live |
+| Dirty intent / commit marker / clean hint / ownership / recovery unchanged | **NEEDS MAINTAINER DECISION**: newest issue comment records #905 rejecting a lost-owner duplicate retry previously silently skipped. Publication/recovery now has the three sampled live clean-hint-failure recoveries; actual lease loss and the full invariant remain NOT PROVEN |
+| Sync/async conflict, transient failure, cancellation, retry conformance | **PROVEN sampled ordinary upstream interoperability and clean-hint recovery only**; full item NOT PROVEN: scratch conflict/cancellation runner did not execute, no SDK 503/small-pool probe or service-generated transient failure |
+| Before/after requests and latency | **PROVEN for three repetitions per size/API**, median/max above; in-region latency NOT PROVEN |
+| Real-Azure memory / connection pressure | **PROVEN whole-process peak RSS only** using self usage; connections/pool pressure/per-operation memory NOT MEASURED |
+| Rolling compatibility | **NOT PROVEN live**: historical fixture scratch replay did not execute; existing offline/strict-xfail limitations remain, no fencing or downgrade promise |
+
+**Exact execution and cleanup.** The existing logged-in default subscription was
+verified as `Visual Studio Enterprise Subscription`, `Enabled`; no login/subscription
+change or credentials on argv. The connection string existed only in a shell variable
+obtained in the same invocation as benchmarks/tests. The commands below show names,
+never credential values. The safe self-usage wrapper and exact scratch driver, raw JSON,
+resource samples, JUnit and logs remain under `/tmp/opencode/bench860b/` locally, not
+a permanent public artifact. The benchmark file was extracted unchanged from `6db908f`;
+before/after source trees were extracted with `git archive` at the two recorded SHAs.
+
+```bash
+export BENCH_BLOB_CS="$(az storage account show-connection-string \
+  --name "$ACCOUNT" --resource-group "$RG" --query connectionString -o tsv)"
+# Three pairs per size; second pair reverses order. PY is the reused Python 3.11.
+PYTHONPATH=/tmp/opencode/bench860b/before/src timeout 240 "$PY" \
+  /tmp/opencode/bench860b/sample_self.py small-before-1.resources.json \
+  --backend azure --connection-string-env BENCH_BLOB_CS \
+  --channels 6 --writes 3 --history 2 --json
+# Corresponding after/src; medium uses --channels 20 --writes 10 --history 5.
+BLOB_TEST_CONNECTION_STRING_ENV=BENCH_BLOB_CS timeout 900 "$PY" -m pytest \
+  -v -m integration tests/integration/test_checkpoint_conformance.py --no-cov \
+  -p no:cacheprovider --tb=short --show-capture=no \
+  --junitxml=/tmp/opencode/bench860b/conformance.xml
+# Failed scratch invocation (outside repo config; retained, not counted as proof):
+BLOB_TEST_CONNECTION_STRING_ENV=BENCH_BLOB_CS timeout 900 "$PY" -m pytest \
+  -v -s -m integration /tmp/opencode/bench860b/test_live_extra.py --no-cov \
+  -p no:cacheprovider --tb=short --show-capture=no \
+  --junitxml=/tmp/opencode/bench860b/extra.xml
+unset BENCH_BLOB_CS
+```
+
+Created only `rg-af-bench-860b-202611241531` in `koreacentral`, tagged
+`purpose=benchmark repo=azure-functions-langgraph issue=860 owner=agent`, with one
+Standard_LRS StorageV2 account `stafbench860b328770` (public Blob access false, minimum TLS1_2).
+Start `2026-11-24T15:31:22Z`; final deletion proof `2026-11-24T15:35:00Z`.
+EXIT trap ran synchronous `az group delete --yes`, then `az group wait --deleted`.
+`az group exists --name rg-af-bench-860b-202611241531 -o tsv` returned **false**;
+`az group list --query "[?starts_with(name,'rg-af-bench-')].name" -o tsv` returned
+**no names** (`deleted.txt`, `remaining-groups.txt`). No compute provisioned.
+Conservative estimate **under US$0.10** for a few minutes of small-payload storage
+and fewer than 50,000 planned requests; session-wide sends were not instrumented.
+This is a budget estimate, not an invoice or verified regional tariff, well under $5.
+
+**Continuation validation.** `make lint` timed out after 45 seconds while Hatch tried
+to create/install the new worktree environment. Used the previous run's existing
+Python 3.11 Hatch interpreters directly, not a new successful Make gate: ruff check
+and format-check passed, all three workflow linters passed, default-environment mypy
+passed (301 files), and MkDocs built the final evidence prose (existing link notices).
+`make build` passed. The full source suite, with the previous locally built 0.14.2
+wheel target providing correct distribution metadata, passed: **5408 passed,
+107 skipped, 37 deselected, 2 xfailed; coverage 96.91%**. The 107 skips are optional
+local-service/dependency tests, not skipped live Blob scenarios. Focused installed-wheel
+configuration: **36 passed** with `tools/wheel-tests.ini`, no source-tree PYTHONPATH.
+An initial direct mypy run in the Table-extra environment reported one new test
+re-export error (corrected by importing importlib directly) and three unrelated
+host-lane SDK/protocol errors; the normal default environment mypy passed.
+LSP is clean for the new guard file; the integration module retains existing
+unresolved local-package and `_HAS_CONFORMANCE` constant-redefinition diagnostics.
+Read-only advisory review found no concrete defect; it is not human approval or CI.
+
+### Real-Azure fault follow-up — 2026-11-24 (#860, still partial)
+
+**8 passed, 0 failed/skipped in 45.04 s**, once at `561ad6b`, using repository
+`pyproject.toml` (asyncio auto mode), not the failed scratch harness. Latency is
+**client-to-Azure from a local workstation, not in-region**. New
+`tests/integration/test_blob_live_faults.py` skips before resolving its network
+fixture unless `BLOB_TEST_CONNECTION_STRING_ENV=BENCH_BLOB_CS` is set. Cancellation
+mirrors the offline schedule at the real saver upload seam; it is not cancellation
+at an arbitrary TCP packet boundary. Fresh savers read through both APIs.
+
+| Live probe | Result / observed timing |
+|---|---|
+| Native cancellation before/after `checkpoint.bin` (2) | PASS: before marker no checkpoint is visible; after marker the complete checkpoint is visible. Dirty hint persists; explicit retry cleans it and preserves values, metadata, slots and history. Whole cancellation/recovery/retry schedules: 0.603/0.740 s. |
+| **CLIENT-INJECTED** lost marker response, sync/native (2) | PASS: real upload succeeds, injected `TimeoutError` propagates, fresh reader recovers the committed tuple, explicit retry repairs hint, duplicate slots retain originals. Whole schedules: 0.575/0.499 s. Not an SDK retry/503 test. |
+| Real lease break, guard off, sync/native (2) | PASS: `BlobLeaseClient(marker).break_lease(lease_break_period=0)` frees `thread-locks/live/t`; a separate lock acquires it. Normal next renewal returns HTTP 409 `LeaseIdMismatchWithLeaseOperation`; loss detected 4.945/4.957 s after break response. Stale checkpoint writes still succeed. |
+| Real lease break, guard on, sync/native (2) | PASS: same real break/successor; loss detected after 4.924/4.970 s. Stale writes raise `ThreadLeaseLostError(reason="lost")` and leave checkpoint blobs unchanged. |
+
+Break calls took 0.009–0.039 s; leases were 15 s with normal 5 s renewal cadence,
+no accelerated/fake clock or injected renewal error. Detection times include up
+to 20 ms polling granularity. Observations match the production guide: the marker
+lease does not fence checkpoint writes; the opt-in guard rejects only **detected**
+loss. No documentation mismatch observed. Service-generated 503 cannot be induced
+on demand and was not observed. Read-concurrency/pool safety, rolling compatibility
+and the full conflict matrix remain **NOT PROVEN live**; pool pressure remains
+**NOT MEASURED**. The #905 ownership contract still **NEEDS MAINTAINER DECISION**.
+
+Reproduce on an approved temporary account with credentials acquired only into a
+shell variable in the same invocation: `BLOB_TEST_CONNECTION_STRING_ENV=BENCH_BLOB_CS
+timeout 600 "$PY" -m pytest -v -s -m integration
+tests/integration/test_blob_live_faults.py --no-cov -p no:cacheprovider --tb=no
+--show-capture=no --junitxml=/tmp/opencode/bench860c/live.xml` (join wrapped command
+lines). Raw safe runner, JUnit and logs are local under `/tmp/opencode/bench860c/`,
+not permanent published artifacts. Python 3.11.15 reused the existing Hatch `table`
+environment; source plus the prior local 0.14.2 wheel target supplied metadata.
+
+Only `rg-af-bench-860c-202611241627` / `stafbench860c88cdf3` was created, in
+`koreacentral`, tagged `purpose=benchmark repo=azure-functions-langgraph issue=860
+owner=agent`; Standard_LRS StorageV2, public Blob access false, TLS1_2. Lifetime
+16:27:30–16:30:37 UTC. EXIT trap synchronously deleted the group and waited;
+`deleted.txt` is `false`, `remaining-groups.txt` is empty. No compute. Estimated
+cost **<US$0.10** (minutes of tiny-payload storage/requests, not an invoice).
+
+Validation: affected offline tests **15 passed/8 opt-in skips**; installed-wheel
+selection **37 passed/8 opt-in skips**. Full source suite **5407 passed, 117 skipped,
+37 deselected, 2 xfailed; 96.91% coverage** (optional-service/dependency skips).
+`make build` passed. `make lint` timed out at 45 s; format-check/typecheck/
+lint-workflows/docs/test timed out at 20 s during Hatch dependency setup. Direct
+existing-environment ruff check/format, mypy (303 files), three workflow linters
+passed; these are fallback results, not successful Make gates.
+Direct MkDocs build passed (existing link notices). Both new files have clean LSP
+diagnostics with a temporary local Python 3.11/source-path configuration (not
+committed). Subsequent edits only make the same guarded configuration type-safe;
+the live run remains attributed to its actual tested revision, not a later SHA.
 
 ## Test structure
 

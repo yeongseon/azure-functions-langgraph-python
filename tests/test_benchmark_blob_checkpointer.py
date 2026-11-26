@@ -23,6 +23,8 @@ from typing import Any
 
 import pytest
 
+from tests.test_checkpointers_azure_blob import install_hint_sdk
+
 _PATH = Path(__file__).resolve().parents[1] / "tools" / "benchmark_blob_checkpointer.py"
 
 
@@ -90,7 +92,7 @@ def bench(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
         ("azure.storage", types.ModuleType("azure.storage")),
         ("azure.storage.blob", blob_mod),
         ("azure.storage.blob.aio", aio_mod),
-        ("azure.core", types.ModuleType("azure.core")),
+        ("azure.core", install_hint_sdk(types.ModuleType("azure.core"), exc_mod)),
         ("azure.core.exceptions", exc_mod),
         ("azure.core.pipeline", types.ModuleType("azure.core.pipeline")),
         ("azure.core.pipeline.transport", transport_mod),
@@ -358,3 +360,73 @@ def test_the_cli_passes_a_custom_connection_string_and_defaults_to_the_fake(
     capsys.readouterr()
     assert bench.main(["--channels", "1", "--writes", "1", "--history", "1"]) == 0
     assert "counting fake" in capsys.readouterr().out
+
+
+def test_azure_reads_only_the_named_environment_variable(
+    bench: types.ModuleType, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "private-test-credential"
+    monkeypatch.setenv("BENCH_TEST_CS", secret)
+    seen: list[str] = []
+
+    def endpoint(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        seen.append(args[5])
+        assert kwargs == {"measured": True}
+        return [bench._row("read", args[4], bench.Counters(), 12.345, 0, measured=True)]
+
+    monkeypatch.setattr(bench, "run_azurite", endpoint)
+    argv = ["--backend", "azure", "--connection-string-env", "BENCH_TEST_CS", "--json"]
+    assert bench.main(argv) == 0
+    output = capsys.readouterr()
+    assert seen == [secret, secret] and secret not in argv
+    assert secret not in output.out + output.err
+    assert all(row["wall_ms"] == 12.345 for row in json.loads(output.out))
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_azure_rejects_missing_or_empty_environment_credentials(
+    bench: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    value: str | None,
+) -> None:
+    monkeypatch.delenv("BENCH_TEST_CS", raising=False)
+    if value is not None:
+        monkeypatch.setenv("BENCH_TEST_CS", value)
+    with pytest.raises(SystemExit, match="2"):
+        bench.main(["--backend", "azure", "--connection-string-env", "BENCH_TEST_CS"])
+    assert "not set or empty" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        [],
+        ["--connection-string", "private-test-credential"],
+        ["--latency-ms", "1"],
+        ["--connection-string-env", "invalid=name"],
+    ],
+)
+def test_azure_rejects_unsafe_or_ambiguous_flags(
+    bench: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    flags: list[str],
+) -> None:
+    with pytest.raises(SystemExit, match="2"):
+        bench.main(["--backend", "azure", *flags])
+    assert "private-test-credential" not in capsys.readouterr().err
+
+
+def test_azure_failure_does_not_expose_sdk_exception_credentials(
+    bench: types.ModuleType, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "private-test-credential"
+    monkeypatch.setenv("BENCH_TEST_CS", secret)
+
+    def failing_endpoint(*args: Any, **kwargs: Any) -> None:
+        raise ValueError(secret)
+
+    monkeypatch.setattr(bench, "run_azurite", failing_endpoint)
+    assert bench.main(["--backend", "azure", "--connection-string-env", "BENCH_TEST_CS"]) == 1
+    output = capsys.readouterr()
+    assert secret not in output.out + output.err and "failed" in output.err

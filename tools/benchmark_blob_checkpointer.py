@@ -40,6 +40,14 @@ Usage (repo root, with the ``azure-blob`` extra installed)::
 
 To compare two revisions, run the same script with ``PYTHONPATH`` pointing at each
 revision's ``src`` directory and compare the printed counts.
+
+``--backend azure --connection-string-env VAR`` uses a real Azure Blob endpoint,
+reusing the Azurite HTTP-counting transports (including retries and pagination).
+Only the environment variable NAME goes in argv; never supply a real credential
+with ``--connection-string``. Each API creates and deletes its own private container.
+Azure rows include ``wall_ms`` (client-to-Azure, not in-region unless run there).
+Injected latency is forbidden in Azure mode. Memory and connection pressure are
+not measured by this script. Repeat whole invocations for independent samples.
 """
 
 from __future__ import annotations
@@ -48,7 +56,10 @@ import argparse
 import asyncio
 from collections import Counter
 from collections.abc import Callable, Mapping
+from itertools import count
 import json
+import os
+import re
 import sys
 import time
 from typing import Any, NamedTuple
@@ -112,8 +123,9 @@ def classify(method: str, url: str, headers: Mapping[str, str]) -> str:
 
 
 class _Props:
-    def __init__(self, metadata: dict[str, str]) -> None:
+    def __init__(self, metadata: dict[str, str], etag: str = "fixture") -> None:
         self.metadata = metadata
+        self.etag = etag
 
 
 class _Stream:
@@ -124,9 +136,9 @@ class _Stream:
     body, so reading it costs no extra request.
     """
 
-    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str], etag: str = "fixture") -> None:
         self._data = data
-        self.properties = _Props(dict(metadata))
+        self.properties = _Props(dict(metadata), etag)
 
     def readall(self) -> bytes:
         return self._data
@@ -155,14 +167,28 @@ def make_counting_containers(
     def tick(kind: str, n: int = 1) -> None:
         counters.counts[kind] += n
 
+    etags: dict[tuple[int, str], str] = {}
+    versions = count()
+
     def _put(
-        blobs: Blobs, name: str, data: bytes, metadata: dict[str, str], overwrite: bool
-    ) -> None:
+        blobs: Blobs,
+        name: str,
+        data: bytes,
+        metadata: dict[str, str],
+        overwrite: bool,
+        **kwargs: Any,
+    ) -> dict[str, str]:
         if not overwrite and name in blobs:
             tick("PUT*")
             raise exists(name)
         tick("PUT" if overwrite else "PUT*")
+        if "etag" in kwargs and kwargs["etag"] != etags.get((id(blobs), name), "fixture"):
+            from azure.core.exceptions import ResourceModifiedError
+
+            raise ResourceModifiedError("hint changed", status_code=412)
         blobs[name] = (bytes(data), dict(metadata))
+        etag = etags[(id(blobs), name)] = str(next(versions))
+        return {"etag": etag}
 
     class _Client:
         def __init__(self, blobs: Blobs, name: str) -> None:
@@ -172,9 +198,11 @@ def make_counting_containers(
             if counters.latency_ms:
                 time.sleep(counters.latency_ms / 1000)
 
-        def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+        def upload_blob(
+            self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+        ) -> dict[str, str]:
             self._sleep()
-            _put(self._b, self._n, data, metadata, overwrite)
+            return _put(self._b, self._n, data, metadata, overwrite, **kwargs)
 
         def download_blob(self) -> _Stream:
             self._sleep()
@@ -182,7 +210,7 @@ def make_counting_containers(
             if self._n not in self._b:
                 raise not_found(self._n)
             data, metadata = self._b[self._n]
-            return _Stream(data, metadata)
+            return _Stream(data, metadata, etags.get((id(self._b), self._n), "fixture"))
 
         def get_blob_properties(self) -> _Props:
             self._sleep()
@@ -206,9 +234,11 @@ def make_counting_containers(
             if counters.latency_ms:
                 await asyncio.sleep(counters.latency_ms / 1000)
 
-        async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+        async def upload_blob(
+            self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+        ) -> dict[str, str]:
             await self._sleep()
-            _put(self._b, self._n, data, metadata, overwrite)
+            return _put(self._b, self._n, data, metadata, overwrite, **kwargs)
 
         async def download_blob(self) -> _AStream:
             await self._sleep()
@@ -216,7 +246,7 @@ def make_counting_containers(
             if self._n not in self._b:
                 raise not_found(self._n)
             data, metadata = self._b[self._n]
-            return _AStream(data, metadata)
+            return _AStream(data, metadata, etags.get((id(self._b), self._n), "fixture"))
 
         async def get_blob_properties(self) -> _Props:
             await self._sleep()
@@ -382,7 +412,13 @@ def _scenarios(saver: Any, last: str, channels: int, history: int, writes: int) 
 
 
 def _row(
-    name: str, async_api: bool, counters: Counters, elapsed_ms: float, latency_ms: float
+    name: str,
+    async_api: bool,
+    counters: Counters,
+    elapsed_ms: float,
+    latency_ms: float,
+    *,
+    measured: bool = False,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {"scenario": name, "api": "async" if async_api else "sync"}
     row.update(counters.snapshot())
@@ -391,6 +427,8 @@ def _row(
     row["total"] = counters.total()
     if latency_ms:
         row["simulated_ms"] = round(elapsed_ms)
+    if measured:
+        row["wall_ms"] = round(elapsed_ms, 3)
     return row
 
 
@@ -487,6 +525,8 @@ def run_azurite(
     latency_ms: float,
     async_api: bool,
     connection_string: str = AZURITE_CONNECTION_STRING,
+    *,
+    measured: bool = False,
 ) -> list[dict[str, Any]]:
     """Run the workload through the real SDK clients on Azurite, counting at the transport.
 
@@ -510,7 +550,7 @@ def run_azurite(
                 started = time.perf_counter()
                 sync_call()
                 elapsed_ms = (time.perf_counter() - started) * 1000
-                rows.append(_row(name, False, counters, elapsed_ms, latency_ms))
+                rows.append(_row(name, False, counters, elapsed_ms, latency_ms, measured=measured))
             return rows
 
         async def measure() -> list[dict[str, Any]]:
@@ -525,11 +565,14 @@ def run_azurite(
                     started = time.perf_counter()
                     await async_call()
                     elapsed_ms = (time.perf_counter() - started) * 1000
-                    measured.append(_row(name, True, counters, elapsed_ms, latency_ms))
+                    measured.append(
+                        _row(name, True, counters, elapsed_ms, latency_ms, measured=measure_wall)
+                    )
                 return measured
             finally:
                 await aio.close()
 
+        measure_wall = measured
         return asyncio.run(measure())
     finally:
         env.cleanup()
@@ -548,12 +591,16 @@ def render(
     cols.append("total")
     if any("simulated_ms" in r for r in rows):
         cols.append("simulated_ms")
+    if any("wall_ms" in r for r in rows):
+        cols.append("wall_ms")
     origin = (
         "requests issued by the saver against a counting fake; not Azure"
         if backend == "fake"
         else "HTTP requests the Azure SDK sent to Azurite, counted at the transport; "
         "Azurite is not Azure Storage"
     )
+    if backend == "azure":
+        origin = "real Azure HTTP requests counted at the transport; client-to-Azure wall time"
     lines = [
         f"# channels={channels} pending_writes={writes} history={history} ({origin})",
         " | ".join(cols),
@@ -568,27 +615,58 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--writes", type=int, default=10)
     parser.add_argument("--history", type=int, default=5)
     parser.add_argument("--latency-ms", type=float, default=0.0)
-    parser.add_argument("--backend", choices=("fake", "azurite"), default="fake")
+    parser.add_argument("--backend", choices=("fake", "azurite", "azure"), default="fake")
     parser.add_argument(
         "--connection-string",
-        default=AZURITE_CONNECTION_STRING,
+        default=None,
         help="storage connection string for --backend azurite (default: Azurite's Blob port)",
+    )
+    parser.add_argument(
+        "--connection-string-env",
+        metavar="VAR",
+        help="Azure credential environment variable NAME, never its value",
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    if args.backend == "azurite":
-        rows = [
-            row
-            for async_api in (False, True)
-            for row in run_azurite(
-                args.channels,
-                args.writes,
-                args.history,
-                args.latency_ms,
-                async_api,
-                args.connection_string,
-            )
-        ]
+    connection = args.connection_string or AZURITE_CONNECTION_STRING
+    if args.backend == "azure":
+        if args.connection_string is not None or args.latency_ms != 0:
+            parser.error("Azure requires environment-only credentials and zero injected latency")
+        if not args.connection_string_env or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*", args.connection_string_env
+        ):
+            parser.error("Azure requires --connection-string-env with an environment variable name")
+        connection = os.environ.get(args.connection_string_env)
+        if not connection:
+            parser.error("credential environment variable is not set or empty")
+    elif args.connection_string_env:
+        parser.error("--connection-string-env requires --backend azure")
+    if args.backend in ("azurite", "azure"):
+        options = {"measured": True} if args.backend == "azure" else {}
+        try:
+            rows = [
+                row
+                for async_api in (False, True)
+                for row in run_azurite(
+                    args.channels,
+                    args.writes,
+                    args.history,
+                    args.latency_ms,
+                    async_api,
+                    connection,
+                    **options,
+                )
+            ]
+        except Exception:
+            # CLI credential boundary: SDK/parser exceptions can contain credentials.
+            # Do not print the exception, its traceback, or client configuration.
+            if args.backend == "azure":
+                print(
+                    "Azure benchmark failed; exception details suppressed to protect credentials",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
     else:
         rows = run(args.channels, args.writes, args.history, args.latency_ms, async_api=False)
         rows += run(args.channels, args.writes, args.history, args.latency_ms, async_api=True)

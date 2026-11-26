@@ -8,12 +8,12 @@ The activity mirrors the Service Bus trigger's execution shape
 (:mod:`azure_functions_langgraph.triggers.service_bus`): resolve the registered
 graph, acquire the existing per-thread lock when the graph is checkpointed and a
 ``thread_id`` is present, invoke the graph, and emit the ``RunObserver``
-lifecycle. The crucial difference is that the activity **never re-raises** —
-graph failures and lock contention are captured into a normalized
+lifecycle. Graph and lock backend failures and lock contention are captured into a normalized
 :class:`~azure_functions_langgraph.durable._state.DurableRunResult` so the
 orchestration *completes* with a normalized output rather than surfacing as a
 Durable ``Failed`` status (which would also trigger Durable's at-least-once
-activity retry). This keeps a single logical run record per ``run_id``.
+activity retry). Cancellation still propagates. This keeps a single logical run
+record per ``run_id``.
 """
 
 from __future__ import annotations
@@ -87,8 +87,8 @@ async def execute_langgraph_run_impl(
 ) -> DurableRunResult:
     """Execute one graph run for a durable async orchestration.
 
-    Returns a normalized :class:`DurableRunResult` (never raises for graph or
-    lock-contention failures), so the calling orchestration completes with a
+    Returns a normalized :class:`DurableRunResult` for graph, lock backend and
+    lock-contention failures, so the calling orchestration completes with a
     deterministic, JSON-serializable output.
     """
 
@@ -115,25 +115,40 @@ async def execute_langgraph_run_impl(
 
     use_lock = bool(thread_id) and has_ckpt
     lock_thread_id = thread_id if use_lock else None
-    async with async_thread_lock(thread_lock, reg.name, lock_thread_id) as lock_token:
-        if lock_thread_id is not None and lock_token is None:
-            safe_observer_call(observer, "on_run_rejected", finish_context(ctx), "lock_contention")
-            return DurableRunResult.rejected(
-                payload.run_id,
-                f"Thread {thread_id!r} for graph {reg.name!r} is currently in use",
-            )
+    release_errors: list[Exception] = []
 
-        config = payload.config or None
-        if thread_id is not None:
-            config = {
-                **payload.config,
-                "configurable": {
-                    **payload.config.get("configurable", {}),
-                    "thread_id": thread_id,
-                },
-            }
-        safe_observer_call(observer, "on_run_started", ctx)
-        try:
+    def record_release_error(exc: Exception) -> None:
+        logger.error(
+            "Durable thread lock release failed: run_id=%s graph=%s",
+            payload.run_id,
+            reg.name,
+            exc_info=exc,
+        )
+        release_errors.append(exc)
+
+    try:
+        async with async_thread_lock(
+            thread_lock, reg.name, lock_thread_id, on_release_error=record_release_error
+        ) as lock_token:
+            if lock_thread_id is not None and lock_token is None:
+                safe_observer_call(
+                    observer, "on_run_rejected", finish_context(ctx), "lock_contention"
+                )
+                return DurableRunResult.rejected(
+                    payload.run_id,
+                    f"Thread {thread_id!r} for graph {reg.name!r} is currently in use",
+                )
+
+            config = payload.config or None
+            if thread_id is not None:
+                config = {
+                    **payload.config,
+                    "configurable": {
+                        **payload.config.get("configurable", {}),
+                        "thread_id": thread_id,
+                    },
+                }
+            safe_observer_call(observer, "on_run_started", ctx)
             run_config, guard = guard_run_config(
                 thread_lock, reg.name, lock_thread_id, lock_token, config
             )
@@ -143,20 +158,23 @@ async def execute_langgraph_run_impl(
                 result = json.loads(dumps(result, allow_nan=False))
             except Exception:  # noqa: BLE001 - user-defined encoding can raise arbitrary errors
                 raise _OutputSerializationError() from None
-        except BaseException as exc:  # noqa: BLE001 - captured into a normalized result
-            safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
-            if not isinstance(exc, Exception):
-                raise
-            # Durable history keeps only a sanitized error (class name + fixed message); the
-            # raw exception stays server-side. Identifiers only: never the input, config or
-            # result.
+        if release_errors:
+            raise release_errors[0]
+    except BaseException as exc:  # noqa: BLE001 - Activity boundary normalizes failures, not cancellation
+        safe_observer_call(observer, "on_run_failed", finish_context(ctx), exc)
+        if not isinstance(exc, Exception):
+            raise
+        # Durable history keeps only a sanitized error (class name + fixed message); the
+        # raw exception stays server-side. Identifiers only: never the input, config or
+        # result. Release errors were already logged by the callback.
+        if not release_errors or exc is not release_errors[0]:
             logger.exception(
                 "Durable run failed: run_id=%s graph=%s", payload.run_id, reg.name, exc_info=exc
             )
-            return DurableRunResult.failure(payload.run_id, exc)
-        else:
-            safe_observer_call(observer, "on_run_completed", finish_context(ctx))
-            return DurableRunResult.success(payload.run_id, result)
+        return DurableRunResult.failure(payload.run_id, exc)
+
+    safe_observer_call(observer, "on_run_completed", finish_context(ctx))
+    return DurableRunResult.success(payload.run_id, result)
 
 
 async def _invoke_graph(

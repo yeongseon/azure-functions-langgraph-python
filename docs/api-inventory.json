@@ -311,6 +311,13 @@
               "kind": "method",
               "name": "thread_store",
               "signature": "(store: Any) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "to_blueprint",
+              "signature": "() -> func.Blueprint",
+              "tier": "Experimental",
+              "tier_basis": "proposed in #993"
             }
           ],
           "name": "LangGraphApp",
@@ -820,6 +827,13 @@
               "kind": "method",
               "name": "thread_store",
               "signature": "(store: Any) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "to_blueprint",
+              "signature": "() -> func.Blueprint",
+              "tier": "Experimental",
+              "tier_basis": "proposed in #993"
             }
           ],
           "name": "LangGraphApp",
@@ -939,8 +953,8 @@
           "signature": "(authorize: ThreadAuthorizer | None, context: AuthorizationContext) -> int | None"
         }
       ],
-      "tier": "Beta",
-      "tier_basis": "provisional"
+      "tier": "Stable-intent Core",
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [
@@ -1119,6 +1133,12 @@
       ],
       "tier": "Beta",
       "tier_basis": "README"
+    },
+    {
+      "module": "azure_functions_langgraph.checkpointers._blob_hint",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
     },
     {
       "all": [],
@@ -2004,6 +2024,12 @@
       "tier_basis": "private module"
     },
     {
+      "module": "azure_functions_langgraph.durable._request",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
       "module": "azure_functions_langgraph.durable._runtime",
       "public": false,
       "tier": "Internal",
@@ -2866,8 +2892,8 @@
           "signature": "(app: LangGraphApp) -> int"
         }
       ],
-      "tier": "Beta",
-      "tier_basis": "provisional"
+      "tier": "Stable-intent Core",
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [],
@@ -3924,7 +3950,7 @@
         }
       ],
       "tier": "Experimental",
-      "tier_basis": "provisional"
+      "tier_basis": "maintainer decision"
     },
     {
       "module": "azure_functions_langgraph.stores._errors",
@@ -4130,7 +4156,7 @@
         }
       ],
       "tier": "Experimental",
-      "tier_basis": "provisional"
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [],
@@ -4231,7 +4257,7 @@
         }
       ],
       "tier": "Experimental",
-      "tier_basis": "provisional"
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [

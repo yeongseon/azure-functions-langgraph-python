@@ -23,7 +23,6 @@ from azure_functions_langgraph._execution_plan import (
     admit_request_structure,
     extract_thread_id,
     has_checkpointer,
-    method_accepts_version,
     negotiate_version,
     plan_run_config,
 )
@@ -171,11 +170,6 @@ def _reject(
         status_code=response.status_code,
         headers={"X-Request-ID": ctx.run_id},
     )
-
-
-def _method_accepts_version(method: Any) -> bool:
-    """Return ``True`` if *method* accepts a ``version`` keyword argument."""
-    return method_accepts_version(method)
 
 
 def _resolve_version_kwarg(

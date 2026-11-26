@@ -38,25 +38,29 @@ EXPERIMENTAL = "Experimental"
 INTERNAL = "Internal"
 
 # Longest-prefix match on dotted module names. ``basis`` is ``README`` when the
-# README stability table names the surface, ``provisional`` when it does not and
-# a maintainer should confirm the tier.
+# README stability table names the surface, ``maintainer decision`` for tiers
+# confirmed on 2026-11-24 in issue #878 (see docs/api-boundary.md section 7).
 MODULE_TIERS: dict[str, tuple[str, str]] = {
     PKG: (CORE, "README"),
     f"{PKG}.app": (CORE, "README"),
     f"{PKG}.contracts": (CORE, "README"),
     f"{PKG}.protocols": (CORE, "README"),
-    f"{PKG}.openapi": (BETA, "provisional"),
-    f"{PKG}.authorization": (BETA, "provisional"),
+    f"{PKG}.openapi": (CORE, "maintainer decision"),
+    f"{PKG}.authorization": (CORE, "maintainer decision"),
     f"{PKG}.observability": (BETA, "README"),
     f"{PKG}.observability_otel": (BETA, "README"),
     f"{PKG}.checkpointers": (BETA, "README"),
     f"{PKG}.locks": (BETA, "README"),
-    f"{PKG}.stores": (EXPERIMENTAL, "provisional"),
+    f"{PKG}.stores": (EXPERIMENTAL, "maintainer decision"),
     f"{PKG}.platform": (EXPERIMENTAL, "README"),
     f"{PKG}.streaming": (EXPERIMENTAL, "README"),
-    f"{PKG}.streaming_authorization": (EXPERIMENTAL, "provisional"),
+    f"{PKG}.streaming_authorization": (EXPERIMENTAL, "maintainer decision"),
     f"{PKG}.triggers": (EXPERIMENTAL, "README"),
     f"{PKG}.durable": (EXPERIMENTAL, "README"),
+}
+
+METHOD_TIERS: dict[str, tuple[str, str]] = {
+    f"{PKG}.app.LangGraphApp.to_blueprint": (EXPERIMENTAL, "proposed in #993"),
 }
 
 # Dotted third-party import prefix -> optional extra that supplies it.
@@ -285,6 +289,10 @@ def _top_level_symbols(mod: Module) -> dict[str, dict[str, Any]]:
     for node in mod.tree.body:
         if isinstance(node, ast.ClassDef):
             symbols[node.name] = _class_info(node)
+            for method in symbols[node.name]["methods"]:
+                declared = METHOD_TIERS.get(f"{mod.name}.{node.name}.{method['name']}")
+                if declared:
+                    method["tier"], method["tier_basis"] = declared
         elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             symbols[node.name] = {
                 "kind": "async function" if isinstance(node, ast.AsyncFunctionDef) else "function",
@@ -723,8 +731,9 @@ def render_markdown(data: dict[str, Any]) -> str:
     )
     add("")
     add(
-        "Tier basis: `README` = named by the README stability table; `provisional` = not named "
-        "there, assigned by analogy and needing maintainer confirmation."
+        "Tier basis: `README` = named by the README stability table; `maintainer decision` = "
+        "confirmed on 2026-11-24 in "
+        "[API boundary section 7](api-boundary.md#7-maintainer-decisions)."
     )
     add("")
     root = data["root"]
@@ -785,6 +794,23 @@ def render_markdown(data: dict[str, Any]) -> str:
                 f"| `{s['name']}` | {s['kind']} | {'yes' if s['in_all'] else 'no'} | "
                 f"`{_flags(s['consumers'])}` |"
             )
+    add("")
+    add("### Method-level tier exceptions")
+    add("")
+    add("Methods not listed here inherit their module's tier.")
+    add("")
+    add("| Method | Signature | Tier | Basis |")
+    add("| --- | --- | --- | --- |")
+    for m in data["modules"]:
+        if not m["public"]:
+            continue
+        for symbol in m["symbols"]:
+            for method in symbol["methods"]:
+                if "tier" in method:
+                    add(
+                        f"| `{m['module']}.{symbol['name']}.{method['name']}` | "
+                        f"`{method['signature']}` | {method['tier']} | {method['tier_basis']} |"
+                    )
     add("")
     pack = data["packaging"]
     add("## Packaging and optional extras")

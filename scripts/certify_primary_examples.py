@@ -30,7 +30,7 @@ GRAPH_NAMES: Final = {
 
 
 @dataclass(frozen=True, slots=True)
-class CertificationConfig:
+class _PrimaryCertificationConfig:
     lane: Literal["published", "candidate"]
     wheel: Path | None
     output_dir: Path
@@ -53,21 +53,21 @@ def _adapter_extras(requirements: Path) -> str:
 
 def parse_args(argv: list[str] | None = None) -> CertificationConfig:
     parser = argparse.ArgumentParser(
-        description="Certify clean installs of the four primary examples."
+        description="Opt-in clean installs of primary and pinned upstream examples (requires PyPI)."
     )
     parser.add_argument("lane", choices=("published", "candidate"))
     parser.add_argument("--wheel", type=Path)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--python", default="3.11")
-    parser.add_argument("--uv", default=os.environ.get("UV", "uv"))
-    args = parser.parse_args(argv)
+    args = _parse_upstream_arguments(parser, argv)
     lane: Literal["published", "candidate"] = args.lane
     if lane == "published" and args.wheel is not None:
         parser.error("the published lane installs requirements unchanged")
     if lane == "candidate" and args.wheel is None:
         parser.error("the candidate lane requires --wheel")
     output_dir = args.output_dir or Path(tempfile.mkdtemp(prefix=f"primary-examples-{lane}-"))
-    return CertificationConfig(
+    return _config_with_upstream(
+        args,
         lane=lane,
         wheel=args.wheel,
         output_dir=output_dir,
@@ -92,7 +92,7 @@ def _run(command: list[str], *, env: dict[str, str] | None = None, cwd: Path | N
 
 
 def _venv_env(venv: Path) -> dict[str, str]:
-    return {**os.environ, "VIRTUAL_ENV": str(venv), "UV_LINK_MODE": "copy"}
+    return _isolated_venv_env(venv)
 
 
 def _install(config: CertificationConfig, requirements: Path, venv: Path) -> None:
@@ -117,7 +117,7 @@ def _install(config: CertificationConfig, requirements: Path, venv: Path) -> Non
     _run([config.uv, "pip", "check"], env=env)
 
 
-def _smoke(example: str, venv: Path, repo: Path, lane: str) -> tuple[str, str]:
+def _primary_smoke(example: str, venv: Path, repo: Path, lane: str) -> tuple[str, str]:
     python = venv / "bin" / "python"
     example_dir = repo / "examples" / example
     fake_env = {
@@ -170,7 +170,7 @@ def _smoke(example: str, venv: Path, repo: Path, lane: str) -> tuple[str, str]:
 
 def _certify_negative_fixture(config: CertificationConfig, repo: Path) -> None:
     venv = config.output_dir / "negative-venv"
-    _run([config.uv, "venv", "--python", config.python, str(venv)])
+    _run([config.uv, "venv", "--clear", "--python", config.python, str(venv)])
     result = subprocess.run(
         [
             config.uv,
@@ -189,12 +189,82 @@ def _certify_negative_fixture(config: CertificationConfig, repo: Path) -> None:
         raise RuntimeError("deliberately incompatible dependency fixture unexpectedly resolved")
 
 
+OFFICIAL_EXAMPLES: Final = ("official_langgraph_basic", "official_langgraph_conversation")
+GRAPH_NAMES.update(
+    official_langgraph_basic="official_basic",
+    official_langgraph_conversation="official_conversation",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CertificationConfig(_PrimaryCertificationConfig):
+    examples: tuple[str, ...] = (*PRIMARY_EXAMPLES, *OFFICIAL_EXAMPLES)
+    local_host: bool = False
+    host_port: int = 7571
+    storage_port: int = 15000
+
+
+def _parse_upstream_arguments(
+    parser: argparse.ArgumentParser, argv: list[str] | None
+) -> argparse.Namespace:
+    parser.add_argument("--uv", default=os.environ.get("UV", "uv"))
+    parser.add_argument("--examples", nargs="+", choices=(*PRIMARY_EXAMPLES, *OFFICIAL_EXAMPLES))
+    parser.add_argument(
+        "--local-host", action="store_true", help="Run upstream hosts with key auth"
+    )
+    parser.add_argument("--host-port", type=int, default=7571)
+    parser.add_argument(
+        "--storage-port", type=int, default=15000, help="First of three Azurite ports"
+    )
+    return parser.parse_args(argv)
+
+
+def _config_with_upstream(
+    args: argparse.Namespace,
+    *,
+    lane: Literal["published", "candidate"],
+    wheel: Path | None,
+    output_dir: Path,
+    python: str,
+    uv: str,
+) -> CertificationConfig:
+    return CertificationConfig(
+        lane=lane,
+        wheel=wheel,
+        output_dir=output_dir,
+        python=python,
+        uv=uv,
+        examples=tuple(args.examples or (*PRIMARY_EXAMPLES, *OFFICIAL_EXAMPLES)),
+        local_host=args.local_host,
+        host_port=args.host_port,
+        storage_port=args.storage_port,
+    )
+
+
+def _isolated_venv_env(venv: Path) -> dict[str, str]:
+    env = {**os.environ, "VIRTUAL_ENV": str(venv), "UV_LINK_MODE": "copy"}
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
+    env["PATH"] = str(venv / "bin") + os.pathsep + os.environ.get("PATH", "")
+    return env
+
+
+def _smoke(example: str, venv: Path, repo: Path, lane: str) -> tuple[str, str]:
+    if example in OFFICIAL_EXAMPLES:
+        return _run(
+            [str(venv / "bin/python"), str(repo / "scripts/certify_upstream_examples.py"), example],
+            env=_venv_env(venv),
+            cwd=repo / "examples" / example,
+        ), "Not applicable: upstream graphs have no live model.\n"
+    return _primary_smoke(example, venv, repo, lane)
+
+
 def certify(config: CertificationConfig) -> None:
     repo = Path(__file__).resolve().parents[1]
     config.output_dir.mkdir(parents=True, exist_ok=True)
     _certify_negative_fixture(config, repo)
     summary: dict[str, dict[str, str]] = {}
-    for example in PRIMARY_EXAMPLES:
+    for example in config.examples:
         example_output = config.output_dir / example
         venv = example_output / "venv"
         if example_output.exists():
@@ -208,12 +278,30 @@ def certify(config: CertificationConfig) -> None:
         (example_output / "installed-versions.txt").write_text(versions)
         (example_output / "fake-route-smoke.txt").write_text(fake_output)
         (example_output / "real-model-construction.txt").write_text(real_output)
+        if config.local_host and example in OFFICIAL_EXAMPLES:
+            _run(
+                [
+                    str(venv / "bin/python"),
+                    str(repo / "scripts/certify_upstream_host.py"),
+                    example,
+                    "--host-port",
+                    str(config.host_port),
+                    "--storage-port",
+                    str(config.storage_port),
+                    "--evidence",
+                    str(example_output / "local-host.json"),
+                ],
+                env=env,
+                cwd=example_output,
+            )
         summary[example] = {
             "requirements": str(requirements.relative_to(repo)),
             "versions": f"{example}/installed-versions.txt",
             "fake_smoke": f"{example}/fake-route-smoke.txt",
             "real_model": f"{example}/real-model-construction.txt",
         }
+        if config.local_host and example in OFFICIAL_EXAMPLES:
+            summary[example]["local_host"] = f"{example}/local-host.json"
         print(f"certified {config.lane}: {example}")
     (config.output_dir / "summary.json").write_text(
         json.dumps({"lane": config.lane, "python": config.python, "examples": summary}, indent=2)

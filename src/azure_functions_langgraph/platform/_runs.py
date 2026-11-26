@@ -123,7 +123,7 @@ def _release_thread_run_lock(
     return failure
 
 
-def register_run_routes(
+def register_run_routes(  # noqa: C901 - refactor tracked in #1005
     app: func.FunctionApp,
     deps: PlatformRouteDeps,
 ) -> None:

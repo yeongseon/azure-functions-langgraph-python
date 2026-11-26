@@ -6,6 +6,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import json
 import threading
+from typing import Any
 
 import pytest
 
@@ -104,21 +105,29 @@ async def test_accepted_upload_timeout_retry_preserves_slots_and_repairs_hint(
     target = _write_path(0) if phase == "slot" else "checkpoint.bin"
     fired = False
 
-    def fail(client: _SyncClient, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+    def fail(
+        client: _SyncClient, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+    ) -> dict[str, str]:
         nonlocal fired
-        upload(client, data, metadata, overwrite)
+        result = upload(client, data, metadata, overwrite, **kwargs)
         if not fired and client._n.endswith(target):
             fired = True
             raise fault
+        return result
 
     async def afail(
-        client: _AsyncClient, data: bytes, metadata: dict[str, str], overwrite: bool
-    ) -> None:
+        client: _AsyncClient,
+        data: bytes,
+        metadata: dict[str, str],
+        overwrite: bool,
+        **kwargs: Any,
+    ) -> dict[str, str]:
         nonlocal fired
-        await aupload(client, data, metadata, overwrite)
+        result = await aupload(client, data, metadata, overwrite, **kwargs)
         if not fired and client._n.endswith(target):
             fired = True
             raise fault
+        return result
 
     async def attempt(retry: bool) -> None:
         if phase == "slot":
@@ -163,16 +172,20 @@ async def test_cancelled_native_publication_retry_recovers_complete_cross_api_tu
     blocked = False
 
     async def paused(
-        client: _AsyncClient, data: bytes, metadata: dict[str, str], overwrite: bool
-    ) -> None:
+        client: _AsyncClient,
+        data: bytes,
+        metadata: dict[str, str],
+        overwrite: bool,
+        **kwargs: Any,
+    ) -> dict[str, str]:
         nonlocal blocked
         if client._n.endswith("checkpoint.bin") and not blocked:
             blocked = True
             if after_marker:
-                await upload(client, data, metadata, overwrite)
+                await upload(client, data, metadata, overwrite, **kwargs)
             entered.set()
             await release.wait()
-        await upload(client, data, metadata, overwrite)
+        return await upload(client, data, metadata, overwrite, **kwargs)
 
     monkeypatch.setattr(_AsyncClient, "upload_blob", paused)
     task = asyncio.create_task(saver.aput(_cfg(), cp, _md(0), cp["channel_versions"]))
@@ -210,13 +223,18 @@ async def test_sync_keyboard_interrupt_retry_recovers_complete_cross_api_tuple(
     fired = False
 
     def interrupted(
-        client: _SyncClient, data: bytes, metadata: dict[str, str], overwrite: bool
-    ) -> None:
+        client: _SyncClient,
+        data: bytes,
+        metadata: dict[str, str],
+        overwrite: bool,
+        **kwargs: Any,
+    ) -> dict[str, str]:
         nonlocal fired
-        upload(client, data, metadata, overwrite)
+        result = upload(client, data, metadata, overwrite, **kwargs)
         if not fired and client._n.endswith(target):
             fired = True
             raise fault
+        return result
 
     monkeypatch.setattr(_SyncClient, "upload_blob", interrupted)
     with pytest.raises(KeyboardInterrupt) as caught:

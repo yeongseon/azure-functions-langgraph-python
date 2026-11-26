@@ -31,8 +31,12 @@ Save as `function_app.py` in a Functions app with `host.json`:
 from typing import TypedDict
 from langgraph.graph import START, END, StateGraph
 from azure_functions_langgraph import LangGraphApp
+
+
 class State(TypedDict):
     message: str
+
+
 builder = StateGraph(State)
 builder.add_node("echo", lambda state: {"message": state["message"]})
 builder.add_edge(START, "echo")
@@ -50,6 +54,15 @@ project files, local setup and deployment. To start from a new Functions project
 of your own, the Quickstart's section
 [Start from a new Functions project](docs/getting-started.md#start-from-a-new-functions-project)
 shows the scaffolding.
+
+For upstream provenance and separately recorded Azure deployment evidence, see
+the [official LangGraph example](examples/official_langgraph_basic/).
+
+Already have a Python v2 Functions app? Register native graph routes with
+`app.register_functions(langgraph_app.to_blueprint())` instead of exporting a
+second FunctionApp. This additive API is **Experimental**; see
+[existing-app composition](docs/usage.md#existing-app-composition-experimental)
+and the [HTTP + timer example](examples/existing_function_app/).
 
 ## Deploy to Azure (default path)
 
@@ -71,7 +84,7 @@ breaking changes remain on the 0.x line under the existing release policy.
 | --- | --- | --- |
 | `LangGraphApp` construction, native invoke/stream/state HTTP endpoints, auth levels | Stable | Preserve supported calls; incompatible changes require explicit classification and migration |
 | Checkpoint backends, thread locks, async runtime, `version="v2"`, `RunObserver` | Beta | Shape settled; refinements remain possible before v1.0 |
-| Platform compatibility, true HTTP streaming, Service Bus and Durable lifecycle | Experimental | Opt-in; may change between minor releases |
+| Platform compatibility, true HTTP streaming, Service Bus and Durable lifecycle, `LangGraphApp.to_blueprint()` | Experimental | Opt-in; may change between minor releases |
 
 Classic stream routes return **buffered SSE**, not incremental tokens.
 `StreamingLangGraphApp` is a separate experimental transport. Function keys
@@ -82,6 +95,11 @@ and [security boundaries](docs/security.md). A Blob lease does not fence checkpo
 writes once it is lost; the opt-in `guard_checkpoint_writes` guard only reduces writes
 after the lock *detects* loss and is not fencing ([contract and limits](docs/production-guide.md#opt-in-guard-for-blob-checkpoint-writes-790)).
 
+Choosing the experimental [Platform SDK example](examples/platform_compat_sdk/)?
+Read its [SDK adoption checklist](docs/adapter-reference.md#sdk-adoption-checklist)
+before deployment: supported operations, separate checkpoint/thread retention,
+process-local defaults, scanning searches and unavailable async lifecycle calls.
+
 ## Recommended learning path
 
 Optional, after the [default path](docs/tutorial-5-min.md). These are independent,
@@ -91,6 +109,10 @@ capability-focused apps, not cumulative production templates or prerequisites:
 2. [Conversation memory](examples/conversation_memory/)
 3. [Tool calling](examples/tool_calling_agent/)
 4. [Persistent production wiring](examples/production_persistent_agent/)
+
+For one observed keyless deployment and its measured limitations, see the
+[Flex Consumption + Blob production reference](docs/production-reference.md).
+It records one successful live run, not repeatability or release certification.
 
 Also optional: [an official LangGraph guide graph hosted with minimal changes](examples/official_langgraph_basic/), an official-example adaptation (not one of the custom examples above).
 
@@ -124,7 +146,10 @@ Looking for something to work on?
 - [Good first issue](https://github.com/yeongseon/azure-functions-langgraph-python/labels/good%20first%20issue): small, self-contained starter tasks.
 - [Help wanted](https://github.com/yeongseon/azure-functions-langgraph-python/labels/help%20wanted): tasks that may need more familiarity with this codebase or Azure Functions.
 
-Please comment on an issue to request assignment before you open a pull request. Either list can be empty at any time, so bug reports and small documentation suggestions are always welcome too.
+Before starting, follow [Issue or direct PR?](CONTRIBUTING.md#issue-or-direct-pr)
+and [Contributor-reserved issues](CONTRIBUTING.md#contributor-reserved-issues)
+for the lightest contribution path and how to check existing claims. Either list
+can be empty at any time; bug reports and small documentation corrections are welcome.
 
 Part of the Azure Functions Python DX Toolkit. Integrated application recipes
 live in the [cookbook](https://github.com/yeongseon/azure-functions-cookbook-python);
