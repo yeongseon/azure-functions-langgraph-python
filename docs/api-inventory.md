@@ -454,6 +454,15 @@ Tier basis: `README` = named by the README stability table; `maintainer decision
 | `process_service_bus_message` | function | no | `ET-` |
 | `process_service_bus_message_async` | async function | no | `-T-` |
 
+### Method-level tier exceptions
+
+Methods not listed here inherit their module's tier.
+
+| Method | Signature | Tier | Basis |
+| --- | --- | --- | --- |
+| `azure_functions_langgraph.LangGraphApp.to_blueprint` | `() -> func.Blueprint` | Experimental | proposed in #993 |
+| `azure_functions_langgraph.app.LangGraphApp.to_blueprint` | `() -> func.Blueprint` | Experimental | proposed in #993 |
+
 ## Packaging and optional extras
 
 Required dependencies: `azure-functions`, `langchain-core`, `langgraph`, `pydantic`.

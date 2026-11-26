@@ -36,3 +36,5 @@ tests/test_streaming_authorization_example.py
 # Requires the sqlite extra (langgraph-checkpoint-sqlite).
 tests/test_sqlite_persistence_demo.py
 tests/test_execution_plan_parity.py
+# Requires the example-only langchain package (the upstream baseline imports langchain.messages).
+tests/test_existing_function_app_example.py

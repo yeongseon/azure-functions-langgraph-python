@@ -58,6 +58,12 @@ shows the scaffolding.
 For upstream provenance and separately recorded Azure deployment evidence, see
 the [official LangGraph example](examples/official_langgraph_basic/).
 
+Already have a Python v2 Functions app? Register native graph routes with
+`app.register_functions(langgraph_app.to_blueprint())` instead of exporting a
+second FunctionApp. This additive API is **Experimental**; see
+[existing-app composition](docs/usage.md#existing-app-composition-experimental)
+and the [HTTP + timer example](examples/existing_function_app/).
+
 ## Deploy to Azure (default path)
 
 One path, start to finish: the [**5-minute tutorial**](docs/tutorial-5-min.md):
@@ -78,7 +84,7 @@ breaking changes remain on the 0.x line under the existing release policy.
 | --- | --- | --- |
 | `LangGraphApp` construction, native invoke/stream/state HTTP endpoints, auth levels | Stable | Preserve supported calls; incompatible changes require explicit classification and migration |
 | Checkpoint backends, thread locks, async runtime, `version="v2"`, `RunObserver` | Beta | Shape settled; refinements remain possible before v1.0 |
-| Platform compatibility, true HTTP streaming, Service Bus and Durable lifecycle | Experimental | Opt-in; may change between minor releases |
+| Platform compatibility, true HTTP streaming, Service Bus and Durable lifecycle, `LangGraphApp.to_blueprint()` | Experimental | Opt-in; may change between minor releases |
 
 Classic stream routes return **buffered SSE**, not incremental tokens.
 `StreamingLangGraphApp` is a separate experimental transport. Function keys

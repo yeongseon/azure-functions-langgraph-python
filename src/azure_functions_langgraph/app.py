@@ -533,6 +533,33 @@ class LangGraphApp:
             self._function_app = self._build_function_app()
         return self._function_app
 
+    def to_blueprint(self) -> func.Blueprint:
+        """Export native HTTP routes for an existing app (Experimental).
+
+        Complete graph registration and configuration first, then call
+        ``existing_app.register_functions(adapter.to_blueprint())`` once,
+        before the Functions worker indexes the app. Later registrations do
+        not add routes to an already exported blueprint or its parent app.
+        Handlers retain this adapter; this is not a deep configuration copy.
+
+        Generated function names and routes (including health endpoints) are
+        identical to :attr:`function_app`; callers must avoid collisions with
+        existing functions. Explicit adapter/per-graph auth levels are kept,
+        independently of the parent app's HTTP auth default.
+
+        Raises:
+            ValueError: If optional Platform, Durable or Service Bus surfaces
+                are configured, or topology validation rejects the app.
+            RuntimeError: If deployment settings require a distributed backend.
+        """
+        if self.platform_compat or self.async_runs or self._sb_registrations:
+            raise ValueError("to_blueprint() supports native HTTP routes only")
+        self._validate_topology()
+        blueprint_factory: Callable[[], func.Blueprint] = func.Blueprint
+        blueprint = blueprint_factory()
+        self._register_native_routes(blueprint)
+        return blueprint
+
     @property
     def _resolved_health_details_auth_level(self) -> func.AuthLevel:
         """Auth level for ``/health/details``.
@@ -596,7 +623,7 @@ class LangGraphApp:
         if message:
             raise ValueError(message)
 
-    def _build_function_app(self) -> func.FunctionApp:
+    def _validate_topology(self) -> None:
         # One validation pass over the immutable topology plan, before any route
         # exists: a rejected configuration exports nothing and runs no graph (#880).
         enforce_topology(
@@ -613,8 +640,8 @@ class LangGraphApp:
             ),
             stacklevel=4,
         )
-        app = self._new_function_app()
 
+    def _register_native_routes(self, app: func.FunctionApp | func.Blueprint) -> None:
         # Health endpoints.
         #
         # The anonymous liveness probe (``/health``) intentionally exposes only
@@ -712,6 +739,11 @@ class LangGraphApp:
                     ),
                     is_async=state_is_async,
                 )
+
+    def _build_function_app(self) -> func.FunctionApp:
+        self._validate_topology()
+        app = self._new_function_app()
+        self._register_native_routes(app)
 
         # Service Bus trigger routes (issue #409)
         for sb_reg in self._sb_registrations.values():
@@ -889,7 +921,7 @@ class LangGraphApp:
 
     def _register_route(
         self,
-        app: func.FunctionApp,
+        app: func.FunctionApp | func.Blueprint,
         reg: _GraphRegistration,
         *,
         endpoint: str,
