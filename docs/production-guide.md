@@ -518,6 +518,33 @@ only what it observed:
   already finished). The Durable lifecycle is experimental and may change between minor
   releases; this change is marked breaking so release notes flag it.
 
+#### Activity observer terminal outcomes
+
+For a registered graph, each Activity attempt emits exactly one terminal observer
+event. Completion waits for graph execution, output serialization and the entire
+lock lifecycle, including release. `started` is emitted only after admission to
+execution, so acquisition failures and contention have no preceding `started`.
+
+| Outcome | Observer events, in order | Activity outcome |
+| --- | --- | --- |
+| Graph succeeds and lock lifecycle succeeds | `started`, `completed` | Normalized success with serialized result |
+| Graph, ownership check or serialization fails | `started`, `failed` | Sanitized failure for the original exception |
+| Lock acquisition raises | `failed` | Sanitized failure for the acquisition exception; graph is not invoked |
+| Lock release raises after graph success | `started`, `failed` | Sanitized failure for the release exception; graph output is withheld |
+| Graph fails and release also raises | `started`, `failed` | Original graph failure is preserved; both exceptions are logged server-side |
+| Lock contention (no token) | `rejected` (`lock_contention`) | Normalized rejection; graph is not invoked |
+| Cancellation during acquisition | `failed` | Cancellation propagates; no normalized failure result |
+| Cancellation during graph execution or release | `started`, `failed` | Cancellation propagates, including when graph cancellation is followed by a release exception |
+
+Failure results retain only the exception class and `The run failed.`, as described
+above. Observer failure callbacks receive the original exception server-side;
+custom observers must apply their own redaction policy. An unregistered graph
+returns a sanitized failure without observer events because no graph context was
+resolved. These are **per-attempt** events, not an exactly-once delivery guarantee:
+Activity redelivery can emit another lifecycle for the same `run_id`. A release
+failure can occur after graph side effects; it neither rolls them back nor proves
+the lock remains held. This adds no retries, lease fencing or forced cancellation.
+
 #### Live Durable observations (2026-11-24, Y1 / Python 3.12)
 
 **Scope and limits first.** This is bounded evidence, **not restart/recovery
