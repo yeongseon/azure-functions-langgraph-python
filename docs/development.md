@@ -62,7 +62,7 @@ azure-functions-langgraph/
 ## Code style
 
 - **Formatter**: ruff format (line length 100)
-- **Linter**: ruff check (E, F, I rules)
+- **Linter**: ruff check (rules and the complexity threshold are set in `pyproject.toml`)
 - **Type checker**: mypy (strict mode)
 - **Target**: Python 3.11+
 
