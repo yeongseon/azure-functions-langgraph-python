@@ -29,9 +29,12 @@ artifact layout. The three pinned source snippets above were fetched again
 from their immutable raw GitHub URLs on 2026-11-25 before running the baseline.
 Nodes, edges, schema and the original compile call remain unchanged.
 
-**Plan: local Functions host only. No Azure plan was exercised in this change;
-the Azure lane remains opt-in and unrun pending a separate release-gate decision.**
-The historical Azure run below is separate evidence, not renewed certification.
+**Plan for this table: local Functions host only.** The Azure lane stays opt-in:
+nothing here adds an Azure step to CI or to the release gate, which needs a
+separate maintainer decision. The manual Azure runs under
+[Azure evidence](#azure-evidence) (2026-11-05) and
+[Azure re-verification](#azure-re-verification-2026-11-26) (2026-11-26) are
+separate, one-off evidence, not release certification.
 
 | Item | Observed result |
 | --- | --- |
@@ -192,6 +195,47 @@ This is one deployment of the published package line on one plan and region,
 exercising only the routes above. It does not certify other plans, true
 streaming, thread storage or multi-user authorization.
 
+### Azure re-verification (2026-11-26)
+
+Run on 2026-11-26 UTC by the maintainer-authorized verification run for #994,
+from the files in this directory as shipped, with the published
+`azure-functions-langgraph==0.14.2` pinned in `requirements.txt`. It follows the
+CLI path of [Step 5 of the tutorial](../../docs/tutorial-5-min.md) (Storage
+account, Flex Consumption app, remote-build publish). Differences from the
+tutorial's literal commands: `local.settings.json` was created from the
+`.example` file first, as described above, and `--python --build remote` was
+added to `func azure functionapp publish`. One temporary resource group,
+deleted afterwards. An earlier deployment of this example the same day was
+discarded because of a defect in the verification script (not in the app) and
+retained no evidence; the table is the repeat on a fresh resource group.
+
+| Item | Value |
+| --- | --- |
+| Plan / runtime | Flex Consumption, Python 3.11, `koreacentral`, Functions v4 |
+| Tools | Azure CLI 2.83.0, Core Tools 4.8.0: `func azure functionapp publish <APP> --python --build remote` |
+| Adapter | Published PyPI **0.14.2**, installed by the remote build from `requirements.txt` unchanged (pinned) |
+| Other packages | The Azure build log does not print resolved versions. A `uv pip compile` of the shipped requirements (Python 3.11, manylinux x86_64) within the hour of the deployments gives `azure-functions==1.26.0`, `langgraph==1.2.24`, `langchain==1.5.2`, `langchain-core==1.8.5`, `langgraph-checkpoint==4.3.2`: a reproduction of the resolution, not the deployed inventory |
+| `GET /api/health` (no key) | `200` |
+| `POST /api/graphs/official_basic/invoke` without key | `401` |
+| Same call with the function key (`x-functions-key`) | `200`; `messages` = `Hi`, `Hello!`, `extra_field` = `10` (equal to the baseline) |
+| `POST /api/graphs/official_basic/stream` with key | `200`, 3 SSE frames (two `data`, one `end`) |
+| Cleanup | Resource group deleted and the deletion awaited; no resource group or tagged resource from the run remained (see the side effect below) |
+
+Side effect to know about: `az functionapp create` creates an Application
+Insights component unless `--disable-app-insights` is passed. These runs also
+left a **default Log Analytics workspace in a separate
+`DefaultResourceGroup-<region code>` resource group**: no such group existed
+beforehand, and the workspace's creation time falls inside the first
+`az functionapp create` of the runs. Deleting the example's resource group does
+not remove it, so the tutorial's one-command clean-up leaves it behind; it was
+deleted separately afterwards. Anything else in the subscription that uses the
+default workspace shares it, so delete it only after checking that nothing does.
+
+This is again one deployment on one plan and region, exercising only the routes
+above. First requests after a deployment can include a cold start, so no latency
+is recorded. It does not certify other plans, true streaming, thread storage or
+multi-user authorization.
+
 ## Known differences and limitations
 
 - **Input type**: upstream passes a `HumanMessage`; HTTP bodies are JSON, so
@@ -218,6 +262,9 @@ streaming, thread storage or multi-user authorization.
   project language" until `local.settings.json` exists. Fix: copy the example.
 - **Friction 3**: JSON clients cannot send message objects; see the input and
   output differences above.
+- **Friction 4** (2026-11-26): the tutorial's one-command clean-up leaves the
+  default Log Analytics workspace that `az functionapp create` created; see
+  [Azure re-verification](#azure-re-verification-2026-11-26).
 
 ## See Also
 

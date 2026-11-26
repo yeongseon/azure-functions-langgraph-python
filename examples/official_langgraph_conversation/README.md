@@ -1,8 +1,10 @@
-# Official LangGraph conversation: local durable-state proof
+# Official LangGraph conversation: durable-state proof
 
 This standalone Functions app adapts the official memory guide's **complete
 sync `call_model` graph**, not the earlier `StateGraph(...)` placeholder.
-It uses a deterministic fake model and durable Blob checkpoints on local Azurite.
+It uses a deterministic fake model and durable Blob checkpoints: on local Azurite
+for the repeatable check, and on a real Storage account in the one-off
+[Azure verification](#azure-verification-2026-11-26).
 It is a compatibility example, not a production or multi-user template.
 
 ## Pinned upstream source and attribution
@@ -84,9 +86,11 @@ conflicts fail rather than reusing or stopping somebody else's service.
 
 ## Recorded verification: 2026-11-25
 
-**Plan: local Functions host only; no Azure hosting plan was exercised in this
-change. The Azure lane remains opt-in and unrun, pending a separate maintainer
-release-gate decision.** This evidence does not certify cloud deployment.
+**Plan for this table: local Functions host only.** The Azure lane stays opt-in:
+nothing here adds an Azure step to CI or to the release gate, which needs a
+separate maintainer decision. The one-off manual Azure run of 2026-11-26 is
+recorded [below](#azure-verification-2026-11-26); this table does not certify
+cloud deployment.
 
 | Item | Observed result |
 | --- | --- |
@@ -107,9 +111,52 @@ was generated under `/tmp/opencode/venv-upstream-examples`; candidate evidence
 under its `candidate/` subdirectory. Full dependency inventories are reproducible
 run artifacts, not immutable dependency locks.
 
+## Azure verification: 2026-11-26
+
+Run on 2026-11-26 UTC by the maintainer-authorized verification run for #994,
+from the files in this directory as shipped, with
+`azure-functions-langgraph[azure-blob]==0.14.2` pinned in `requirements.txt`.
+It follows the CLI path of
+[Step 5 of the 5-minute tutorial](../../docs/tutorial-5-min.md) (Storage account,
+Flex Consumption app, remote-build publish) plus the two application settings
+below. Differences from the tutorial's literal commands: the two settings were
+set, and `func azure functionapp publish` got `--python --build remote`
+(`--python` because this directory has no `local.settings.json.example` for Core
+Tools to detect the runtime from; `--build remote` named explicitly). One
+temporary resource group, deleted afterwards.
+**This is a one-off manual run, not a CI or release-gate lane.**
+
+| Item | Value |
+| --- | --- |
+| Plan / runtime | Flex Consumption, Python 3.11, `koreacentral`, Functions v4 |
+| Tools | Azure CLI 2.83.0, Core Tools 4.8.0 |
+| Adapter | Published PyPI **0.14.2** with the `azure-blob` extra, installed by the remote build from `requirements.txt` unchanged (pinned) |
+| Other packages | The Azure build log does not print resolved versions. A `uv pip compile` of the shipped requirements (Python 3.11, manylinux x86_64) within the hour of the deployment gives `azure-functions==1.26.0`, `langgraph==1.2.24`, `langchain-core==1.8.5`, `langgraph-checkpoint==4.3.2`, `azure-storage-blob==12.31.1`: a reproduction of the resolution, not the deployed inventory |
+| Storage | The one `Standard_LRS` Storage account created for the app (passed to `--storage-account`) also holds the checkpoint container. It is reached through `AZURE_STORAGE_CONNECTION_STRING` (a shared key, **not** identity-based access) with `LANGGRAPH_BLOB_CONTAINER=official-conversation`; `graph.py` creates the container when the app starts |
+| `GET /api/health` (no key) | `200` |
+| `POST /api/graphs/official_conversation/invoke` without key | `401` |
+| First invoke with the function key, thread `a` | `200`; `Hi`, `observed 1 human turn(s)` |
+| Second invoke, thread `a` | `200`; `Hi`, `observed 1 human turn(s)`, `Continue`, `observed 2 human turn(s)` |
+| First invoke, thread `b` | `200`; `Separate`, `observed 1 human turn(s)`; no thread `a` messages |
+| Cleanup | Resource group deleted and the deletion awaited (`az group wait --deleted`); afterwards no resource group from the run was listed and no resource tagged for it remained. See the side effect below |
+
+Same-thread continuity and cross-thread isolation were observed over HTTP against
+the deployed app, with a real Storage account as the checkpoint store. The calls
+could have been served by the same instance, and the run neither restarted nor
+scaled the app nor inspected the container, so it shows no recovery across
+restarts or instances. First requests after a deployment can include a cold
+start, so no latency is recorded.
+
+Side effect: `az functionapp create` also creates a default Log Analytics
+workspace in a separate `DefaultResourceGroup-<region code>` resource group,
+which deleting the example's resource group does not remove. It was deleted
+separately afterwards; see
+[the basic example's note](../official_langgraph_basic/README.md#azure-re-verification-2026-11-26).
+
 ## Scope and follow-ups
 
-- Durable storage here means graph checkpoints in local Blob storage. This is
+- Durable storage here means graph checkpoints in Blob storage: local Azurite for
+  the repeatable check, one real Storage account in the Azure run above. This is
   **not** Durable Functions orchestration; no restart, scale-out, cancellation,
   lease-loss fencing or cloud-recovery certification is claimed.
 - Local container creation is convenience wiring. This single-host example uses
@@ -119,5 +166,6 @@ run artifacts, not immutable dependency locks.
   Thread isolation is state separation only.
 - #994 item 3 is a **follow-up**: reuse #993's existing-app example after Draft
   PR #998 is ready; this standalone proof neither consumes nor modifies it.
-- Real Azure deployment, plan selection and any future release-gate change need
-  separate maintainer authorization and evidence. Refs #994.
+- A repeatable Azure lane, other plans or regions, identity-based storage access
+  and any release-gate change need separate maintainer authorization and
+  evidence. Refs #994.
