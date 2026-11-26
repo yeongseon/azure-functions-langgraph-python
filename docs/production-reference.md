@@ -194,9 +194,10 @@ insufficient: separate containers can reuse the same PID. The token is compared
 in memory only, excluded from evidence serialization and never printed.
 Run only against an expendable app: the restart is disruptive.
 
-The runtime keyless-denial assertion is covered offline with fake HTTP responses;
-the dated run below predates that assertion. A new live run is needed to establish
-its result on a deployment. Only status codes and validated versions are recorded.
+The runtime keyless-denial assertion has offline coverage with fake HTTP responses.
+The 2026-11-24 run predates it; the 2026-11-26 run established it on a deployment:
+keyless 401 and keyed 200 on `/api/reference/runtime`. Only status codes and
+validated versions are recorded.
 
 Restart verification separates **restart-command acceptance**, **HTTP availability**
 and **confirmed process turnover** into boolean evidence fields. For correlation,
