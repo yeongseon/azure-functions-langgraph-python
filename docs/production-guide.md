@@ -505,7 +505,10 @@ only what it observed:
   raw exception is logged server-side by the Activity (`logger.exception`, with `run_id`
   and graph name but no input, config or result), so read it in Application Insights or
   the host log. `GET /api/runs/{run_id}` returns `{"code": "run_failed", "message": "The
-  run failed."}`. The graph `input` and `result` are still stored in history as
+  run failed."}` in a fixed `output.error` envelope for every failed status,
+  including opaque backend failures and rejected Activities. No backend output
+  fields or diagnostics are copied into failed responses; successful outputs
+  retain their existing shape. The graph `input` and `result` are still stored in history as
   application data and need the access controls described in
   [Security](security.md#shared-persistence-is-a-trust-boundary).
 

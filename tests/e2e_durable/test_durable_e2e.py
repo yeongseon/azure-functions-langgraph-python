@@ -32,6 +32,7 @@ import pytest
 import requests
 
 from ._contracts import (
+    PUBLIC_RUN_ERROR,
     check_create_response,
     check_public_error,
     check_success_evidence,
@@ -180,7 +181,7 @@ def test_same_thread_contention_rejects_second_run() -> None:
     _create(second, hold=1, thread_id=thread)
     rejected = _wait_terminal(second, 300)
     assert rejected["status"] == "error", rejected
-    assert rejected["output"]["activity_status"] == "rejected"
+    assert rejected["output"] == {"activity_status": "error", "error": PUBLIC_RUN_ERROR}
     assert _wait_terminal(first, 300)["status"] == "success"
     ev2 = _evidence_for(second)
     # A rejected delivery is an attempt at the Activity boundary, but never starts or enters a node.
