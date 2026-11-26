@@ -282,7 +282,7 @@ connection open for the duration of the run:
 
 The graph executes inside a Durable **activity**, never the orchestrator, so
 replay determinism is preserved. Durable history is not a replacement for
-LangGraph checkpoints. See the README "Durable async run lifecycle" section and
+LangGraph checkpoints. See the [support-scope decision draft](architecture.md#durable-support-scope-current-behavior-and-proposed-direction) and
 [`examples/durable_async_agent/`](../examples/durable_async_agent/).
 
 Durable removes the **HTTP request-response** ceiling, not the Function execution
@@ -345,6 +345,96 @@ The app's `max_input_depth` and `max_input_nodes` apply separately to Durable
 violations return a value-free `400 {"error": "..."}` without scheduling a run.
 Oversized bodies still return `413`, before JSON parsing. These checks do not add
 application authorization, submission deduplication or an Activity retry policy.
+
+#### App-owned DFApp migration (decision draft)
+
+**Optional migration design, pending the maintainer decisions in
+[#984](https://github.com/yeongseon/azure-functions-langgraph-python/issues/984).**
+Existing `async_runs="durable"` callers can keep the current API; this is not a
+removal notice or a requirement to migrate now. The proposed integrated example
+belongs to [Cookbook issue #350](https://github.com/yeongseon/azure-functions-cookbook-python/issues/350).
+The steps below describe application responsibilities, not a shipped replacement
+or a drop-in wire-compatible sample.
+
+The current built-in routes use the app-level host authentication and **do not
+invoke `LangGraphApp(authorize=...)`**. Function keys are not principal-to-run
+ownership. Do not expose the built-in routes to mutually untrusted principals
+on the assumption that the native callback protects them. See the
+[app-wide boundary and proposals](architecture.md#durable-support-scope-current-behavior-and-proposed-direction).
+
+1. **Own the Functions entry point.** Create an application-owned
+   `azure.durable_functions.DFApp(http_auth_level=func.AuthLevel.FUNCTION)` and
+   register a fixed HTTP starter with `route` and
+   `durable_client_input(client_name="client")`. Retain the same compiled graph
+   and checkpointer configuration in application code. Do not import this
+   package's private `durable/_*` handlers or assume that passing your `DFApp`
+   into `LangGraphApp` is a supported composition API. If native HTTP remains
+   needed, retain its existing host separately until composition is explicitly
+   supported and tested; coordinate shared checkpoint writers across both hosts.
+2. **Authorize before submission.** In the starter, authenticate a verified
+   principal, parse bounded input/config, allow-list graph selection and check
+   graph entitlement plus thread ownership. Derive tenant/thread identity from
+   protected application policy, not an asserted body field. Establish a
+   durable application-owned binding of principal/tenant, run ID and thread
+   before submitting. With the injected `DurableOrchestrationClient`, call
+   `await client.start_new("app_graph_orchestrator", instance_id=run_id,
+   client_input=payload)`. Use a fixed orchestrator name, not a caller-selected
+   management target. Handle the crash/unknown-outcome window between ownership
+   recording and submission with reconciliation, not blind duplicate creation.
+3. **Keep graph work in Activities.** Register a deterministic generator with
+   `orchestration_trigger(context_name="context")`; it reads `context.get_input()`
+   and yields `context.call_activity("app_graph_activity", payload)`. Register
+   the Activity with `activity_trigger(input_name="payload")`. Only the Activity
+   resolves and invokes the existing graph using `graph.invoke(...)` or
+   `await graph.ainvoke(...)`, with the authorized thread config. Keep network,
+   tools, clocks and business side effects out of the replayed orchestrator.
+4. **Own poll and cancel too.** Register app-owned routes that authenticate each
+   request and verify its protected principal-to-run binding **before** calling
+   `await client.get_status(run_id)` or
+   `await client.terminate(run_id, reason)`. Scope result visibility, sanitize
+   failures and keep reasons free of secrets. Decide a non-disclosing denial/
+   not-found policy. Do not return privileged Durable management URLs/keys to
+   callers as a shortcut around these checks; restrict direct backend and
+   alternate management access. Native `authorize` does not run inside your
+   Activity either: admission and any later revocation policy are app-owned.
+
+Moving invocation into your Activity transfers adapter responsibilities; it
+does not automatically retain the built-in lock, observer or result envelope:
+
+| Concern | Application-owned responsibility |
+| --- | --- |
+| Ownership | Enforce graph/thread entitlement at create and run ownership at every poll/cancel; protect the ownership mapping, retention and tenant isolation. This guide ships no run registry. |
+| Submission deduplication | Define tenant-scoped request keys, atomic claims, payload-conflict behavior and unknown-submission reconciliation. A chosen Durable instance ID or a check-then-start lookup is not an application-wide exactly-once protocol. Do not infer this guarantee from the built-in `run_id` field. |
+| Side-effect deduplication | Assume Activity redelivery. Carry a stable logical-operation key to tools/providers that atomically enforce it, covering the post-effect/pre-checkpoint crash window. Checkpoints and orchestrator replay do not make tool effects exactly-once. |
+| Bounded execution | Budget each Activity under plan/host execution limits; set independent LLM, tool, storage and retry budgets. Divide genuinely long workflows into bounded resumable operations, not a single unlimited graph call. A durable timer or orchestration termination does not abort an in-flight Activity. |
+| Checkpoint recovery and exclusion | Preserve checkpoint storage/namespace, authorized thread identity and schema compatibility. Acquire/release the shared distributed lock for all writers and retain it until graph work actually quiesces. Define resume versus fresh-input behavior and lease-loss handling; direct graph invocation does not acquire the adapter's lock automatically. Blob leases/guards are not storage fencing. |
+| Cancellation | Distinguish request acknowledgement, terminal orchestration status and actual worker quiescence. Add cooperative stop checks between bounded steps if needed; do not unlock or start conflicting recovery work merely because the orchestration is terminated. External effects need idempotency/compensation, not an assumed rollback. |
+| Results and operations | Specify the app's status/output schema, redaction, telemetry, retention/purge and backend-error policy. Durable's raw status is not automatically the adapter's normalized envelope. Test deployment changes against in-flight histories. |
+
+**Cut over without abandoning existing runs.** First validate app-owned create,
+poll, cancel, cross-principal denial, duplicate submission, interrupted Activity
+redelivery and checkpoint recovery with the actual graph. Give the new routes
+and orchestration functions distinct names, and use an isolated task hub for a
+separate host. Route only new submissions to the replacement. Keep old lifecycle
+routes, credentials policy and compatible orchestrator/Activity code available
+for outstanding old run IDs until their retention/drain policy permits removal;
+do not rewrite their histories or repoint old IDs into a new task hub. Preserve
+the mapping from run IDs to their owning host so poll/cancel still reach the
+right backend. A rollback must stop new submissions to the new path without
+resubmitting accepted work; neither terminal status nor elapsed drain time
+alone proves old Activities have stopped writing shared checkpoints.
+
+The API names above were checked against `azure-functions-durable` 1.7.0. They
+are wiring fragments, not a deployable security implementation. Follow the
+[Python v2 quickstart](https://learn.microsoft.com/en-us/azure/durable-task/durable-functions/quickstart-python-vscode),
+[instance-management APIs](https://learn.microsoft.com/en-us/azure/durable-task/common/durable-task-instance-management)
+and [orchestrator constraints](https://learn.microsoft.com/en-us/azure/durable-task/common/durable-task-code-constraints)
+for SDK details. App-specific validation and bounded real-runtime evidence
+remain necessary; the existing [#811](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811)
+work stays separate from release gates. The detailed cancellation and redelivery
+boundaries below correspond to
+[#809](https://github.com/yeongseon/azure-functions-langgraph-python/issues/809)
+and [#810](https://github.com/yeongseon/azure-functions-langgraph-python/issues/810).
 
 #### Cancellation of Durable runs
 
