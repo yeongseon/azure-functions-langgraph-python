@@ -1367,7 +1367,9 @@ new backfill and a clean audit**, because writes made while the index was off we
 
 **Verification status.** Fake-table and Azurite failure-injection coverage is supplemented by
 the real-Azure run below. The feature remains experimental: in-region latency, hot-partition
-throughput, sustained independent-process writers and maintainer acceptance remain open.
+throughput and sustained independent-process writers remain unproven. The maintainer
+[accepted the extra write cost and cross-partition consistency contract on 2026-11-24](https://github.com/yeongseon/azure-functions-langgraph-python/issues/801#issuecomment-7145694851)
+for the Experimental, default-off opt-in only; this is not a support-tier promotion.
 
 #### Real-Azure status-index evidence — 2026-11-24 (#801)
 
@@ -1376,8 +1378,9 @@ throughput, sustained independent-process writers and maintainer acceptance rema
 **client-to-Azure from a local workstation, not in-region**, including SDK decoding and oracle
 assertions. No VM/container/Functions compute was created. Sequential measurements on one
 client are not throughput, throttling, sustained multi-process or production certification.
-They inform, but do not make, the maintainer's write-cost, consistency-contract or support-tier
-decision. No issue checklist was changed.
+The measurements informed, but did not themselves make, the maintainer's decision recorded
+above. The evidence PR changed no issue checklist; the maintainer subsequently checked only
+the write-cost/consistency acceptance item. No support-tier promotion was made.
 
 **Repository reality.** Base `e62aea4` includes the index from #910. The older issue proposal
 saying recovery/backfill are not implemented is superseded by its 2026-11-21 checkpoint and

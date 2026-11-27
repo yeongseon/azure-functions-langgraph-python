@@ -888,7 +888,11 @@ operational points are:
 - **Roll back:** `disable_status_index()` first (readers scan after the cache TTL, default 30 s),
   then switch the option off, then optionally `disable_status_index(delete_rows=True)`. Re-enable
   only with a new backfill and clean audit.
-- Not measured on real Azure; the benefit and the write cost above are counted on a fake table.
+- **Measured scope:** the [2026-11-24 real-Azure run](adapter-reference.md#real-azure-status-index-evidence-2026-11-24-801)
+  records read/write amplification and latency at 1K, 10K and 100K threads. Latency is from a local
+  workstation, not in-region; small pages benefited, but `limit=1000` was slower at every size.
+  In-region latency, hot-partition throughput, sustained independent-process writers and scale
+  repair/marker propagation remain unproven. The feature stays Experimental and default-off.
 
 ### Concurrency controls
 
