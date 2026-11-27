@@ -56,6 +56,14 @@ async def test_the_cancellation_wins_over_a_failing_cleanup_release(
     assert lock.releases == ["owner-token"]
     failed = [r for r in caplog.records if "release failed after caller cancellation" in r.message]
     assert len(failed) == (1 if release_error is not None else 0)
+    if release_error is not None:
+        record = failed[0]
+        assert record.levelno == logging.ERROR
+        assert record.exc_info is not None
+        assert record.exc_info[1] is release_error
+        assert record.exc_info[2] is not None
+        assert record.__dict__["graph_name"] == "g"
+        assert record.__dict__["thread_id"] == "t1"
 
 
 async def test_the_activity_is_cancelled_not_failed_when_cleanup_release_raises() -> None:
