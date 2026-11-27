@@ -69,6 +69,7 @@ nav:
   - Maintainers:
       - Contributing Guidelines: contributing.md
       - Packaging Boundaries (Proposal): packaging-proposal.md
+      - Blob Fencing Evaluation (Proposal): blob-fencing-evaluation.md
       - Development: development.md
       - Testing: testing.md
       - Python 3.15 Candidate Probe: python-315-probe.md
