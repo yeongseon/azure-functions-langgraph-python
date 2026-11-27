@@ -79,10 +79,17 @@ loopback Blob/Queue/Table ports **15000/15001/15002** with an explicitly generat
 connection string (not `UseDevelopmentStorage=true`), then runs
 `func start --python --port 7571 --enableAuth`. A run-owned `TMPDIR` isolates
 Core Tools' secrets directory. A random function key is passed only in
-`x-functions-key`; the keyless first attempt must return `401` before the
-authorized first invoke can return `200`. Temporary keys, storage and raw logs
+`x-functions-key`; both the keyless attempt and a distinct non-empty wrong-key
+attempt must return `401` before the authorized first invoke can return `200`.
+Temporary keys, storage and raw logs
 are deleted and owned process groups stopped on success or failure. Port
 conflicts fail rather than reusing or stopping somebody else's service.
+The opt-in pytest command has a 300-second timeout: it sends `SIGTERM` to its
+certifier process group, allows up to 30 seconds for nested-runner cleanup,
+then sends `SIGKILL` and reaps the direct child. Offline tests exercise this
+cleanup with lightweight processes, without Core Tools or Azurite.
+The wrong-key probe was added after the recorded runs below; those historical
+tables are not evidence of wrong-key rejection.
 
 ## Recorded verification: 2026-11-25
 
