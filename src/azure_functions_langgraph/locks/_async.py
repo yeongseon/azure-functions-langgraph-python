@@ -162,11 +162,10 @@ async def acquire_thread_lock(
             except asyncio.CancelledError:
                 pass
             except Exception:
-                logger.error(
+                logger.exception(
                     "Thread lock release failed after caller cancellation; "
                     "propagating cancellation",
                     extra={"graph_name": graph_name, "thread_id": thread_id},
-                    exc_info=True,
                 )
         raise cancellation
 
