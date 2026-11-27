@@ -159,6 +159,11 @@ python = "3.11"
 features = ["dev", "docs"]
 
 [tool.hatch.envs.default.scripts]
+lint-workflows = [
+    "python tools/lint_release_workflows.py",
+    "python tools/lint_workflow_pins.py",
+    "python tools/lint_hatch_matrix.py",
+]
 format = "ruff format src tests"
 format-check = "ruff format --check src tests"
 style = "ruff check src tests && ruff format --check src tests"
