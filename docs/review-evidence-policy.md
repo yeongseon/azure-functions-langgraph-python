@@ -16,8 +16,10 @@ record. It does **not** reopen the zero-approval decision (it stands) and does *
 ## Roles
 
 - **Implementer** — the person or agent that authored the change (may be the maintainer).
-- **Independent reviewer** — a maintainer or contributor who did not author the diff.
-  A review is only independent evidence if it evaluates the PR's current head commit; a thread opened against an
+- **Independent reviewer** — a review source distinct from the implementer, such as a
+  maintainer or contributor who did not author the diff. Agents do not request GitHub Copilot
+  review (see `AGENTS.md`); if a review from any source already exists on the PR, it is classified
+  by the same rules below. A review is only independent evidence if it evaluates the PR's current head commit; a thread opened against an
   earlier commit is stale once the diff changes (see "SHA binding" below).
 
 Implementer-managed helper reviews (e.g. an agent re-running its own linter and calling the
