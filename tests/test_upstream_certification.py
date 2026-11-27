@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import subprocess
 import sys
 from typing import Any
 
 import pytest
 
 from tests.example_imports import load_example_file
+from tests.upstream_certification_process import run_certification
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -53,7 +53,7 @@ def test_host_probe_checks_key_rejection_continuity_and_isolation(
         thread = payload["config"]["configurable"]["thread_id"]
         text = payload["input"]["messages"][0]["content"]
         calls.append((thread, text, key))
-        if not key:
+        if key != "ephemeral-test-value":
             return 401, {}
         contents = (
             [text, "Hello!"]
@@ -74,18 +74,24 @@ def test_host_probe_checks_key_rejection_continuity_and_isolation(
     monkeypatch.setattr(host, "request", request)
     # When executing the same probe used by the real host runner.
     result = host.verify_calls(7571, name, "ephemeral-test-value")
-    # Then keyless rejection precedes authorized calls; stateful calls use two distinct threads.
+    # Then missing/wrong-key rejection precedes authorized calls on two distinct threads.
     assert result["keyless_status"] == 401
-    assert calls[:2] == [("a", "Hi", ""), ("a", "Hi", "ephemeral-test-value")]
-    assert len(calls) == (2 if name == "official_basic" else 4)
+    assert result["wrong_key_status"] == 401
+    assert calls[0] == ("a", "Hi", "")
+    assert calls[1][:2] == ("a", "Hi")
+    assert calls[1][2] and calls[1][2] != "ephemeral-test-value"
+    assert calls[2] == ("a", "Hi", "ephemeral-test-value")
+    assert len(calls) == (3 if name == "official_basic" else 5)
     assert "ephemeral-test-value" not in str(result)
+    assert calls[1][2] not in str(result)
 
 
 @pytest.mark.parametrize(
     "failure",
     [
         "auth-bypass",
-        "wrong-key",
+        "missing-only-auth",
+        "authorized-key-rejected",
         "lost-state",
         "leaked-state",
         "first-contents",
@@ -107,7 +113,9 @@ def test_host_probe_rejects_false_certification(
         text = payload["input"]["messages"][0]["content"]
         if not key:
             return (200 if failure == "auth-bypass" else 401), {}
-        if failure == "wrong-key":
+        if key != "ephemeral-test-value" and failure != "missing-only-auth":
+            return 401, {}
+        if failure == "authorized-key-rejected":
             return 401, {}
         if failure == "continuation-status" and text == "Continue":
             return 500, {}
@@ -131,7 +139,9 @@ def test_host_probe_rejects_false_certification(
     monkeypatch.setattr(host, "request", request)
     # When a fake host violates authorization or checkpoint semantics.
     # Then the runner fails rather than producing certification evidence.
-    with pytest.raises(RuntimeError):
+    with pytest.raises(
+        RuntimeError, match="wrong-key invoke" if failure == "missing-only-auth" else None
+    ):
         host.verify_calls(
             7571,
             "official_basic" if failure.startswith("basic-") else "official_conversation",
@@ -267,7 +277,7 @@ def test_published_wheel_local_host_opt_in(tmp_path: Path) -> None:
             "set RUN_UPSTREAM_WHEEL_CERTIFICATION=1"
         )
     # When explicitly enabled, run the complete checker as an external command.
-    subprocess.run(
+    run_certification(
         [
             sys.executable,
             str(ROOT / "scripts/certify_primary_examples.py"),
@@ -279,7 +289,6 @@ def test_published_wheel_local_host_opt_in(tmp_path: Path) -> None:
             "--output-dir",
             str(tmp_path),
         ],
-        check=True,
         timeout=300,
     )
     # Then both sanitized host records exist.
