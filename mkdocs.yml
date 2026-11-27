@@ -69,6 +69,7 @@ nav:
       - Contributing Guidelines: contributing.md
       - Development: development.md
       - Testing: testing.md
+      - Python 3.15 Candidate Probe: python-315-probe.md
       - API Contract Gate: api-contract-gate.md
       - Release Process: release_process.md
       - Review Evidence Policy: review-evidence-policy.md
