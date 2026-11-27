@@ -310,6 +310,8 @@ Output includes:
 Application Insights "func-langgraph-agent" was created for this Function App.
 ```
 
+> **Monitoring note**: When created without `--disable-app-insights true` or an explicit `--app-insights` resource, Azure CLI enables Application Insights and provisions a shared Log Analytics workspace (`DefaultWorkspace-<subscriptionId>-<regionCode>`) in a separate resource group `DefaultResourceGroup-<regionCode>` (where `<regionCode>` is an Azure region code, not `$LOCATION`). If you are running a temporary deployment and want a clean single-command deletion later, pass `--disable-app-insights true`.
+
 ### Step 7 — Create storage backends for LangGraph
 
 The platform-compatible routes need a blob container (for checkpoints) and a table (for thread metadata).
@@ -827,6 +829,54 @@ az group exists --name "$RESOURCE_GROUP"
 ```
 
 It prints `false` once the resource group is gone.
+
+### Check for default monitoring resources
+
+If you deployed without `--disable-app-insights true`, Azure CLI created an Application
+Insights component and connected it to a default Log Analytics workspace in
+`DefaultResourceGroup-<regionCode>`. Note that `<regionCode>` is a short Azure region
+code rather than the full `$LOCATION` string. That default workspace is not removed
+when you delete `$RESOURCE_GROUP`.
+
+Discover candidate default resource groups and workspaces:
+
+```bash
+# List default resource groups
+az group list \
+  --query "[?starts_with(name, 'DefaultResourceGroup-')].name" \
+  --output table
+
+# List default Log Analytics workspaces
+az monitor log-analytics workspace list \
+  --query "[?starts_with(name, 'DefaultWorkspace-')].[name, resourceGroup, location]" \
+  --output table
+```
+
+Confirm that no other resources in your subscription rely on that workspace. For instance,
+check whether any Application Insights components reference its resource ID:
+
+```bash
+# Check if any Application Insights components reference the default workspace
+az monitor app-insights component list \
+  --query "[?WorkspaceResourceId && contains(WorkspaceResourceId, 'DefaultWorkspace')].[name, resourceGroup]" \
+  --output table
+```
+
+Once confirmed unused, delete only that specific workspace:
+
+```bash
+az monitor log-analytics workspace delete \
+  --resource-group "<DEFAULT_RESOURCE_GROUP>" \
+  --workspace-name "<DEFAULT_WORKSPACE_NAME>" \
+  --yes --force
+```
+
+Do not delete the shared default resource group unless you verify it contains no other resources.
+If no other resources remain in the group, you can optionally delete it:
+
+```bash
+az group delete --name "<DEFAULT_RESOURCE_GROUP>" --yes --no-wait
+```
 
 ---
 

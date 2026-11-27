@@ -184,13 +184,29 @@ az storage account create --name "$STORAGE" --resource-group "$RESOURCE_GROUP" \
 
 az functionapp create --name "$APP" --resource-group "$RESOURCE_GROUP" \
   --storage-account "$STORAGE" --flexconsumption-location "$LOCATION" \
-  --runtime python --runtime-version 3.11 --functions-version 4
+  --runtime python --runtime-version 3.11 --functions-version 4 \
+  --disable-app-insights true
 
 # 4. Publish this example (run from examples/simple_agent)
 func azure functionapp publish "$APP"
 ```
 
 When publishing finishes, `func` prints the deployed function URLs.
+
+> **Why `--disable-app-insights true`?** By default, `az functionapp create` enables
+> Application Insights and automatically provisions a shared Log Analytics workspace
+> (`DefaultWorkspace-<subscription id>-<region code>`) in a separate resource group
+> (`DefaultResourceGroup-<region code>`, where `<region code>` is an Azure region code,
+> not `$LOCATION`). That external workspace survives after `$RESOURCE_GROUP`
+> is deleted and incurs pay-as-you-go costs. Passing `--disable-app-insights true`
+> prevents creating external monitoring resources, so deleting `$RESOURCE_GROUP`
+> at the end removes every resource created for this tutorial. The trade-off:
+> Application Insights logs and metrics are disabled for this quick demo. For production
+> telemetry, connect an explicit workspace in your resource group (see [deployment](deployment.md)).
+> Maintainer verification on 2026-11-27 confirmed that creating the app with
+> `--disable-app-insights true` leaves no Application Insights component and no
+> `DefaultResourceGroup-*` behind after deleting the resource group (recorded in
+> `examples/existing_function_app/README.md` under Azure evidence; covers one run).
 
 > **Not cloud-certified here.** The real-Azure release certification in this repo
 > covers a different lane (see the [stability table](https://github.com/yeongseon/azure-functions-langgraph-python#stability--rolling-0x-per-surface)
@@ -253,6 +269,16 @@ true-streaming option in [Usage](usage.md#stream-endpoint).
 ```bash
 az group delete --name "$RESOURCE_GROUP" --yes --no-wait
 ```
+
+Because `--disable-app-insights true` was passed during creation, no default Log
+Analytics workspace was created outside `$RESOURCE_GROUP`. Deleting `$RESOURCE_GROUP`
+removes every resource created for this tutorial.
+
+If you omitted `--disable-app-insights true`, Azure CLI created a shared Log Analytics
+workspace in `DefaultResourceGroup-<region code>` (not `$LOCATION`). That external
+workspace is not removed by deleting `$RESOURCE_GROUP`. Follow the check-and-delete steps in
+[deployment.md](deployment.md#check-for-default-monitoring-resources) to inspect candidate
+workspaces, verify that no other service uses them, and delete only the specific workspace.
 
 ## How this tutorial stays honest
 
