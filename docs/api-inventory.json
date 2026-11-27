@@ -43,7 +43,7 @@
       "name": "COSMOS_DISABLE_SSL"
     },
     {
-      "documented": false,
+      "documented": true,
       "modules": [
         "azure_functions_langgraph.checkpointers.cosmos"
       ],
@@ -1077,7 +1077,7 @@
         {
           "bases": [],
           "consumers": {
-            "docs": false,
+            "docs": true,
             "examples": false,
             "tests": true
           },
@@ -1296,7 +1296,7 @@
         {
           "bases": [],
           "consumers": {
-            "docs": false,
+            "docs": true,
             "examples": false,
             "tests": true
           },
