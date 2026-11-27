@@ -9,6 +9,10 @@
 - Azure Functions Core Tools (for local development)
 - An Azure Functions project using the [Python v2 programming model](https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python)
 
+Python 3.15 is not supported. The [isolated 3.15 pre-release probe](python-315-probe.md)
+records installation and dependency blockers without expanding package metadata
+or Azure hosting claims.
+
 ## Install from PyPI
 
 ```bash
