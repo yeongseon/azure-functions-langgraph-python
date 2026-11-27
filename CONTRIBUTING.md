@@ -152,6 +152,40 @@ or reinstall Hatch. `make doctor` only inspects the existing Hatch environment;
 it installs nothing and fails when prerequisites for `check` or `test` are missing.
 `make check` runs style checks and one type-check pass.
 
+### Local workflow-lint pilot
+
+`make lint-workflows` runs the existing release-wiring, action-pin and Hatch/matrix
+checks, in that order, through one Hatch script. A failed command stops the script
+and fails Make; no check is omitted. The repository maintainer owns this local
+caller and its vendored rules. It needs no token permissions, secrets or private
+dependencies. GitHub CI, installed-wheel tests, backend lanes, classification and
+release certification are unchanged; this is not a shared-workflow migration.
+
+The maintenance audit for #1015 found real corrections, not just hash drift:
+#452 changed the Hatch lint to reject an interpreter guard without direct pytest;
+#873 and #896 expanded the classifier for testing guidance and contract inputs.
+PR-title rules are inline in the workflow and described here; action-pin rules
+have no subsequent behavioral correction in their local history. These distinct
+repository policies do not justify a new external package without an identified
+owner, immutable version and fork-readable distribution. Shared-tool adoption
+remains deferred, with no quantified cross-repository maintenance saving claimed.
+
+The bounded pilot instead removes two redundant Hatch launches per local run.
+With Hatch 1.16.3 and Python 3.11.15 on Linux, seven warm `make lint-workflows`
+runs on base `8f63a6c` had a median of 0.5512 seconds (range 0.5338–0.5711).
+The same command after batching had a median of 0.2342 seconds (0.2279–0.2439):
+0.3170 seconds / 57.5% saved per invocation, about 31.7 seconds per 100 runs.
+These are local wall-clock measurements, not GitHub CI or maintenance-hours claims.
+Measure with `time.perf_counter()` around `subprocess.run(["make", "lint-workflows"],
+check=True)`, after one unmeasured warm-up; exclude environment installation.
+The three success outputs are unchanged. Tests inject a failure in each real lint
+to check nonzero status and fail-fast ordering through Make/Hatch.
+
+Rollback requires restoring the three separate `$(HATCH) run python tools/lint_*.py`
+recipes in Makefile and removing the `lint-workflows` Hatch script; the local lint
+implementations remain available and unchanged. The measured Hatch version is
+not a new dependency pin: an externally pinned shared-tool pilot remains undone.
+
 `make test-table` and `make test-cosmos` create a per-run Compose project on
 loopback-only default ports, and remove only that project on return, failure or
 interrupt. Stop your own conflicting services yourself; these targets never
