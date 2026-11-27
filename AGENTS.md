@@ -63,7 +63,8 @@ including after new pushes. Do not wait for a Copilot review before merging.
 Use the same criteria for human-authored and AI-assisted changes,
 including OpenCode, Codex, Claude Code, ChatGPT, Copilot and other agents.
 No tool-specific AI review, design consultation or automated approval is
-required by policy.
+required by policy. Agents do not need to run an Oracle or similar
+consultation as a step before opening or merging a PR.
 
 1. Keep one focused PR with tests, docs and honest validation evidence.
 2. Treat required **GitHub CI** checks on the final code state as
@@ -72,8 +73,8 @@ required by policy.
    compatibility, Azure tests and release requirements. CI runner type
    is not prescribed here.
 3. Review correctness, regression risk, scope, security, and API
-   compatibility. Oracle and `agent-review` are optional
-   **advisory** review sources, not human approval or test evidence.
+   compatibility. Any AI review output is **advisory** only, never human
+   approval or test evidence.
 4. Confirm final required checks and resolve or disposition defects.
    The responsible maintainer decides whether to merge. Changes to
    credentials, workflow permissions or publishing receive independent
