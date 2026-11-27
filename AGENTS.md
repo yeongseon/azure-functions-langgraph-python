@@ -81,6 +81,8 @@ required by policy.
 
 ## Issue Conventions
 
+Choose whether an issue is needed using [CONTRIBUTING.md — Issue or direct PR?](CONTRIBUTING.md#issue-or-direct-pr); the contributor-reserved protections above apply to either path.
+
 Follow these conventions when opening or editing issues in this repository.
 
 ### Repository scope

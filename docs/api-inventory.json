@@ -311,6 +311,13 @@
               "kind": "method",
               "name": "thread_store",
               "signature": "(store: Any) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "to_blueprint",
+              "signature": "() -> func.Blueprint",
+              "tier": "Experimental",
+              "tier_basis": "proposed in #993"
             }
           ],
           "name": "LangGraphApp",
@@ -820,6 +827,13 @@
               "kind": "method",
               "name": "thread_store",
               "signature": "(store: Any) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "to_blueprint",
+              "signature": "() -> func.Blueprint",
+              "tier": "Experimental",
+              "tier_basis": "proposed in #993"
             }
           ],
           "name": "LangGraphApp",
@@ -1119,6 +1133,12 @@
       ],
       "tier": "Beta",
       "tier_basis": "README"
+    },
+    {
+      "module": "azure_functions_langgraph.checkpointers._blob_hint",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
     },
     {
       "all": [],

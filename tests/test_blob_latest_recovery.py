@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+from typing import Any
 
 import pytest
 
@@ -38,15 +39,15 @@ async def test_fresh_reader_recovers_committed_state_after_hint_failure(
     upload = saver._upload_blob
     aupload = saver._aupload_blob
 
-    def fail_clean(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    def fail_clean(path: str, data: bytes, metadata: dict[str, str], **kwargs: Any) -> str:
         if path.endswith("latest.json") and json.loads(data).get("dirty") is not True:
             raise TimeoutError(path)
-        upload(path, data, metadata)
+        return upload(path, data, metadata, **kwargs)
 
-    async def afail_clean(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    async def afail_clean(path: str, data: bytes, metadata: dict[str, str], **kwargs: Any) -> str:
         if path.endswith("latest.json") and json.loads(data).get("dirty") is not True:
             raise TimeoutError(path)
-        await aupload(path, data, metadata)
+        return await aupload(path, data, metadata, **kwargs)
 
     monkeypatch.setattr(saver, "_upload_blob", fail_clean)
     monkeypatch.setattr(saver, "_aupload_blob", afail_clean)
@@ -94,21 +95,21 @@ async def test_failed_write_exposes_only_committed_markers(
             "interrupted": path.endswith("cp-002/checkpoint.bin"),
         }[phase]
 
-    def fail(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    def fail(path: str, data: bytes, metadata: dict[str, str], **kwargs: Any) -> str:
         if selected(path, data):
             if phase == "interrupted":
-                upload(path, data, metadata)
+                upload(path, data, metadata, **kwargs)
                 raise SystemExit("simulated process exit after marker")
             raise TimeoutError(path)
-        upload(path, data, metadata)
+        return upload(path, data, metadata, **kwargs)
 
-    async def afail(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    async def afail(path: str, data: bytes, metadata: dict[str, str], **kwargs: Any) -> str:
         if selected(path, data):
             if phase == "interrupted":
-                await aupload(path, data, metadata)
+                await aupload(path, data, metadata, **kwargs)
                 raise SystemExit("simulated process exit after marker")
             raise TimeoutError(path)
-        await aupload(path, data, metadata)
+        return await aupload(path, data, metadata, **kwargs)
 
     monkeypatch.setattr(saver, "_upload_blob", fail)
     monkeypatch.setattr(saver, "_aupload_blob", afail)
@@ -271,23 +272,25 @@ async def test_reader_during_write_cannot_clear_recovery_intent(
     upload = saver._upload_blob
     aupload = saver._aupload_blob
 
-    def pause_then_fail(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    def pause_then_fail(path: str, data: bytes, metadata: dict[str, str], **kwargs: Any) -> str:
         if path.endswith("cp-002/checkpoint.bin"):
             prior = reader.get_tuple(cfg)
             assert prior is not None
             assert prior.checkpoint["id"] == "cp-001"
         if path.endswith("latest.json") and json.loads(data).get("dirty") is False:
             raise TimeoutError(path)
-        upload(path, data, metadata)
+        return upload(path, data, metadata, **kwargs)
 
-    async def apause_then_fail(path: str, data: bytes, metadata: dict[str, str]) -> None:
+    async def apause_then_fail(
+        path: str, data: bytes, metadata: dict[str, str], **kwargs: Any
+    ) -> str:
         if path.endswith("cp-002/checkpoint.bin"):
             prior = await reader.aget_tuple(cfg)
             assert prior is not None
             assert prior.checkpoint["id"] == "cp-001"
         if path.endswith("latest.json") and json.loads(data).get("dirty") is False:
             raise TimeoutError(path)
-        await aupload(path, data, metadata)
+        return await aupload(path, data, metadata, **kwargs)
 
     monkeypatch.setattr(saver, "_upload_blob", pause_then_fail)
     monkeypatch.setattr(saver, "_aupload_blob", apause_then_fail)

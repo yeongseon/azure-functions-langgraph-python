@@ -859,7 +859,7 @@ class StreamingLangGraphApp:
                 execution_error if isinstance(exc, Exception) and execution_error else exc
             )
             if not isinstance(invoke_error, Exception):
-                raise invoke_error
+                raise invoke_error  # noqa: B904 - re-raises the captured exception as is
             logger.exception("Graph %s invoke failed", reg.name)
             return self._json_error(JSONResponse, 500, "Graph execution failed", ctx.run_id)
         finally:

@@ -29,7 +29,9 @@ from tests.test_checkpointers_azure_blob import (
 )
 from tests.test_checkpointers_azure_blob import (
     FakeResourceNotFoundError,
+    MatchConditions,
     MockContainerClient,
+    ResourceModifiedError,
     _checkpoint,
     _config,
     _metadata,
@@ -56,12 +58,15 @@ def _fake_azure_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
         "ResourceExistsError",
         (FakeResourceExistsError, CheckpointResourceExistsError),
     )
-    setattr(exceptions_mod, "HttpResponseError", FakeHttpResponseError)
+    setattr(exceptions_mod, "HttpResponseError", (FakeHttpResponseError, ResourceModifiedError))
+    setattr(exceptions_mod, "ResourceModifiedError", ResourceModifiedError)
+    core_mod = types.ModuleType("azure.core")
+    setattr(core_mod, "MatchConditions", MatchConditions)
     for name, module in (
         ("azure", types.ModuleType("azure")),
         ("azure.storage", types.ModuleType("azure.storage")),
         ("azure.storage.blob", blob_mod),
-        ("azure.core", types.ModuleType("azure.core")),
+        ("azure.core", core_mod),
         ("azure.core.exceptions", exceptions_mod),
     ):
         monkeypatch.setitem(sys.modules, name, module)

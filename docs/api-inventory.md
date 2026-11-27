@@ -112,7 +112,7 @@ Tier basis: `README` = named by the README stability table; `maintainer decision
 | `triggers` | Experimental | README | 8 | 8 |
 | `triggers.service_bus` | Experimental | README | 0 | 9 |
 
-29 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
+30 private modules (any path component starting with `_`) are **Internal** and carry no compatibility promise.
 
 ### Symbols by module
 
@@ -453,6 +453,15 @@ Tier basis: `README` = named by the README stability table; `maintainer decision
 | `default_message_mapper` | function | no | `ETD` |
 | `process_service_bus_message` | function | no | `ET-` |
 | `process_service_bus_message_async` | async function | no | `-T-` |
+
+### Method-level tier exceptions
+
+Methods not listed here inherit their module's tier.
+
+| Method | Signature | Tier | Basis |
+| --- | --- | --- | --- |
+| `azure_functions_langgraph.LangGraphApp.to_blueprint` | `() -> func.Blueprint` | Experimental | proposed in #993 |
+| `azure_functions_langgraph.app.LangGraphApp.to_blueprint` | `() -> func.Blueprint` | Experimental | proposed in #993 |
 
 ## Packaging and optional extras
 

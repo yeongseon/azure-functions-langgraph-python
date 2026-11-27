@@ -56,6 +56,7 @@ import argparse
 import asyncio
 from collections import Counter
 from collections.abc import Callable, Mapping
+from itertools import count
 import json
 import os
 import re
@@ -122,8 +123,9 @@ def classify(method: str, url: str, headers: Mapping[str, str]) -> str:
 
 
 class _Props:
-    def __init__(self, metadata: dict[str, str]) -> None:
+    def __init__(self, metadata: dict[str, str], etag: str = "fixture") -> None:
         self.metadata = metadata
+        self.etag = etag
 
 
 class _Stream:
@@ -134,9 +136,9 @@ class _Stream:
     body, so reading it costs no extra request.
     """
 
-    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+    def __init__(self, data: bytes, metadata: dict[str, str], etag: str = "fixture") -> None:
         self._data = data
-        self.properties = _Props(dict(metadata))
+        self.properties = _Props(dict(metadata), etag)
 
     def readall(self) -> bytes:
         return self._data
@@ -165,14 +167,28 @@ def make_counting_containers(
     def tick(kind: str, n: int = 1) -> None:
         counters.counts[kind] += n
 
+    etags: dict[tuple[int, str], str] = {}
+    versions = count()
+
     def _put(
-        blobs: Blobs, name: str, data: bytes, metadata: dict[str, str], overwrite: bool
-    ) -> None:
+        blobs: Blobs,
+        name: str,
+        data: bytes,
+        metadata: dict[str, str],
+        overwrite: bool,
+        **kwargs: Any,
+    ) -> dict[str, str]:
         if not overwrite and name in blobs:
             tick("PUT*")
             raise exists(name)
         tick("PUT" if overwrite else "PUT*")
+        if "etag" in kwargs and kwargs["etag"] != etags.get((id(blobs), name), "fixture"):
+            from azure.core.exceptions import ResourceModifiedError
+
+            raise ResourceModifiedError("hint changed", status_code=412)
         blobs[name] = (bytes(data), dict(metadata))
+        etag = etags[(id(blobs), name)] = str(next(versions))
+        return {"etag": etag}
 
     class _Client:
         def __init__(self, blobs: Blobs, name: str) -> None:
@@ -182,9 +198,11 @@ def make_counting_containers(
             if counters.latency_ms:
                 time.sleep(counters.latency_ms / 1000)
 
-        def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+        def upload_blob(
+            self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+        ) -> dict[str, str]:
             self._sleep()
-            _put(self._b, self._n, data, metadata, overwrite)
+            return _put(self._b, self._n, data, metadata, overwrite, **kwargs)
 
         def download_blob(self) -> _Stream:
             self._sleep()
@@ -192,7 +210,7 @@ def make_counting_containers(
             if self._n not in self._b:
                 raise not_found(self._n)
             data, metadata = self._b[self._n]
-            return _Stream(data, metadata)
+            return _Stream(data, metadata, etags.get((id(self._b), self._n), "fixture"))
 
         def get_blob_properties(self) -> _Props:
             self._sleep()
@@ -216,9 +234,11 @@ def make_counting_containers(
             if counters.latency_ms:
                 await asyncio.sleep(counters.latency_ms / 1000)
 
-        async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None:
+        async def upload_blob(
+            self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
+        ) -> dict[str, str]:
             await self._sleep()
-            _put(self._b, self._n, data, metadata, overwrite)
+            return _put(self._b, self._n, data, metadata, overwrite, **kwargs)
 
         async def download_blob(self) -> _AStream:
             await self._sleep()
@@ -226,7 +246,7 @@ def make_counting_containers(
             if self._n not in self._b:
                 raise not_found(self._n)
             data, metadata = self._b[self._n]
-            return _AStream(data, metadata)
+            return _AStream(data, metadata, etags.get((id(self._b), self._n), "fixture"))
 
         async def get_blob_properties(self) -> _Props:
             await self._sleep()

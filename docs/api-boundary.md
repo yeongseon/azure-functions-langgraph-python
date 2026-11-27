@@ -291,3 +291,23 @@ Revisit when:
   would forward.
 - Any Azure-hosted behavior (Flex Consumption or Premium), and other Core Tools or
   `azure-functions` versions.
+
+### Existing-app Blueprint composition follow-up (#993)
+
+`LangGraphApp.to_blueprint() -> azure.functions.Blueprint` is an additive,
+**Experimental** native-HTTP composition method, proposed for maintainer tier
+review. The existing class, constructor, `.function_app` and native HTTP wire
+contract retain their tiers. This solves the SDK's rejection of a child
+FunctionApp; it is not the single-graph shortcut or discoverable facade rejected
+in section 8, and introduces no new namespace or root export.
+
+The generated inventory records this method-level exception explicitly. The
+contract gate still conservatively treats members of `app.LangGraphApp` as
+Stable; no existing gate or tier is weakened. Adding the method is non-breaking,
+so no classification exception or published-release baseline rewrite is needed.
+
+See [composition contracts](usage.md#existing-app-composition-experimental) for
+route names, health conflicts, auth and the configure/register/export/index
+lifecycle. Platform, Durable and Service Bus exports are rejected. Local
+Core Tools evidence is not built-wheel Azure certification; #993's Azure
+acceptance item remains separate.

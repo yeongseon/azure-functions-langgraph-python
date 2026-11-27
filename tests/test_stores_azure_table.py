@@ -310,8 +310,10 @@ def test_try_acquire_returns_none_after_retries_exhausted() -> None:
 def test_try_acquire_raises_key_error_when_get_entity_404() -> None:
     store, _ = _new_store()
 
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError) as raised:
         store.try_acquire_run_lock("missing")
+
+    assert isinstance(raised.value.__cause__, FakeResourceNotFoundError)
 
 
 def test_try_acquire_raises_key_error_when_update_404() -> None:
@@ -320,8 +322,10 @@ def test_try_acquire_raises_key_error_when_update_404() -> None:
     thread = store.create()
     table_client.raise_not_found_on_update = True
 
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError) as raised:
         store.try_acquire_run_lock(thread.thread_id)
+
+    assert isinstance(raised.value.__cause__, FakeResourceNotFoundError)
 
 
 def test_try_acquire_assistant_mismatch_raises() -> None:

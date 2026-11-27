@@ -436,6 +436,100 @@ Per-thread writer exclusion for native, streaming, Durable and trigger runs:
 
 Optional Durable Functions async-run control plane (`durable` extra, enabled with `async_runs="durable"`): create/get/cancel handlers (`_lifecycle.py`), a deterministic orchestrator (`_orchestrator.py`) and an activity that executes the graph (`_activity.py`), with pure state models in `_state.py`. Only `_runtime.py` touches `azure.durable_functions`, imported lazily. Graphs run inside activities, never orchestrators.
 
+#### Durable support scope: current behavior and proposed direction
+
+**Decision draft for [#984](https://github.com/yeongseon/azure-functions-langgraph-python/issues/984).**
+The proposals below need explicit maintainer acceptance or revision. They are
+not an accepted deprecation policy, a removal notice or a stability promotion.
+The current API remains available pending an explicit compatibility and
+migration decision. Default hosting and the existing **Experimental** tier
+remain unchanged on the rolling **0.x** line.
+
+**Current supported surface, not a broader guarantee:**
+
+- `async_runs=False` remains the default. Opting into `async_runs="durable"`
+  builds a `DFApp` and adds create, poll and cancel routes alongside the native
+  routes; it requires the optional `durable` extra.
+- The run ID is the Durable instance ID. Create submits one orchestration;
+  its deterministic orchestrator schedules one Activity that invokes the
+  registered graph. This is not a translation of graph nodes into Activities.
+  Durable instance state supplies lifecycle status, not a second run registry.
+- The Activity uses the configured, checkpoint-storage-scoped `ThreadLock`
+  when the graph has a checkpointer and the payload has a thread ID. It does
+  not acquire the Platform thread-store run lock. Durable history and LangGraph
+  checkpoint state are separate recovery layers.
+- Activity redelivery can repeat graph execution and external effects.
+  Cancellation acknowledges an orchestration termination request, not worker
+  stoppage or rollback. The [production guide](production-guide.md#async-runs-via-durable-functions-experimental)
+  retains the detailed timeout, status, redelivery and cancellation contracts.
+
+**Current app-wide trust boundary.** Built-in create/poll/cancel routes inherit
+the app-level host `auth_level`. They do **not** call
+`LangGraphApp(authorize=...)`. The topology check prevents a stricter per-graph
+host-auth requirement from being bypassed through shared routes; it does not
+establish principal, tenant, graph, thread or run ownership. Function keys alone
+do not establish per-principal ownership for any lifecycle operation. Possession
+of a run ID is not authorization. Treat these routes as a trusted app-wide
+control plane, not a tenant-isolated API. A multi-principal application needs
+an independently enforced ownership boundary on every operation, with direct
+backend access prevented; setting the native authorizer is insufficient.
+
+**Proposals for the maintainer to accept or change:**
+
+1. **Existing-caller maintenance.** Keep existing experimental callers working
+   while prioritizing correctness, security and compatibility hardening over
+   new built-in control-plane features. Assess incompatible corrections under
+   the existing 0.x classification/migration policy, publish their impact and
+   retain regression coverage. This proposes no support SLA, fixed maintenance
+   window or blanket Stable guarantee. Existing-caller hardening is tracked
+   separately in [#979](https://github.com/yeongseon/azure-functions-langgraph-python/issues/979),
+   [#980](https://github.com/yeongseon/azure-functions-langgraph-python/issues/980),
+   [#981](https://github.com/yeongseon/azure-functions-langgraph-python/issues/981),
+   [#985](https://github.com/yeongseon/azure-functions-langgraph-python/issues/985)
+   and [#986](https://github.com/yeongseon/azure-functions-langgraph-python/issues/986);
+   this draft neither implements nor claims completion of those changes.
+2. **Example-led integration.** Focus new Durable integration guidance on an
+   app-owned `DFApp` starter and Activities invoking an existing graph, coordinated
+   with [Cookbook issue #350](https://github.com/yeongseon/azure-functions-cookbook-python/issues/350).
+   That issue tracks the integrated recipe, not a prerequisite for native HTTP
+   or proof that a replacement is already available. See the
+   [migration responsibilities](production-guide.md#app-owned-dfapp-migration-decision-draft).
+3. **Deprecation consideration, not a decision.** Consider deprecation only after
+   checking actual caller usage and migration blockers, demonstrating that the
+   app-owned recipe covers their needs, and finding that the built-in surface's
+   maintenance/security cost is not justified by distinct demand. Any actual
+   deprecation needs a separate explicit maintainer decision: affected contracts,
+   compatibility classification, notice and overlap period, migration validation,
+   treatment of in-flight runs and a rollback path. No removal date or automatic
+   inactivity/download threshold is proposed here; absence of reports is not
+   evidence of absence of callers.
+4. **Continued investment evidence.** Consider first-class built-in support when
+   independent external adopters demonstrate repeated, reproducible needs that
+   app-owned composition cannot cleanly meet. Gather opt-in reports with package,
+   Python/SDK and hosting versions, topology, workload bounds, lifecycle API use,
+   ownership requirements, migration blockers and operational cost. Require
+   reproducible restart/redelivery, cancellation, checkpoint/lock handoff and
+   long-running deployment-compatibility evidence for the proposed support scope,
+   plus a credible maintenance owner and test budget. Compare recipe effort with
+   built-in benefit. Raw package downloads, stars and native HTTP certification
+   alone cannot establish Durable adoption or correctness. The maintainer must
+   choose the evidence threshold and scope; investment does not itself promote
+   the tier.
+5. **Authorization prerequisite for a future control plane.** Any future built-in
+   multi-principal create/poll/cancel API would need authorization equivalent to
+   the app-owned boundary: authenticated principal, graph/thread entitlement at
+   creation, protected principal-to-run binding and ownership checks before poll
+   or cancel, including sensitive output access and alternate management paths.
+   A native callback or function-key gate alone is not that contract. Its design
+   and migration require separate approval; this proposal adds no callback or
+   registry now.
+
+These decisions belong to [#984](https://github.com/yeongseon/azure-functions-langgraph-python/issues/984)
+within the [#410 roadmap](https://github.com/yeongseon/azure-functions-langgraph-python/issues/410).
+The separate [#811 Durable certification work](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811)
+stays open. No new release gate, hosting default, run registry or graph engine
+is introduced by this draft.
+
 ### `triggers/`
 
 Event-driven adapters. `service_bus.py` drives a graph from an Azure Service Bus trigger (`ServiceBusMessageLike`, `default_message_mapper`, `ThreadContentionError`); `_session_topology.py` validates the session-exclusive topology.

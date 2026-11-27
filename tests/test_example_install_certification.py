@@ -65,6 +65,67 @@ def test_candidate_lane_requires_candidate_wheel() -> None:
         parse_args(["candidate"])
 
 
+def test_official_selection_and_local_host_are_explicit(tmp_path: Path) -> None:
+    # Given an opt-in real-host request limited to the upstream examples.
+    # When parsing it, no installs or processes are started.
+    config = parse_args(
+        [
+            "published",
+            "--examples",
+            "official_langgraph_basic",
+            "official_langgraph_conversation",
+            "--local-host",
+            "--host-port",
+            "7571",
+            "--storage-port",
+            "15000",
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+    # Then the selected examples and assigned ports are preserved.
+    assert config.examples == ("official_langgraph_basic", "official_langgraph_conversation")
+    assert (config.local_host, config.host_port, config.storage_port) == (True, 7571, 15000)
+
+
+def test_default_certification_includes_official_examples_without_host() -> None:
+    # Given the default published lane.
+    # When selecting its inventory.
+    config = parse_args(["published"])
+    # Then both upstream graphs join the original learning path, with no host opt-in.
+    assert config.examples == (*PRIMARY_EXAMPLES, *_CERTIFY.OFFICIAL_EXAMPLES)
+    assert len(_CERTIFY.OFFICIAL_EXAMPLES) == 2
+    assert not config.local_host
+
+
+def test_candidate_install_preserves_extras_and_ignores_source_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Given an adapter extra, a candidate wheel and a parent source-tree import path.
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("azure-functions-langgraph[azure-blob]==0.14.2\nlanggraph>=1,<2\n")
+    wheel = tmp_path / "candidate.whl"
+    venv = tmp_path / "venv"
+    monkeypatch.setenv("PYTHONPATH", "/source/tree")
+    commands: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def run(command: list[str], *, env: dict[str, str] | None = None) -> str:
+        commands.append((command, env))
+        return ""
+
+    monkeypatch.setattr(_CERTIFY, "_run", run)
+    config = parse_args(["candidate", "--wheel", str(wheel), "--output-dir", str(tmp_path)])
+    # When installing with subprocesses replaced at the command boundary.
+    _CERTIFY._install(config, requirements, venv)
+    # Then only the adapter changes and every installer is scoped to the throwaway venv.
+    assert (tmp_path / "requirements-without-adapter.txt").read_text() == "langgraph>=1,<2\n"
+    assert commands[1][0][-1] == f"azure-functions-langgraph[azure-blob] @ {wheel.as_uri()}"
+    assert all(
+        env is not None and env["VIRTUAL_ENV"] == str(venv) and "PYTHONPATH" not in env
+        for _, env in commands[1:]
+    )
+
+
 def test_default_output_directory_uses_system_temporary_directory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
