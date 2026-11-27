@@ -92,5 +92,32 @@ binding and complete route inventory are asserted alongside upstream parity.
 Local Core Tools/Azurite results are recorded in the implementing PR. They do
 not certify a deployed Azure plan or timer recovery. Core Tools does not enforce
 function keys by default; deployed HTTP routes require keys, except anonymous
-liveness. Built-wheel real-Azure verification is still pending under #993,
-using the safe cleanup work tracked by #978.
+liveness.
+
+## Azure evidence (2026-11-27)
+
+One maintainer-authorized manual deployment for #993, not an automated lane, a
+release certification or a claim about other plans. It deployed a copy of this
+directory with the adapter built from `main` at `bd01cc2` (wheel
+sha256 `d4f8568bc27c623fb8d03c7e9b48c34399bb015d48549bafd959f129fdf25a82`, `0.14.2`, built with `uv build --wheel`) bundled under
+`wheels/` and referenced from `requirements.txt` by local path. `to_blueprint()`
+is not in the published `0.14.2`, so a successful registration also shows the
+bundled wheel, not PyPI, was installed. One temporary resource group, deleted
+afterwards.
+
+| Item | Value |
+| --- | --- |
+| Plan / runtime | Flex Consumption, Python 3.11, `koreacentral`, Functions v4 |
+| Tools | Azure CLI 2.83.0, Core Tools 4.8.0: `func azure functionapp publish <APP> --python --build remote` |
+| App setup | `az functionapp create ... --disable-app-insights true`, so no Application Insights or default Log Analytics workspace was created |
+| Trigger inventory | 7 functions: `existing_http` (HTTP), `existing_timer` (timer, `0 */5 * * * *`, `runOnStartup=false`, `useMonitor=true`), `aflg_health`, `aflg_health_details`, `aflg_official_basic_invoke`, `aflg_official_basic_stream`, `aflg_official_basic_state` |
+| `GET /api/health` (no key) | `200`, `{"status":"ok"}` |
+| `GET /api/existing` without key / with function key | `401` / `200`, `existing HTTP still works` |
+| `POST /api/graphs/official_basic/invoke` without key / wrong key | `401` / `401` |
+| Same call with the function key | `200`; `messages` = `Hi`, `Hello!`, `extra_field` = `10` (equal to the upstream baseline) |
+| `POST /api/graphs/official_basic/stream` with key | `200`, 3 SSE frames (two `data`, one `end`) |
+| Cleanup | Resource group deleted and the deletion awaited; `az group exists` returned `false`; no tagged resource remained and no `DefaultResourceGroup-*` was created |
+
+Not exercised: a timer firing, timer recovery after a host restart, thread
+storage, other plans or regions, and multi-user authorization. First requests
+can include a cold start, so no latency is recorded.
