@@ -53,6 +53,9 @@ The runtime inventories and baseline/HTTP results are recorded per example by
 virtualenvs and asserts that imports come from the installed package, not `src/`.
 Regular offline unit tests never install packages or start these processes;
 the live local-host option requires `--local-host` explicitly.
+The current probe requires `401` for both a missing key and a distinct non-empty
+wrong key before the authorized invoke. The wrong-key check was added after
+the recorded run above; that table is evidence only of keyless rejection.
 Existing-app insertion (#994 item 3) is a follow-up to #993 / Draft PR #998.
 
 ### Historical baseline (2026-11-05)

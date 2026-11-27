@@ -91,6 +91,10 @@ def verify_calls(port: int, name: str, key: str) -> dict[str, Any]:
     status, _ = request(port, path, payload)
     if status != 401:
         raise RuntimeError("keyless invoke must be rejected")
+    wrong_key = ("A" if key.startswith("B") else "B") + key[1:]
+    status, _ = request(port, path, payload, wrong_key)
+    if status != 401:
+        raise RuntimeError("wrong-key invoke must be rejected")
     status, output = request(port, path, payload, key)
     if status != 200:
         raise RuntimeError("authorized first invoke failed")
@@ -98,7 +102,12 @@ def verify_calls(port: int, name: str, key: str) -> dict[str, Any]:
     if name == "official_basic":
         if first != ["Hi", "Hello!"] or output["output"]["extra_field"] != 10:
             raise RuntimeError("basic host output differs from upstream baseline")
-        return {"keyless_status": 401, "authorized_status": 200, "contents": [first]}
+        return {
+            "keyless_status": 401,
+            "wrong_key_status": 401,
+            "authorized_status": 200,
+            "contents": [first],
+        }
     payload["input"]["messages"][0]["content"] = "Continue"
     status, output = request(port, path, payload, key)
     if status != 200:
@@ -118,6 +127,7 @@ def verify_calls(port: int, name: str, key: str) -> dict[str, Any]:
         raise RuntimeError("isolated thread contains unexpected conversation state")
     return {
         "keyless_status": 401,
+        "wrong_key_status": 401,
         "authorized_status": 200,
         "contents": [first, second, isolated],
         "continuity": True,
