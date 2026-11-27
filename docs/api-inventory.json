@@ -970,7 +970,9 @@
       "symbols": [
         {
           "bases": [
-            "BaseCheckpointSaver[str]"
+            "BaseCheckpointSaver[str]",
+            "_BlobLayout",
+            "_BlobStorage"
           ],
           "consumers": {
             "docs": true,
@@ -1135,7 +1137,25 @@
       "tier_basis": "README"
     },
     {
+      "module": "azure_functions_langgraph.checkpointers._blob_clients",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
       "module": "azure_functions_langgraph.checkpointers._blob_hint",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.checkpointers._blob_layout",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.checkpointers._blob_storage",
       "public": false,
       "tier": "Internal",
       "tier_basis": "private module"
@@ -1147,7 +1167,9 @@
       "symbols": [
         {
           "bases": [
-            "BaseCheckpointSaver[str]"
+            "BaseCheckpointSaver[str]",
+            "_BlobLayout",
+            "_BlobStorage"
           ],
           "consumers": {
             "docs": true,
