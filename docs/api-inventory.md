@@ -176,7 +176,7 @@ Tier basis: `README` = named by the README stability table; `maintainer decision
 | --- | --- | --- | --- |
 | `AzureBlobCheckpointSaver` | class | yes | `ETD` |
 | `OrphanedValueCollectionResult` | dataclass | yes | `-T-` |
-| `close_cosmos_checkpointer` | function | yes | `-T-` |
+| `close_cosmos_checkpointer` | function | yes | `-TD` |
 | `create_cosmos_checkpointer` | function | yes | `ETD` |
 | `create_postgres_checkpointer` | function | yes | `ETD` |
 | `create_sqlite_checkpointer` | function | yes | `ETD` |
@@ -194,7 +194,7 @@ Tier basis: `README` = named by the README stability table; `maintainer decision
 
 | Symbol | Kind | In `__all__` | Consumers |
 | --- | --- | --- | --- |
-| `close_cosmos_checkpointer` | function | yes | `-T-` |
+| `close_cosmos_checkpointer` | function | yes | `-TD` |
 | `create_cosmos_checkpointer` | function | yes | `ETD` |
 | `logger` | alias | no | `ETD` |
 
@@ -569,7 +569,7 @@ Routes are shown relative to the Functions host `routePrefix` (default `/api`). 
 | `COSMOSDB_ENDPOINT` | `checkpointers.cosmos` | yes |
 | `COSMOSDB_KEY` | `checkpointers.cosmos` | yes |
 | `COSMOS_DISABLE_SSL` | `checkpointers.cosmos` | yes |
-| `COSMOS_KEY` | `checkpointers.cosmos` | no |
+| `COSMOS_KEY` | `checkpointers.cosmos` | yes |
 
 ## Public module symbols without an in-repo consumer
 

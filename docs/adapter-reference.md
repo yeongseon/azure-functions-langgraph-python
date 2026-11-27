@@ -1698,18 +1698,26 @@ For workloads that already run a managed database (or need state shared across m
 
 Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist. The Cosmos DB helper accepts an endpoint and key, temporarily wires the upstream `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` environment variables, and directly instantiates the upstream `CosmosDBSaver`; that helper path is deprecated because unrelated threads can observe those process-global values during construction:
 
-> **Authentication — configure upstream credentials once at process startup.** The supported `langgraph-checkpoint-cosmosdb` range (`>=0.2.0,<0.5`; verified with 0.4.0) exposes no endpoint, credential, or client constructor injection. `CosmosDBSaver` reads `COSMOSDB_ENDPOINT` and optional `COSMOSDB_KEY` directly from the process environment. Set those application settings before the Functions worker starts and instantiate the upstream saver directly. With `COSMOSDB_KEY` absent, upstream uses `DefaultAzureCredential` (Managed Identity, `az login`, or service principal). With `COSMOSDB_KEY` present, it uses key authentication.
+> **Authentication — configure upstream credentials once at process startup.** The ten published versions allowed by `langgraph-checkpoint-cosmosdb>=0.2.0,<0.5` (0.2.3–0.4.0, inspected 2026-11-28) expose no usable endpoint, credential, or client injection. `from_conn_info` is not a working alternative. `CosmosDBSaver` reads `COSMOSDB_ENDPOINT` and optional `COSMOSDB_KEY` directly from the process environment. Set those application settings before the Functions worker starts and instantiate the upstream saver directly. With `COSMOSDB_KEY` absent, upstream uses `DefaultAzureCredential` (Managed Identity, `az login`, or service principal). With `COSMOSDB_KEY` present, it uses key authentication. See the [version evidence and caller-managed migration](cosmos-migration.md) for prerequisites and limitations.
 
 ```python
-import os
 from langgraph_checkpoint_cosmosdb import CosmosDBSaver
 
-os.environ["COSMOSDB_ENDPOINT"] = "https://<account>.documents.azure.com:443/"
-# Leave COSMOSDB_KEY unset → upstream uses DefaultAzureCredential (Managed Identity)
+# Configure COSMOSDB_ENDPOINT before worker startup, not in this module.
+# Leave COSMOSDB_KEY unset for DefaultAzureCredential; set it for key auth.
 checkpointer = CosmosDBSaver(database_name="langgraph", container_name="checkpoints")
 ```
 
 > Grant the Function App's identity a Cosmos DB data-plane role (e.g. *Cosmos DB Built-in Data Contributor*) on the account. For key auth, configure both `COSMOSDB_ENDPOINT` and `COSMOSDB_KEY` as startup application settings and use the same direct constructor. Do not set either value temporarily around construction: environment variables are process-global, so a lock cannot prevent unrelated threads from observing them. `create_cosmos_checkpointer` remains available for compatibility but emits `DeprecationWarning` and provides no credential-isolation guarantee.
+
+Direct-saver callers own client shutdown after graph work stops; the helper's
+`close_cosmos_checkpointer` rejects savers it did not create. Identity callers
+must pre-provision database/container with `/partition_key`; prefer testing
+0.4.0 or at least the documented 0.2.8 line, not the declared floor's extra
+create-container behavior. The helper-wide warning and `credential=` alias
+warning are separate; **no retirement version is approved for either**. Their
+[separate release prerequisites](cosmos-migration.md#separate-deprecations-and-release-prerequisites)
+remain maintainer decisions.
 
 ```python
 import os
