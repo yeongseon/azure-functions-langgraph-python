@@ -445,6 +445,32 @@ The current API remains available pending an explicit compatibility and
 migration decision. Default hosting and the existing **Experimental** tier
 remain unchanged on the rolling **0.x** line.
 
+##### Acceptance audit after PR #1002
+
+[PR #1002](https://github.com/yeongseon/azure-functions-langgraph-python/pull/1002)
+published this decision draft and the migration responsibilities below. Its
+merge review explicitly states that publication accepted none of the proposals.
+The issue must therefore remain open; documenting a proposal is not adopting it.
+
+| #984 checklist area | Evidence already delivered | Remaining decision or work |
+| --- | --- | --- |
+| Supported 0.x behavior, maintenance and deprecation/investment conditions | Current surface below; proposals 1, 3 and 4 | Maintainer acceptance or revision of maintenance expectations and decision conditions; no SLA, removal date or evidence threshold has been accepted here. |
+| App-owned `DFApp` migration and operational responsibilities | [Migration design](production-guide.md#app-owned-dfapp-migration-decision-draft), covering ownership, both kinds of deduplication, bounded Activities, checkpoint recovery, cancellation and cutover | The documentation requirement is delivered. It is not a runnable replacement or verified production migration. |
+| Cookbook coordination, adoption evidence and API preservation | Proposal 2 links Cookbook #350; its reciprocal coordination comment links #984. Proposal 4 defines candidate evidence; this change preserves the API. | The integrated recipe remains tracked in Cookbook #350. Choosing the investment threshold and support direction still requires the maintainer. |
+| App-wide trust boundary and equivalent future protections | Current boundary below; migration steps 2 and 4; proposal 5 | Current create/poll/cancel ownership limitations and app-owned enforcement are documented. The future built-in authorization requirement remains a proposal, not an implemented or accepted contract. |
+
+The recorded code-quality reviews on #1002 report **no open code findings**;
+they identify unresolved policy acceptance, not a missing runtime fix. The merge
+self-review did not verify the cited SDK signatures. Those names remain wiring
+guidance rather than an executable security sample. Regression coverage in
+`tests/test_durable_trust_boundary.py` exercises the registered lifecycle handlers
+with a denying native authorizer; `tests/test_per_graph_auth_guard.py` separately
+tests the stricter per-graph host-auth guard. The lifecycle tests unwrap the SDK's
+client-binding conversion and supply an already-injected client. These tests
+describe today's boundary, not a promise to retain
+the callback bypass if a future authorization design is approved. In-process
+client doubles do not certify host key enforcement, tenant isolation or Azure.
+
 **Current supported surface, not a broader guarantee:**
 
 - `async_runs=False` remains the default. Opting into `async_runs="durable"`

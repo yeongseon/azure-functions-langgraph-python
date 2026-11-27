@@ -368,9 +368,16 @@ on the assumption that the native callback protects them. See the
    `durable_client_input(client_name="client")`. Retain the same compiled graph
    and checkpointer configuration in application code. Do not import this
    package's private `durable/_*` handlers or assume that passing your `DFApp`
-   into `LangGraphApp` is a supported composition API. If native HTTP remains
-   needed, retain its existing host separately until composition is explicitly
-   supported and tested; coordinate shared checkpoint writers across both hosts.
+    into `LangGraphApp` is a supported composition API. Native classic HTTP now
+    has the experimental [existing-app Blueprint export](usage.md#existing-app-composition-experimental):
+    a separately configured native-only adapter exports `to_blueprint()`, and the
+    parent app registers it once with `register_functions`. That export rejects
+    `async_runs="durable"`, Platform and Service Bus registrations; it does not
+    migrate built-in Durable lifecycle routes or their histories. Validate any
+    app-owned `DFApp` composition and route/auth conflicts before deployment;
+    the HTTP + timer example is not Durable-host certification. Keeping the
+    native host separate remains an option; coordinate shared checkpoint writers
+    in either topology.
 2. **Authorize before submission.** In the starter, authenticate a verified
    principal, parse bounded input/config, allow-list graph selection and check
    graph entitlement plus thread ownership. Derive tenant/thread identity from
