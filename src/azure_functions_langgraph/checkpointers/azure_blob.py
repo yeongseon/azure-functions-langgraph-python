@@ -12,7 +12,7 @@ import importlib
 import json
 import logging
 import random
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, TypeVar, cast
 from urllib.parse import quote, unquote
 
 from langchain_core.runnables import RunnableConfig
@@ -28,6 +28,30 @@ from langgraph.checkpoint.base import (
 )
 from langgraph.checkpoint.serde.base import SerializerProtocol
 
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _AsyncBlobClientProtocol as _AsyncBlobClientProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _AsyncBlobDownloadProtocol as _AsyncBlobDownloadProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _AsyncContainerClientProtocol as _AsyncContainerClientProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _BlobClientProtocol as _BlobClientProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _BlobDownloadProtocol as _BlobDownloadProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _BlobItemProtocol as _BlobItemProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _BlobPropertiesProtocol as _BlobPropertiesProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _ContainerClientProtocol as _ContainerClientProtocol,
+)
 from azure_functions_langgraph.checkpointers._blob_hint import (
     BlobCheckpointConflictError as BlobCheckpointConflictError,
 )
@@ -165,68 +189,6 @@ class OrphanedValueCollectionResult:
     deleted: list[str] = field(default_factory=list)
     skipped_namespaces: list[tuple[str, str]] = field(default_factory=list)
     skipped_recent: list[str] = field(default_factory=list)
-
-
-class _BlobDownloadProtocol(Protocol):
-    # ``StorageStreamDownloader.properties`` is a ``BlobProperties`` built from the
-    # response headers of the same GET that carries the body, so its ``metadata`` costs no
-    # extra request. Typed optional so duck-typed clients without it keep working.
-    @property
-    def properties(self) -> _BlobPropertiesProtocol | None: ...
-
-    def readall(self) -> bytes: ...
-
-
-class _BlobPropertiesProtocol(Protocol):
-    metadata: dict[str, str] | None
-
-
-class _BlobClientProtocol(Protocol):
-    def upload_blob(
-        self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
-    ) -> dict[str, Any]: ...
-
-    def download_blob(self) -> _BlobDownloadProtocol: ...
-
-    def get_blob_properties(self) -> _BlobPropertiesProtocol: ...
-
-    def delete_blob(self) -> None: ...
-
-
-class _BlobItemProtocol(Protocol):
-    name: str
-    last_modified: datetime | None
-
-
-class _ContainerClientProtocol(Protocol):
-    def get_blob_client(self, blob: str) -> _BlobClientProtocol: ...
-
-    def list_blobs(self, name_starts_with: str = "") -> Sequence[_BlobItemProtocol]: ...
-
-
-class _AsyncBlobDownloadProtocol(Protocol):
-    @property
-    def properties(self) -> _BlobPropertiesProtocol | None: ...
-
-    async def readall(self) -> bytes: ...
-
-
-class _AsyncBlobClientProtocol(Protocol):
-    async def upload_blob(
-        self, data: bytes, metadata: dict[str, str], overwrite: bool, **kwargs: Any
-    ) -> dict[str, Any]: ...
-
-    async def download_blob(self) -> _AsyncBlobDownloadProtocol: ...
-
-    async def get_blob_properties(self) -> _BlobPropertiesProtocol: ...
-
-    async def delete_blob(self) -> None: ...
-
-
-class _AsyncContainerClientProtocol(Protocol):
-    def get_blob_client(self, blob: str) -> _AsyncBlobClientProtocol: ...
-
-    def list_blobs(self, name_starts_with: str = "") -> AsyncIterator[_BlobItemProtocol]: ...
 
 
 logger = logging.getLogger(__name__)
