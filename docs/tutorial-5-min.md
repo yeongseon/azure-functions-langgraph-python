@@ -195,8 +195,9 @@ When publishing finishes, `func` prints the deployed function URLs.
 
 > **Why `--disable-app-insights true`?** By default, `az functionapp create` enables
 > Application Insights and automatically provisions a shared Log Analytics workspace
-> (`DefaultWorkspace-<subscription id>-<region>`) in a separate resource group
-> (`DefaultResourceGroup-<region>`). That external workspace survives after `$RESOURCE_GROUP`
+> (`DefaultWorkspace-<subscription id>-<region code>`) in a separate resource group
+> (`DefaultResourceGroup-<region code>`, where `<region code>` is an Azure region code,
+> not `$LOCATION`). That external workspace survives after `$RESOURCE_GROUP`
 > is deleted and incurs pay-as-you-go costs. Passing `--disable-app-insights true`
 > prevents creating external monitoring resources, so deleting `$RESOURCE_GROUP`
 > at the end removes every resource created for this tutorial. The trade-off:
@@ -274,10 +275,10 @@ Analytics workspace was created outside `$RESOURCE_GROUP`. Deleting `$RESOURCE_G
 removes every resource created for this tutorial.
 
 If you omitted `--disable-app-insights true`, Azure CLI created a shared Log Analytics
-workspace in `DefaultResourceGroup-$LOCATION`. That external resource group is not
-removed by deleting `$RESOURCE_GROUP`. Follow the check-and-delete steps in
-[deployment.md](deployment.md#check-for-default-monitoring-resources) before deleting
-any default workspace to confirm no other services in your subscription rely on it.
+workspace in `DefaultResourceGroup-<region code>` (not `$LOCATION`). That external
+workspace is not removed by deleting `$RESOURCE_GROUP`. Follow the check-and-delete steps in
+[deployment.md](deployment.md#check-for-default-monitoring-resources) to inspect candidate
+workspaces, verify that no other service uses them, and delete only the specific workspace.
 
 ## How this tutorial stays honest
 

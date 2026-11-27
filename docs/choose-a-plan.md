@@ -212,7 +212,7 @@ az functionapp create \
   --disable-app-insights true
 ```
 
-> **Monitoring note**: Adding `--disable-app-insights true` keeps test environments clean by skipping the shared default Log Analytics workspace in `DefaultResourceGroup-$LOCATION`. For production deployments where monitoring is needed, omit this flag or attach a dedicated workspace with `--app-insights`.
+> **Monitoring note**: Adding `--disable-app-insights true` keeps test environments clean by skipping the shared default Log Analytics workspace in `DefaultResourceGroup-<regionCode>`. For production deployments where monitoring is needed, omit this flag or attach a dedicated workspace with `--app-insights`.
 
 ### Step 5: Deploy your code (all plans)
 
@@ -230,23 +230,40 @@ az group delete --name "$RESOURCE_GROUP" --yes --no-wait
 
 Passing `--disable-app-insights true` during creation ensures this single command removes all resources created during testing.
 
-Omitting that flag causes Azure CLI to create a shared default Log Analytics workspace in `DefaultResourceGroup-$LOCATION`. That default workspace is not deleted by removing `$RESOURCE_GROUP`.
+Omitting that flag causes Azure CLI to create a shared default Log Analytics workspace (`DefaultWorkspace-<subscriptionId>-<regionCode>`) in a separate resource group `DefaultResourceGroup-<regionCode>` (where `<regionCode>` is an Azure region code, not `$LOCATION`). That default workspace is not deleted by removing `$RESOURCE_GROUP`.
 
-Check whether a default workspace exists before removing it:
+To clean up a leftover default workspace:
+
+1. Discover candidate default groups and workspaces:
 
 ```bash
-# Check if the default resource group exists
-az group exists --name "DefaultResourceGroup-$LOCATION"
-
-# WARNING: This default workspace is shared across the subscription for that region.
-# Verify that no other apps or services send telemetry to it before deleting.
-az monitor log-analytics workspace list \
-  --resource-group "DefaultResourceGroup-$LOCATION" \
+az group list \
+  --query "[?starts_with(name, 'DefaultResourceGroup-')].name" \
   --output table
 
-# If nothing else in your subscription uses it, delete the group
-az group delete --name "DefaultResourceGroup-$LOCATION" --yes --no-wait
+az monitor log-analytics workspace list \
+  --query "[?starts_with(name, 'DefaultWorkspace-')].[name, resourceGroup, location]" \
+  --output table
 ```
+
+2. Confirm that no other applications or Application Insights components in your subscription reference the workspace before deleting it:
+
+```bash
+az monitor app-insights component list \
+  --query "[?WorkspaceResourceId && contains(WorkspaceResourceId, 'DefaultWorkspace')].[name, resourceGroup]" \
+  --output table
+```
+
+3. Delete only that specific workspace:
+
+```bash
+az monitor log-analytics workspace delete \
+  --resource-group "<DEFAULT_RESOURCE_GROUP>" \
+  --workspace-name "<DEFAULT_WORKSPACE_NAME>" \
+  --yes --force
+```
+
+Do not delete the shared resource group unless you verify that no other resources remain in it.
 
 > ⚠️ **Cost reminder**: Azure resources cost money until deleted. Always clean up after testing.
 
