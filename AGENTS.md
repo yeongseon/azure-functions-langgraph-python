@@ -57,6 +57,9 @@ This section standardizes review **outcomes**, not branch protection, required r
 
 ## Unified PR Review and Merge Policy
 
+Agents must not request or re-request GitHub Copilot code review on pull requests,
+including after new pushes. Do not wait for a Copilot review before merging.
+
 Use the same criteria for human-authored and AI-assisted changes,
 including OpenCode, Codex, Claude Code, ChatGPT, Copilot and other agents.
 No tool-specific AI review, design consultation or automated approval is
@@ -69,7 +72,7 @@ required by policy.
    compatibility, Azure tests and release requirements. CI runner type
    is not prescribed here.
 3. Review correctness, regression risk, scope, security, and API
-   compatibility. Oracle, Copilot and `agent-review` are optional
+   compatibility. Oracle and `agent-review` are optional
    **advisory** review sources, not human approval or test evidence.
 4. Confirm final required checks and resolve or disposition defects.
    The responsible maintainer decides whether to merge. Changes to
