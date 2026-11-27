@@ -307,6 +307,9 @@ warning for an unsupported endpoint metadata version and fall back to a
 binding-derived operation without its endpoint schema hints. Treat that warning
 as a compatibility failure, not successful schema certification. This signal
 belongs to the consumer; no producer runtime warning or v2 emission is required.
+The regression checks the consumer's warning logger, missing request body and
+generic `{"type": "object"}` response fallback; that generic response does not
+certify the graph's output envelope.
 Bridge-only generation does not inspect endpoint versions. Combining the full
 deprecated bridge with app scanning currently raises `OpenAPISpecConfigError`
 for conflicting request metadata; use native scanning for shapes and separate
@@ -321,16 +324,88 @@ can vary with the Pydantic version: the comparison normalizes singleton
 `additionalProperties: true` to its equivalent omitted default. All other
 fields, including titles, definitions, property names and required lists,
 remain exact; the full JSON records one reference generation (Pydantic 2.14.4).
-To update it, build
-the test's producer app and capture its handler endpoint namespaces, retaining
-the route-to-payload mapping and custom documentation field. Review schema
-changes rather than blindly refreshing expectations, then run that module and
-the existing conformance/real-companion modules with `--no-cov -q -rs` in fresh
-exact-pin 0.30.0 and 0.31.0 environments; every consumer case must execute.
-The local vendored `endpoint_metadata_schema.v1.json` is not proof of an
-immutable Validation-package schema: that upstream artifact/ref or digest must
-be identified before claiming cross-producer schema certification. Fixture
-maintenance adds no mandatory runtime dependency and does not require v2.
+
+#### Pinned upstream schema
+
+The optional Hatch `openapi` test environment pins
+`azure-functions-validation==0.16.0` and `jsonschema==4.26.0`. Tests read the
+installed Validation package's `schemas/endpoint.schema.json` and
+`schemas/endpoint.schema.sha256` with `importlib.resources`, verify the package
+version and raw-byte SHA-256, then validate every unnormalized native graph
+handler payload with the full Draft 2020-12 validator. The immutable source is
+[Validation commit d82908a](https://github.com/yeongseon/azure-functions-validation-python/blob/d82908a3464e75320c34b662704e52e05d05ed6c/src/azure_functions_validation/schemas/endpoint.schema.json);
+the schema digest is
+`fda7b9c4ccaca770c4af2c55b7e174f52424f78484af26e8d00360f462cc057e`.
+Malformed-version, body-required, status-code, response-schema and parameter
+cases guard against false certification.
+
+This upstream artifact is distinct from our stricter local
+`endpoint_metadata_schema.v1.json`: upstream requires only `version`, permits
+documentation fields and constrains response status keys and parameter shapes.
+Both checks remain useful; neither is silently substituted for the other.
+The upstream schema permits embedded schema objects; the installed OpenAPI
+consumer tests separately check paths, methods, successful statuses and model
+references. These are in-process producer/consumer checks, not Azure evidence
+or complete SSE wire-fidelity certification.
+
+Neither pin is a core dependency or part of the public `openapi` extra. Without
+the test dependencies the upstream cases skip with explicit installation
+reasons; the dependency-free local fixture/conformance checks still execute.
+Updating the schema requires reviewing the immutable upstream source, verifying
+the published package's resource digest, and changing the test-environment pin
+and expected digest together. Do not regenerate a digest from arbitrary local
+bytes just to make a failing check pass.
+
+#### Updating the native recording
+
+Use an owned Python 3.11+ virtual environment; do not install into a shared
+environment. From the repository root, after `make bootstrap PYTHON=python3.11`,
+keep Hatch environments isolated under this checkout:
+
+```bash
+export HATCH_DATA_DIR="$PWD/.hatch-data"
+export HATCH_ENV_TYPE_VIRTUAL_PATH="$PWD/.venv-openapi"
+make install HATCH="$PWD/.venv/bin/hatch"
+make test-openapi HATCH="$PWD/.venv/bin/hatch"
+```
+
+Generate a **candidate**, preserving the route-to-payload mapping and capturing
+the custom graph description. Pytest's `__wrapped__` exposes the existing
+fixture factory without duplicating the producer configuration:
+
+```bash
+.venv/bin/hatch run openapi:python - <<'PY'
+import json
+from tests.test_openapi_v1_producer_consumers import (
+    _FIXTURE, _endpoint_payload, _get_registered_functions, producer_app,
+)
+
+app = producer_app.__wrapped__()
+functions = _get_registered_functions(app.function_app)
+recording = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+payloads = {}
+for name, kind in recording["routes"].items():
+    payload = _endpoint_payload(functions[name])
+    if kind in payloads:
+        assert payloads[kind] == payload, f"shared payload differs: {name}"
+    payloads[kind] = payload
+recording["payloads"] = payloads
+recording["documentation"]["description"] = app.get_app_metadata().graphs["ordinary"].description
+candidate = _FIXTURE.with_suffix(".candidate.json")
+candidate.write_text(json.dumps(recording, indent=2) + "\n", encoding="utf-8")
+print(candidate)
+PY
+```
+
+Review the candidate against the existing recording before replacing it.
+When adding/removing a route, review the mapping and the consumer's expected
+semantic paths too. Re-run `make test-openapi` in separate owned environments
+with exact companion pins `0.30.0` and `0.31.0` (the recorded floor and latest
+eligible release); record resolved dependencies and inspect skips. Every
+consumer and upstream-schema case must execute. Keep a separate core-only
+environment to verify optional-dependency absence. Fixture maintenance requires
+neither a mandatory runtime dependency nor endpoint metadata v2 emission;
+media-type/header support would need separate v2 producer work.
 
 ## Installation
 
