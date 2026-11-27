@@ -65,6 +65,58 @@ sync/async invocation, buffered SSE, state and health/readiness. Configured
 `ValueError` rather than being dropped. This does not expand Platform, Durable,
 Service Bus or true-streaming hosting support.
 
+### Non-native composition decision table
+
+The restriction applies to the **adapter being exported**, not to unrelated
+triggers already owned by the receiving app. A native-only adapter can be
+attached to an existing `FunctionApp` or `azure.durable_functions.DFApp` with
+HTTP, timer or Service Bus triggers. A DFApp receiver does **not** enable
+Durable export from the adapter.
+
+| Adapter configuration | Standalone `.function_app` | Existing `FunctionApp` | Existing `Blueprint` | Existing `DFApp` |
+| --- | --- | --- | --- | --- |
+| Native classic HTTP only | FunctionApp | Attach `to_blueprint()` | No direct child registration; see staging below | Attach native `to_blueprint()` |
+| `platform_compat=True` | FunctionApp with native + Platform routes | Export rejected | Export rejected | Export rejected |
+| `async_runs="durable"` | DFApp with native + lifecycle HTTP routes, orchestrator and activity; requires `durable` extra | Export rejected | Export rejected | Export rejected |
+| Any `register_service_bus(...)` | FunctionApp with queue/subscription trigger and native health routes | Export rejected | Export rejected | Export rejected |
+| Any combination of the three non-native modes | Standalone construction subject to existing topology/configuration checks | Export rejected | Export rejected | Export rejected |
+
+Service Bus rejection includes queue and topic/subscription bindings, sessions,
+session-exclusive registrations and adapters with no HTTP graph registrations.
+Native `async_mode=True` invocation is **not** Durable lifecycle mode and remains
+within native export support. The standalone column describes the existing app
+factory, not certification of every combined topology or deployed lifecycle.
+
+An `azure.functions.Blueprint` is a decorator container, not an application
+with `register_functions`. Stage your own triggers on it and register that
+Blueprint and the adapter's native Blueprint separately on the one top-level
+FunctionApp/DFApp. Do not copy private builders to nest Blueprints. Passing
+the adapter's standalone FunctionApp or DFApp as a child is also rejected by
+the SDK; it is not a workaround for non-native export restrictions.
+
+**Failure and partial-registration boundary:**
+
+- `parent.register_functions(adapter.to_blueprint())` evaluates the export
+  first. A configured non-native surface raises `ValueError` before any child
+  reaches the parent. No native subset is exported, and existing parent
+  functions/bindings remain unchanged. This rejection does not require a
+  Service Bus connection, Durable backend or the Durable SDK extra.
+- Successful export is not a transactional mount. Azure SDK registration
+  appends builders without checking collisions. Duplicate function names
+  fail later at `get_functions()`/worker indexing, and that failure does not
+  roll back the appended builders. Rebuild the parent rather than retrying
+  registration on the mutated instance.
+- Duplicate HTTP method/path bindings with different function names pass SDK
+  name validation. Avoid them before registration; host routing is not
+  certified by a successful Blueprint export or SDK indexing call.
+
+These boundaries are exercised with real SDK builders in
+`tests/test_blueprint_boundaries.py`; native route/auth parity remains covered
+by `tests/test_blueprint.py`. They do not claim real-Azure trigger execution,
+broker settlement or Durable recovery. The SDK behavior follows its
+[registration and name-validation implementation](https://github.com/Azure/azure-functions-python-library/blob/dev/azure/functions/decorators/function_app.py)
+and [DFApp inheritance](https://github.com/Azure/azure-functions-durable-python/blob/dev/azure/durable_functions/decorators/durable_app.py).
+
 ### Generated names and conflicts
 
 These are the same names and paths as the standalone app. Paths are relative to
