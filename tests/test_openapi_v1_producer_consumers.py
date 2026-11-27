@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from hashlib import sha256
+from importlib.metadata import version
+from importlib.resources import files
 import json
 import logging
 from pathlib import Path
@@ -21,6 +24,9 @@ from tests.test_endpoint_conformance import (
 )
 
 _FIXTURE: Final = Path(__file__).parent / "fixtures" / "openapi_native_producer.v1.json"
+_VALIDATION_SCHEMA_SHA256: Final = (
+    "fda7b9c4ccaca770c4af2c55b7e174f52424f78484af26e8d00360f462cc057e"
+)
 
 
 class ProducerBody(BaseModel):
@@ -85,6 +91,77 @@ def companion_registry() -> Iterator[None]:
     clear_openapi_registry()
     yield
     clear_openapi_registry()
+
+
+@pytest.fixture
+def validation_schema() -> JsonValue:
+    pytest.importorskip(
+        "azure_functions_validation",
+        reason="upstream schema certification requires optional openapi Hatch test dependencies",
+    )
+    pytest.importorskip("jsonschema", reason="upstream schema certification requires jsonschema")
+    assert version("azure-functions-validation") == "0.16.0"
+    resource = files("azure_functions_validation").joinpath("schemas")
+    raw = resource.joinpath("endpoint.schema.json").read_bytes()
+    assert sha256(raw).hexdigest() == _VALIDATION_SCHEMA_SHA256
+    assert resource.joinpath("endpoint.schema.sha256").read_text().split() == [
+        _VALIDATION_SCHEMA_SHA256,
+        "endpoint.schema.json",
+    ]
+    schema: JsonValue = json.loads(raw)
+    return schema
+
+
+def test_native_v1_payloads_validate_against_pinned_validation_schema(
+    producer_app: LangGraphApp, validation_schema: JsonValue
+) -> None:
+    # Given: the actual upstream artifact, not the stricter local v1 contract.
+    from jsonschema import Draft202012Validator
+
+    Draft202012Validator.check_schema(validation_schema)
+    validator = Draft202012Validator(validation_schema)
+
+    # When: every graph handler exposes its unnormalized endpoint namespace.
+    functions = _get_registered_functions(producer_app.function_app)
+    payloads = {
+        name: _endpoint_payload(handler)
+        for name, handler in functions.items()
+        if not name.startswith("aflg_health")
+    }
+
+    # Then: ordinary/stateful invoke, stream and state all satisfy the pinned schema.
+    assert set(payloads) == set(json.loads(_FIXTURE.read_text(encoding="utf-8"))["routes"])
+    for name, payload in payloads.items():
+        assert not list(validator.iter_errors(payload)), name
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        {"version": 999},
+        {"request_body_required": "yes"},
+        {"responses": {"600": {"schema": {}}}},
+        {"responses": {"200": {"schema": "not a schema"}}},
+        {"parameters": [{"name": "thread_id", "in": "unsupported"}]},
+    ],
+    ids=["unknown-version", "body-required-type", "status-code", "response-schema", "parameter"],
+)
+def test_pinned_validation_schema_rejects_malformed_native_payload(
+    producer_app: LangGraphApp,
+    validation_schema: JsonValue,
+    replacement: dict[str, JsonValue],
+) -> None:
+    # Given: a native invoke payload with one intentionally invalid contract field.
+    from jsonschema import Draft202012Validator
+
+    functions = _get_registered_functions(producer_app.function_app)
+    payload = {**_endpoint_payload(functions["aflg_ordinary_invoke"]), **replacement}
+
+    # When: the full Draft 2020-12 validator resolves upstream references and constraints.
+    errors = list(Draft202012Validator(validation_schema).iter_errors(payload))
+
+    # Then: malformed fields cannot be certified by a permissive partial validator.
+    assert errors
 
 
 def test_recorded_fixture_matches_native_v1_producer(producer_app: LangGraphApp) -> None:
@@ -188,7 +265,11 @@ def test_unknown_metadata_version_has_visible_consumer_warning(
 
     # Then: a visible warning accompanies binding-only fallback, not schema success.
     assert any(
-        record.levelno >= logging.WARNING and "999" in record.getMessage()
+        record.name == "azure_functions_openapi.bridge"
+        and record.levelno >= logging.WARNING
+        and "999" in record.getMessage()
         for record in caplog.records
     )
     assert "requestBody" not in spec["paths"]["/api/graphs/ordinary/invoke"]["post"]
+    response = spec["paths"]["/api/graphs/ordinary/invoke"]["post"]["responses"]["200"]
+    assert response["content"]["application/json"]["schema"] == {"type": "object"}
