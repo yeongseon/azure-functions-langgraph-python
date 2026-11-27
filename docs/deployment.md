@@ -310,6 +310,8 @@ Output includes:
 Application Insights "func-langgraph-agent" was created for this Function App.
 ```
 
+> **Monitoring note**: When created without `--disable-app-insights true` or an explicit `--app-insights` resource, Azure CLI enables Application Insights and provisions a shared Log Analytics workspace in `DefaultResourceGroup-$LOCATION`. If you are running a temporary deployment and want a clean single-command deletion later, pass `--disable-app-insights true`.
+
 ### Step 7 — Create storage backends for LangGraph
 
 The platform-compatible routes need a blob container (for checkpoints) and a table (for thread metadata).
@@ -827,6 +829,29 @@ az group exists --name "$RESOURCE_GROUP"
 ```
 
 It prints `false` once the resource group is gone.
+
+### Check for default monitoring resources
+
+If you deployed without `--disable-app-insights true`, Azure CLI created an Application
+Insights component and connected it to a default Log Analytics workspace in
+`DefaultResourceGroup-$LOCATION`. That default workspace is not removed when you delete
+`$RESOURCE_GROUP`.
+
+Check whether that resource group exists and verify its contents before removing it:
+
+```bash
+# Check if the default resource group exists
+az group exists --name "DefaultResourceGroup-$LOCATION"
+
+# WARNING: This default workspace is shared across the subscription for that region.
+# Inspect active workspaces to ensure no other services rely on it before deleting.
+az monitor log-analytics workspace list \
+  --resource-group "DefaultResourceGroup-$LOCATION" \
+  --output table
+
+# Delete the resource group if confirmed unused
+az group delete --name "DefaultResourceGroup-$LOCATION" --yes --no-wait
+```
 
 ---
 

@@ -160,7 +160,8 @@ az functionapp create \
   --storage-account "$STORAGE_ACCOUNT" \
   --flexconsumption-location "$LOCATION" \
   --runtime python \
-  --runtime-version 3.11
+  --runtime-version 3.11 \
+  --disable-app-insights true
 ```
 
 > No separate plan creation needed. Azure manages the compute automatically.
@@ -184,7 +185,8 @@ az functionapp create \
   --plan "${FUNCTIONAPP_NAME}-plan" \
   --runtime python \
   --runtime-version 3.11 \
-  --os-type Linux
+  --os-type Linux \
+  --disable-app-insights true
 ```
 
 #### Option C: Dedicated (App Service Plan — B1)
@@ -206,8 +208,11 @@ az functionapp create \
   --plan "${FUNCTIONAPP_NAME}-plan" \
   --runtime python \
   --runtime-version 3.11 \
-  --os-type Linux
+  --os-type Linux \
+  --disable-app-insights true
 ```
+
+> **Monitoring note**: Adding `--disable-app-insights true` keeps test environments clean by skipping the shared default Log Analytics workspace in `DefaultResourceGroup-$LOCATION`. For production deployments where monitoring is needed, omit this flag or attach a dedicated workspace with `--app-insights`.
 
 ### Step 5: Deploy your code (all plans)
 
@@ -217,10 +222,30 @@ func azure functionapp publish "$FUNCTIONAPP_NAME"
 
 ### Step 6: Clean up (all plans)
 
-Delete the resource group to remove **all** resources (Function App, plan, storage, monitoring):
+Delete the resource group to remove the Function App, plan, and storage account:
 
 ```bash
 az group delete --name "$RESOURCE_GROUP" --yes --no-wait
+```
+
+Passing `--disable-app-insights true` during creation ensures this single command removes all resources created during testing.
+
+Omitting that flag causes Azure CLI to create a shared default Log Analytics workspace in `DefaultResourceGroup-$LOCATION`. That default workspace is not deleted by removing `$RESOURCE_GROUP`.
+
+Check whether a default workspace exists before removing it:
+
+```bash
+# Check if the default resource group exists
+az group exists --name "DefaultResourceGroup-$LOCATION"
+
+# WARNING: This default workspace is shared across the subscription for that region.
+# Verify that no other apps or services send telemetry to it before deleting.
+az monitor log-analytics workspace list \
+  --resource-group "DefaultResourceGroup-$LOCATION" \
+  --output table
+
+# If nothing else in your subscription uses it, delete the group
+az group delete --name "DefaultResourceGroup-$LOCATION" --yes --no-wait
 ```
 
 > ⚠️ **Cost reminder**: Azure resources cost money until deleted. Always clean up after testing.
