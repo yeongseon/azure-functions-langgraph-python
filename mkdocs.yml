@@ -67,6 +67,7 @@ nav:
       - FAQ: faq.md
   - Maintainers:
       - Contributing Guidelines: contributing.md
+      - Packaging Boundaries (Proposal): packaging-proposal.md
       - Development: development.md
       - Testing: testing.md
       - API Contract Gate: api-contract-gate.md
