@@ -126,6 +126,22 @@ make cov         # Run tests with coverage
 make check-all   # Run the full local gate
 ```
 
+`make test` runs the source metadata checks but explicitly skips the built
+wheel/sdist metadata checks unless `METADATA_DIST_DIR` names an artifact directory.
+Run `make build && make test-metadata` for the full Python range/classifier check,
+or `make test-metadata DIST_DIR=/path/to/artifacts` to check an existing build.
+Missing artifacts or multiple wheels/sdists fail that command, rather than skip.
+To include those checks in the full suite, run `METADATA_DIST_DIR="$PWD/dist" make test`
+after `make build`.
+
+CI runs `make test-metadata METADATA_PYTHON=python` in **Build compatibility
+artifacts**, before uploading `compatibility-dist`; that job gates `ci-required`.
+The unit/compatibility suites no longer build distributions. The installed-wheel
+CI lane reads `compatibility-dist`, and the unchanged release wheel-tests lane
+reads the downloaded `dist/` relative to the checkout (not its scratch directory).
+The Azure Functions 2.x cells also install the shared compatibility wheel instead
+of building their own. Publishing, release gates and coverage requirements are unchanged.
+
 Before opening a PR, run `ruff format --check <changed-python-files>` (or
 `ruff format <changed-python-files>` to fix them). `make format-check` checks
 `src` and `tests` without changing files. CI checks those same trees and also

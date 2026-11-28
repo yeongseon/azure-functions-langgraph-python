@@ -97,7 +97,17 @@ precommit-install: ensure-hatch
 .PHONY: test
 test: ensure-hatch
 	@echo "Running tests..."
+	@if [ -z "$${METADATA_DIST_DIR+x}" ]; then \
+		echo "Built wheel/sdist metadata will be SKIPPED; run make build && make test-metadata for the full packaging check."; \
+	fi
 	@$(HATCH) run test
+
+METADATA_PYTHON ?= $(HATCH) run python
+DIST_DIR ?= dist
+.PHONY: test-metadata
+test-metadata:
+	@METADATA_DIST_DIR="$(abspath $(DIST_DIR))" $(METADATA_PYTHON) -m pytest \
+		-o addopts='' tests/test_python_version_metadata.py -v
 
 .PHONY: certify-examples-published
 certify-examples-published: ensure-hatch
