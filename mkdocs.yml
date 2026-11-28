@@ -22,6 +22,7 @@ nav:
       - Choose a Plan: choose-a-plan.md
       - Deploy to Azure: deployment.md
       - Flex Blob Reference: production-reference.md
+      - Production Backend Decision: production-backend-decision.md
   - Production Checklist:
       - Production Guide: production-guide.md
       - Security: security.md
