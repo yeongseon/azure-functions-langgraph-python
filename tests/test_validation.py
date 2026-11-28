@@ -469,10 +469,7 @@ def _post_request(
     raw_body: bytes | None = None,
     **route_params: str,
 ) -> func.HttpRequest:
-    if raw_body is not None:
-        body_bytes = raw_body
-    else:
-        body_bytes = json.dumps(body or {}).encode()
+    body_bytes = raw_body if raw_body is not None else json.dumps(body or {}).encode()
     return func.HttpRequest(
         method="POST",
         url=url,
