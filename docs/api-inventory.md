@@ -164,7 +164,7 @@ Tier basis: `README` = named by the README stability table; `maintainer decision
 | Symbol | Kind | In `__all__` | Consumers |
 | --- | --- | --- | --- |
 | `AuthorizationAction` | class | no | `ETD` |
-| `AuthorizationContext` | dataclass | no | `-TD` |
+| `AuthorizationContext` | dataclass | no | `ETD` |
 | `ThreadAuthorizer` | protocol | no | `-TD` |
 | `UnauthenticatedError` | class | no | `ETD` |
 | `authorization_status` | function | no | `---` |
