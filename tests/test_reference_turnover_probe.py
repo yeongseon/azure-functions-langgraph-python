@@ -11,6 +11,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 import pytest
 
 pytest.importorskip("azure.storage.blob")
+pytest.importorskip("azure.identity")
 from tests.example_imports import load_example_file
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "existing_function_app"
