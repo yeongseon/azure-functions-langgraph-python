@@ -402,6 +402,189 @@ diagnostics with a temporary local Python 3.11/source-path configuration (not
 committed). Subsequent edits only make the same guarded configuration type-safe;
 the live run remains attributed to its actual tested revision, not a later SHA.
 
+### In-region storage attempt — 2026-11-28 (#801 and #860)
+
+**Final authorized session: partial real in-region evidence.** The ACI completed
+with exit 0 after the smoke gate, two complete Table scale cells, twelve Blob
+comparison runs and the Blob pressure/compatibility probe. The 100k Table and
+sustained-writer cells timed out without result payloads; they remain unproven.
+Earlier attempts were launcher failures, not adapter failures. This record
+replaces their no-measurement diagnosis; the prior commits preserve that history.
+
+| Item | Observed or requested value |
+| --- | --- |
+| Candidate | `origin/main` at `03cfda4f451e405e4087f40d79cd28df7dc6c48e`; unchanged version `0.14.2` |
+| Wheel | Built locally with `uv build --wheel`; sha256 `fca98285bc97dd2929674e329f3343ba8eb3404a4512eceb2ab433102dd98be3` |
+| Local tooling | Python 3.11.15 venv created with `uv`; Azure CLI 2.83.0, uv 0.11.7 |
+| Compute request | One Linux ACI, `python:3.11-slim-bookworm`, 1 CPU, 1.5 GiB, `restartPolicy=Never`, `koreacentral`; **no Functions hosting plan** |
+| Network and storage request | No IP address or ports in the ACI resource request; no SSH keys or inbound NSG rules; one StorageV2 Standard_LRS account in the same group/region, public Blob access disabled, TLS1_2 |
+| Packaging | Private bundle containing the candidate wheel under `wheels/`, existing repository tools and committed compatibility fixtures; session command selected the local wheel, not PyPI |
+| Credential handling | Account key and connection string passed as ACI secure environment values through an ARM request on stdin; private SDK bundle download, no SAS/public blob, secret settings file, role assignment, Entra object, Insights or workspace |
+| Installed runtime | Python **3.11.18**, Blob SDK 12.31.1, Table SDK 12.7.0, azure-core 1.41.0, LangGraph 1.2.24, langgraph-checkpoint 4.3.2, requests 2.34.2, aiohttp 3.14.5 |
+| Image observed | `python@sha256:0f6686ddd2ccdb042d2b5b15f1cc6f015b2fdf5dc159fcccd9d4ad9d70904898` |
+| Lifecycle | Request `01:40:26.945922Z`; container started `01:40:51.071Z`, finished `02:11:42.938Z`, no restarts, group `Succeeded`, container `Terminated/Completed`, exit 0 |
+| Cleanup | Verified `02:13:14.809727Z`, before analysis/docs; process lifetime **30m51.867s**, request-to-deletion upper bound **32m47.864s**, below 60 minutes |
+
+**Capture and smoke.** State was saved before each log request; polling every ten
+seconds treated startup-not-ready as normal. Private bundle delivery and pip
+installation succeeded. The wheel extras `[azure-table,azure-blob]` installed
+successfully in **33.182 s**, then import plus tiny Table insert/get and Blob
+upload/download passed in **0.532 s**, within the two-minute smoke allowance
+(bootstrap Blob SDK installation was a separate preceding step). The adapter
+import resolved to `/usr/local/lib/python3.11/site-packages`, not `src/`.
+`SMOKE_READY` was captured before the local controller wrote the private `go`
+gate. Each cell emitted sanitized JSON between `BEGIN_RESULT`/`END_RESULT`.
+Full final stdout and instance state were captured **before** synchronous group
+deletion; there was no results-blob upload dependency.
+
+**Table method and scope.** Existing `tools/benchmark_table_status_index.py`,
+seed 7, paired timestamps, independent seeded ordering oracle; index off/on,
+three timed repetitions plus a separate `tracemalloc` pass. There were **48
+mode/workload cells × four executions**, no oracle mismatches in the completed
+1k/10k cells. Wire counts include SDK sends and fetched entities, not just
+returned rows. These are **ACI-to-storage in-region** measurements with SDK
+decoding/oracle costs; not Functions cold-start or end-to-end HTTP latency.
+
+| Threads / idle rows | idle limit=10 scan requests/rows; median/max ms | Index requests/rows; median/max ms | Scan/index peak traced MiB |
+| --- | --- | --- | --- |
+| 1,000 / 814 | 1/814; 96.8/106.5 | 2/28; 19.7/21.1 | 3.9/0.1 |
+| 10,000 / 8,016 | 9/8,016; 973.3/1000.8 | 2/28; 38.8/40.4 | 23.1/0.1 |
+
+| Threads / case | Scan → index median ms | Scan → index requests/rows |
+| --- | --- | --- |
+| 1k interrupted limit=10 | 18.2 → 19.3 | 1/72 → 2/28 |
+| 1k error limit=10 | 12.6 → 18.3 | 1/29 → 2/28 |
+| 1k idle offset=100 | 95.2 → 111.8 | 1/814 → 9/224 |
+| 1k idle offset=200 | 101.5 → 206.3 | 1/814 → 16/420 |
+| 1k idle limit=1000 | 93.1 → 827.4 | 1/814 → 60/1628 |
+| 10k interrupted limit=10 | 112.2 → 52.2 | 1/707 → 2/28 |
+| 10k error limit=10 | 71.5 → 54.1 | 1/310 → 2/28 |
+| 10k idle offset=100 | 1004.4 → 363.3 | 9/8016 → 9/224 normally, 10/225 with marker refresh |
+| 10k idle offset=200 | 1145.7 → 695.2 | 9/8016 → 16/420 |
+| 10k idle limit=1000 | 1118.2 → 3561.7 | 9/8016 → 74/2996 normally, 75/2997 with marker refresh |
+
+Indexed limit=0 sent **zero** requests; off mode still scanned 814/8016 rows.
+Offset 201 fell back to scan; busy, unfiltered, metadata-filtered and count calls
+had identical off/on wire counts. At 10k, limit=1000 fetched 2996 hint/primary
+entities normally rather than only the returned 1000. Indexing is not uniformly
+faster: 1k rare statuses/deeper offsets and both large-limit cases regressed.
+
+| Threads | Rebuild ms / requests / indexed hints | Clean readiness audit ms / requests | Repair / rollback |
+| --- | --- | --- | --- |
+| 1k | 1472.9 / 13 / 915 | 210.5 / 7 | Six stale hints, zero missing; repair 996.5 ms/79 requests deleted six; disabled read 91.2 ms/1 request |
+| 10k | 10907.4 / 104 / 9033 | 972.1 / 24 | Six stale, zero missing; repair intentionally not run; disabled read 1292.5 ms/9 requests |
+
+Three write sequences per mode/scale confirm create adds one write (1→2
+requests); acquire unchanged (2); terminal release/status update 2→3 requests;
+metadata/delete unchanged (2). At 10k, median off→on ms: create 8.3→13.5,
+acquire 13.6→11.7, release 12.0→18.0, error update 13.1→18.6,
+metadata 11.6→11.5, delete 12.5→10.5. Acquire/release remains **2→3 writes**
+(+50%), 4→5 total requests. The two successful whole-tool totals were **627
+and 1277** sends including seeding/admin/cleanup; not the entire session count.
+
+**Timeout findings.** The 100k scale cell reached its **900 s** subprocess limit,
+and the four-process sustained-writer cell reached **550 s**. Both captured
+empty stdout/stderr, so no phase, completed cycles, consistency result, U2
+comparison boundary or hot-partition rate can be inferred. The writer driver
+prints only after quiescent comparisons/repair, which loses intermediate work
+on timeout; it is not evidence that the service rejected writes or a proven
+adapter hang. No further deployment was made. Group deletion removed any
+tables/process remnants. Complete cells below still ran and were retained.
+
+**Blob comparison.** Existing `tools/benchmark_blob_checkpointer.py`, zero injected
+latency, small=6 channels/3 writes/2 history, medium=20/10/5. Three before/after
+pairs per size, second pair reversed, both sync and native async: **168 measured
+operation rows**. Before uses the historical saver module at `3a1c92f` (same
+baseline as #937/#970) over the current dependency environment; after imports
+the installed candidate wheel. This is a saver-module comparison, **not a whole
+historical wheel/dependency comparison**. Setup, seed and deletion excluded.
+
+| Medium operation | Requests before→after | Sync median/max ms before→after | Native median/max ms before→after |
+| --- | --- | --- | --- |
+| latest | 66→34 | 402.963/415.729 → 350.941/372.449 | 399.166/442.159 → 172.526/174.431 |
+| by ID | 65→33 | 347.841/402.878 → 88.662/102.033 | 349.150/389.332 → 97.625/104.787 |
+| list limit=1 | 111→34 | 615.688/715.481 → 110.925/133.358 | 601.030/622.808 → 99.270/103.892 |
+| no-match filter | 246→6 | 1489.926/1615.470 → 43.015/47.019 | 1383.927/1480.582 → 45.535/48.324 |
+| put new | 26→26 | 187.679/263.354 → 225.023/247.785 | 210.479/224.169 → 239.622/245.207 |
+| first writes | 20→10 | 115.438/155.607 → 88.020/90.185 | 130.405/141.511 → 82.325/100.768 |
+| duplicate retry | 10→10 | 46.306/67.103 → 59.389/60.129 | 46.464/47.074 → 73.263/82.428 |
+
+| Small operation | Requests before→after | Sync median/max ms before→after | Native median/max ms before→after |
+| --- | --- | --- | --- |
+| latest | 24→13 | 131.075/148.055 → 206.875/243.065 | 176.223/191.876 → 105.129/141.688 |
+| by ID | 23→12 | 119.202/119.409 → 53.062/122.405 | 122.896/128.053 → 46.237/70.129 |
+| list limit=1 | 41→13 | 236.203/243.362 → 54.487/108.816 | 221.606/242.118 → 50.761/55.531 |
+| no-match filter | 41→3 | 198.326/225.565 → 23.969/30.643 | 210.117/245.354 → 22.658/23.924 |
+| put new | 12→12 | 86.128/87.911 → 88.895/98.358 | 93.626/115.923 → 89.176/124.995 |
+| first writes | 6→3 | 37.586/38.965 → 23.354/25.360 | 39.306/42.042 → 22.985/32.382 |
+| duplicate retry | 3→3 | 13.514/22.955 → 17.541/18.863 | 15.368/17.150 → 17.533/26.077 |
+
+Request counts were identical across all repetitions/APIs. Lower requests did
+not guarantee lower latency: **small sync latest regressed**, new-checkpoint
+publication was mixed/slower, and every duplicate-retry median increased.
+First operation times include client connection/concurrency startup; three
+repetitions on one burstable-sized ACI are not a general latency guarantee.
+
+**Additional real-SDK probe, 52.551 s total:**
+
+- Two-connection sync blocking requests pool and native aiohttp pool: ten medium
+  latest reads each, correct complete tuple every time, transport peak **8**,
+  active calls after completion **0**, zero-limit list **0 requests**. Measured
+  transport calls include pool wait, **not eight simultaneous sockets** or full
+  downloader lifetime. Socket occupancy/RSS and read-cancellation cleanup were
+  not measured by this probe.
+- Each API substituted one HTTP **503 in the client transport** after draining
+  a real successful GET response. SDK retried successfully: **341 sends** for
+  ten reads (baseline 340 + one retry), sync 17.643 s, native 16.746 s. Real
+  service responses were 331 HTTP 206 and ten HTTP 200. **No service-generated
+  503/throttling is claimed**, and injected-retry timings are not ordinary read
+  latency. Fault probes do not change production hint/publication logic.
+- Two independent sync clients raced one create-only slot; one accepted value
+  survived a duplicate retry. Mapped `__error__` overwrite retained the new
+  value. This is one sampled slot race, not an exhaustive conflict matrix or
+  native-writer race.
+- Persisted wheel-generated fixtures 0.8.2, 0.9.4, 0.12.2, 0.13.0 and current
+  were uploaded to private Azure containers, decoded through sync/native list
+  against existing expected values, and **all blob ETags remained unchanged**.
+  Counts: 69 blobs/6 lists for 0.8.2, 115 blobs/10 lists for each other set,
+  **46 lists total**. This proves sampled old-data→current-reader behavior,
+  **not live old/new writers, continuation, downgrade or mixed-fleet safety**.
+
+**Acceptance audit (issue checkboxes unchanged):**
+
+| Issue / acceptance items | This attempt adds | Remaining boundary |
+| --- | --- | --- |
+| #801 item 1, write-cost/consistency decision | Nothing; the maintainer's 2026-11-24 acceptance remains recorded in the issue | Experimental/default-off only, no support promotion |
+| #801 items 2–4, defaults/order/bounded reads | 1k/10k seeded oracle, measured requests/rows and limit=0 | Exhaustive offsets/concurrent snapshots not established |
+| #801 items 5–6, writers/failures and rollout/repair/rollback | Rebuild/audit/disable both scales, 1k repair; existing controlled races unchanged | Sustained-writer timeout, 10k/100k repair/admin/TTL unproven |
+| #801 items 7–8, scan compatibility and repository gates | Sampled equal off/on scan/count results and I/O | Final-head required GitHub CI authoritative |
+| #801 item 9 and U2/U4, amplification/latency and limits | In-region 1k/10k read/write samples and regressions | 100k timeout, comparison boundary/hot-partition rate unproven |
+| #860 items 1 and 7, realistic baseline/before-after | Three live in-region pairs per size/API; raw 168 observations | Large byte payloads/production realism untested |
+| #860 items 2–4, bounded reads/cleanup, early limits/write semantics | Sampled peak-eight calls, zero completed in-flight calls, limit=0, slot race/mapped overwrite | Read cancellation, complete concurrency/ordering and native race matrix unproven |
+| #860 items 5–6, publication/ownership/conflict/faults | SDK retry on client-substituted 503; prior cancellation/lease-loss probes remain scoped | No service-generated transient fault or complete conflict/publication invariant; lost-owner duplicate decision remains open |
+| #860 additional memory/connection/rolling | Small-pool completion, fixture-to-current-reader real Azure replay | Socket occupancy/RSS, old/new writer fleet, downgrade/continuation unproven |
+
+**Cleanup evidence, saved locally.** Only the uniquely named
+`rg-aflg-801-verify-*` group created by this session was deleted. The launcher's
+`finally` executed synchronous `az group delete --yes`, then
+`az group wait --deleted`, followed by the required checks:
+
+```text
+az group exists -n <OWN_GROUP>: false
+az resource list --tag purpose=801-verify: []
+new DefaultResourceGroup-* groups relative to pre-run baseline: []
+Entra app count before/after: 2 / 2
+```
+
+The group and resources carried `purpose=801-verify owner=opencode-temp`.
+No subscription/tenant/provider changes, unrelated resource-group access,
+role assignments or Entra objects were made. Sanitized full logs, final
+`instanceView`, state history, lifecycle/cleanup and extracted `cells.json` are
+retained locally under `/tmp/opencode/evidence-801-final/`. Local paths are not
+permanent public artifacts. No invoice or total billable-request claim; timeout
+cells and fixture setup add uncounted traffic. Resources were deleted before
+analysis/writing. Both issues remain incomplete, with checkboxes unchanged.
+
 ## Test structure
 
 ```
