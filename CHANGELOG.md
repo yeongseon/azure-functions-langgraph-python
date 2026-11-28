@@ -1,6 +1,27 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## [0.15.0](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.14.2...v0.15.0) (2026-11-28)
+
+
+### Features
+
+* **app:** register LangGraph routes in an existing Azure Functions app ([#998](https://github.com/yeongseon/azure-functions-langgraph-python/issues/998)) ([c678e5e](https://github.com/yeongseon/azure-functions-langgraph-python/commit/c678e5e44f18354d9bc3789fde1415c0f840e855))
+
+
+### Bug Fixes
+
+* **blob:** detect overlapping checkpoint hint publication ([#1037](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1037)) ([699109f](https://github.com/yeongseon/azure-functions-langgraph-python/commit/699109fd36f95e12944d7784b444bf9d7a5c2016))
+* **blob:** document recovery from stale checkpoint hints left by older versions ([#1024](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1024)) ([53b5868](https://github.com/yeongseon/azure-functions-langgraph-python/commit/53b58688d4306e4713e46ac07d3fcbb7f14e1237))
+* **deploy:** prevent Flex reference cleanup from deleting an existing resource group ([#1011](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1011)) ([af07638](https://github.com/yeongseon/azure-functions-langgraph-python/commit/af076385a6bfe18c558c60ebbaf6fa65f477357d))
+* **docs:** synchronize both machine-readable LangGraph package versions with releases ([#1032](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1032)) ([6caf2ed](https://github.com/yeongseon/azure-functions-langgraph-python/commit/6caf2ed046d5b73e53a99ac78a8c286e4340c18c))
+* **durable:** normalize backend failures when creating or polling runs ([#1010](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1010)) ([cbf28a4](https://github.com/yeongseon/azure-functions-langgraph-python/commit/cbf28a402b9d5b684aeaaf4b6c5733479994cc5f))
+* **durable:** report lock backend failures before marking runs complete ([#1022](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1022)) ([480aaa7](https://github.com/yeongseon/azure-functions-langgraph-python/commit/480aaa7859035549b9577b9e7f0d50ceeb151086))
+* **durable:** sanitize all failed run status responses ([#1001](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1001)) ([6c1f6a4](https://github.com/yeongseon/azure-functions-langgraph-python/commit/6c1f6a4ebf14599440fa9f1d7bda71442fd89aaf))
+* **durable:** validate run request fields before scheduling ([#1023](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1023)) ([539d839](https://github.com/yeongseon/azure-functions-langgraph-python/commit/539d839d0b624a8b217c225fc19153ca5f9e99a2))
+* **openapi:** show the correct installation command when OpenAPI is missing ([#1027](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1027)) ([6cc89db](https://github.com/yeongseon/azure-functions-langgraph-python/commit/6cc89dbe104bf37442cd860b5d0d3d19235e523e))
+* **security:** follow the moved B311 suppression in the bandit policy ([#1072](https://github.com/yeongseon/azure-functions-langgraph-python/issues/1072)) ([a6cb47c](https://github.com/yeongseon/azure-functions-langgraph-python/commit/a6cb47cbd7b41497bef810bddf605b6425870947))
+
 ## [0.14.2](https://github.com/yeongseon/azure-functions-langgraph-python/compare/v0.14.1...v0.14.2) (2026-11-24)
 
 
