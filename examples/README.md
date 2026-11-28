@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | Minimal | [`simple_agent`](simple_agent/) | Two-node greeting agent with sequential edges (deterministic, no LLM). |
 | Official-example adaptation | [`official_langgraph_basic`](official_langgraph_basic/) | A graph copied verbatim from the official LangGraph "Define and update state" guide, hosted with minimal wiring changes (a registration shim); upstream baseline, wiring diff and attribution included (deterministic, no LLM). |
+| Official memory adaptation | [`official_langgraph_conversation`](official_langgraph_conversation/) | Pinned official memory graph with unchanged node/edges/schema, separate fake-model and durable Blob wiring; local published/candidate wheel auth, continuity and isolation evidence, plus a one-off manual Azure verification (2026-11-26). No Azure CI step or release gate. |
 | **Real agent — start here** | [`azure_openai_agent`](azure_openai_agent/) ⭐ | **Recommended after Quick Start.** LangGraph agent backed by a real Azure OpenAI deployment; API-key and Managed Identity paths, deterministic fake-model fallback for CI. |
 | Stateful conversation | [`conversation_memory`](conversation_memory/) ⭐ | **The stateful delta after `azure_openai_agent`.** Same graph plus a checkpointer — same `thread_id` continues a conversation, a different `thread_id` is isolated. In-memory backend, fake-model fallback for CI. |
 | Tool-calling agent | [`tool_calling_agent`](tool_calling_agent/) ⭐ | **The tool-calling delta after `conversation_memory`.** Same agent plus a `ToolNode` loop; tools are your own code in `tools.py`. OpenAPI/Swagger bridge wired in. Deterministic scripted fake-model fallback for CI. |
@@ -49,7 +50,7 @@ Utility examples (e.g. `maintenance_timer`, `local_curl`) may omit `graph.py` wh
 
 The four primary learning-path examples and the default-path `simple_agent` (the example the
 5-minute tutorial installs) intentionally target the published
-`azure-functions-langgraph>=0.13.0,<0.14` line in their checked-in requirements.
+`azure-functions-langgraph>=0.14.2,<0.15` line in their checked-in requirements.
 They are onboarding artifacts that a newcomer can install from PyPI; they do not
 claim to install unreleased behavior from development `main`. Release Please
 does not manage these example bounds, so changing that published target is an
@@ -66,6 +67,14 @@ CI certifies both perspectives separately on Python 3.11:
 See [`docs/testing.md`](../docs/testing.md#example-verification-levels) for how
 these lanes differ from import smoke, real Functions host smoke, and release
 cloud certification.
+
+The checker also includes both pinned official examples. Their requirements
+target exactly published **0.14.2**, independently of the four-example learning
+path range above. Add `--local-host` for the opt-in Core Tools/Azurite check;
+see the [official memory example](official_langgraph_conversation/) for exact
+ports, baseline substitutions and recorded local scope. This adds no Azure CI
+step or release gate; the manual Azure runs recorded in the two example READMEs
+are one-off evidence, not release certification.
 
 ## Picking an example
 

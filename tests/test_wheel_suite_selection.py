@@ -10,6 +10,13 @@ def test_wheel_config_collects_runtime_but_not_repository_tooling(tmp_path: Path
     config = Path(__file__).resolve().parents[1] / "tools/wheel-tests.ini"
     (tmp_path / "test_app.py").write_text("def test_runtime():\n    assert True\n")
     for name in (
+        "test_official_langgraph_basic_example.py",
+        "test_official_langgraph_conversation_example.py",
+        "test_upstream_certification.py",
+        "test_example_install_certification.py",
+    ):
+        (tmp_path / name).write_text("def test_example():\n    assert True\n")
+    for name in (
         "test_audit_candidate.py",
         "test_candidate_inventory.py",
         "test_security_workflow_contract.py",
@@ -34,4 +41,4 @@ def test_wheel_config_collects_runtime_but_not_repository_tooling(tmp_path: Path
     )
     # Then the runtime test survives and source tooling is never imported.
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "1 test collected" in result.stdout
+    assert "5 tests collected" in result.stdout

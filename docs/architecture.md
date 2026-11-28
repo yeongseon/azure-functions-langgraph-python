@@ -342,7 +342,7 @@ Private, transport-neutral request-to-execution planning shared by `_handlers.py
 - Authorization invocation and ordering inside the adapter (sync versus awaited, and the streaming `StreamingAuthorizationContext`); the shared layer never calls an authorizer.
 - Lock acquisition/release lifecycle and cancellation handling (blocking thread lock versus `async_thread_lock`, and deferred stream ownership until ASGI execution).
 - SSE framing: native routes buffer the whole stream into one response; the streaming transport emits chunks incrementally and handles client disconnect and mid-stream errors.
-- Service Bus (`triggers/service_bus.py`) and the Durable Activity (`durable/_activity.py`) keep their own adapters. They share the `has_checkpointer` probe and the `guard_run_config` / `async_thread_lock` plumbing, but not admission or thread-id planning: thread identity comes from `thread_id_factory`/`session_id` (Service Bus; `session_exclusive` skips the lock) or the payload (Durable), is not admitted with `validate_thread_id`, and does not require a thread for a checkpointed graph. Their error contracts differ from HTTP: Service Bus re-raises everything (a lock collision is `ThreadContentionError` with no observer event) so the broker retries/dead-letters; the Activity never re-raises an `Exception` and returns a normalized `DurableRunResult` (contention is `on_run_rejected`). Message payloads and Durable inputs are trusted-producer data, not untrusted HTTP bodies.
+- Service Bus (`triggers/service_bus.py`) and the Durable Activity (`durable/_activity.py`) keep their own adapters. They share the `has_checkpointer` probe and the `guard_run_config` / `async_thread_lock` plumbing, but not admission or thread-id planning: thread identity comes from `thread_id_factory`/`session_id` (Service Bus; `session_exclusive` skips the lock) or the payload (Durable), and does not require a thread for a checkpointed graph. The Durable HTTP create boundary validates config shapes, the selected thread ID and input/config structural limits before constructing that payload; direct Activity producers remain trusted. Their error contracts differ from HTTP: Service Bus re-raises everything (a lock collision is `ThreadContentionError` with no observer event) so the broker retries/dead-letters; the Activity never re-raises an `Exception` and returns a normalized `DurableRunResult` (contention is `on_run_rejected`).
 - Observer-context creation (`new_run_context(...)`) is **not** extracted. Each surface passes a different field set (`run_id` from the request id header, the Platform run id or the Durable run id; `assistant_id`; `invocation_id`; `trigger_type`; `stream_mode`/`transport`; `lock_backend` only where a `ThreadLock` is in scope) and sets `thread_id` at a different point (after config planning on HTTP, up front on Service Bus/Durable). No two surfaces build the same context, so a shared builder would need a parameter per field and would hide, not remove, the differences. `new_run_context` is already the shared primitive. Which rejection events each surface emits is pinned by tests instead (see the matrix).
 - Serialization planning is **not** extracted. Native/Streaming `_json.dumps(allow_nan=False)`, Platform's own `_serialization.dumps` (`model_dump`, `str` fallback), Durable's `dumps` + `json.loads` round trip into a `DurableRunResult` and Service Bus's no-op (the raw result goes to `result_handler`) are different wire contracts, not one policy with variations.
 - Platform SDK routes (`platform/`): their own `RunCreate` parsing and wire contract (`{"detail": ...}` errors, 422 for model validation where native uses 400, 501 for known-but-unsupported fields, the warn-or-strict unknown-field policy, `config.configurable` null admission, 422 for any thread id on a threadless run), thread-store CAS and run lock, and Platform response encoding. Platform reuses only the graph-clone helper below and the shared `method_accepts_kwarg` capability probe (its `context` rule is the analog of native `version`; the 422 message and forwarding stay Platform-specific).
@@ -354,8 +354,8 @@ Which request-to-execution stage each surface performs today, and whether it goe
 
 | Stage | Native HTTP | Platform (`platform/`) | Streaming | Service Bus | Durable |
 | --- | --- | --- | --- | --- | --- |
-| Admission (body size, depth/breadth, config policy) | Shared `admit_request_structure`: input + config limits and the `allowed_configurable_keys` policy; 400 | Platform-specific: 413 size, 422 model validation, 501 unsupported fields, `{"detail"}` errors; shared `validate_input_structure` limits also bound `context`/`metadata`; no configurable-key allow-list | Same shared helper as Native | — (the broker message is trusted; `input_mapper` shapes the input) | HTTP create route: body size and JSON-object check only; no depth/breadth limits |
-| Thread identity | Shared `plan_run_config` (`extract_thread_id`; checkpointed graph requires a thread id) | Path thread id validated with `validate_thread_id` (400); threaded config pins it; threadless rejects any thread id (422) | Same shared helper as Native | `thread_id_factory` or message `session_id`; not validated with `validate_thread_id` | `thread_id` or `config.configurable.thread_id` from the create body; not validated |
+| Admission (body size, depth/breadth, config policy) | Shared `admit_request_structure`: input + config limits and the `allowed_configurable_keys` policy; 400 | Platform-specific: 413 size, 422 model validation, 501 unsupported fields, `{"detail"}` errors; shared `validate_input_structure` limits also bound `context`/`metadata`; no configurable-key allow-list | Same shared helper as Native | — (the broker message is trusted; `input_mapper` shapes the input) | HTTP create: 413 body size; 400 JSON/config shapes and app-configured input/config depth/node limits; no configurable-key allow-list |
+| Thread identity | Shared `plan_run_config` (`extract_thread_id`; checkpointed graph requires a thread id) | Path thread id validated with `validate_thread_id` (400); threaded config pins it; threadless rejects any thread id (422) | Same shared helper as Native | `thread_id_factory` or message `session_id`; not validated with `validate_thread_id` | Explicit non-null `thread_id` takes precedence over `config.configurable.thread_id`; selected ID validated at HTTP create (400); no checkpointed-thread requirement |
 | Version / capability | Shared `negotiate_version` (422 if unsupported) | `context` capability via shared `method_accepts_kwarg`; Platform 422 message; no `version` field | Same shared helper as Native | — | — |
 | Authorization | Graph-aware `RUN` check after config planning, before version and lock | Route-level `RUN` check first, then graph-aware (`_authorize_run_graph`, #868) before any thread lookup; no native 500 wrapper | Opt-in `RUN` authorization in its own context, after config planning | — (no application authorizer; trust is the Service Bus binding) | — (no application authorizer; route protection is the app auth level, guarded by the topology check, #880) |
 | Lock scope | `_scoped_thread_lock` (checkpoint-storage scope) | `_scoped_thread_lock` plus the thread-store run lock (CAS) | Own `_scoped_thread_lock`, same scope rule | `_scoped_thread_lock`; locks only when a thread id is derived and the graph has a checkpointer; skipped for exclusive-session mode; bounded wait (`lock_timeout`) | `_scoped_thread_lock` inside the Activity; locks only for `payload.thread_id` on a checkpointed graph; no wait |
@@ -435,6 +435,126 @@ Per-thread writer exclusion for native, streaming, Durable and trigger runs:
 ### `durable/`
 
 Optional Durable Functions async-run control plane (`durable` extra, enabled with `async_runs="durable"`): create/get/cancel handlers (`_lifecycle.py`), a deterministic orchestrator (`_orchestrator.py`) and an activity that executes the graph (`_activity.py`), with pure state models in `_state.py`. Only `_runtime.py` touches `azure.durable_functions`, imported lazily. Graphs run inside activities, never orchestrators.
+
+#### Durable support scope: current behavior and proposed direction
+
+**Decision draft for [#984](https://github.com/yeongseon/azure-functions-langgraph-python/issues/984).**
+The proposals below need explicit maintainer acceptance or revision. They are
+not an accepted deprecation policy, a removal notice or a stability promotion.
+The current API remains available pending an explicit compatibility and
+migration decision. Default hosting and the existing **Experimental** tier
+remain unchanged on the rolling **0.x** line.
+
+##### Acceptance audit after PR #1002
+
+[PR #1002](https://github.com/yeongseon/azure-functions-langgraph-python/pull/1002)
+published this decision draft and the migration responsibilities below. Its
+merge review explicitly states that publication accepted none of the proposals.
+The issue must therefore remain open; documenting a proposal is not adopting it.
+
+| #984 checklist area | Evidence already delivered | Remaining decision or work |
+| --- | --- | --- |
+| Supported 0.x behavior, maintenance and deprecation/investment conditions | Current surface below; proposals 1, 3 and 4 | Maintainer acceptance or revision of maintenance expectations and decision conditions; no SLA, removal date or evidence threshold has been accepted here. |
+| App-owned `DFApp` migration and operational responsibilities | [Migration design](production-guide.md#app-owned-dfapp-migration-decision-draft), covering ownership, both kinds of deduplication, bounded Activities, checkpoint recovery, cancellation and cutover | The documentation requirement is delivered. It is not a runnable replacement or verified production migration. |
+| Cookbook coordination, adoption evidence and API preservation | Proposal 2 links Cookbook #350; its reciprocal coordination comment links #984. Proposal 4 defines candidate evidence; this change preserves the API. | The integrated recipe remains tracked in Cookbook #350. Choosing the investment threshold and support direction still requires the maintainer. |
+| App-wide trust boundary and equivalent future protections | Current boundary below; migration steps 2 and 4; proposal 5 | Current create/poll/cancel ownership limitations and app-owned enforcement are documented. The future built-in authorization requirement remains a proposal, not an implemented or accepted contract. |
+
+The recorded code-quality reviews on #1002 report **no open code findings**;
+they identify unresolved policy acceptance, not a missing runtime fix. The merge
+self-review did not verify the cited SDK signatures. Those names remain wiring
+guidance rather than an executable security sample. Regression coverage in
+`tests/test_durable_trust_boundary.py` exercises the registered lifecycle handlers
+with a denying native authorizer; `tests/test_per_graph_auth_guard.py` separately
+tests the stricter per-graph host-auth guard. The lifecycle tests unwrap the SDK's
+client-binding conversion and supply an already-injected client. These tests
+describe today's boundary, not a promise to retain
+the callback bypass if a future authorization design is approved. In-process
+client doubles do not certify host key enforcement, tenant isolation or Azure.
+
+**Current supported surface, not a broader guarantee:**
+
+- `async_runs=False` remains the default. Opting into `async_runs="durable"`
+  builds a `DFApp` and adds create, poll and cancel routes alongside the native
+  routes; it requires the optional `durable` extra.
+- The run ID is the Durable instance ID. Create submits one orchestration;
+  its deterministic orchestrator schedules one Activity that invokes the
+  registered graph. This is not a translation of graph nodes into Activities.
+  Durable instance state supplies lifecycle status, not a second run registry.
+- The Activity uses the configured, checkpoint-storage-scoped `ThreadLock`
+  when the graph has a checkpointer and the payload has a thread ID. It does
+  not acquire the Platform thread-store run lock. Durable history and LangGraph
+  checkpoint state are separate recovery layers.
+- Activity redelivery can repeat graph execution and external effects.
+  Cancellation acknowledges an orchestration termination request, not worker
+  stoppage or rollback. The [production guide](production-guide.md#async-runs-via-durable-functions-experimental)
+  retains the detailed timeout, status, redelivery and cancellation contracts.
+
+**Current app-wide trust boundary.** Built-in create/poll/cancel routes inherit
+the app-level host `auth_level`. They do **not** call
+`LangGraphApp(authorize=...)`. The topology check prevents a stricter per-graph
+host-auth requirement from being bypassed through shared routes; it does not
+establish principal, tenant, graph, thread or run ownership. Function keys alone
+do not establish per-principal ownership for any lifecycle operation. Possession
+of a run ID is not authorization. Treat these routes as a trusted app-wide
+control plane, not a tenant-isolated API. A multi-principal application needs
+an independently enforced ownership boundary on every operation, with direct
+backend access prevented; setting the native authorizer is insufficient.
+
+**Proposals for the maintainer to accept or change:**
+
+1. **Existing-caller maintenance.** Keep existing experimental callers working
+   while prioritizing correctness, security and compatibility hardening over
+   new built-in control-plane features. Assess incompatible corrections under
+   the existing 0.x classification/migration policy, publish their impact and
+   retain regression coverage. This proposes no support SLA, fixed maintenance
+   window or blanket Stable guarantee. Existing-caller hardening is tracked
+   separately in [#979](https://github.com/yeongseon/azure-functions-langgraph-python/issues/979),
+   [#980](https://github.com/yeongseon/azure-functions-langgraph-python/issues/980),
+   [#981](https://github.com/yeongseon/azure-functions-langgraph-python/issues/981),
+   [#985](https://github.com/yeongseon/azure-functions-langgraph-python/issues/985)
+   and [#986](https://github.com/yeongseon/azure-functions-langgraph-python/issues/986);
+   this draft neither implements nor claims completion of those changes.
+2. **Example-led integration.** Focus new Durable integration guidance on an
+   app-owned `DFApp` starter and Activities invoking an existing graph, coordinated
+   with [Cookbook issue #350](https://github.com/yeongseon/azure-functions-cookbook-python/issues/350).
+   That issue tracks the integrated recipe, not a prerequisite for native HTTP
+   or proof that a replacement is already available. See the
+   [migration responsibilities](production-guide.md#app-owned-dfapp-migration-decision-draft).
+3. **Deprecation consideration, not a decision.** Consider deprecation only after
+   checking actual caller usage and migration blockers, demonstrating that the
+   app-owned recipe covers their needs, and finding that the built-in surface's
+   maintenance/security cost is not justified by distinct demand. Any actual
+   deprecation needs a separate explicit maintainer decision: affected contracts,
+   compatibility classification, notice and overlap period, migration validation,
+   treatment of in-flight runs and a rollback path. No removal date or automatic
+   inactivity/download threshold is proposed here; absence of reports is not
+   evidence of absence of callers.
+4. **Continued investment evidence.** Consider first-class built-in support when
+   independent external adopters demonstrate repeated, reproducible needs that
+   app-owned composition cannot cleanly meet. Gather opt-in reports with package,
+   Python/SDK and hosting versions, topology, workload bounds, lifecycle API use,
+   ownership requirements, migration blockers and operational cost. Require
+   reproducible restart/redelivery, cancellation, checkpoint/lock handoff and
+   long-running deployment-compatibility evidence for the proposed support scope,
+   plus a credible maintenance owner and test budget. Compare recipe effort with
+   built-in benefit. Raw package downloads, stars and native HTTP certification
+   alone cannot establish Durable adoption or correctness. The maintainer must
+   choose the evidence threshold and scope; investment does not itself promote
+   the tier.
+5. **Authorization prerequisite for a future control plane.** Any future built-in
+   multi-principal create/poll/cancel API would need authorization equivalent to
+   the app-owned boundary: authenticated principal, graph/thread entitlement at
+   creation, protected principal-to-run binding and ownership checks before poll
+   or cancel, including sensitive output access and alternate management paths.
+   A native callback or function-key gate alone is not that contract. Its design
+   and migration require separate approval; this proposal adds no callback or
+   registry now.
+
+These decisions belong to [#984](https://github.com/yeongseon/azure-functions-langgraph-python/issues/984)
+within the [#410 roadmap](https://github.com/yeongseon/azure-functions-langgraph-python/issues/410).
+The separate [#811 Durable certification work](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811)
+stays open. No new release gate, hosting default, run registry or graph engine
+is introduced by this draft.
 
 ### `triggers/`
 

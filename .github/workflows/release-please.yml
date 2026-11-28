@@ -56,13 +56,15 @@ jobs:
           RELEASE_SHA: ${{ steps.release.outputs.sha }}
         run: |
           {
-            echo "### Released \`$RELEASE_TAG\`"
+            echo "### Tagged candidate \`$RELEASE_TAG\` — publication pending"
             echo
             echo "Commit: \`$RELEASE_SHA\`"
             echo
-            echo "The tag has started **Publish to PyPI**, which runs the full gate"
-            echo "(build, lib-tests, wheel-tests, azure-e2e) before"
-            echo "uploading. Nothing reaches PyPI until every tier passes."
+            echo "The tag push is configured to start **Publish to PyPI**; confirm its run in Actions."
+            echo "It runs the full gate (build, lib-tests, wheel-tests, runtime-audit, azure-e2e)"
+            echo "before uploading. GitHub Release creation is not proof of PyPI availability."
+            echo "Treat this candidate as published only after PyPI serves its wheel and sdist"
+            echo "and the read-only Release audit confirms the tag SHA, gates and provenance."
           } >> "$GITHUB_STEP_SUMMARY"
 
   # Presentation layer only. Rewrites the body of the GitHub Release that Release

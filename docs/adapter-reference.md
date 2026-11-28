@@ -71,6 +71,102 @@ This package provides a focused adapter for serving LangGraph graphs on Azure Fu
 
 > See [COMPATIBILITY.md](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md) for the per-feature SDK support matrix, including which `RunCreate` fields, thread filters, and SDK calls return `501 Not Implemented`.
 
+### SDK adoption checklist
+
+Choose the [Platform SDK example](../examples/platform_compat_sdk/) only when you
+need SDK request/response shapes. Native `LangGraphApp()` remains the default
+for new clients. This optional surface is **Experimental**, not Platform parity.
+Start with the exact [SDK feature support matrix](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md#sdk-feature-support-matrix):
+assistant discovery, thread metadata CRUD/search/count, blocking wait, buffered
+stream and state read/update/history each have their own limits. The example's
+client demonstrates discovery, thread creation, `runs.wait` and state retrieval;
+it is not evidence that every SDK call is available.
+
+#### Persistence and hosting topology
+
+The SDK example uses an in-memory checkpointer; Platform thread records default
+to `InMemoryThreadStore`, and `thread_lock` defaults to `InProcessThreadLock`.
+These are process-local: checkpoints and thread records disappear on process
+restart, and one Azure instance can run multiple Python workers. Choose three
+things independently before deployment:
+
+1. A persistent checkpointer compiled into the graph for conversation state.
+2. A shared Platform `ThreadStore`, assigned to `app.thread_store` **before**
+   exporting `app.function_app`, for thread metadata, status and Platform run locks.
+   The [Managed Identity storage recipe](../examples/managed_identity_storage/)
+   wires Blob checkpoints and Azure Table records explicitly.
+3. A distributed `ThreadLock` for shared checkpoint writers, including mixed
+   native/Platform writers. A Table run lock alone is not mixed-surface exclusion.
+   Use the [distributed deployment decision table](production-guide.md#distributed-deployment)
+   and [lock limitations](production-guide.md#distributed-thread-locking), rather
+   than treating persistent storage as a concurrency guarantee.
+
+No backend is selected automatically. Build-time
+[topology validation](production-guide.md#topology-validation-880) rejects declared
+distributed configurations that retain incompatible process-local defaults:
+`AZFUNC_LANGGRAPH_LOCK_BACKEND=distributed` requires a supplied distributed lock;
+either that declaration or `AZFUNC_LANGGRAPH_THREAD_STORE=distributed` rejects an
+in-memory Platform store or detected `InMemorySaver` checkpointer. Without an
+explicit distributed declaration, Azure-host detection can warn instead of
+rejecting local defaults. These checks do not prove the actual instance/worker
+count or certify a deployment's scale-out safety (the remaining verification
+scope is tracked in [#880](https://github.com/yeongseon/azure-functions-langgraph-python/issues/880)).
+
+#### Checkpoint retention and thread deletion
+
+`threads.delete` deletes only the `ThreadStore` record (metadata, status and
+Platform lock state); it does **not** delete graph checkpoints. Select an explicit,
+application-owned retention policy for the checkpointer independently of thread
+record retention. For Blob storage, `AzureBlobCheckpointSaver.delete_thread(thread_id)`
+removes a whole thread's checkpoint data; `delete_old_checkpoints` and
+`delete_checkpoints_before` support partial pruning. See the
+[checkpoint retention recipe and orphan-value cleanup](production-guide.md#checkpoint-retention)
+for the helpers' limits and scheduling.
+
+Keep the IDs needed for cleanup before removing thread records, or schedule
+checkpoint cleanup separately: a job that enumerates only surviving thread
+records will miss deleted threads. Coordinate cleanup with writers; deleting a
+metadata record is neither cancellation of graph execution nor a data-erasure
+workflow for the checkpoint store.
+
+#### Search and scale
+
+Thread metadata filters run **in-process**, for both `InMemoryThreadStore` and
+`AzureTableThreadStore`. Table scan candidates can be narrowed by status, but
+metadata is matched after fetching candidates, with sorting and pagination
+after filtering. A small `limit` is not a storage-read budget.
+
+The Table status index is opt-in and off by default. Only an explicit `idle`,
+`interrupted` or `error` search with **no metadata filter**, a `ready` marker and
+an offset within `status_index_offset_cap` can use it. Unfiltered search,
+metadata-filtered search, `status="busy"` and **all counts** still scan; deep
+offsets and unavailable/not-ready index state also fall back to scanning.
+Review [index rollout, mixed-writer hazards and costs](#table-status-index-opt-in-experimental)
+and the remaining measurement/operational work in
+[#801](https://github.com/yeongseon/azure-functions-langgraph-python/issues/801)
+before relying on it for scale. This is not a general metadata or global search index.
+
+#### SDK lifecycle and transport
+
+`runs.wait` executes while the HTTP request is open; `runs.stream` returns
+**buffered SSE** after graph execution, not incremental tokens. Threadless calls
+require a graph that can disable checkpointing per call, and streaming requires
+the graph's streaming capability; the matrix specifies their `501` boundaries.
+
+The Platform routes do not expose `runs.create` (fire-and-forget), `runs.get`,
+`runs.list`, `runs.cancel`, `runs.delete`, `runs.join` or `runs.join_stream`.
+SDK requests to those unregistered paths receive HTTP **404 Not Found**, not a
+run handle, persisted run status or the explicit `501` JSON feature errors
+returned for unsupported fields on **registered** routes. SDK error/exception
+wrapping depends on the client version and request method; do not interpret a
+404 as successful cancellation or as proof that no graph work happened.
+
+True incremental SSE uses the separate native
+[`StreamingLangGraphApp` transport](#streaming-behavior), not the Platform SDK
+stream routes. Enabling the separate native Durable lifecycle likewise does not
+implement SDK lifecycle calls; see the
+[non-SDK distinction in the compatibility matrix](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/COMPATIBILITY.md#durable-async-run-lifecycle-experimental-non-sdk).
+
 ## Scope
 
 - Azure Functions Python **v2 programming model**
@@ -90,6 +186,226 @@ This package does not own:
 - Generic graph-serving abstractions beyond LangGraph
 
 > **Note:** For OpenAPI spec generation, use the [`azure-functions-openapi-python`](https://github.com/yeongseon/azure-functions-openapi-python) package with the bridge module (`azure_functions_langgraph.openapi.register_with_openapi`).
+
+### OpenAPI companion compatibility policy
+
+The optional `openapi` extra permits `azure-functions-openapi>=0.30,<1`.
+The distribution name is `azure-functions-openapi`; the import name is
+`azure_functions_openapi`. The bridge remains deprecated and retained for
+documentation metadata; this policy covers `register_with_openapi(app)`, not
+every companion feature or automatic endpoint-metadata scanning.
+
+#### Published-range evidence (2026-11-25)
+
+The [PyPI JSON index](https://pypi.org/pypi/azure-functions-openapi/json) listed
+exactly these non-yanked stable releases in the advertised range. `>=0.30`
+means the actual floor is **0.30.0**, not the newest 0.30 patch. Each release
+declares Python `>=3.11,<3.15`.
+
+| Companion | First upload (UTC) | Python 3.11 focused checks |
+| --- | --- | --- |
+| 0.30.0 (floor) | 2026-10-11 08:49:06 | 57 passed, 0 failed, 0 skipped |
+| 0.30.1 (intermediate patch) | 2026-10-14 00:21:03 | 57 passed, 0 failed, 0 skipped |
+| 0.31.0 (latest eligible) | 2026-11-01 08:05:18 | 57 passed, 0 failed, 0 skipped |
+
+Each throwaway environment installed the candidate package from the checkout
+plus an exact companion pin from PyPI, without modifying shared Hatch
+environments. Floor and latest used separate fresh virtualenvs; the intermediate
+patch was also checked in the floor environment before restoring its floor pin.
+All three used the same focused selection: `test_openapi_bridge.py`,
+`test_openapi_real_companion_interop.py`, `test_endpoint_metadata.py`, and
+`test_endpoint_conformance.py` under `tests/`. The eight real-companion cases
+executed, rather than silently skipping. These are local in-process integration
+checks, not Functions-host or Azure certification, and not a Python 3.12–3.14
+or minimum-transitive-dependency matrix.
+
+All three resolved the companion's runtime dependencies to `azure-functions
+1.26.0`, `pydantic 2.14.4`, `pydantic-core 2.50.5`, and `PyYAML 6.0.4`;
+the graph stack resolved to `langgraph 1.2.24`, `langchain-core 1.8.4`,
+`langgraph-checkpoint 4.3.2`, and `langgraph-sdk 0.4.14`. The companion metadata
+requires `pydantic>=2,<3`, unbounded `pyyaml`, and `azure-functions>=1.21,<2`
+below Python 3.13 (`>=1.21,<3` on Python 3.13+).
+
+For comparison, the shared Table test environment had **no companion**:
+49 checks passed and the real-companion module skipped explicitly. Its versions
+were `azure-functions 1.26.0`, `pydantic 2.14.3`, `pydantic-core 2.50.4`,
+`PyYAML 6.0.4`, `langgraph 1.2.22`, `langchain-core 1.8.1`,
+`langgraph-checkpoint 4.3.2`, and `langgraph-sdk 0.4.14`. That comparison proves
+the independent absent-package lane remains usable; a skip is not companion
+certification. `TestImportGuard` and the optional-package-absent example test
+remain independent of real-companion installation.
+
+#### Emitted native-route semantics and known limitations
+
+After registering one default stateful graph named `agent`, calling
+`register_with_openapi(app)` and then the companion's `generate_openapi_spec()`
+emitted the following **same** OpenAPI 3.1 document semantics on all three
+releases (bridge-only generation, without `app=` scanning):
+
+| Emitted path | Method | Emitted successful response |
+| --- | --- | --- |
+| `/api/graphs/agent/invoke` | POST | `200 application/json`, component schema with required `output` object envelope |
+| `/api/graphs/agent/stream` | POST | `200 application/json`, generic object schema |
+| `/api/graphs/agent/threads/{thread_id}/state` | GET | `200 application/json`, generic object schema; required string `thread_id` path parameter |
+| `/api/health` | GET | `200 application/json`, generic object schema |
+| `/api/health/details` | GET | `200 application/json`, generic object schema |
+
+The generated paths preserve a matching custom `v1` or empty route prefix
+without doubling it. The tests assert exact paths/methods, the state parameter,
+and the invoke response's component reference and `output` envelope.
+
+**Findings, not wire-fidelity certification:** the bridge-only stream response
+above does **not** describe the runtime's buffered `text/event-stream` SSE.
+State and health bodies are generic, and error responses are absent. Both
+invoke and stream request bodies also contain an extra Request Body Object
+inside `requestBody.content.application/json.schema` (its own `required` and
+`content.application/json.schema`), rather than the request schema directly.
+Registration success therefore does not imply a fully accurate document or
+safe client generation. These limitations occur at both ends of the range;
+narrowing to another tested release would not fix them. They require separate
+bridge/schema work, not a dependency downgrade or weaker tests.
+
+#### Maintaining the range
+
+Retain `>=0.30,<1`: all currently published eligible releases pass the bridge
+checks and preserve the recorded semantics; there is no observed
+version-specific regression justifying a higher floor or lower ceiling.
+This is evidence for the versions above, **not** a guarantee that every future
+pre-1.0 minor will be compatible.
+
+The maintainer reviewing a companion update or a user compatibility report
+owns re-running the same selection in fresh floor and latest-eligible
+environments. Check the PyPI release list and Python requirements, record
+resolved versions and generated paths/responses, and inspect `-rs`: any skipped
+interop case leaves that candidate uncertified. Keep the primary environment
+without the companion to exercise optional-dependency absence independently.
+The existing optional OpenAPI test entry point alone is not a two-ended matrix.
+
+If a new release breaks registration, parameter conversion, generation, paths
+or response semantics, report the exact failing version, dependencies, command
+and failure. Users should pin their application lock/constraints to the last
+verified exact companion version while the maintainer reproduces it. The
+maintainer must then either adapt the bridge with a regression test or publish
+a dependency-bound correction excluding the incompatible release (`!=` for an
+isolated bad release, or an upper bound at the first incompatible line). Do not
+raise the floor merely to hide a latest-release failure. Re-test floor and
+latest within the corrected range, document migration impact, and widen again
+only after the formerly failing release or its replacement passes. Never
+convert a failure to a skip/xfail to preserve a compatibility claim.
+
+### Endpoint metadata v1 producer certification
+
+Native handlers still emit endpoint metadata **v1**. A metadata v2 producer
+would be needed to describe response media types or headers not representable
+by v1 (for example buffered SSE), not merely because a consumer supports v2
+or a graph uses LangGraph's separate `version="v2"` output option. The core
+package remains installable and importable without OpenAPI; only optional
+consumer tests and bridge calls need the companion.
+
+With `generate_openapi_spec(app=app.function_app)`, the tested consumers log a
+warning for an unsupported endpoint metadata version and fall back to a
+binding-derived operation without its endpoint schema hints. Treat that warning
+as a compatibility failure, not successful schema certification. This signal
+belongs to the consumer; no producer runtime warning or v2 emission is required.
+The regression checks the consumer's warning logger, missing request body and
+generic `{"type": "object"}` response fallback; that generic response does not
+certify the graph's output envelope.
+Bridge-only generation does not inspect endpoint versions. Combining the full
+deprecated bridge with app scanning currently raises `OpenAPISpecConfigError`
+for conflicting request metadata; use native scanning for shapes and separate
+documentation-only registration for custom prose. Pass the same explicit
+`OpenAPIRegistry()` to registration and generation: 0.31.0 app scanning
+otherwise creates an isolated registry and cannot see global documentation.
+
+The recorded fixture in `tests/fixtures/openapi_native_producer.v1.json` is
+checked by `tests/test_openapi_v1_producer_consumers.py`. Generated schema details
+can vary with the Pydantic version: the comparison normalizes singleton
+`allOf: [{"$ref": ...}]` to a direct reference and object
+`additionalProperties: true` to its equivalent omitted default. All other
+fields, including titles, definitions, property names and required lists,
+remain exact; the full JSON records one reference generation (Pydantic 2.14.4).
+
+#### Pinned upstream schema
+
+The optional Hatch `openapi` test environment pins
+`azure-functions-validation==0.16.0` and `jsonschema==4.26.0`. Tests read the
+installed Validation package's `schemas/endpoint.schema.json` and
+`schemas/endpoint.schema.sha256` with `importlib.resources`, verify the package
+version and raw-byte SHA-256, then validate every unnormalized native graph
+handler payload with the full Draft 2020-12 validator. The immutable source is
+[Validation commit d82908a](https://github.com/yeongseon/azure-functions-validation-python/blob/d82908a3464e75320c34b662704e52e05d05ed6c/src/azure_functions_validation/schemas/endpoint.schema.json);
+the schema digest is
+`fda7b9c4ccaca770c4af2c55b7e174f52424f78484af26e8d00360f462cc057e`.
+Malformed-version, body-required, status-code, response-schema and parameter
+cases guard against false certification.
+
+This upstream artifact is distinct from our stricter local
+`endpoint_metadata_schema.v1.json`: upstream requires only `version`, permits
+documentation fields and constrains response status keys and parameter shapes.
+Both checks remain useful; neither is silently substituted for the other.
+The upstream schema permits embedded schema objects; the installed OpenAPI
+consumer tests separately check paths, methods, successful statuses and model
+references. These are in-process producer/consumer checks, not Azure evidence
+or complete SSE wire-fidelity certification.
+
+Neither pin is a core dependency or part of the public `openapi` extra. Without
+the test dependencies the upstream cases skip with explicit installation
+reasons; the dependency-free local fixture/conformance checks still execute.
+Updating the schema requires reviewing the immutable upstream source, verifying
+the published package's resource digest, and changing the test-environment pin
+and expected digest together. Do not regenerate a digest from arbitrary local
+bytes just to make a failing check pass.
+
+#### Updating the native recording
+
+Use an owned Python 3.11+ virtual environment; do not install into a shared
+environment. From the repository root, after `make bootstrap PYTHON=python3.11`,
+keep Hatch environments isolated under this checkout:
+
+```bash
+export HATCH_DATA_DIR="$PWD/.hatch-data"
+export HATCH_ENV_TYPE_VIRTUAL_PATH="$PWD/.venv-openapi"
+make install HATCH="$PWD/.venv/bin/hatch"
+make test-openapi HATCH="$PWD/.venv/bin/hatch"
+```
+
+Generate a **candidate**, preserving the route-to-payload mapping and capturing
+the custom graph description. Pytest's `__wrapped__` exposes the existing
+fixture factory without duplicating the producer configuration:
+
+```bash
+.venv/bin/hatch run openapi:python - <<'PY'
+import json
+from tests.test_openapi_v1_producer_consumers import (
+    _FIXTURE, _endpoint_payload, _get_registered_functions, producer_app,
+)
+
+app = producer_app.__wrapped__()
+functions = _get_registered_functions(app.function_app)
+recording = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+payloads = {}
+for name, kind in recording["routes"].items():
+    payload = _endpoint_payload(functions[name])
+    if kind in payloads:
+        assert payloads[kind] == payload, f"shared payload differs: {name}"
+    payloads[kind] = payload
+recording["payloads"] = payloads
+recording["documentation"]["description"] = app.get_app_metadata().graphs["ordinary"].description
+candidate = _FIXTURE.with_suffix(".candidate.json")
+candidate.write_text(json.dumps(recording, indent=2) + "\n", encoding="utf-8")
+print(candidate)
+PY
+```
+
+Review the candidate against the existing recording before replacing it.
+When adding/removing a route, review the mapping and the consumer's expected
+semantic paths too. Re-run `make test-openapi` in separate owned environments
+with exact companion pins `0.30.0` and `0.31.0` (the recorded floor and latest
+eligible release); record resolved dependencies and inspect skips. Every
+consumer and upstream-schema case must execute. Keep a separate core-only
+environment to verify optional-dependency absence. Fixture maintenance requires
+neither a mandatory runtime dependency nor endpoint metadata v2 emission;
+media-type/header support would need separate v2 producer work.
 
 ## Installation
 
@@ -965,7 +1281,7 @@ rationale.
 Off by default. With the default constructor the store writes no extra rows, sends no extra
 requests and keeps the table format unchanged. `search(status=...)` scans every thread of that
 status (about 1,000 entities per request), so `limit` and `offset` do not bound the I/O. Real
-Azure measurements are in #797; the index was **not** measured on real Azure.
+Azure scan measurements are in #797; the index's real-Azure evidence is recorded below.
 
 ```python
 store = AzureTableThreadStore.from_connection_string(
@@ -1023,7 +1339,7 @@ reader falls back to the scan automatically (logged at DEBUG). Results and order
 | release (busy to a terminal status) | 1 / 1 | 2 / 1 |
 | `update(status=<new terminal status>)` | 1 / 1 | 2 / 1 |
 | `update(metadata=...)`, `merge_metadata`, same status | 1 / 1 | 1 / 1 |
-| `delete` | 1 / 0 | 1 / 0 |
+| `delete` | 1 / 1 | 1 / 1 |
 
 A Platform run (acquire, release) goes from 2 to 3 writes. `search(status="idle", limit=10)` over
 3,000 threads (1,500 idle) read 1,500 entities in 2 requests by scan, and 29 entities in 3 requests
@@ -1049,11 +1365,263 @@ cache TTL), then turn `status_index` off in the application, then optionally
 `disable_status_index(delete_rows=True)` to delete the hint rows. **Re-enabling always requires a
 new backfill and a clean audit**, because writes made while the index was off were not hinted.
 
-**Verification status.** Covered by fake-table tests with failure injection between steps and the
-same scenarios against Azurite (`make test-table`). Not verified on real Azure: whether the
-15-comparison `$filter` limit counts the `PartitionKey` clause (the verification batch is 14
-row keys to stay safe), throughput on a hot `idx:<status>` partition, read-after-write behavior,
-and in-region latency. Treat the feature as experimental until those are measured.
+**Verification status.** Fake-table and Azurite failure-injection coverage is supplemented by
+the real-Azure runs below. The feature remains experimental: 100k in-region latency,
+hot-partition throughput and sustained independent-process writers remain unproven. The maintainer
+[accepted the extra write cost and cross-partition consistency contract on 2026-11-24](https://github.com/yeongseon/azure-functions-langgraph-python/issues/801#issuecomment-7145694851)
+for the Experimental, default-off opt-in only; this is not a support-tier promotion.
+
+**In-region follow-up (2026-11-28): partial measurements.** One smoke-gated Linux
+ACI in `koreacentral`, against same-group/region Standard_LRS storage, completed
+the existing benchmark at 1k/10k threads. Idle limit=10 scan→index median was
+**96.8→19.7 ms** at 1k and **973.3→38.8 ms** at 10k; 10k wire cost was
+9 requests/8016 rows→2/28. However 10k limit=1000 regressed
+**1118.2→3561.7 ms**; small rare-status/deep-offset cases also regressed.
+Create/terminal transitions add one write; acquire/release remains +50% writes.
+Rebuild/audit/rollback passed within the sampled cells, 1k repair removed six
+stale hints. **100k and sustained-writer cells timed out**, so neither their
+latency nor hot-partition/consistency result is established. The feature remains
+Experimental/default-off. Full [results, scope and verified cleanup](testing.md#in-region-storage-attempt-2026-11-28-801-and-860)
+include retained stdout/state, before-analysis deletion and unproven rows.
+
+#### Real-Azure status-index evidence — 2026-11-24 (#801)
+
+**Scope and limits first.** These are real Azure Table SDK measurements against one temporary
+`Standard_LRS` / `StorageV2` account in `koreacentral`, not emulator results. Latency is
+**client-to-Azure from a local workstation, not in-region**, including SDK decoding and oracle
+assertions. No VM/container/Functions compute was created. Sequential measurements on one
+client are not throughput, throttling, sustained multi-process or production certification.
+The measurements informed, but did not themselves make, the maintainer's decision recorded
+above. The evidence PR changed no issue checklist; the maintainer subsequently checked only
+the write-cost/consistency acceptance item. No support-tier promotion was made.
+
+**Repository reality.** Base `e62aea4` includes the index from #910. The older issue proposal
+saying recovery/backfill are not implemented is superseded by its 2026-11-21 checkpoint and
+newer comments. The [2026-11-20 Azurite rehearsal](https://github.com/yeongseon/azure-functions-langgraph-python/issues/801#issuecomment-7031497779)
+is an issue comment, not checked-in results; its driver was a scratch script. This evidence is
+placed beside the existing contract rather than claiming a repository rollout script existed.
+The existing integration fixture was emulator-only; this PR adds the env-var selector for its
+existing scenarios. The original benchmark still measures scans/prototype, not the shipped index;
+the small companion `tools/benchmark_table_status_index.py` reuses its generator and transport.
+The cost table's old `delete` entry (zero gets) lagged #935: deletion now reads first, off and on.
+
+**Method.** Python 3.11.15, `azure-data-tables` 12.7.0, `azure-core` 1.41.0. Seed 7;
+`tools/benchmark_table_store.py:populate`, base 2025-01-01 UTC, paired timestamps five seconds
+apart, UUID thread IDs; metadata tenant (50 values), kind (3), user (5,000). Status counts:
+
+| Threads | idle | busy | interrupted | error |
+|---:|---:|---:|---:|---:|
+| 1,000 | 814 | 85 | 72 | 29 |
+| 10,000 | 8,016 | 967 | 707 | 310 |
+| 100,000 | 80,067 | 10,113 | 6,897 | 2,923 |
+
+One fresh table per size, deleted before the next size. At most 100,000 **primary threads**;
+the enabled table additionally held 89,887 hints and a marker at that size (not 100,000 total
+physical rows). Population uses 100-primary-row transactions and excludes index hot-path write
+cost, which is measured separately. Three timed repetitions plus one separate untimed
+`tracemalloc` pass for each read. Memory is additional traced Python allocation, not RSS or
+instance sizing. The new transport decodes response bodies for row/byte counts; this instrumentation
+also contributes to measured time and memory. HTTP counts include every send, including retries;
+rows count successful GET response entities, not server-side rows inspected. Bytes are response
+body bytes, not headers, TLS overhead or request upload bytes.
+
+The index retains its default offset cap 200 and marker TTL 30 seconds. Off runs precede on runs,
+so cache expiry can add one marker GET to the next on run. A marker response adds one received
+row, not a consumed query row. These explain the differing request counts below; no retry rate
+or HTTP-status histogram was captured, so totals alone do not prove absence of retries.
+
+**Read results.** Every cell's returned IDs/count matched an independent oracle from seeded rows
+(`created_at` descending, thread ID ascending), including ties and fallback. 72 workload/mode/size
+cells, four executions each, zero mismatches. In the following table `off → on`; request series
+are timed reps 1/2/3/**memory pass**. Rows collapse only when identical in all four executions.
+Latency is median/max milliseconds across the three timed reps; memory is MiB.
+Searches default to limit 10, offset 0 unless shown.
+
+| Threads | Operation | HTTP requests off → on | GET rows off → on | Traced MiB off → on | Median/max ms off → on |
+|---:|---|---|---|---|---|
+| 1,000 | idle | 1/1/1/1 → 2/2/2/2 | 814 → 28 | 3.9 → 0.1 | 126.5/128.1 → 34.7/40.0 |
+| 1,000 | interrupted | 1/1/1/1 → 2/2/2/2 | 72 → 28 | 0.3 → 0.1 | 23.7/81.5 → 65.9/72.3 |
+| 1,000 | error | 1/1/1/1 → 2/2/2/2 | 29 → 28 | 0.1 → 0.1 | 28.1/76.4 → 44.0/70.6 |
+| 1,000 | busy (scan) | 1/1/1/1 → 1/1/1/1 | 85 → 85 | 0.4 → 0.4 | 45.5/86.3 → 27.9/38.4 |
+| 1,000 | idle limit=0 | 1/1/1/1 → 0/0/0/0 | 814 → 0 | 3.9 → 0.0 | 114.6/171.6 → 0.0/0.0 |
+| 1,000 | idle offset=100 | 1/1/1/1 → 9/9/9/9 | 814 → 224 | 3.9 → 0.5 | 136.1/175.4 → 268.8/362.0 |
+| 1,000 | idle offset=200 | 1/1/1/1 → 16/16/16/16 | 814 → 420 | 3.9 → 0.8 | 122.7/169.9 → 604.1/635.8 |
+| 1,000 | idle offset=201 (scan) | 1/1/1/1 → 1/1/1/1 | 814 → 814 | 3.9 → 3.9 | 116.3/202.5 → 184.1/190.3 |
+| 1,000 | idle limit=1000 | 1/1/1/1 → 60/60/60/60 | 814 → 1,628 | 3.9 → 4.7 | 153.2/220.8 → 1775.8/2406.5 |
+| 1,000 | unfiltered | 1/1/1/1 → 1/1/1/1 | 1,000 → 1,000 | 4.8 → 4.8 | 148.4/186.1 → 123.4/140.5 |
+| 1,000 | tenant=t7 | 1/1/1/1 → 1/1/1/1 | 1,000 → 1,000 | 4.8 → 4.8 | 158.8/202.4 → 152.0/163.6 |
+| 1,000 | count idle | 1/1/1/1 → 1/1/1/1 | 814 → 814 | 3.9 → 3.9 | 142.7/195.7 → 216.2/219.0 |
+| 10,000 | idle | 9/9/9/9 → 2/2/2/2 | 8,016 → 28 | 23.1 → 0.1 | 1342.7/1529.0 → 67.1/125.7 |
+| 10,000 | interrupted | 1/1/1/1 → 2/2/2/2 | 707 → 28 | 3.4 → 0.1 | 161.3/236.9 → 74.3/112.3 |
+| 10,000 | error | 1/1/1/1 → 2/2/2/2 | 310 → 28 | 1.5 → 0.1 | 125.6/127.8 → 86.6/94.5 |
+| 10,000 | busy (scan) | 1/1/1/1 → 1/1/1/1 | 967 → 967 | 4.6 → 4.6 | 231.0/232.3 → 208.2/252.1 |
+| 10,000 | idle limit=0 | 9/9/9/9 → 0/0/0/0 | 8,016 → 0 | 23.1 → 0.0 | 1487.5/1587.3 → 0.0/0.0 |
+| 10,000 | idle offset=100 | 9/9/9/9 → 10/9/9/9 | 8,016 → 225/224/224/224 | 23.1 → 0.5 | 1689.5/1773.0 → 676.8/683.1 |
+| 10,000 | idle offset=200 | 9/9/9/9 → 16/16/16/16 | 8,016 → 420 | 23.1 → 0.9 | 1552.5/1566.0 → 1192.1/1474.1 |
+| 10,000 | idle offset=201 (scan) | 9/9/9/9 → 9/9/9/9 | 8,016 → 8,016 | 23.1 → 23.1 | 1404.7/1475.2 → 1381.7/1760.9 |
+| 10,000 | idle limit=1000 | 9/9/9/9 → 75/74/74/74 | 8,016 → 2997/2996/2996/2996 | 23.1 → 5.6 | 1185.8/1332.2 → 5815.8/6385.7 |
+| 10,000 | unfiltered | 10/10/10/10 → 10/10/10/10 | 10,000 → 10,000 | 28.5 → 28.5 | 1604.8/1711.4 → 1489.6/1620.1 |
+| 10,000 | tenant=t7 | 10/10/10/10 → 10/10/10/10 | 10,000 → 10,000 | 28.3 → 28.3 | 1466.5/1606.5 → 1595.0/1613.1 |
+| 10,000 | count idle | 9/9/9/9 → 9/9/9/9 | 8,016 → 8,016 | 23.1 → 23.1 | 1290.1/1344.9 → 1306.6/1453.1 |
+| 100,000 | idle | 81/81/81/81 → 3/2/2/2 | 80,067 → 29/28/28/28 | 210.9 → 0.1 | 12963.1/14143.8 → 480.4/804.2 |
+| 100,000 | interrupted | 7/7/7/7 → 2/2/2/2 | 6,897 → 28 | 20.1 → 0.1 | 1410.2/1550.3 → 412.1/432.1 |
+| 100,000 | error | 3/3/3/3 → 2/2/2/2 | 2,923 → 28 | 9.8 → 0.1 | 861.8/1001.7 → 465.6/547.3 |
+| 100,000 | busy (scan) | 11/11/11/11 → 11/11/11/11 | 10,113 → 10,113 | 28.5 → 28.5 | 2165.6/2231.5 → 2059.4/2116.6 |
+| 100,000 | idle limit=0 | 81/81/81/81 → 1/0/0/0 | 80,067 → 1/0/0/0 | 210.9 → 0.0 | 12809.6/12882.3 → 0.0/8.2 |
+| 100,000 | idle offset=100 | 81/81/81/81 → 10/9/9/9 | 80,067 → 225/224/224/224 | 210.9 → 0.5 | 12947.1/15276.3 → 3658.4/3761.3 |
+| 100,000 | idle offset=200 | 81/81/81/81 → 17/16/16/16 | 80,067 → 421/420/420/420 | 210.9 → 0.8 | 13387.4/13591.0 → 6312.7/7251.4 |
+| 100,000 | idle offset=201 (scan) | 81/81/81/81 → 81/81/81/81 | 80,067 → 80,067 | 210.9 → 210.9 | 13937.2/13952.2 → 14310.6/15215.1 |
+| 100,000 | idle limit=1000 | 81/81/81/81 → 75/75/75/75 | 80,067 → 2,997 | 210.9 → 5.6 | 14255.1/15194.8 → 31917.2/33003.8 |
+| 100,000 | unfiltered | 100/100/100/100 → 100/100/100/100 | 100,000 → 100,000 | 265.0 → 265.0 | 16787.2/16893.3 → 16460.8/16494.6 |
+| 100,000 | tenant=t7 | 100/100/100/100 → 100/100/100/100 | 100,000 → 100,000 | 262.8 → 262.8 | 15987.3/16224.1 → 16618.4/16767.2 |
+| 100,000 | count idle | 81/81/81/81 → 81/81/81/81 | 80,067 → 80,067 | 210.9 → 210.9 | 13272.4/13995.5 → 13763.1/14341.0 |
+
+Idle limit=10 received about 8.5 KB on the index at all sizes, versus 370,306 / 3,645,755 /
+36,412,133 bytes by scan. Offset=100 received about 67 KB; offset=200 about 125 KB.
+At 10k and 100k, limit=1000 consumed **2,016** query entities but fetched **2,996**
+(plus any marker): two 994-hint pages and 1,008 verified primaries. The second full hint page
+was fetched to consume only 14 hints. At 1k it exhausted 814 hints and primaries (1,628 rows).
+Thus returned rows are not rows read, and the index is not always cheaper: rare statuses at 1k
+add a second request, offset=200 costs 16 requests versus one at 1k, and limit=1000 is slower
+at **every** size here. Even fixed 2-request searches rose from tens to hundreds of milliseconds
+at 100k; the OR-filter verification query may inspect more of the primary partition, but this
+run cannot isolate service scanning, client effects or network variance. Do not call it O(1)
+latency or extrapolate a supported load. No shipped-code fix or search expansion is included.
+
+**Write amplification.** Three independent create/run/update/delete sequences per mode at each
+size. Counts were identical in all repetitions and sizes. Writes are POST/PUT/PATCH/DELETE
+sends; reads are GET sends, not a model. Primary seeding batches are excluded.
+
+| Operation | Writes / GETs off → on | Extra writes |
+|---|---|---:|
+| create | 1/0 → 2/0 | +100% |
+| acquire idle → busy | 1/1 → 1/1 | 0 |
+| release busy → idle | 1/1 → 2/1 | +100% |
+| update idle → error | 1/1 → 2/1 | +100% |
+| merge metadata | 1/1 → 1/1 | 0 |
+| delete | 1/1 → 1/1 | 0 (leaves stale hints) |
+
+A run's acquire+release goes from **2 writes + 2 GETs to 3 writes + 2 GETs**:
++50% writes, +25% total HTTP requests. Write latency samples (all three, milliseconds):
+
+| Threads | Operation | off samples → on samples |
+|---:|---|---|
+| 1,000 | create | 9.5/11.8/9.9 → 181.7/15.5/24.2 |
+| 1,000 | acquire | 86.1/18.6/24.6 → 25.4/15.1/18.6 |
+| 1,000 | release idle | 21.3/16.8/26.8 → 37.0/27.2/27.7 |
+| 1,000 | update error | 25.1/19.0/24.3 → 47.4/31.9/27.9 |
+| 1,000 | metadata | 22.6/16.4/24.7 → 15.7/24.4/69.9 |
+| 1,000 | delete | 21.3/16.1/23.9 → 20.9/23.1/24.1 |
+| 10,000 | create | 9.1/8.9/11.4 → 23.6/17.5/16.8 |
+| 10,000 | acquire | 15.5/16.0/20.5 → 20.3/15.2/14.7 |
+| 10,000 | release idle | 14.5/17.6/21.0 → 30.0/22.6/34.5 |
+| 10,000 | update error | 14.7/24.5/37.5 → 34.1/23.1/26.6 |
+| 10,000 | metadata | 15.1/79.4/20.9 → 18.0/87.1/23.6 |
+| 10,000 | delete | 15.0/19.7/20.3 → 17.8/16.6/19.1 |
+| 100,000 | create | 507.0/9.4/14.7 → 48.5/31.6/25.3 |
+| 100,000 | acquire | 588.6/15.1/24.6 → 26.0/24.8/155.7 |
+| 100,000 | release idle | 26.0/14.0/24.2 → 100.5/37.7/42.4 |
+| 100,000 | update error | 18.0/115.5/24.4 → 41.7/29.3/33.8 |
+| 100,000 | metadata | 15.2/25.8/25.2 → 24.6/16.5/21.3 |
+| 100,000 | delete | 14.9/24.0/23.9 → 22.9/14.6/20.0 |
+
+**Backfill, audit, repair and rollback.** Admin operations are one timed execution, no separate
+memory pass; scale admin memory and variance are NOT PROVEN. Every backfill completed, audit
+reported zero missing/stale and marked ready. HTTP counts include marker writes/reads.
+
+| Threads | Rebuild requests (scan / batches / marker), ms | Hints | Audit requests / GET rows, ms |
+|---:|---|---:|---|
+| 1,000 | 13 (1/11/1), 1681.7 | 915 | 7 / 1,917, 252.7 |
+| 10,000 | 104 (10/93/1), 16318.0 | 9,033 | 24 / 19,035, 1679.7 |
+| 100,000 | 1,001 (100/900/1), 147535.6 | 89,887 | 194 / 189,889, 14698.8 |
+
+Before rollout, marker-absent searches sent 2/10/82 requests and read the entire idle set.
+While building they sent 1/9/82 (the last includes a TTL refresh) and still scanned the idle set.
+After the three index-aware write sequences were deleted, audit counted exactly six stale hints
+and zero missing at every size. At 1k, `repair_status_index(0)` removed all six, costing
+79 requests (72 GET, 6 DELETE, 1 clock PUT), 1,837 received rows and 1968.8 ms.
+**Scale repair at 10k/100k was not run**: its verification cost is O(hints/14), regardless of
+how few are stale. Zero grace is only a quiescent-table drill, not a recommended production value.
+Disable cost one PUT at every size (9.8/11.4/10.0 ms); subsequent local reads scanned again
+(1/9/81 requests). Multi-process marker TTL propagation at scale was not measured.
+
+The existing 30 shared scenarios plus four U1/U2/U3/U5 probes ran on separate fresh real tables:
+**34 passed, 54 unrelated tests deselected, 82.12 seconds**. These include default-off layout,
+ordering/ties, limit/offset equivalence, fallback, create/update/lock/delete, controlled two-writer
+ETag conflicts, simulated errors before/after real writes, resumable/idempotent backfill, a failed
+batch and rerun, grace-period repair, repair losing to a real competing write, mixed-fleet omission
+and audit demotion/rebuild, disable/delete-hints/re-enable, and vanished-row batch fallback.
+The wrapper deliberately schedules interleavings in one process; Azure performs the actual CAS
+and transaction operations. This is NOT sustained independent-process multi-writer testing or
+real transport-loss fault injection. Existing U2 proves the **14-row-key + partition** filter
+works, not whether 15 row keys plus partition are rejected. U1 proves identical upserts changed
+ETag/Timestamp in the sampled calls (the implementation uses a fresh `u` regardless); U3 proves
+ordering/pagination/conditional delete and transaction atomicity in its small table; U5 proves
+sampled read-your-writes, not all concurrent-read schedules. **U4 hot-partition throughput remains
+NOT PROVEN.**
+
+**Exact commands and cleanup.** Run from the evidence worktree. The connection string was obtained
+only in the same shell invocation as these commands, passed by environment-variable **name**, and
+never printed or persisted. Provisioning outputs were suppressed or selected to safe fields.
+The resource group had tags `purpose=benchmark repo=azure-functions-langgraph issue=801 owner=agent`.
+
+```bash
+set -euo pipefail
+rg="rg-af-bench-801-$(date -u +%Y%m%d%H%M)"
+account="stafbench801$(python3 -c 'import secrets; print(secrets.token_hex(3))')"
+cleanup() {
+  unset BENCH_TABLE_CS
+  az group delete --name "$rg" --yes --only-show-errors -o none
+  az group wait --name "$rg" --deleted --interval 15 --timeout 1800 --only-show-errors
+  az group exists --name "$rg" -o tsv
+  az group list --query "[?starts_with(name,'rg-af-bench-')].name" -o tsv
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+az account show --query '{name:name,state:state}' -o json
+test "$(az account show --query state -o tsv)" = Enabled
+az group create --name "$rg" --location koreacentral \
+  --tags purpose=benchmark repo=azure-functions-langgraph issue=801 owner=agent \
+  --only-show-errors -o none
+az storage account create --name "$account" --resource-group "$rg" \
+  --location koreacentral --sku Standard_LRS --kind StorageV2 \
+  --allow-blob-public-access false --min-tls-version TLS1_2 --only-show-errors -o none
+export BENCH_TABLE_CS="$(az storage account show-connection-string \
+  --name "$account" --resource-group "$rg" --query connectionString -o tsv --only-show-errors)"
+timeout 3600 hatch run table:python -m tools.benchmark_table_status_index \
+  --connection-string-env BENCH_TABLE_CS --sizes 1000,10000,100000 --reps 3 \
+  > /tmp/opencode/evidence801-index.json
+timeout 1800 hatch run table:python tools/benchmark_table_store.py \
+  --connection-string-env BENCH_TABLE_CS --sizes 1000,10000,100000 --reps 3 \
+  > /tmp/opencode/evidence801-scan.md
+TABLE_TEST_CONNECTION_STRING_ENV=BENCH_TABLE_CS timeout 1800 hatch run table:python \
+  -m pytest -v -m integration tests/integration/test_table_store_integration.py \
+  -k 'status_index_scenario or test_u1 or test_u2 or test_u3 or test_u5' \
+  --no-cov --tb=short > /tmp/opencode/evidence801-scenarios.txt
+```
+
+The already logged-in default subscription was verified as `Visual Studio Enterprise Subscription`,
+`Enabled`; no login/default change, role assignment or other resource was touched.
+Created `rg-af-bench-801-202611241242` and its only account `stafbench8014f13bb`;
+start 12:42:57 UTC, final deletion proof 13:46:31 UTC. The account's safe-field query confirmed
+`koreacentral`, `Standard_LRS`, `StorageV2`, blob public access false and minimum TLS 1.2.
+The EXIT trap ran synchronous group delete and wait; afterwards `az group exists` returned
+**false**, and the `rg-af-bench-*` group-list command returned **no names**. Nothing remains.
+
+Index benchmark total: **9,685 actual HTTP requests**, including table creation/deletion,
+population, all measured reads/writes, admin operations and oracle-bearing reads.
+Original scan benchmark total: **3,592**, of which **2,476** were its 84 query executions.
+The integration suite's HTTP total was not instrumented, so **13,277 is a measured subtotal,
+not the whole-session count**. Conservative planning estimate: below 50,000 Table requests;
+at an illustrative $0.01/10,000 requests, below $0.05 transactions, with small storage/egress
+for roughly one hour comfortably below $1 total and the $5 budget. This is an estimate,
+not an invoice or a verified regional tariff; no compute charge was incurred.
+
+**Still open for the maintainer.** Accept (or reject) the +50% run write cost, lazy stale hints,
+cross-partition/non-snapshot consistency and all-writers-aware completeness requirement; decide
+the experimental/support gate and whether the default offset cap and large-limit trade-off fit
+real usage. In-region latency, U2's rejection boundary, U4 sustained throughput, scale repair,
+admin memory, independent-process writers and broader failure schedules remain NOT PROVEN.
 
 ### Scale envelope
 
@@ -1146,18 +1714,26 @@ For workloads that already run a managed database (or need state shared across m
 
 Each helper owns the connection lifetime and emits clear ImportErrors pointing at the right extra. The Postgres and SQLite helpers accept a connection string and (by default) call upstream `setup()` on cold start so the checkpoint tables exist. The Cosmos DB helper accepts an endpoint and key, temporarily wires the upstream `COSMOSDB_ENDPOINT` / `COSMOSDB_KEY` environment variables, and directly instantiates the upstream `CosmosDBSaver`; that helper path is deprecated because unrelated threads can observe those process-global values during construction:
 
-> **Authentication — configure upstream credentials once at process startup.** The supported `langgraph-checkpoint-cosmosdb` range (`>=0.2.0,<0.5`; verified with 0.4.0) exposes no endpoint, credential, or client constructor injection. `CosmosDBSaver` reads `COSMOSDB_ENDPOINT` and optional `COSMOSDB_KEY` directly from the process environment. Set those application settings before the Functions worker starts and instantiate the upstream saver directly. With `COSMOSDB_KEY` absent, upstream uses `DefaultAzureCredential` (Managed Identity, `az login`, or service principal). With `COSMOSDB_KEY` present, it uses key authentication.
+> **Authentication — configure upstream credentials once at process startup.** The ten published versions allowed by `langgraph-checkpoint-cosmosdb>=0.2.0,<0.5` (0.2.3–0.4.0, inspected 2026-11-28) expose no usable endpoint, credential, or client injection. `from_conn_info` is not a working alternative. `CosmosDBSaver` reads `COSMOSDB_ENDPOINT` and optional `COSMOSDB_KEY` directly from the process environment. Set those application settings before the Functions worker starts and instantiate the upstream saver directly. With `COSMOSDB_KEY` absent, upstream uses `DefaultAzureCredential` (Managed Identity, `az login`, or service principal). With `COSMOSDB_KEY` present, it uses key authentication. See the [version evidence and caller-managed migration](cosmos-migration.md) for prerequisites and limitations.
 
 ```python
-import os
 from langgraph_checkpoint_cosmosdb import CosmosDBSaver
 
-os.environ["COSMOSDB_ENDPOINT"] = "https://<account>.documents.azure.com:443/"
-# Leave COSMOSDB_KEY unset → upstream uses DefaultAzureCredential (Managed Identity)
+# Configure COSMOSDB_ENDPOINT before worker startup, not in this module.
+# Leave COSMOSDB_KEY unset for DefaultAzureCredential; set it for key auth.
 checkpointer = CosmosDBSaver(database_name="langgraph", container_name="checkpoints")
 ```
 
 > Grant the Function App's identity a Cosmos DB data-plane role (e.g. *Cosmos DB Built-in Data Contributor*) on the account. For key auth, configure both `COSMOSDB_ENDPOINT` and `COSMOSDB_KEY` as startup application settings and use the same direct constructor. Do not set either value temporarily around construction: environment variables are process-global, so a lock cannot prevent unrelated threads from observing them. `create_cosmos_checkpointer` remains available for compatibility but emits `DeprecationWarning` and provides no credential-isolation guarantee.
+
+Direct-saver callers own client shutdown after graph work stops; the helper's
+`close_cosmos_checkpointer` rejects savers it did not create. Identity callers
+must pre-provision database/container with `/partition_key`; prefer testing
+0.4.0 or at least the documented 0.2.8 line, not the declared floor's extra
+create-container behavior. The helper-wide warning and `credential=` alias
+warning are separate; **no retirement version is approved for either**. Their
+[separate release prerequisites](cosmos-migration.md#separate-deprecations-and-release-prerequisites)
+remain maintainer decisions.
 
 ```python
 import os

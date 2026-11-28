@@ -97,7 +97,7 @@ dev = [
     "pytest",
     "pytest-asyncio>=0.23,<2",
     "pytest-cov",
-    "ruff==0.17.5",
+    "ruff==0.17.6",
     "requests",
     "types-requests",
     # langgraph core 1.2.9+ pins langgraph-sdk >=0.4.2,<0.5, so the resolver now
@@ -187,9 +187,14 @@ test = "pytest -v -m integration tests/integration/test_table_store_integration.
 
 [tool.hatch.envs.openapi]
 features = ["dev", "openapi"]
+dependencies = [
+    # Certification artifacts only: never required by the adapter or openapi extra.
+    "azure-functions-validation==0.16.0",
+    "jsonschema==4.26.0",
+]
 
 [tool.hatch.envs.openapi.scripts]
-test = "pytest -v tests/test_openapi_real_companion_interop.py --no-cov"
+test = "pytest -v tests/test_openapi_real_companion_interop.py tests/test_openapi_rich_metadata_registration.py tests/test_openapi_v1_producer_consumers.py --no-cov"
 
 [tool.ruff]
 line-length = 100
@@ -200,8 +205,17 @@ target-version = "py311"
 # unions, comprehension forms) instead of the legacy `typing.List` /
 # `Optional[...]` spellings. target-version = "py311" bounds every fix to
 # syntax the declared floor supports.
-select = ["C4", "E", "F", "I", "UP"]
+# B904 keeps exception chaining explicit in `except` blocks, G rejects eager
+# logging interpolation, reserved extra keys and redundant traceback arguments,
+# and C901 flags functions above the complexity
+# threshold set in [tool.ruff.lint.mccabe]. Existing cases carry a line-level
+# `noqa` with a reason.
+# SIM108 removes redundant assignment branches without evaluating the unused arm.
+select = ["B904", "C4", "C901", "E", "F", "G", "I", "SIM108", "UP"]
 fixable = ["ALL"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
 
 [tool.ruff.lint.isort]
 known-first-party = ["azure_functions_langgraph"]
@@ -224,7 +238,7 @@ addopts = "--cov=src/azure_functions_langgraph --cov-report=xml --cov-report=ter
 testpaths = ["tests"]
 pythonpath = ["src", "."]
 asyncio_mode = "auto"
-markers = ["e2e: real Azure end-to-end tests (require E2E_BASE_URL)", "integration: persistent storage integration tests"]
+markers = ["e2e: real Azure end-to-end tests (require E2E_BASE_URL)", "e2e_reference: optional Flex Blob production reference (require REF882_BASE_URL and REF882_FUNCTION_KEY)", "e2e_topology: opt-in deployed Azure topology smoke (requires TOPOLOGY_BASE_URL)", "e2e_durable: optional real Azure Durable restart/recovery tests (require E2E_DURABLE_BASE_URL); selected only by e2e-azure-durable.yml", "integration: persistent storage integration tests"]
 
 [tool.coverage.run]
 branch = true

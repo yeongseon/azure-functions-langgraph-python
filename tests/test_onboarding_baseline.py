@@ -25,6 +25,7 @@ BASELINE: dict[str, int] = {
     "Package exported names (snapshot)": 31,
 }
 RECOMPUTED = tuple(BASELINE)[:8]
+CHOICES = "Manual configuration choices"
 
 
 def _is_docstring(node: ast.stmt) -> bool:
@@ -101,20 +102,25 @@ def _measure() -> dict[str, int]:
         if line.strip() and not line.strip().startswith("#")
     ]
     local, deploy, assigns = _tutorial_stats()
-    return dict(
+    measures = dict(
         zip(
             RECOMPUTED,
             (lines, statements, args, len(files), len(reqs), local, deploy, assigns),
             strict=True,
         )
     )
+    measures[CHOICES] = sum(
+        bool(re.match(r"[A-Z_][A-Z0-9_]*=(?!\$\()", line))
+        for line in _bash_logical_lines(TUTORIAL.read_text())
+    )
+    return measures
 
 
 def _page_rows() -> dict[str, tuple[str, str]]:
     rows: dict[str, tuple[str, str]] = {}
     for line in PAGE.read_text().splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) >= 3 and cells[0] in BASELINE:
+        if len(cells) >= 3 and cells[0] in (*BASELINE, CHOICES):
             rows[cells[0]] = (cells[1], cells[2])
     return rows
 
@@ -136,8 +142,22 @@ def test_baseline_column_is_pinned() -> None:
     rows = _page_rows()
     # When: the page's Baseline column is read
     # Then: it equals the frozen values for all ten rows
-    assert {label: cells[0] for label, cells in rows.items()} == {
+    assert {label: rows[label][0] for label in BASELINE} == {
         label: str(value) for label, value in BASELINE.items()
+    }
+    assert rows[CHOICES][0] == "not recorded"
+
+
+def test_tutorial_file_inventory_matches_the_example() -> None:
+    # Given: Step 1's file list and the shipped example.
+    text = TUTORIAL.read_text().split("## Step 1", 1)[1].split("## Step 2", 1)[0]
+    # When: listed files are extracted (README is explicitly additional).
+    listed = set(re.findall(r"^- `([^`]+)` —", text, re.MULTILINE))
+    # Then: the list covers exactly the files counted in the baseline.
+    assert listed == {
+        p.name
+        for p in EXAMPLE.iterdir()
+        if p.is_file() and p.name != "README.md" and not p.name.startswith(".")
     }
 
 

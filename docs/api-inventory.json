@@ -43,7 +43,7 @@
       "name": "COSMOS_DISABLE_SSL"
     },
     {
-      "documented": false,
+      "documented": true,
       "modules": [
         "azure_functions_langgraph.checkpointers.cosmos"
       ],
@@ -311,6 +311,13 @@
               "kind": "method",
               "name": "thread_store",
               "signature": "(store: Any) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "to_blueprint",
+              "signature": "() -> func.Blueprint",
+              "tier": "Experimental",
+              "tier_basis": "proposed in #993"
             }
           ],
           "name": "LangGraphApp",
@@ -820,6 +827,13 @@
               "kind": "method",
               "name": "thread_store",
               "signature": "(store: Any) -> None"
+            },
+            {
+              "kind": "method",
+              "name": "to_blueprint",
+              "signature": "() -> func.Blueprint",
+              "tier": "Experimental",
+              "tier_basis": "proposed in #993"
             }
           ],
           "name": "LangGraphApp",
@@ -868,7 +882,7 @@
           "bases": [],
           "consumers": {
             "docs": true,
-            "examples": false,
+            "examples": true,
             "tests": true
           },
           "defined_in": "azure_functions_langgraph.authorization",
@@ -914,7 +928,7 @@
           "bases": [],
           "consumers": {
             "docs": false,
-            "examples": false,
+            "examples": true,
             "tests": false
           },
           "defined_in": "azure_functions_langgraph.authorization",
@@ -939,8 +953,8 @@
           "signature": "(authorize: ThreadAuthorizer | None, context: AuthorizationContext) -> int | None"
         }
       ],
-      "tier": "Beta",
-      "tier_basis": "provisional"
+      "tier": "Stable-intent Core",
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [
@@ -956,7 +970,9 @@
       "symbols": [
         {
           "bases": [
-            "BaseCheckpointSaver[str]"
+            "BaseCheckpointSaver[str]",
+            "_BlobLayout",
+            "_BlobStorage"
           ],
           "consumers": {
             "docs": true,
@@ -1063,7 +1079,7 @@
         {
           "bases": [],
           "consumers": {
-            "docs": false,
+            "docs": true,
             "examples": false,
             "tests": true
           },
@@ -1121,13 +1137,39 @@
       "tier_basis": "README"
     },
     {
+      "module": "azure_functions_langgraph.checkpointers._blob_clients",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.checkpointers._blob_hint",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.checkpointers._blob_layout",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.checkpointers._blob_storage",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
       "all": [],
       "module": "azure_functions_langgraph.checkpointers.azure_blob",
       "public": true,
       "symbols": [
         {
           "bases": [
-            "BaseCheckpointSaver[str]"
+            "BaseCheckpointSaver[str]",
+            "_BlobLayout",
+            "_BlobStorage"
           ],
           "consumers": {
             "docs": true,
@@ -1276,7 +1318,7 @@
         {
           "bases": [],
           "consumers": {
-            "docs": false,
+            "docs": true,
             "examples": false,
             "tests": true
           },
@@ -1999,6 +2041,12 @@
     },
     {
       "module": "azure_functions_langgraph.durable._orchestrator",
+      "public": false,
+      "tier": "Internal",
+      "tier_basis": "private module"
+    },
+    {
+      "module": "azure_functions_langgraph.durable._request",
       "public": false,
       "tier": "Internal",
       "tier_basis": "private module"
@@ -2866,8 +2914,8 @@
           "signature": "(app: LangGraphApp) -> int"
         }
       ],
-      "tier": "Beta",
-      "tier_basis": "provisional"
+      "tier": "Stable-intent Core",
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [],
@@ -3924,7 +3972,7 @@
         }
       ],
       "tier": "Experimental",
-      "tier_basis": "provisional"
+      "tier_basis": "maintainer decision"
     },
     {
       "module": "azure_functions_langgraph.stores._errors",
@@ -4130,7 +4178,7 @@
         }
       ],
       "tier": "Experimental",
-      "tier_basis": "provisional"
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [],
@@ -4231,7 +4279,7 @@
         }
       ],
       "tier": "Experimental",
-      "tier_basis": "provisional"
+      "tier_basis": "maintainer decision"
     },
     {
       "all": [

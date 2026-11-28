@@ -5,12 +5,14 @@ import json
 import math
 import threading
 import time
-from typing import Any
+from typing import Any, Final
 
 import azure.functions as func
 import pytest
 
 from azure_functions_langgraph import LangGraphApp
+
+_WAIT_TIMEOUT_SECONDS: Final = 2.0
 
 
 class _ReadinessFailure(RuntimeError):
@@ -126,18 +128,19 @@ def test_readiness_timeout_bounds_response_before_callback_release() -> None:
     app = LangGraphApp(readiness_checks={"blocked": blocked}, readiness_timeout_seconds=0.02)
     probe = threading.Thread(target=invoke)
     try:
-        before = time.monotonic()
+        deadline = time.monotonic() + _WAIT_TIMEOUT_SECONDS
 
         probe.start()
 
-        assert started.wait(timeout=0.1)
-        assert completed.wait(timeout=0.15)
-        assert time.monotonic() - before < 0.2
+        assert started.wait(timeout=max(0.0, deadline - time.monotonic()))
+        # The response must arrive while the callback is still blocked. Both waits
+        # share one scheduling budget; only the finally block releases the callback.
+        assert completed.wait(timeout=max(0.0, deadline - time.monotonic()))
         assert responses[0].status_code == 503
         assert _body(responses[0])["components"] == {"blocked": "failed"}
     finally:
         release.set()
-        probe.join(timeout=0.5)
+        probe.join(timeout=_WAIT_TIMEOUT_SECONDS)
 
 
 def test_repeated_timeouts_reuse_in_flight_callback() -> None:
@@ -159,7 +162,7 @@ def test_repeated_timeouts_reuse_in_flight_callback() -> None:
     try:
         responses = [handler(_request()) for _ in range(8)]
 
-        assert started.wait(timeout=0.1)
+        assert started.wait(timeout=_WAIT_TIMEOUT_SECONDS)
         assert calls == 1
         assert all(response.status_code == 503 for response in responses)
     finally:

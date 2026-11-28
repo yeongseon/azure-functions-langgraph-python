@@ -12,7 +12,7 @@ import importlib
 import json
 import logging
 import random
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, TypeVar, cast
 from urllib.parse import quote, unquote
 
 from langchain_core.runnables import RunnableConfig
@@ -28,6 +28,53 @@ from langgraph.checkpoint.base import (
 )
 from langgraph.checkpoint.serde.base import SerializerProtocol
 
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _AsyncBlobClientProtocol as _AsyncBlobClientProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _AsyncBlobDownloadProtocol as _AsyncBlobDownloadProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _AsyncContainerClientProtocol as _AsyncContainerClientProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _BlobClientProtocol as _BlobClientProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _BlobDownloadProtocol as _BlobDownloadProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _BlobItemProtocol as _BlobItemProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _BlobPropertiesProtocol as _BlobPropertiesProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_clients import (
+    _ContainerClientProtocol as _ContainerClientProtocol,
+)
+from azure_functions_langgraph.checkpointers._blob_hint import (
+    BlobCheckpointConflictError as BlobCheckpointConflictError,
+)
+from azure_functions_langgraph.checkpointers._blob_hint import (
+    HintSnapshot as HintSnapshot,
+)
+from azure_functions_langgraph.checkpointers._blob_hint import (
+    conflict_error,
+)
+from azure_functions_langgraph.checkpointers._blob_hint import (
+    download_etag as download_etag,
+)
+from azure_functions_langgraph.checkpointers._blob_hint import (
+    hint_conditions as hint_conditions,
+)
+from azure_functions_langgraph.checkpointers._blob_hint import (
+    response_etag as response_etag,
+)
+from azure_functions_langgraph.checkpointers._blob_layout import _BlobLayout
+from azure_functions_langgraph.checkpointers._blob_storage import _BlobStorage
+from azure_functions_langgraph.checkpointers._blob_storage import (
+    _downloader_metadata as _downloader_metadata,
+)
 from azure_functions_langgraph.locks.guard import (
     OwnershipGuard,
     ThreadLeaseLostError,
@@ -56,17 +103,6 @@ def _describe_unknown_version(value: object) -> str:
     if type(value) is int and abs(value) < 1_000_000:
         return f"version {value}"
     return "an unrecognized version"
-
-
-def _downloader_metadata(downloader: object) -> dict[str, str] | None:
-    """Return the blob metadata carried by a download response, or ``None`` if absent.
-
-    ``None`` (a downloader without ``properties`` or without a ``metadata`` mapping, for
-    example a duck-typed client) makes the caller fall back to a separate properties
-    request. A real, empty mapping is a valid answer: the blob has no metadata.
-    """
-    metadata = getattr(getattr(downloader, "properties", None), "metadata", None)
-    return dict(metadata) if isinstance(metadata, dict) else None
 
 
 _MAX_CONCURRENT_BLOB_READS = 8
@@ -156,68 +192,10 @@ class OrphanedValueCollectionResult:
     skipped_recent: list[str] = field(default_factory=list)
 
 
-class _BlobDownloadProtocol(Protocol):
-    # ``StorageStreamDownloader.properties`` is a ``BlobProperties`` built from the
-    # response headers of the same GET that carries the body, so its ``metadata`` costs no
-    # extra request. Typed optional so duck-typed clients without it keep working.
-    @property
-    def properties(self) -> _BlobPropertiesProtocol | None: ...
-
-    def readall(self) -> bytes: ...
-
-
-class _BlobPropertiesProtocol(Protocol):
-    metadata: dict[str, str] | None
-
-
-class _BlobClientProtocol(Protocol):
-    def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None: ...
-
-    def download_blob(self) -> _BlobDownloadProtocol: ...
-
-    def get_blob_properties(self) -> _BlobPropertiesProtocol: ...
-
-    def delete_blob(self) -> None: ...
-
-
-class _BlobItemProtocol(Protocol):
-    name: str
-    last_modified: datetime | None
-
-
-class _ContainerClientProtocol(Protocol):
-    def get_blob_client(self, blob: str) -> _BlobClientProtocol: ...
-
-    def list_blobs(self, name_starts_with: str = "") -> Sequence[_BlobItemProtocol]: ...
-
-
-class _AsyncBlobDownloadProtocol(Protocol):
-    @property
-    def properties(self) -> _BlobPropertiesProtocol | None: ...
-
-    async def readall(self) -> bytes: ...
-
-
-class _AsyncBlobClientProtocol(Protocol):
-    async def upload_blob(self, data: bytes, metadata: dict[str, str], overwrite: bool) -> None: ...
-
-    async def download_blob(self) -> _AsyncBlobDownloadProtocol: ...
-
-    async def get_blob_properties(self) -> _BlobPropertiesProtocol: ...
-
-    async def delete_blob(self) -> None: ...
-
-
-class _AsyncContainerClientProtocol(Protocol):
-    def get_blob_client(self, blob: str) -> _AsyncBlobClientProtocol: ...
-
-    def list_blobs(self, name_starts_with: str = "") -> AsyncIterator[_BlobItemProtocol]: ...
-
-
 logger = logging.getLogger(__name__)
 
 
-class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
+class AzureBlobCheckpointSaver(BaseCheckpointSaver[str], _BlobLayout, _BlobStorage):
     """Persist LangGraph checkpoints in Azure Blob Storage.
 
     Note:
@@ -227,7 +205,7 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         DESIGN.md decision #7 for details.
 
     Note:
-        Writes are unconditional: nothing at the storage layer fences a stale
+        Data writes are unconditional: nothing at the storage layer fences a stale
         writer. When a write is accompanied by an
         :class:`~azure_functions_langgraph.locks.guard.OwnershipGuard` (handed
         out by a lock created with ``guard_checkpoint_writes=True``, for
@@ -527,16 +505,24 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         # hint is below this id is not equivalent either (case b). Pinned by
         # ``test_put_probes_the_hinted_checkpoint_before_trusting_it`` in
         # tests/test_blob_format_compat.py; see docs/blob-checkpoint-format.md.
-        current_latest = self._read_latest_checkpoint_id(thread_id, checkpoint_ns, for_write=True)
+        latest_path = self._latest_blob_path(thread_id, checkpoint_ns)
+        snapshot = self._hint_snapshot(latest_path)
+        current_latest = (
+            self._parse_latest_checkpoint_id(snapshot.payload, latest_path, for_write=True)
+            if snapshot.payload is not None
+            else None
+        )
         if current_latest is None or not self._blob_exists(
             self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
         ):
             current_latest = self._find_latest_checkpoint_id(thread_id, checkpoint_ns)
         check_ownership_guard(guard)
-        self._upload_blob(
-            self._latest_blob_path(thread_id, checkpoint_ns),
+        dirty_etag = self._upload_blob(
+            latest_path,
             b'{"version":1,"dirty":true}',
             {},
+            overwrite=snapshot.etag is not None,
+            etag=snapshot.etag,
         )
         checkpoint_data: dict[str, Any] = dict(checkpoint)
         channel_values: dict[str, Any] = checkpoint_data.pop("channel_values", {})
@@ -584,7 +570,26 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             separators=(",", ":"),
         ).encode()
         check_ownership_guard(guard)
-        self._upload_blob(self._latest_blob_path(thread_id, checkpoint_ns), latest_payload, {})
+        try:
+            self._upload_blob(latest_path, latest_payload, {}, etag=dirty_etag)
+        except BlobCheckpointConflictError:
+            # The commit exists: invalidate the optimization before reporting the conflict.
+            # This is best effort, not a transaction with the checkpoint marker.
+            observed = self._hint_snapshot(latest_path)
+            if observed.payload is not None:
+                try:
+                    self._parse_latest_checkpoint_id(observed.payload, latest_path, for_write=True)
+                except BlobCheckpointFormatError:
+                    raise conflict_error() from None
+            check_ownership_guard(guard)
+            self._upload_blob(
+                latest_path,
+                b'{"version":1,"dirty":true}',
+                {},
+                overwrite=observed.etag is not None,
+                etag=observed.etag,
+            )
+            raise
         return self._checkpoint_config(thread_id, checkpoint_ns, checkpoint_id)
 
     def put_writes(
@@ -926,20 +931,6 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             )
         return items
 
-    def _parse_value_blob_path(
-        self, thread_id: str, checkpoint_ns: str, blob_path: str
-    ) -> tuple[str, str] | None:
-        values_prefix = f"{self._namespace_prefix(thread_id, checkpoint_ns)}values/"
-        if not blob_path.startswith(values_prefix):
-            return None
-        relative = blob_path[len(values_prefix) :]
-        parts = relative.split("/")
-        if len(parts) != 2 or not parts[1].endswith(".bin"):
-            return None
-        channel = unquote(parts[0])
-        version = unquote(parts[1].removesuffix(".bin"))
-        return (channel, version)
-
     def _delete_checkpoint_blobs(
         self,
         thread_id: str,
@@ -1181,156 +1172,6 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             raise ThreadLeaseLostError(reason="missing")
         return guard
 
-    def _checkpoint_config(
-        self, thread_id: str, checkpoint_ns: str, checkpoint_id: str
-    ) -> RunnableConfig:
-        return {
-            "configurable": {
-                "thread_id": thread_id,
-                "checkpoint_ns": checkpoint_ns,
-                "checkpoint_id": checkpoint_id,
-            }
-        }
-
-    def _download_typed_blob(self, blob_path: str) -> tuple[str, bytes, dict[str, str]] | None:
-        """Download a blob and return ``(serde_type, payload, full_metadata)``."""
-        try:
-            downloader = self._container_client.get_blob_client(blob_path).download_blob()
-            payload = downloader.readall()
-        except self._not_found_error:
-            return None
-
-        # Body and metadata come from one GET (the downloader's ``properties``).
-        metadata = _downloader_metadata(downloader)
-        if metadata is None:
-            metadata = self._blob_metadata(blob_path)
-        serde_type = metadata.get("serde_type")
-        if not serde_type:
-            logger.warning("Blob missing serde_type metadata: %s", blob_path)
-            return None
-
-        return (serde_type, payload, metadata)
-
-    def _blob_metadata(self, blob_path: str) -> dict[str, str]:
-        try:
-            properties = self._container_client.get_blob_client(blob_path).get_blob_properties()
-        except self._not_found_error:
-            return {}
-        metadata = properties.metadata
-        return metadata if metadata is not None else {}
-
-    def _download_blob(self, blob_path: str) -> bytes | None:
-        try:
-            return self._container_client.get_blob_client(blob_path).download_blob().readall()
-        except self._not_found_error:
-            return None
-
-    def _blob_exists(self, blob_path: str) -> bool:
-        try:
-            self._container_client.get_blob_client(blob_path).get_blob_properties()
-        except self._not_found_error:
-            return False
-        return True
-
-    def _upload_blob(
-        self, blob_path: str, payload: bytes, metadata: dict[str, str], overwrite: bool = True
-    ) -> None:
-        self._container_client.get_blob_client(blob_path).upload_blob(
-            payload,
-            metadata=metadata,
-            overwrite=overwrite,
-        )
-
-    def _create_blob(self, blob_path: str, payload: bytes, metadata: dict[str, str]) -> bool:
-        """Create ``blob_path`` only if absent; return ``False`` when it already exists.
-
-        ``overwrite=False`` makes the service evaluate the condition atomically
-        (``If-None-Match: *``), so two writers cannot both create the slot.
-        """
-        try:
-            self._upload_blob(blob_path, payload, metadata, overwrite=False)
-        except self._exists_error:
-            return False
-        return True
-
-    def _thread_prefix(self, thread_id: str) -> str:
-        return f"threads/{self._escape(thread_id)}/"
-
-    def _namespace_prefix(self, thread_id: str, checkpoint_ns: str) -> str:
-        return f"{self._thread_prefix(thread_id)}ns/{self._escape(checkpoint_ns)}/"
-
-    def _checkpoints_prefix(self, thread_id: str, checkpoint_ns: str) -> str:
-        return f"{self._namespace_prefix(thread_id, checkpoint_ns)}checkpoints/"
-
-    def _checkpoint_base_prefix(
-        self,
-        thread_id: str,
-        checkpoint_ns: str,
-        checkpoint_id: str,
-    ) -> str:
-        return f"{self._checkpoints_prefix(thread_id, checkpoint_ns)}{self._escape(checkpoint_id)}/"
-
-    def _checkpoint_blob_path(self, thread_id: str, checkpoint_ns: str, checkpoint_id: str) -> str:
-        return (
-            f"{self._checkpoint_base_prefix(thread_id, checkpoint_ns, checkpoint_id)}checkpoint.bin"
-        )
-
-    def _metadata_blob_path(self, thread_id: str, checkpoint_ns: str, checkpoint_id: str) -> str:
-        return (
-            f"{self._checkpoint_base_prefix(thread_id, checkpoint_ns, checkpoint_id)}metadata.bin"
-        )
-
-    def _writes_prefix(self, thread_id: str, checkpoint_ns: str, checkpoint_id: str) -> str:
-        return f"{self._checkpoint_base_prefix(thread_id, checkpoint_ns, checkpoint_id)}writes/"
-
-    def _write_blob_path(
-        self,
-        thread_id: str,
-        checkpoint_ns: str,
-        checkpoint_id: str,
-        task_id: str,
-        write_index: int,
-    ) -> str:
-        return (
-            f"{self._writes_prefix(thread_id, checkpoint_ns, checkpoint_id)}"
-            f"{self._escape(task_id)}/{self._escape(str(write_index))}.bin"
-        )
-
-    def _value_blob_path(
-        self,
-        thread_id: str,
-        checkpoint_ns: str,
-        channel: str,
-        version: str | int | float,
-    ) -> str:
-        return (
-            f"{self._namespace_prefix(thread_id, checkpoint_ns)}values/"
-            f"{self._escape(channel)}/{self._escape(str(version))}.bin"
-        )
-
-    def _latest_blob_path(self, thread_id: str, checkpoint_ns: str) -> str:
-        return f"{self._namespace_prefix(thread_id, checkpoint_ns)}latest.json"
-
-    def _config_thread_id(self, config: RunnableConfig) -> str:
-        configurable = config.get("configurable")
-        if not isinstance(configurable, dict):
-            raise ValueError("configurable must be provided in RunnableConfig")
-
-        thread_id = configurable.get("thread_id")
-        if thread_id is None:
-            raise ValueError("thread_id is required in config.configurable")
-        return str(thread_id)
-
-    def _config_checkpoint_ns(self, config: RunnableConfig) -> str:
-        configurable = config.get("configurable")
-        if not isinstance(configurable, dict):
-            raise ValueError("configurable must be provided in RunnableConfig")
-        checkpoint_ns = configurable.get("checkpoint_ns", "")
-        return str(checkpoint_ns)
-
-    def _escape(self, segment: str) -> str:
-        return quote(segment, safe="")
-
     # ------------------------------------------------------------------
     # Native async API
     #
@@ -1340,12 +1181,6 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
     # synchronous implementation in a thread executor (with a one-time
     # warning) so a graph driven by ``ainvoke``/``astream`` still works.
     # ------------------------------------------------------------------
-    def _require_aio_container_client(self) -> _AsyncContainerClientProtocol:
-        client = self._aio_container_client
-        if client is None:  # pragma: no cover - guarded by public methods
-            raise RuntimeError("aio_container_client is not configured")
-        return client
-
     def _warn_sync_fallback(self, method: str) -> None:
         if not self._sync_fallback_warned:
             self._sync_fallback_warned = True
@@ -1356,73 +1191,6 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
                 "'aio_container_client' for native async blob I/O.",
                 method,
             )
-
-    async def _adownload_blob(self, blob_path: str) -> bytes | None:
-        client = self._require_aio_container_client().get_blob_client(blob_path)
-        try:
-            downloader = await client.download_blob()
-            return await downloader.readall()
-        except self._not_found_error:
-            return None
-
-    async def _ablob_metadata(self, blob_path: str) -> dict[str, str]:
-        client = self._require_aio_container_client().get_blob_client(blob_path)
-        try:
-            properties = await client.get_blob_properties()
-        except self._not_found_error:
-            return {}
-        metadata = properties.metadata
-        return metadata if metadata is not None else {}
-
-    async def _adownload_typed_blob(
-        self, blob_path: str
-    ) -> tuple[str, bytes, dict[str, str]] | None:
-        """Async twin of :meth:`_download_typed_blob`."""
-        client = self._require_aio_container_client().get_blob_client(blob_path)
-        try:
-            downloader = await client.download_blob()
-            payload = await downloader.readall()
-        except self._not_found_error:
-            return None
-
-        metadata = _downloader_metadata(downloader)
-        if metadata is None:
-            metadata = await self._ablob_metadata(blob_path)
-        serde_type = metadata.get("serde_type")
-        if not serde_type:
-            logger.warning("Blob missing serde_type metadata: %s", blob_path)
-            return None
-
-        return (serde_type, payload, metadata)
-
-    async def _ablob_exists(self, blob_path: str) -> bool:
-        client = self._require_aio_container_client().get_blob_client(blob_path)
-        try:
-            await client.get_blob_properties()
-        except self._not_found_error:
-            return False
-        return True
-
-    async def _aupload_blob(
-        self, blob_path: str, payload: bytes, metadata: dict[str, str], overwrite: bool = True
-    ) -> None:
-        client = self._require_aio_container_client().get_blob_client(blob_path)
-        await client.upload_blob(payload, metadata=metadata, overwrite=overwrite)
-
-    async def _acreate_blob(self, blob_path: str, payload: bytes, metadata: dict[str, str]) -> bool:
-        """Async twin of :meth:`_create_blob`."""
-        try:
-            await self._aupload_blob(blob_path, payload, metadata, overwrite=False)
-        except self._exists_error:
-            return False
-        return True
-
-    async def _alist_blob_items(self, prefix: str) -> builtins.list[_BlobItemProtocol]:
-        container = self._require_aio_container_client()
-        items: list[_BlobItemProtocol] = []
-        async for blob in container.list_blobs(name_starts_with=prefix):
-            items.append(blob)
-        return items
 
     async def _aread_latest_checkpoint_id(
         self, thread_id: str, checkpoint_ns: str, *, for_write: bool = False
@@ -1737,18 +1505,24 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
         parent_checkpoint_id = get_checkpoint_id(config)
 
         # Same hinted-checkpoint existence probe as in ``put`` (see the comment there, #860).
-        current_latest = await self._aread_latest_checkpoint_id(
-            thread_id, checkpoint_ns, for_write=True
+        latest_path = self._latest_blob_path(thread_id, checkpoint_ns)
+        snapshot = await self._ahint_snapshot(latest_path)
+        current_latest = (
+            self._parse_latest_checkpoint_id(snapshot.payload, latest_path, for_write=True)
+            if snapshot.payload is not None
+            else None
         )
         if current_latest is None or not await self._ablob_exists(
             self._checkpoint_blob_path(thread_id, checkpoint_ns, current_latest)
         ):
             current_latest = await self._afind_latest_checkpoint_id(thread_id, checkpoint_ns)
         check_ownership_guard(guard)
-        await self._aupload_blob(
-            self._latest_blob_path(thread_id, checkpoint_ns),
+        dirty_etag = await self._aupload_blob(
+            latest_path,
             b'{"version":1,"dirty":true}',
             {},
+            overwrite=snapshot.etag is not None,
+            etag=snapshot.etag,
         )
 
         checkpoint_data: dict[str, Any] = dict(checkpoint)
@@ -1797,9 +1571,24 @@ class AzureBlobCheckpointSaver(BaseCheckpointSaver[str]):
             separators=(",", ":"),
         ).encode()
         check_ownership_guard(guard)
-        await self._aupload_blob(
-            self._latest_blob_path(thread_id, checkpoint_ns), latest_payload, {}
-        )
+        try:
+            await self._aupload_blob(latest_path, latest_payload, {}, etag=dirty_etag)
+        except BlobCheckpointConflictError:
+            observed = await self._ahint_snapshot(latest_path)
+            if observed.payload is not None:
+                try:
+                    self._parse_latest_checkpoint_id(observed.payload, latest_path, for_write=True)
+                except BlobCheckpointFormatError:
+                    raise conflict_error() from None
+            check_ownership_guard(guard)
+            await self._aupload_blob(
+                latest_path,
+                b'{"version":1,"dirty":true}',
+                {},
+                overwrite=observed.etag is not None,
+                etag=observed.etag,
+            )
+            raise
         return self._checkpoint_config(thread_id, checkpoint_ns, checkpoint_id)
 
     async def aput_writes(

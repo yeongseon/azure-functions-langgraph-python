@@ -30,8 +30,10 @@ param functionAppName string
 @description('Name of the Storage Account (3-24 lowercase alphanumeric).')
 param storageName string
 
-@description('Python major.minor version for the Flex Consumption runtime (3.13 or 3.14).')
+@description('Python major.minor version for the Flex Consumption runtime.')
 @allowed([
+  '3.11'
+  '3.12'
   '3.13'
   '3.14'
 ])
@@ -51,6 +53,12 @@ param instanceMemoryMB int = 2048
 @description('Maximum instance count for the Flex Consumption plan.')
 param maximumInstanceCount int = 40
 
+@description('Opt in to keyless host/deployment storage and the native Blob production reference. Default preserves the 2.x lane.')
+param identityBasedStorage bool = false
+
+@description('Pre-created shared checkpoint and lease-marker container in identity mode.')
+param checkpointContainerName string = 'langgraph-checkpoints'
+
 // ── Storage Account ────────────────────────────────────────────────────────
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   name: storageName
@@ -60,6 +68,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   properties: {
     minimumTlsVersion: 'TLS1_2'
     allowBlobPublicAccess: false
+    ... (identityBasedStorage ? { allowSharedKeyAccess: false } : {})
   }
 }
 
@@ -74,6 +83,25 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-01-01'
 resource deploymentContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
   parent: blobService
   name: deploymentContainerName
+}
+
+resource checkpointContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = if (identityBasedStorage) {
+  parent: blobService
+  name: checkpointContainerName
+}
+
+// Host storage needs account-wide Blob Data Owner (host containers are created
+// by Functions). This role also includes the deployment/checkpoint/lease data
+// operations; adding Blob Data Contributor on the same account is redundant.
+// https://learn.microsoft.com/azure/azure-functions/manage-connections
+resource hostStorageRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (identityBasedStorage) {
+  name: guid(storageAccount.id, functionApp.id, 'host-blob-owner')
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b')
+    principalId: functionApp.identity!.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 // ── Flex Consumption Hosting Plan ──────────────────────────────────────────
@@ -100,6 +128,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
   name: functionAppName
   location: location
   kind: 'functionapp,linux'
+  identity: identityBasedStorage ? { type: 'SystemAssigned' } : null
   properties: {
     serverFarmId: hostingPlan.id
     functionAppConfig: {
@@ -109,7 +138,9 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           // Referencing the container resource (not just its name parameter) makes
           // ARM create the container before the site validates the package location.
           value: '${storageAccount.properties.primaryEndpoints.blob}${deploymentContainer.name}'
-          authentication: {
+          authentication: identityBasedStorage ? {
+            type: 'SystemAssignedIdentity'
+          } : {
             // Valid values are SystemAssignedIdentity, UserAssignedIdentity and
             // StorageAccountConnectionString; the latter names the app setting that
             // holds the connection string (see appSettings below).
@@ -128,7 +159,18 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
       }
     }
     siteConfig: {
-      appSettings: [
+      appSettings: identityBasedStorage ? [
+        { name: 'AzureWebJobsStorage__accountName', value: storageAccount.name }
+        { name: 'AzureWebJobsStorage__credential', value: 'managedidentity' }
+        { name: 'AZURE_STORAGE_BLOB_ACCOUNT_URL', value: storageAccount.properties.primaryEndpoints.blob }
+        { name: 'LANGGRAPH_BLOB_CONTAINER', value: checkpointContainerName }
+        { name: 'AGENT_MODEL_MODE', value: 'fake' }
+        { name: 'LANGGRAPH_ENABLE_PLATFORM', value: 'false' }
+        { name: 'LANGGRAPH_ENABLE_DISTRIBUTED_LOCK', value: 'true' }
+        { name: 'LANGGRAPH_AUTO_CREATE_STORAGE', value: 'false' }
+        { name: 'AZFUNC_LANGGRAPH_LOCK_BACKEND', value: 'distributed' }
+        { name: 'LANGGRAPH_STRICT_MSGPACK', value: 'true' }
+      ] : [
         { name: 'AzureWebJobsStorage', value: storageConnectionString }
         { name: 'DEPLOYMENT_STORAGE_CONNECTION_STRING', value: storageConnectionString }
         // FUNCTIONS_EXTENSION_VERSION is intentionally NOT set: on Flex Consumption it is

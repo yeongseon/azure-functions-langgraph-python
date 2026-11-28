@@ -13,6 +13,17 @@ import pytest
 _PATH = Path(__file__).resolve().parents[1] / "tools" / "benchmark_table_store.py"
 
 
+class _Response:
+    status_code = 200
+
+    def body(self) -> bytes:
+        return b'{"value":[{},{}]}'
+
+
+class _Request:
+    method = "GET"
+
+
 @pytest.fixture(scope="module")
 def bench() -> ModuleType:
     spec = importlib.util.spec_from_file_location("benchmark_table_store_under_test", _PATH)
@@ -30,23 +41,29 @@ def test_counting_transport_counts_each_send_and_proxy_resets_it(
     transport_mod = pytest.importorskip("azure.core.pipeline.transport")
     RequestsTransport = transport_mod.RequestsTransport
 
-    monkeypatch.setattr(RequestsTransport, "send", lambda self, request, **kw: "response")
+    response = _Response()
+    monkeypatch.setattr(RequestsTransport, "send", lambda self, request, **kw: response)
     counter = bench.RequestCounter()
     transport = bench.counting_transport(counter)
     proxy = bench.CountingProxy(object(), counter)
     assert proxy.requests_measured == 0
 
     # When the transport sends three requests (retries are sends too)
-    assert [transport.send(object()) for _ in range(3)] == ["response"] * 3
+    assert [transport.send(_Request()) for _ in range(3)] == [response] * 3
 
     # Then they are all counted, and reset_counters zeroes the per-execution count only
     assert proxy.requests_measured == 3
+    assert counter.rows_received == 6
+    assert counter.bytes_received == 3 * len(response.body())
+    assert counter.methods == {"GET": 3}
     proxy.reset_counters()
     assert proxy.requests_measured == 0
+    assert counter.rows_received == counter.bytes_received == 0
+    assert not counter.methods
     assert counter.total == 3
 
     # And a later send restarts the per-execution count while the whole-run total keeps growing
-    transport.send(object())
+    transport.send(_Request())
     assert proxy.requests_measured == 1
     assert counter.total == 4
 
@@ -70,7 +87,7 @@ def test_run_azure_returns_every_request_the_transport_sent(
     transport_mod = pytest.importorskip("azure.core.pipeline.transport")
     tables_mod = pytest.importorskip("azure.data.tables")
     monkeypatch.setattr(
-        transport_mod.RequestsTransport, "send", lambda self, request, **kw: "response"
+        transport_mod.RequestsTransport, "send", lambda self, request, **kw: _Response()
     )
     monkeypatch.setenv("BENCH_TEST_CONN", "not-a-real-connection-string")
     captured: dict[str, Any] = {}
@@ -85,7 +102,7 @@ def test_run_azure_returns_every_request_the_transport_sent(
         service: object, backend: str, sizes: list[int], reps: int, counter: Any = None
     ) -> list[dict[str, int]]:
         for _ in range(5):
-            captured["transport"].send(object())
+            captured["transport"].send(_Request())
         counter.sent = 0  # a per-execution reset must not lower the whole-run total
         return [{"size": 10}]
 

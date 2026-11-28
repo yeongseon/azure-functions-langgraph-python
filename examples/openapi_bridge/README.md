@@ -1,6 +1,6 @@
 # OpenAPI bridge example
 
-Demonstrates wiring [`azure-functions-langgraph`](https://pypi.org/project/azure-functions-langgraph/) into [`azure-functions-openapi-python`](https://pypi.org/project/azure-functions-openapi-python/) via the `register_with_openapi` bridge.
+Demonstrates wiring [`azure-functions-langgraph`](https://pypi.org/project/azure-functions-langgraph/) into [`azure-functions-openapi`](https://pypi.org/project/azure-functions-openapi/) via the `register_with_openapi` bridge.
 
 > **This is the bridge in isolation** — a minimal echo graph whose only job is to
 > show `register_with_openapi` wiring with nothing else in the way. For the bridge
@@ -17,6 +17,9 @@ Demonstrates wiring [`azure-functions-langgraph`](https://pypi.org/project/azure
 - `host.json`, `local.settings.json.example`, `requirements.txt`
 
 ## Run locally
+
+Install the optional companion through `pip install "azure-functions-langgraph[openapi]"`,
+or use this example's requirements file as below.
 
 ```bash
 cd examples/openapi_bridge

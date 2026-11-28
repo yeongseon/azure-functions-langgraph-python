@@ -39,6 +39,71 @@ gated step.
 
 ---
 
+## Candidate and verified publication
+
+The public transition is an **evidence transition**, not a second release writer:
+Release Please creates a tagged candidate and its GitHub Release; only after PyPI
+serves the candidate wheel and sdist, with consistent tag-specific gate and
+provenance evidence, may it be described as a verified PyPI release. The Release
+Please summary therefore says *publication pending*, not *released*. It cannot
+observe completion of the separate publish workflow. Confirm that the tag-push
+run actually appeared; the summary is not event-delivery evidence.
+
+| Stage | Visible outcome and interpretation |
+|---|---|
+| Release PR passes pre-merge checks | A reviewed proposal, not a distribution; the maintainer still decides when to merge |
+| Tag and GitHub Release created | Tagged candidate, publication pending; GitHub's published Release metadata alone proves no PyPI availability |
+| Tag-specific verification runs | Publication pending; retain the exact tag SHA and `dist` artifact, installed-wheel tests, runtime audit and Azure certification evidence |
+| A verification gate fails | Failed candidate; `publish` is skipped and the read-only audit is red (`DEFECT`); the GitHub Release remains visible |
+| Upload fails or is interrupted | Publication unverified; the audit is red, and PyPI may have no files or a partial upload; inspect actual files before recovery |
+| Upload succeeds, PyPI files are not yet visible | Still unverified; a green upload job is insufficient, and the audit retries collection before reporting missing files |
+| PyPI serves wheel and sdist with matching provenance and successful gate/run evidence | Verified PyPI release; the read-only audit reports `PUBLISHED`, without itself building, certifying or uploading anything |
+| Same-tag recovery succeeds after an external/transient failure | The unchanged tag can become published once its successful run and PyPI evidence agree; retain the failed attempt too |
+
+Publication evidence must bind PyPI filenames and SHA256 digests to attestations
+for the exact tag commit and successful publish run. A partial, yanked, missing
+or mismatched file is not complete delivery. The audit checks these recorded
+facts, not Sigstore signatures itself; see [Release audit](#release-audit).
+The existing Azure tier builds its own certification wheel from the same tag
+source, separately from `dist`; a matching source SHA is not proof that those
+two wheel byte streams are identical. Preserve both sets of evidence and do not
+replace the installed `dist` wheel tests with a healthy Azure host.
+
+### Why keep the tag-driven candidate path?
+
+| Option | Benefit | Boundary for this repository |
+|---|---|---|
+| Existing tag-driven certification plus explicit candidate wording | Certifies the immutable release ref through all existing gates before Trusted Publishing | GitHub Release appears first; status must not imply that files already exist on PyPI |
+| Draft GitHub Release followed by later promotion | Could hide the Release page until delivery | Would change release configuration and require a maintainer decision and a verified promotion/event path; not enabled here |
+| Pre-merge checks or a main-branch canary | Can expose regressions or external failures earlier | Cannot prove the future tag's installed artifact, Azure certification, upload or PyPI availability; not a substitute for tag-specific gates |
+
+The current initiator is `push` on `v*` tags in `publish-pypi.yml`, not
+`release: published`. GitHub documents that `release` activities including
+`created` do not trigger workflows for draft releases; publishing a draft has
+different event semantics. A future draft proposal must first prove, in a safe
+fixture/test process and then an authorized live path, that Release Please still
+creates the tag with the existing credential and certification starts before
+promotion. Do not infer that from a draft setting or a green PR check. No draft
+configuration, token, permission, trigger or publication gate changes here.
+See [GitHub workflow events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release).
+
+### Offline outcome fixtures and remaining live proof
+
+`tests/test_release_candidate_status.py` exercises the existing read-only audit
+with synthetic success, gate failure, upload failure, delayed/partial PyPI files
+and same-tag recovery. It also checks the committed tag-push and input-free
+recovery triggers and the absence of a draft configuration. These fixtures make
+no service calls and publish nothing. Run them through `make test`.
+
+They prove reporting decisions, not GitHub event delivery, OIDC acceptance,
+real-Azure deployment, PyPI propagation or safe publisher behavior on a partial
+upload. Those remain an authorized maintainer test-process task; no live test
+release or draft configuration is enabled by this change. After an upload
+failure, inspect PyPI first rather than assuming that the version is free.
+Same-tag recovery must keep the tag immutable and use only the existing publish
+workflow; source/workflow corrections require a new Release PR/tag, as described
+in [Recovery](#recovery).
+
 ## Step 1: Merge Conventional Commits
 
 Version bumps are derived from commit messages on `main`:

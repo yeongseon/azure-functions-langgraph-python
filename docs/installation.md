@@ -9,6 +9,10 @@
 - Azure Functions Core Tools (for local development)
 - An Azure Functions project using the [Python v2 programming model](https://learn.microsoft.com/en-us/azure/azure-functions/functions-reference-python)
 
+Python 3.15 is not supported. The [isolated 3.15 pre-release probe](python-315-probe.md)
+records installation and dependency blockers without expanding package metadata
+or Azure hosting claims.
+
 ## Install from PyPI
 
 ```bash
@@ -31,14 +35,14 @@ In your Azure Functions project, add to `requirements.txt`:
 ```text
 azure-functions
 langgraph>=1.0,<2.0
-azure-functions-langgraph>=0.13.0,<0.14
+azure-functions-langgraph>=0.14.2,<0.15
 ```
 
 Pin to the minor range you tested against. A few tagged versions have no files on PyPI (see
 [Release status](release-status.md)), so an exact `==` pin to one of them cannot be resolved from PyPI,
 while the range above includes published candidates and is not blocked by those missing versions. The default-path example
 (`examples/simple_agent`, used by the [5-minute tutorial](tutorial-5-min.md)) and the four
-primary learning-path examples use the same `>=0.13.0,<0.14` form. CI certifies only the
+primary learning-path examples use the same `>=0.14.2,<0.15` form. CI certifies only the
 primary examples against the published release (see
 [Dependency target and clean-install certification](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/examples/README.md#dependency-target-and-clean-install-certification));
 other examples may still target an older minor line.
@@ -49,7 +53,7 @@ Or if using `pyproject.toml`:
 dependencies = [
     "azure-functions",
     "langgraph>=1.0,<2.0",
-    "azure-functions-langgraph>=0.13.0,<0.14",
+    "azure-functions-langgraph>=0.14.2,<0.15",
 ]
 ```
 

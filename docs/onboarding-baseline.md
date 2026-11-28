@@ -19,6 +19,7 @@ stale. The path measured is the [5-minute tutorial](tutorial-5-min.md) and
 | Command lines to the first local response | 6 | 6 | `docs/tutorial-5-min.md`, Step 1 to the first `curl` |
 | Command lines to deploy and verify | 13 | 13 | `docs/tutorial-5-min.md`, Step 5 |
 | Shell variable assignments among them | 5 | 5 | `docs/tutorial-5-min.md`, Step 5 |
+| Manual configuration choices | not recorded | 4 | Tutorial shell assignments excluding command substitutions |
 | Public LangGraphApp parameters (snapshot) | 17 | see [API inventory](api-inventory.md) | `LangGraphApp.__init__` (baseline only) |
 | Package exported names (snapshot) | 31 | see [API inventory](api-inventory.md) | `azure_functions_langgraph.__all__` (baseline only) |
 
@@ -41,8 +42,16 @@ API changes are tracked by the [API inventory](api-inventory.md).
 - **Command lines to the first local response:** logical lines in the `bash` fences from `## Step 1` up to and including the first line starting with `curl`. Lines ending in a backslash are joined; blank and `#` lines are skipped.
 - **Command lines to deploy and verify:** the same rule over every `bash` fence from `## Step 5` up to `## How this tutorial stays honest`.
 - **Shell variable assignments:** those logical lines matching `^[A-Z_][A-Z0-9_]*=`.
+- **Manual configuration choices:** values the reader supplies in tutorial shell assignments, excluding command substitutions (the fetched `FUNCTION_KEY`). Current local steps require zero; deployment supplies `RESOURCE_GROUP`, `LOCATION`, `STORAGE`, and `APP`. Shipped `host.json`, `local.settings.json`, registration arguments and requirements are copied unchanged, not reader choices. This counts explicit inputs, not every implicit platform/default decision; the frozen baseline did not record this metric.
 
 ## Friction observed
+
+For [tracker #913](https://github.com/yeongseon/azure-functions-langgraph-python/issues/913)'s deployment-choice evidence, see the
+[Functions/Foundry paired measurement](functions-foundry-measurement.md):
+handwritten Functions and existing-app adapter calls were measured on the same
+upstream conversation and non-messages graphs; Foundry stopped at a captured
+agent-read permission denial. This is partial evidence, not a latency ranking or
+an upstream-listing approval for #371.
 
 - The tutorial starts with a `git clone` of the whole repository, so the path does not show how to add the package to an existing project. That is a separate part of #913.
 - With the tutorial's empty `AzureWebJobsStorage` (Core Tools 4.8.0, no storage emulator) the host logs `Process reporting unhealthy: Unhealthy` with `"azure.functions.webjobs.storage":{"status":"Unhealthy","description":"Unable to create client for AzureWebJobsStorage"}` after start, while the web host and script host lifecycle entries stay Healthy and requests keep being answered. The tutorial notes this in Step 2.
@@ -51,6 +60,16 @@ API changes are tracked by the [API inventory](api-inventory.md).
 ## Time to first successful local response
 
 A single set of runs on one machine, not a guarantee. Measured 2026-11-17 following the tutorial's steps in a fresh directory, with the example's own files from a fresh clone.
+
+Timing provenance: the frozen code-count baseline is `164993d`; the runs below
+installed published 0.12.2, not that source tree. Host timings end at health 200;
+invoke timings are request durations, not elapsed time since host start. The
+2026-11-28 audit at `578536f` recorded 25.4 s with a cached candidate wheel and
+automation, not a literal newcomer walkthrough. These are unpaired samples,
+not comparable before/after numbers. `make host-smoke` now prints tutorial
+first-health and first-invoke seconds since host launch (excluding install),
+with the existing polling/route-discovery overhead; a controlled A1/A7 timing
+protocol remains a maintainer decision.
 
 | Step | Cold package cache | Warm package cache |
 | --- | --- | --- |
@@ -71,8 +90,8 @@ numbers are inflated and noisy. The warm install being slower than the cold one
 shows how much the load distorts them; its cause was not investigated, so do not
 compare the cold and warm columns.
 
-Prerequisites (not measured and not included above): Python 3.11+,
-Azure Functions Core Tools v4, `curl`, and network access to GitHub and PyPI.
+Prerequisites (not measured and not included above): git, bash, Python 3.11+,
+Azure Functions Core Tools v4, curl, and network access (see the tutorial).
 
 ## Updating this page
 

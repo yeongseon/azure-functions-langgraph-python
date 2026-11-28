@@ -5,16 +5,12 @@ from typing import Any
 import azure.functions as func
 
 from azure_functions_langgraph._execution_plan import has_checkpointer
-from azure_functions_langgraph._validation import (
-    validate_thread_id,
-)
 from azure_functions_langgraph.authorization import (
     AuthorizationAction,
-    AuthorizationContext,
-    authorization_status,
 )
 from azure_functions_langgraph.locks.guard import check_ownership_guard, guard_run_config
 from azure_functions_langgraph.observability import (
+    RunContext,
     finish_context,
     new_run_context,
     request_id_from_headers,
@@ -123,28 +119,57 @@ def _release_thread_run_lock(
     return failure
 
 
-def register_run_routes(
+def _acquire_thread_run_locks(
+    deps: PlatformRouteDeps, ctx: RunContext, thread_id: str
+) -> tuple[str, str] | func.HttpResponse:
+    lock_token = deps.thread_lock.acquire(ctx.graph_name, thread_id)
+    if lock_token is None:
+        safe_observer_call(deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention")
+        return _platform_error(
+            409,
+            f"Thread {thread_id!r} is already busy. "
+            f"Concurrent runs are not supported (multitask_strategy=reject).",
+        )
+    try:
+        locked = deps.thread_store.try_acquire_run_lock(
+            thread_id,
+            assistant_id=ctx.assistant_id,
+        )
+    except KeyError:
+        deps.thread_lock.release(ctx.graph_name, thread_id, lock_token)
+        return _platform_error(404, f"Thread {thread_id!r} not found")
+    except ValueError as exc:
+        deps.thread_lock.release(ctx.graph_name, thread_id, lock_token)
+        return _platform_error(409, str(exc))
+    except Exception as exc:
+        try:
+            safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
+            return _platform_error(500, "Graph execution failed", ctx.run_id)
+        finally:
+            deps.thread_lock.release(ctx.graph_name, thread_id, lock_token)
+    if locked is None:
+        deps.thread_lock.release(ctx.graph_name, thread_id, lock_token)
+        safe_observer_call(deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention")
+        return _platform_error(
+            409,
+            f"Thread {thread_id!r} is already busy. "
+            f"Concurrent runs are not supported (multitask_strategy=reject).",
+        )
+    return lock_token, locked.lock_token or lock_token
+
+
+def register_run_routes(  # noqa: C901 - refactor tracked in #1005
     app: func.FunctionApp,
     deps: PlatformRouteDeps,
 ) -> None:
     auth = deps.auth_level
 
-    def denied(req: func.HttpRequest, thread_id: str | None) -> func.HttpResponse | None:
-        status = authorization_status(
-            deps.authorize,
-            AuthorizationContext(AuthorizationAction.RUN, None, thread_id, req),
-        )
-        return _platform_error(status, "Access denied") if status is not None else None
-
     @app.function_name(name="aflg_platform_runs_wait")
     @app.route(route="threads/{thread_id}/runs/wait", methods=["POST"], auth_level=auth)
     def runs_wait(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
-        if response := denied(req, thread_id):
+        if response := deps._authorize_thread_request(req, AuthorizationAction.RUN, thread_id):
             return response
-        tid_err = validate_thread_id(thread_id)
-        if tid_err:
-            return _platform_error(400, tid_err)
 
         parsed = _parse_run_create(req, deps, require_dict_body=False)
         if isinstance(parsed, func.HttpResponse):
@@ -177,44 +202,10 @@ def register_run_routes(
             has_checkpointer=has_checkpointer(reg.graph),
         )
 
-        lock_token = deps.thread_lock.acquire(reg.name, thread_id)
-        if lock_token is None:
-            safe_observer_call(
-                deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
-            )
-            return _platform_error(
-                409,
-                f"Thread {thread_id!r} is already busy. "
-                f"Concurrent runs are not supported (multitask_strategy=reject).",
-            )
-        try:
-            locked = deps.thread_store.try_acquire_run_lock(
-                thread_id,
-                assistant_id=run_req.assistant_id,
-            )
-        except KeyError:
-            deps.thread_lock.release(reg.name, thread_id, lock_token)
-            return _platform_error(404, f"Thread {thread_id!r} not found")
-        except ValueError as exc:
-            deps.thread_lock.release(reg.name, thread_id, lock_token)
-            return _platform_error(409, str(exc))
-        except Exception as exc:
-            try:
-                safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
-                return _platform_error(500, "Graph execution failed", ctx.run_id)
-            finally:
-                deps.thread_lock.release(reg.name, thread_id, lock_token)
-        if locked is None:
-            deps.thread_lock.release(reg.name, thread_id, lock_token)
-            safe_observer_call(
-                deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
-            )
-            return _platform_error(
-                409,
-                f"Thread {thread_id!r} is already busy. "
-                f"Concurrent runs are not supported (multitask_strategy=reject).",
-            )
-        store_lock_token = locked.lock_token or lock_token
+        acquired = _acquire_thread_run_locks(deps, ctx, thread_id)
+        if isinstance(acquired, func.HttpResponse):
+            return acquired
+        lock_token, store_lock_token = acquired
         status: ThreadStatus = "error"
         primary_error: Exception | None = None
         release_error: Exception | None = None
@@ -283,11 +274,8 @@ def register_run_routes(
     )
     def runs_stream(req: func.HttpRequest) -> func.HttpResponse:
         thread_id = req.route_params.get("thread_id", "")
-        if response := denied(req, thread_id):
+        if response := deps._authorize_thread_request(req, AuthorizationAction.RUN, thread_id):
             return response
-        tid_err = validate_thread_id(thread_id)
-        if tid_err:
-            return _platform_error(400, tid_err)
 
         parsed = _parse_run_create(req, deps, require_dict_body=False)
         if isinstance(parsed, func.HttpResponse):
@@ -330,44 +318,10 @@ def register_run_routes(
             has_checkpointer=has_checkpointer(reg.graph),
             stream_mode=stream_mode,
         )
-        lock_token = deps.thread_lock.acquire(reg.name, thread_id)
-        if lock_token is None:
-            safe_observer_call(
-                deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
-            )
-            return _platform_error(
-                409,
-                f"Thread {thread_id!r} is already busy. "
-                f"Concurrent runs are not supported (multitask_strategy=reject).",
-            )
-        try:
-            locked = deps.thread_store.try_acquire_run_lock(
-                thread_id,
-                assistant_id=run_req.assistant_id,
-            )
-        except KeyError:
-            deps.thread_lock.release(reg.name, thread_id, lock_token)
-            return _platform_error(404, f"Thread {thread_id!r} not found")
-        except ValueError as exc:
-            deps.thread_lock.release(reg.name, thread_id, lock_token)
-            return _platform_error(409, str(exc))
-        except Exception as exc:
-            try:
-                safe_observer_call(deps.observer, "on_run_failed", finish_context(ctx), exc)
-                return _platform_error(500, "Graph execution failed", ctx.run_id)
-            finally:
-                deps.thread_lock.release(reg.name, thread_id, lock_token)
-        if locked is None:
-            deps.thread_lock.release(reg.name, thread_id, lock_token)
-            safe_observer_call(
-                deps.observer, "on_run_rejected", finish_context(ctx), "lock_contention"
-            )
-            return _platform_error(
-                409,
-                f"Thread {thread_id!r} is already busy. "
-                f"Concurrent runs are not supported (multitask_strategy=reject).",
-            )
-        store_lock_token = locked.lock_token or lock_token
+        acquired = _acquire_thread_run_locks(deps, ctx, thread_id)
+        if isinstance(acquired, func.HttpResponse):
+            return acquired
+        lock_token, store_lock_token = acquired
         chunks: list[str] = []
         status: ThreadStatus = "error"
         primary_error: Exception | None = None
@@ -477,7 +431,7 @@ def register_run_routes(
     @app.function_name(name="aflg_platform_runs_wait_threadless")
     @app.route(route="runs/wait", methods=["POST"], auth_level=auth)
     def runs_wait_threadless(req: func.HttpRequest) -> func.HttpResponse:
-        if response := denied(req, None):
+        if response := deps._authorize_request(req, AuthorizationAction.RUN):
             return response
         parsed = _parse_run_create(req, deps, require_dict_body=True)
         if isinstance(parsed, func.HttpResponse):
@@ -536,7 +490,7 @@ def register_run_routes(
     @app.function_name(name="aflg_platform_runs_stream_threadless")
     @app.route(route="runs/stream", methods=["POST"], auth_level=auth)
     def runs_stream_threadless(req: func.HttpRequest) -> func.HttpResponse:
-        if response := denied(req, None):
+        if response := deps._authorize_request(req, AuthorizationAction.RUN):
             return response
         parsed = _parse_run_create(req, deps, require_dict_body=True)
         if isinstance(parsed, func.HttpResponse):

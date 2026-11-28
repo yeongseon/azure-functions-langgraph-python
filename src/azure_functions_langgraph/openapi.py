@@ -1,7 +1,8 @@
-"""Bridge between azure-functions-langgraph and azure-functions-openapi-python.
+"""Bridge between azure-functions-langgraph and azure-functions-openapi.
 
 This module forwards route metadata from :class:`LangGraphApp` to the
-``azure-functions-openapi-python`` package for OpenAPI spec generation.
+``azure-functions-openapi`` distribution for OpenAPI spec generation.
+Install the companion with ``pip install "azure-functions-langgraph[openapi]"``.
 
 Usage::
 
@@ -26,11 +27,12 @@ if TYPE_CHECKING:
 
 
 def register_with_openapi(app: LangGraphApp) -> int:
-    """Register all graph and app-level endpoints with azure-functions-openapi-python.
+    """Register all graph and app-level endpoints with azure-functions-openapi.
 
     Reads the metadata exposed by :meth:`LangGraphApp.get_app_metadata` and
     calls :func:`azure_functions_openapi.register_openapi_metadata` for each
-    route.
+    route. Install the companion distribution with
+    ``pip install "azure-functions-langgraph[openapi]"``.
 
     .. deprecated:: 0.6.0
         Request/response *shape* now also flows through the shared
@@ -48,7 +50,7 @@ def register_with_openapi(app: LangGraphApp) -> int:
         Number of routes registered with the openapi package.
 
     Raises:
-        ImportError: If ``azure-functions-openapi-python`` is not installed.
+        ImportError: If the ``azure-functions-openapi`` distribution is not installed.
         TypeError: If a ``request_model`` or ``response_model`` is not a
             Pydantic ``BaseModel`` subclass.
     """
@@ -56,8 +58,8 @@ def register_with_openapi(app: LangGraphApp) -> int:
         from azure_functions_openapi import register_openapi_metadata
     except ImportError as exc:
         raise ImportError(
-            "azure-functions-openapi-python is required for OpenAPI integration. "
-            "Install it with: pip install azure-functions-openapi-python"
+            "azure-functions-openapi is required for OpenAPI integration. "
+            'Install it with: pip install "azure-functions-langgraph[openapi]"'
         ) from exc
 
     metadata = app.get_app_metadata()

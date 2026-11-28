@@ -41,6 +41,7 @@ only the tables it created; it never starts or stops processes.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from collections.abc import Callable, Iterator
 import contextlib
 from datetime import UTC, datetime, timedelta
@@ -53,10 +54,11 @@ import tracemalloc
 from typing import Any
 import uuid
 
+from azure_functions_langgraph.platform.contracts import ThreadStatus
 from azure_functions_langgraph.stores.azure_table import AzureTableThreadStore
 
 PAGE_SIZE = 1000  # max entities per Table query response page (service limit)
-STATUSES = ("idle", "busy", "interrupted", "error")
+STATUSES: tuple[ThreadStatus, ...] = ("idle", "busy", "interrupted", "error")
 STATUS_WEIGHTS = (0.80, 0.10, 0.07, 0.03)
 TENANTS = 50  # a tenant filter therefore matches about 2% of threads
 KINDS = ("chat", "batch", "eval")
@@ -128,7 +130,7 @@ class _Rng:
         out = 0
         for _ in range(-(-bits // 64)):
             out = (out << 64) | self._next()
-        return out & (2**bits - 1)
+        return out % (1 << bits)
 
     def choice(self, items: tuple[str, ...]) -> str:
         return items[self.randrange(len(items))]
@@ -249,6 +251,7 @@ def measure(
     return {
         "latency_ms_median": round(statistics.median(times), 1),
         "latency_ms_max": round(max(times), 1),
+        "latency_ms_samples": [round(t, 1) for t in times],
         "timed": timed,
         "memory_pass": _counts(counter),
         "peak_mem_mib": round(peak / 1024 / 1024, 1),
@@ -269,17 +272,27 @@ class RequestCounter:
     def __init__(self) -> None:
         self.sent = 0
         self.total = 0
+        self.methods: Counter[str] = Counter()
+        self.rows_received = 0
+        self.bytes_received = 0
 
 
 def counting_transport(counter: RequestCounter) -> Any:
     """Return a ``requests`` based SDK transport that counts every send on ``counter``."""
-    from azure.core.pipeline.transport import RequestsTransport  # type: ignore[import-not-found]
+    from azure.core.pipeline.transport import RequestsTransport
 
     class _CountingTransport(RequestsTransport):  # type: ignore[misc]
         def send(self, request: Any, **kwargs: Any) -> Any:
             counter.sent += 1
             counter.total += 1
-            return super().send(request, **kwargs)
+            counter.methods[request.method] += 1
+            response = super().send(request, **kwargs)
+            body = response.body() or b""
+            counter.bytes_received += len(body)
+            if request.method == "GET" and response.status_code == 200:
+                payload = json.loads(body)
+                counter.rows_received += len(payload["value"]) if "value" in payload else 1
+            return response
 
     return _CountingTransport()
 
@@ -298,6 +311,9 @@ class CountingProxy:
         self.queries = 0
         if self._request_counter is not None:
             self._request_counter.sent = 0
+            self._request_counter.methods.clear()
+            self._request_counter.rows_received = 0
+            self._request_counter.bytes_received = 0
 
     @property
     def requests_measured(self) -> int | None:
@@ -358,7 +374,7 @@ def run_tables(
             created.append(name)
             populate(raw, size)
             proxy = CountingProxy(raw, counter)
-            store = AzureTableThreadStore.from_table_client(proxy)  # type: ignore[arg-type]
+            store = AzureTableThreadStore.from_table_client(proxy)
             for label, _, _, call in workloads(size):
                 rows.append(
                     {
@@ -376,7 +392,7 @@ def run_tables(
 
 
 def run_azurite(sizes: list[int], reps: int, port: int) -> list[dict[str, Any]]:
-    from azure.data.tables import TableServiceClient  # type: ignore[import-not-found]
+    from azure.data.tables import TableServiceClient
 
     conn = (
         "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;"
@@ -393,7 +409,7 @@ def run_azure(sizes: list[int], reps: int, env_var: str) -> tuple[list[dict[str,
     conn = os.environ.get(env_var)
     if not conn:
         raise SystemExit(f"environment variable {env_var} is not set or empty")
-    from azure.data.tables import TableServiceClient  # type: ignore[import-not-found]
+    from azure.data.tables import TableServiceClient
 
     counter = RequestCounter()
     service = TableServiceClient.from_connection_string(conn, transport=counting_transport(counter))
@@ -453,7 +469,7 @@ def prototype_check(size: int = 5000) -> dict[str, Any]:
     for status in STATUSES:
         total = sum(1 for e in entities if e["status"] == status)
         # count correctness: baseline count() vs index cardinality
-        if not store.count(status=status) == total == len(index[status]):  # type: ignore[arg-type]
+        if not store.count(status=status) == total == len(index[status]):
             raise SystemExit(f"count mismatch for status={status}")
         for limit, offset in (
             (10, 0),
@@ -465,7 +481,7 @@ def prototype_check(size: int = 5000) -> dict[str, Any]:
         ):
             baseline = [
                 t.thread_id for t in store.search(status=status, limit=limit, offset=offset)
-            ]  # type: ignore[arg-type]
+            ]
             proto, _ = indexed_search(index, status, limit, offset)
             if baseline != proto:
                 raise SystemExit(f"search mismatch: {status=} {limit=} {offset=}")
@@ -478,7 +494,7 @@ def prototype_check(size: int = 5000) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--sizes", default="1000,10000,100000")
     parser.add_argument("--azurite", action="store_true", help="use Azurite instead of the fake")
     parser.add_argument("--azurite-port", type=int, default=10112)

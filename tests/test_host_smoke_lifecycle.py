@@ -7,6 +7,7 @@ import re
 import signal
 import subprocess
 import sys
+from types import SimpleNamespace
 from typing import Any, Self
 
 import pytest
@@ -257,6 +258,27 @@ def test_documented_tutorial_calls_pass_and_every_invalid_configuration_is_tried
     # Then: both routes reject every invalid configuration, with no app-specific header.
     assert host.rejected_calls == 2 * len(runner.REJECTED_CONFIGS)
     assert all(headers == {} for headers in host.rejected_headers)
+
+
+def test_tutorial_timing_reports_first_responses_since_host_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Given: documented responses, discovered routes, and a deterministic host clock.
+    FakeHost(monkeypatch)
+    (tmp_path / "tutorial.log").write_text(HOST_LOG)
+    ticks = iter((100.0, 101.0, 102.0, 104.0, 105.0, 107.0))
+    monkeypatch.setattr(runner.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(
+        runner, "child", lambda command, log, cwd: nullcontext(SimpleNamespace(poll=lambda: None))
+    )
+    # When: the complete tutorial host check runs.
+    runner.run_tutorial_host(tmp_path)
+    # Then: readiness and invoke use the same launch origin, not per-request durations.
+    fields = dict(re.findall(r"(first_health|first_invoke)=([\d.]+)", capsys.readouterr().out))
+    assert {name: float(value) for name, value in fields.items()} == {
+        "first_health": 4.0,
+        "first_invoke": 7.0,
+    }
 
 
 @pytest.mark.parametrize(

@@ -93,12 +93,15 @@ class DurableRunPayload:
     def from_dict(cls, data: Mapping[str, Any]) -> DurableRunPayload:
         """Rehydrate from the dict Durable passes to the activity."""
 
+        config = dict(data.get("config") or {})
+        if config.get("configurable") is None:
+            config.pop("configurable", None)
         return cls(
             run_id=str(data["run_id"]),
             graph_name=str(data["graph_name"]),
             input=data.get("input"),
             thread_id=data.get("thread_id"),
-            config=dict(data.get("config") or {}),
+            config=config,
             assistant_id=data.get("assistant_id"),
             correlation_id=data.get("correlation_id"),
         )

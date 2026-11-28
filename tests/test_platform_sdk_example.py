@@ -57,3 +57,24 @@ def test_sdk_example_documents_live_thread_state() -> None:
     assert json.dumps(result, separators=(",", ":")) in transcript
     assert json.dumps(_normalize(state), separators=(",", ":")) in transcript
     assert "COMPATIBILITY.md" in transcript
+
+
+def test_sdk_example_links_adoption_contracts_before_local_setup() -> None:
+    # Given: the example's entry point before any local execution instructions
+    introduction = (EXAMPLE_DIR / "README.md").read_text().split("## Run locally", 1)[0]
+
+    # When: a reader chooses the SDK example
+    targets = {
+        target
+        for target in (
+            "../../COMPATIBILITY.md#sdk-feature-support-matrix",
+            "../../docs/adapter-reference.md#sdk-adoption-checklist",
+        )
+        if f"]({target})" in introduction
+    }
+
+    # Then: both the exact operation matrix and deployment checklist are reachable
+    assert targets == {
+        "../../COMPATIBILITY.md#sdk-feature-support-matrix",
+        "../../docs/adapter-reference.md#sdk-adoption-checklist",
+    }
