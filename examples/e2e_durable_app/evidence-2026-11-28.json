@@ -1,0 +1,60 @@
+{
+  "scope": "one manual post-effect interruption; not universal certification",
+  "source_sha": "9417b9ba8170be59664894c3165a6af07983209d",
+  "wheel_sha256": "fca98285bc97dd2929674e329f3343ba8eb3404a4512eceb2ab433102dd98be3",
+  "date_utc": "2026-11-28",
+  "plan": "Y1",
+  "region": "koreacentral",
+  "runtime": {
+    "python": "3.12.16",
+    "azure_functions": "1.26.0",
+    "azure_functions_durable": "1.7.0",
+    "azure_functions_langgraph": "0.14.2"
+  },
+  "storage": "Azure Storage task hub; Blob checkpoints; Blob lease lock",
+  "extension_bundle_range": "[4.*, 5.0.0)",
+  "resolved_durable_extension": null,
+  "post_effect_hold_seconds": 240,
+  "before": {
+    "status": "running",
+    "attempts": 1,
+    "node_entries": 1,
+    "effect_calls": 1,
+    "effects_applied": 1,
+    "completions": 0
+  },
+  "control": {"operation": "restart", "returncode": 0, "duration_seconds": 1.123},
+  "after": {
+    "statuses": ["running", "success"],
+    "classification": "B",
+    "seconds_to_terminal": 418.713,
+    "attempts": 2,
+    "node_entries": 2,
+    "effect_calls": 2,
+    "effects_applied": 1,
+    "rejected": 0,
+    "completions": 1,
+    "effect_applied_result": false
+  },
+  "markers": {
+    "started": [
+      {"process_tag": "f9d97278f66ef6ca", "time_ms": 1795824408082},
+      {"process_tag": "ee86de5e16e4c906", "time_ms": 1795824822502}
+    ],
+    "effect_call": [
+      {"process_tag": "f9d97278f66ef6ca", "time_ms": 1795824408516},
+      {"process_tag": "ee86de5e16e4c906", "time_ms": 1795824823195}
+    ],
+    "activity_finished": [
+      {"process_tag": "ee86de5e16e4c906", "time_ms": 1795824823427}
+    ]
+  },
+  "test_result": {"passed": 1, "skipped": 0, "seconds": 427.68, "strict_junit": "passed"},
+  "cleanup": {"group_exists": false, "tagged_resources": [], "default_resource_groups": []},
+  "limitations": [
+    "owner-token handoff not directly instrumented",
+    "checkpoint ownership guard not enabled; no fencing proof",
+    "atomic effect blob substitute, not a separate claim plus external tool",
+    "one run; other plans, SDK lines and topologies not tested"
+  ]
+}

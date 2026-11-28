@@ -111,6 +111,12 @@ def effect(state: DurableE2EState) -> dict[str, Any]:
         applied = True
     except ResourceExistsError:
         pass  # the key already applied this effect: suppressed
+    if applied:
+        # Optional fault window: effect committed, node result/checkpoint not yet returned.
+        # Redelivery skips the hold because the atomic effect claim already exists.
+        time.sleep(
+            min(float(os.environ.get("E2E_POST_EFFECT_HOLD_SECONDS", "0")), MAX_HOLD_SECONDS)
+        )
     return {"effect_applied": applied}
 
 
