@@ -485,3 +485,13 @@ app.register(graph=admin_graph, name="admin", auth_level=func.AuthLevel.ADMIN)
 ```
 
 When `auth_level` is passed to `register()`, it overrides the app-level setting for that graph's native endpoints only. Platform-compatible (`platform_compat=True`) and Durable (`async_runs="durable"`) routes are shared by every graph and use the app-level `auth_level`; a graph *stricter* than the app level is rejected with `ValueError` when those routes are enabled (see [security](security.md#mixed-per-graph-auth-with-platform-or-durable-routes)).
+
+## Local SSE client
+
+The [true-streaming example client](https://github.com/yeongseon/azure-functions-langgraph-python/tree/main/examples/true_streaming_agent#python-local-client-and-offline-checks)
+parses complete JSON SSE frames independently of network read boundaries and
+includes offline malformed/error/disconnect checks. Classic `LangGraphApp`
+responses remain buffered; parsing cannot make them incremental. For incremental
+delivery, use the separate experimental `StreamingLangGraphApp` ASGI app with
+its documented runtime, dependency and indexing prerequisites. Client disconnect
+does not certify server cancellation or rollback.
