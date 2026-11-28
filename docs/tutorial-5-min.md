@@ -136,6 +136,8 @@ curl -s -X POST http://localhost:7071/api/graphs/simple_agent/invoke \
 }
 ```
 
+> If an invocation fails with a 400, 422, or 500, see [no-credentials native invocation troubleshooting](troubleshooting.md#no-credentials-native-invocation-troubleshooting) to diagnose request envelope and admission errors versus graph exceptions.
+
 ```bash
 # Stream the agent (buffered SSE — frames flush after the run completes)
 curl -sN -X POST http://localhost:7071/api/graphs/simple_agent/stream \

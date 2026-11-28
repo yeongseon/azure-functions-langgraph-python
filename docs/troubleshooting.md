@@ -253,6 +253,133 @@ top-level create-run body field (and the Durable instance id), not a
 `configurable` entry. For an application-level idempotency key use a name that
 LangGraph does not reserve, such as `app_run_id` or `idempotency_key`.
 
+## No-credentials native invocation troubleshooting
+
+Newcomers starting with credential-free examples (such as `examples/simple_agent`) often encounter errors on their first HTTP invocation. Because the Azure Functions runtime abstracts request handling, it can be hard to tell whether an error comes from the HTTP transport envelope, native configuration admission, or the inner LangGraph graph itself.
+
+This walkthrough uses the shipped [`examples/simple_agent`](../examples/simple_agent/) app—a deterministic two-node graph (`greet` → `farewell`) requiring **no Azure subscription, no storage emulator, and no model API keys**.
+
+Platform (`/threads`, `/runs`, `/assistants`) and Durable (`async_runs="durable"`) endpoints use separate state stores, locking protocols, and admission rules and are intentionally out of scope here.
+
+### Setup
+
+Before starting the host, ensure dependencies are installed (see the
+[`simple_agent` Run locally section](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/examples/simple_agent/README.md#run-locally)):
+
+```bash
+cd examples/simple_agent
+pip install -r requirements.txt
+func start
+```
+
+### Step 1: Baseline valid invocation (200 OK)
+
+In a second terminal, send a valid invocation request:
+
+```bash
+curl -X POST http://localhost:7071/api/graphs/simple_agent/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"messages": [{"role": "human", "content": "World"}], "greeting": ""}}'
+```
+
+**Observed Response (`200 OK`):**
+
+```json
+{
+  "output": {
+    "messages": [
+      {"role": "human", "content": "World"},
+      {"role": "assistant", "content": "Hello, World! Goodbye!"}
+    ],
+    "greeting": "Hello, World!"
+  }
+}
+```
+
+The response includes the header `X-Request-ID: <request-id>` (a 32-character hex string)
+matching the internal run ID.
+
+### Step 2: Request schema error — missing input envelope (422 Unprocessable Entity)
+
+A common mistake when transitioning from standalone Python `graph.invoke({...})` is sending
+the bare state payload without the transport envelope:
+
+```bash
+curl -X POST http://localhost:7071/api/graphs/simple_agent/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "human", "content": "World"}], "greeting": ""}'
+```
+
+**Observed Response (`422 Unprocessable Entity`):**
+
+```json
+{
+  "error": "error",
+  "detail": [
+    {
+      "loc": ["input"],
+      "type": "missing"
+    }
+  ],
+  "request_id": "<request-id>"
+}
+```
+
+**Root cause & Fix:** The native adapter expects an `InvokeRequest` envelope:
+`{"input": {...}, "config": {...}}`. Wrap your state dict inside `"input"`.
+
+### Step 3: Configuration admission error — unapproved controls (400 Bad Request)
+
+Native invoke and stream routes enforce an admission policy before execution, locking, or
+authorization. Passing execution controls like `recursion_limit` or unapproved configurable
+keys results in immediate rejection:
+
+```bash
+curl -X POST http://localhost:7071/api/graphs/simple_agent/invoke \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {"messages": [{"role": "human", "content": "World"}], "greeting": ""},
+    "config": {"recursion_limit": 25}
+  }'
+```
+
+**Observed Response (`400 Bad Request`):**
+
+```json
+{
+  "error": "error",
+  "detail": "Only config.configurable is client configurable",
+  "request_id": "<request-id>"
+}
+```
+
+Similarly, sending an unapproved key inside `config.configurable` returns:
+
+```json
+{
+  "error": "error",
+  "detail": "Unapproved config.configurable field",
+  "request_id": "<request-id>"
+}
+```
+
+**Root cause & Fix:** Client requests cannot override server execution limits. Bind defaults
+on the server using `graph = graph.with_config({"recursion_limit": 25})`, or register
+allowed keys via `app.register(graph, "agent", allowed_configurable_keys=frozenset({"locale"}))`.
+
+### Step 4: Distinguishing adapter rejections from graph failures
+
+| Status | Where failure occurs | Error shape in HTTP response | Where to look |
+| --- | --- | --- | --- |
+| **`400`** | Admission policy | `{"error": "error", "detail": "Only config.configurable is client configurable", "request_id": "..."}` | HTTP response body. Fix client payload or bind config on server. |
+| **`422`** | Pydantic envelope validation | `{"error": "error", "detail": [{"loc": ["input"], "type": "missing"}], "request_id": "..."}` | HTTP response body. Ensure payload is wrapped in `{"input": {...}}`. |
+| **`500`** | Graph execution inside a node | `{"error": "error", "detail": "Graph execution failed", "request_id": "..."}` | **Functions host console log**. Internal stack traces are intentionally redacted from the HTTP body to prevent data leaks. |
+
+### Focused validation & Out-of-scope checks
+
+- **Reproduced locally with:** Azure Functions Core Tools 4.8.0, Python 3.11/3.14, `azure-functions-langgraph` 0.13.0, and `examples/simple_agent`.
+- **Intentionally not run:** Live Azure cloud deployments, Azurite storage emulator tests, Durable run orchestrations (`async_runs="durable"`), and Platform SDK routes (`/threads`, `/runs`), which are outside the native invocation scope.
+
 ## Storage and persistence settings
 
 The Functions host has its own storage (`AzureWebJobsStorage`), which is separate from graph persistence (the checkpointer, the thread lock and the thread store). A failure at import or indexing time stops the host from registering routes: the host logs `Worker failed to index functions` and every route answers 404. A failure at the first request is different: `/api/health` answers 200 and only the first request that touches persistence fails. `/api/health` is a liveness check; it proves neither that storage nor the lock is usable.

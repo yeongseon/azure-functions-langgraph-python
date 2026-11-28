@@ -151,6 +151,8 @@ Response:
 }
 ```
 
+For troubleshooting invocation rejections (such as missing the `input` wrapper or passing client configuration) versus graph failures, see the [no-credentials troubleshooting walkthrough](troubleshooting.md#no-credentials-native-invocation-troubleshooting).
+
 **Stream the agent:**
 
 ```bash
