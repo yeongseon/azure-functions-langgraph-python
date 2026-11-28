@@ -316,8 +316,11 @@ jobs:
 
       - name: Build wheel and source distribution
         run: |
-          python -m pip install --upgrade pip build
+          python -m pip install --upgrade pip build pytest
           python -m build
+
+      - name: Verify built wheel and source distribution metadata
+        run: make test-metadata METADATA_PYTHON=python
 
       - name: Upload compatibility artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -423,6 +426,8 @@ jobs:
           python tools/api_contract.py check --wheel "$wheel"
 
       - name: Run test suite against installed wheel
+        env:
+          METADATA_DIST_DIR: ${{ github.workspace }}/compatibility-dist
         run: |
           mkdir -p "${RUNNER_TEMP}/wheel-tests"
           cd "${RUNNER_TEMP}/wheel-tests"
@@ -583,7 +588,7 @@ jobs:
 
   azure-functions-2x:
     name: azure-functions 2.x compat (Py ${{ matrix.python-version }})
-    needs: changes
+    needs: [changes, artifact-build]
     if: needs.changes.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     strategy:
@@ -613,12 +618,13 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Build wheel
+      - name: Download built compatibility artifacts
         # Issue #350 requires proving 2.x against a WHEEL-installed build, not an
-        # editable/source tree, so we build and install the distribution artifact.
-        run: |
-          python -m pip install --upgrade pip build
-          python -m build --wheel --outdir dist
+        # editable/source tree; reuse the same candidate as the other wheel lanes.
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: compatibility-dist
+          path: dist
 
       - name: Install wheel with dev + storage extras
         run: pip install "$(ls dist/azure_functions_langgraph-*.whl)[dev,azure-blob,azure-table]"
