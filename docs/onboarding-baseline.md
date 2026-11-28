@@ -68,8 +68,9 @@ invoke timings are request durations, not elapsed time since host start. The
 automation, not a literal newcomer walkthrough. These are unpaired samples,
 not comparable before/after numbers. `make host-smoke` now prints tutorial
 first-health and first-invoke seconds since host launch (excluding install),
-with the existing polling/route-discovery overhead; a controlled A1/A7 timing
-protocol remains a maintainer decision.
+with the existing polling/route-discovery overhead; a controlled timing
+protocol for the five-minute walkthrough and the before/after metrics remains a
+maintainer decision.
 
 | Step | Cold package cache | Warm package cache |
 | --- | --- | --- |
