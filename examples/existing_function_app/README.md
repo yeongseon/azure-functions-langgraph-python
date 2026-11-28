@@ -168,3 +168,121 @@ against request telemetry on the owned Log Analytics workspace. A restart must
 show a different protected worker token plus preserved state, not merely an
 accepted restart command. No unverified recipe code, new CI gate or workflow
 change accompanies this blocked-run record.
+
+### Bounded retry: Entra root cause and live authorization (2026-11-28 UTC)
+
+The maintainer authorized a sequential retry, first reproducing the Entra step
+without any Azure resources. Full stdout/stderr was captured locally with IDs
+redacted. Microsoft Graph returned `InvalidValue`:
+
+```text
+Property api.preAuthorizedApplications.delegatedPermissionIds has a Permission Id
+that cannot be found in the AppPermissions sets.
+```
+
+The original PATCH simultaneously created a scope and referenced it from
+`preAuthorizedApplications`. Two sequential PATCHes (scope first,
+preauthorization second) both returned exit `0`. No directory-permission
+elevation was required. Both isolation registrations were deleted, returning
+the app-registration count to `2` after each probe. The custom scope is for the
+Azure CLI delegated test token, **not a prerequisite for Easy Auth bearer
+validation**. It preauthorizes the Azure CLI client only on the temporary API;
+it changes no other Entra application or user's permissions.
+
+The live attempt used the same candidate wheel SHA256 recorded above and
+`infra/flex.bicep` identity mode off: FC1, `512` MB, Korea Central, Python `3.12`,
+no always-ready instances. The staged entrypoint was
+[`reference_function_app.py`](reference_function_app.py), copied to
+`function_app.py` in a scratch copy of this existing example. It retains the
+HTTP/timer + one Blueprint model and recompiles the existing graph with the
+Blob saver and lease lock. The wheel was bundled under `wheels/` and installed
+from `./wheels/<candidate>.whl[azure-blob,azure-identity]`, with `langchain` and
+`pydantic`; no PyPI adapter substituted for it. Publish used Core Tools `4.8.0`
+`func azure functionapp publish <app> --python --build remote`, after a
+30-second creation wait. Azure CLI was `2.83.0`.
+
+| Check | Live result |
+| --- | --- |
+| Remote build/publish | Exit `0`; protected inventory reports adapter `0.14.2`, Python `3.12.16`, azure-functions `1.26.0`, langgraph `1.2.24`, azure-storage-blob `12.31.1`, azure-identity `1.27.0` |
+| Distinct principals | Temporary app's service principal as owner; logged-in Azure CLI principal as non-owner; object IDs differed (not retained here) |
+| Owner invoke / state read | `200` / `200`; checkpoint values read successfully |
+| Non-owner authenticated runtime probe | `200`, establishing that the second bearer token passed ingress and application tenant parsing |
+| Non-owner invoke / state read | `403` / `403` on the same existing thread |
+| Owner state after denial | `200`; complete parsed state response equal to the pre-denial response |
+| Forged principal header without bearer token | `401`, even with a valid function key |
+| Restart | Azure command accepted; 20 protected probes at 10-second intervals did not observe a changed process token; **turnover not confirmed** |
+| Post-turnover state/resume | Not reached; no claim of restart persistence or owner resume after worker replacement |
+| Telemetry | Own workspace and workspace-based Insights component provisioned and connection configured; harness stopped at the turnover assertion before Log Analytics queries; **ingestion/correlation unverified** |
+
+#### Verified wiring and boundaries
+
+[`reference_policy.py`](reference_policy.py) implements application-owned policy,
+not JWT validation. The deployment used `authsettingsV2`: platform enabled,
+`requireAuthentication=true`, `unauthenticatedClientAction=Return401`, HTTPS
+required, single-tenant Entra issuer `https://login.microsoftonline.com/<tenant>/v2.0`,
+and accepted audiences `<client-id>` and `api://<client-id>`. No excluded route
+or alternative ingress was configured. Trust `x-ms-client-principal` only behind
+that platform boundary, which strips/replaces caller identity headers; do not
+deploy this parser behind an untrusted direct path. It uses mapped tenant/object
+claims, never names, body owner fields or an unverified bearer token.
+
+The operator preprovisions `owners/<sha256(graph-name:thread-id)>.json` in the
+private checkpoint container with `{"tenant":"<tenant>","principal":"<owner-object-id>"}`.
+Both RUN and STATE_READ compare that record on each admission. Missing records,
+wrong graph/tenant and threadless runs fail closed. Requests cannot create or
+transfer ownership. No ownership-on-first-request or concurrent ownership
+creation claim is made. This static entitlement recipe does not cover Platform
+collections, Durable management, revocation of already admitted work or tenant
+retention/deletion policy.
+
+| Setting / grant | Purpose and actual scope |
+| --- | --- |
+| `AzureWebJobsStorage`, `DEPLOYMENT_STORAGE_CONNECTION_STRING` | Connection-string **host/deployment** storage; Shared Key remains enabled for this run |
+| `AZURE_STORAGE_BLOB_ACCOUNT_URL`, `LANGGRAPH_BLOB_CONTAINER` | Application checkpoint, lease and owner-record container through system-assigned Managed Identity |
+| Storage Blob Data Contributor | Exactly one role assignment, app system identity, scoped only to the owned storage account; explicitly deleted before group deletion |
+| `REFERENCE_TENANT` | Expected ingress tenant; identifier configuration, not user authentication by itself |
+| `LANGGRAPH_STRICT_MSGPACK=true`, `AZFUNC_LANGGRAPH_LOCK_BACKEND=distributed` | Serializer restriction and fail-fast distributed lock requirement; leases are not checkpoint fencing |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Own workspace-based component; no default workspace created |
+| `AzureFunctionsJobHost__logging__logLevel__default=Information`, `AzureFunctionsJobHost__logging__applicationInsights__samplingSettings__isEnabled=false` | Requested host lifecycle log forwarding without sampling; not proof of ingestion |
+
+`LoggingRunObserver` emits started/completed/rejected events using the existing
+safe graph, endpoint, request/run correlation, status and rejection-reason
+fields. Caller-selected request IDs are correlation, not authentication or
+unique execution proof. No principal IDs, tokens, function keys, ownership
+records or checkpoint payloads were added to application logs. Native host logs
+and storage diagnostics have their own classification/access rules. A future
+authorized run must query **Log Analytics** with the workspace customer ID,
+allowing several minutes for ingestion, for example:
+
+```kusto
+AppTraces
+| where Message has "<known-request-id>"
+| project TimeGenerated, Message, OperationId, Properties
+```
+
+Join its `OperationId` to `AppRequests.OperationId` and inspect the lifecycle
+events and request result. That query was **not executed in this attempt**;
+structured-field ingestion and end-to-end correlation remain unproven.
+
+#### Retry cleanup
+
+The harness deleted the scoped role assignment, waited for resource-group
+deletion, then deleted the temporary service principal and app registration in
+`finally`. All checks below completed before writing this retry section:
+
+```text
+owned group exists: false
+resources tagged purpose=995-verify: 0
+DefaultResourceGroup-* groups: []
+Entra app registrations: 2 (baseline: 2)
+owned app registrations: 0
+owned service principals: 0
+created storage role assignment: deleted (command exit 0; scope resource deleted)
+```
+
+This retry establishes live admission isolation and denial non-mutation for one
+app/region/runtime, not all acceptance items, restart continuity, telemetry
+certification, scale-out, exactly-once execution or a latency/cost claim. No
+additional deployment was attempted after cleanup. Offline policy tests cover
+the verified admission decisions; Azure-specific checks remain manual and
+opt-in, with no new required CI or release gate.
