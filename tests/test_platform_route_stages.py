@@ -16,6 +16,7 @@ from azure_functions_langgraph.locks import InProcessThreadLock
 from azure_functions_langgraph.platform.stores import InMemoryThreadStore
 from tests.conftest import FakeCompiledGraph
 from tests.test_platform_routes import _build_platform_app, _get_fn, _post_request
+from tests.test_platform_run_setup_cleanup import Observer, RecordingLock
 
 
 @pytest.mark.parametrize("endpoint", ["wait", "stream"])
@@ -185,3 +186,88 @@ def test_thread_preamble_precedes_parsing_and_lookup(route: str, allowed: bool) 
     )
     assert json.loads(response.get_body()) == {"detail": detail}
     assert len(seen) == 1
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        "threads_get",
+        "threads_update",
+        "threads_delete",
+        "threads_state_get",
+        "threads_state_update",
+        "threads_history",
+        "runs_wait",
+        "runs_stream",
+    ],
+)
+@pytest.mark.parametrize("allowed", [True, False])
+def test_path_authorization_precedes_invalid_id_and_body(route: str, allowed: bool) -> None:
+    # Given an invalid path ID and body with a recording authorization policy.
+    seen: list[str | None] = []
+
+    def authorize(context: AuthorizationContext) -> bool:
+        seen.append(context.thread_id)
+        return allowed
+
+    app = _build_platform_app(authorize=authorize)
+    handler = _get_fn(app.function_app, f"aflg_platform_{route}")
+    request = func.HttpRequest(
+        method="POST", url="/threads", body=b"{", route_params={"thread_id": "bad\n id"}
+    )
+    # When the actual registered handler processes competing failures.
+    response = handler(request)
+    # Then authorization observes the raw ID before validation or parsing.
+    assert seen == ["bad\n id"]
+    assert response.status_code == (400 if allowed else 403)
+    if not allowed:
+        assert json.loads(response.get_body()) == {"detail": "Access denied"}
+    else:
+        assert b"Invalid JSON" not in response.get_body()
+
+
+@pytest.mark.parametrize("endpoint", ["wait", "stream"])
+@pytest.mark.parametrize("fault", ["missing", "conflict", "busy", "error", "cancel"])
+def test_store_acquisition_failure_releases_only_outer_lock(
+    endpoint: str, fault: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a real outer lock and a failure at the store acquisition boundary.
+    store = InMemoryThreadStore(id_factory=lambda: "thread-0")
+    store.create()
+    lock = RecordingLock()
+    observer = Observer()
+    graph = FakeCompiledGraph()
+    app = _build_platform_app(graphs={"agent": graph}, store=store)
+    app.thread_lock = lock
+    app.observer = observer
+
+    def acquire(thread_id: str, *, assistant_id: str | None = None) -> None:
+        if fault == "missing":
+            raise KeyError(thread_id)
+        if fault == "conflict":
+            raise ValueError("assistant conflict")
+        if fault == "error":
+            raise RuntimeError("private-storage-canary")
+        if fault == "cancel":
+            raise KeyboardInterrupt
+        return None
+
+    monkeypatch.setattr(store, "try_acquire_run_lock", acquire)
+    handler = _get_fn(app.function_app, f"aflg_platform_runs_{endpoint}")
+    request = _post_request("/runs", {"assistant_id": "agent"}, thread_id="thread-0")
+    # When acquisition fails (process cancellation deliberately still propagates).
+    if fault == "cancel":
+        with pytest.raises(KeyboardInterrupt):
+            handler(request)
+    else:
+        response = handler(request)
+        # Then the existing response/observer contract and release count remain intact.
+        assert (
+            response.status_code
+            == {"missing": 404, "conflict": 409, "busy": 409, "error": 500}[fault]
+        )
+        assert b"private-storage-canary" not in response.get_body()
+    assert len(lock.releases) == (0 if fault == "cancel" else 1)
+    assert observer.events == (
+        ["failed"] if fault == "error" else ["rejected"] if fault == "busy" else []
+    )
