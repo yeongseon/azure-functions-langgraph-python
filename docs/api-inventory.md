@@ -167,7 +167,7 @@ Tier basis: `README` = named by the README stability table; `maintainer decision
 | `AuthorizationContext` | dataclass | no | `ETD` |
 | `ThreadAuthorizer` | protocol | no | `-TD` |
 | `UnauthenticatedError` | class | no | `ETD` |
-| `authorization_status` | function | no | `---` |
+| `authorization_status` | function | no | `E--` |
 | `authorization_status_async` | async function | no | `---` |
 
 #### `checkpointers` — Beta
@@ -578,7 +578,7 @@ Names found in no example, test or doc (name match only, so a name shared by two
 | Module | Symbols |
 | --- | --- |
 | `app` | `AsyncRunsMode` |
-| `authorization` | `authorization_status`, `authorization_status_async` |
+| `authorization` | `authorization_status_async` |
 | `contracts` | `HealthStatus`, `LangGraphVersion`, `ReadinessResponse` |
 | `durable` | `DurableClientLike`, `DurableRunStatus`, `GraphRegistrationLike`, `OrchestrationContextLike`, `OrchestrationStatusLike` |
 | `observability` | `EndpointName`, `NOOP_OBSERVER`, `request_id_from_headers`, `safe_observer_call` |
