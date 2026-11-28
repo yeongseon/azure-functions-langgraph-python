@@ -18,6 +18,7 @@ from azure_functions_langgraph._validation import (
     validate_body_size,
     validate_graph_name,
     validate_input_structure,
+    validate_thread_id,
 )
 from azure_functions_langgraph.authorization import (
     AuthorizationAction,
@@ -719,6 +720,26 @@ class PlatformRouteDeps:
         self.max_input_nodes = max_input_nodes
         self.max_platform_result_limit = max_platform_result_limit
         self.authorize = authorize
+
+    def _authorize_request(
+        self,
+        req: func.HttpRequest,
+        action: AuthorizationAction,
+        thread_id: str | None = None,
+    ) -> func.HttpResponse | None:
+        status = authorization_status(
+            self.authorize,
+            AuthorizationContext(action, None, thread_id, req),
+        )
+        return _platform_error(status, "Access denied") if status is not None else None
+
+    def _authorize_thread_request(
+        self, req: func.HttpRequest, action: AuthorizationAction, thread_id: str
+    ) -> func.HttpResponse | None:
+        if response := self._authorize_request(req, action, thread_id):
+            return response
+        tid_err = validate_thread_id(thread_id)
+        return _platform_error(400, tid_err) if tid_err else None
 
 
 def _result_limit_error(limit: int, maximum: int) -> func.HttpResponse | None:
