@@ -1366,8 +1366,23 @@ cache TTL), then turn `status_index` off in the application, then optionally
 new backfill and a clean audit**, because writes made while the index was off were not hinted.
 
 **Verification status.** Fake-table and Azurite failure-injection coverage is supplemented by
-the real-Azure run below. The feature remains experimental: in-region latency, hot-partition
-throughput, sustained independent-process writers and maintainer acceptance remain open.
+the real-Azure runs below. The feature remains experimental: 100k in-region latency,
+hot-partition throughput and sustained independent-process writers remain unproven. The maintainer
+[accepted the extra write cost and cross-partition consistency contract on 2026-11-24](https://github.com/yeongseon/azure-functions-langgraph-python/issues/801#issuecomment-7145694851)
+for the Experimental, default-off opt-in only; this is not a support-tier promotion.
+
+**In-region follow-up (2026-11-28): partial measurements.** One smoke-gated Linux
+ACI in `koreacentral`, against same-group/region Standard_LRS storage, completed
+the existing benchmark at 1k/10k threads. Idle limit=10 scan→index median was
+**96.8→19.7 ms** at 1k and **973.3→38.8 ms** at 10k; 10k wire cost was
+9 requests/8016 rows→2/28. However 10k limit=1000 regressed
+**1118.2→3561.7 ms**; small rare-status/deep-offset cases also regressed.
+Create/terminal transitions add one write; acquire/release remains +50% writes.
+Rebuild/audit/rollback passed within the sampled cells, 1k repair removed six
+stale hints. **100k and sustained-writer cells timed out**, so neither their
+latency nor hot-partition/consistency result is established. The feature remains
+Experimental/default-off. Full [results, scope and verified cleanup](testing.md#in-region-storage-attempt-2026-11-28-801-and-860)
+include retained stdout/state, before-analysis deletion and unproven rows.
 
 #### Real-Azure status-index evidence — 2026-11-24 (#801)
 
@@ -1376,8 +1391,9 @@ throughput, sustained independent-process writers and maintainer acceptance rema
 **client-to-Azure from a local workstation, not in-region**, including SDK decoding and oracle
 assertions. No VM/container/Functions compute was created. Sequential measurements on one
 client are not throughput, throttling, sustained multi-process or production certification.
-They inform, but do not make, the maintainer's write-cost, consistency-contract or support-tier
-decision. No issue checklist was changed.
+The measurements informed, but did not themselves make, the maintainer's decision recorded
+above. The evidence PR changed no issue checklist; the maintainer subsequently checked only
+the write-cost/consistency acceptance item. No support-tier promotion was made.
 
 **Repository reality.** Base `e62aea4` includes the index from #910. The older issue proposal
 saying recovery/backfill are not implemented is superseded by its 2026-11-21 checkpoint and

@@ -22,6 +22,7 @@ nav:
       - Choose a Plan: choose-a-plan.md
       - Deploy to Azure: deployment.md
       - Flex Blob Reference: production-reference.md
+      - Production Backend Decision: production-backend-decision.md
   - Production Checklist:
       - Production Guide: production-guide.md
       - Security: security.md
@@ -69,6 +70,7 @@ nav:
   - Maintainers:
       - Contributing Guidelines: contributing.md
       - Packaging Boundaries (Proposal): packaging-proposal.md
+      - Blob Fencing Evaluation (Proposal): blob-fencing-evaluation.md
       - Development: development.md
       - Testing: testing.md
       - Python 3.15 Candidate Probe: python-315-probe.md
@@ -79,6 +81,7 @@ nav:
       - Deferred Edge Triage: deferred-edge-triage.md
       - Agent Playbook: agent-playbook.md
       - First-run Baseline: onboarding-baseline.md
+      - Functions and Foundry Measurement: functions-foundry-measurement.md
 
 markdown_extensions:
   - admonition

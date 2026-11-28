@@ -882,7 +882,7 @@
           "bases": [],
           "consumers": {
             "docs": true,
-            "examples": false,
+            "examples": true,
             "tests": true
           },
           "defined_in": "azure_functions_langgraph.authorization",
@@ -928,7 +928,7 @@
           "bases": [],
           "consumers": {
             "docs": false,
-            "examples": false,
+            "examples": true,
             "tests": false
           },
           "defined_in": "azure_functions_langgraph.authorization",

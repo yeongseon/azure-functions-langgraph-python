@@ -43,6 +43,11 @@ own authenticated principal and thread authorization before exposing real data.
 
 ## Decision record
 
+See the [backend decision and bounded Postgres attempt](production-backend-decision.md)
+for the existing evidence audit, learning paths, connection/security tradeoffs and
+the 2026-11-28 Korea Central `SkuNotAvailable` result. Postgres was not deployed;
+the selected Blob topology and all infrastructure defaults remain unchanged.
+
 - Keep `infra/flex.bicep` as the only topology definition. No azd/`azure.yaml`:
   another wrapper has not demonstrated better reproducibility without duplication.
 - Flex matches the tutorial and existing template. Microsoft documents [Linux
