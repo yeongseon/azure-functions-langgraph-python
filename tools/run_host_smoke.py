@@ -79,13 +79,13 @@ def child(command: list[str], log: Path, cwd: Path) -> Iterator[subprocess.Popen
                 pass
 
 
-def wait_ready(process: subprocess.Popen[bytes], url: str) -> None:
+def wait_ready(process: subprocess.Popen[bytes], url: str) -> float:
     deadline = time.monotonic() + 100
     while process.poll() is None and time.monotonic() < deadline:
         try:
             with requests.get(url + "/api/health", timeout=2) as response:
                 if response.status_code == 200:
-                    return
+                    return time.monotonic()
         except requests.RequestException:
             pass
         time.sleep(0.5)
@@ -133,7 +133,7 @@ def copy_tutorial_app(source: Path, destination: Path) -> None:
             shutil.copyfile(file, destination / file.name)
 
 
-def check_tutorial_calls(url: str) -> None:
+def check_tutorial_calls(url: str) -> float:
     graph = f"{url}/api/graphs/{TUTORIAL_GRAPH}"
     answer = TUTORIAL_OUTPUT["messages"][-1]["content"]
     with requests.get(url + "/api/health", timeout=30) as response:
@@ -141,6 +141,7 @@ def check_tutorial_calls(url: str) -> None:
         if response.json() != {"status": "ok"}:
             raise RuntimeError("tutorial health probe differs from the documented response")
     with requests.post(graph + "/invoke", json=TUTORIAL_PAYLOAD, timeout=30) as response:
+        first_invoke = time.monotonic()
         response.raise_for_status()
         if response.json().get("output") != TUTORIAL_OUTPUT:
             raise RuntimeError("tutorial invoke differs from the documented response")
@@ -158,6 +159,7 @@ def check_tutorial_calls(url: str) -> None:
                 "tutorial stream is not an SSE response carrying the documented answer"
             )
     reject_invalid_configuration(url, TUTORIAL_GRAPH, ("invoke", "stream"), {})
+    return first_invoke
 
 
 def run_tutorial_host(temporary: Path) -> None:
@@ -166,8 +168,9 @@ def run_tutorial_host(temporary: Path) -> None:
     port = available_port()
     url = f"http://127.0.0.1:{port}"
     log = temporary / "tutorial.log"
+    started = time.monotonic()
     with child(["func", "start", "--python", "--port", str(port)], log, app) as host:
-        wait_ready(host, url)
+        first_health = wait_ready(host, url)
         deadline = time.monotonic() + 10
         missing = missing_routes(log.read_text(errors="replace"), TUTORIAL_ROUTES)
         while missing and time.monotonic() < deadline:
@@ -175,8 +178,12 @@ def run_tutorial_host(temporary: Path) -> None:
             missing = missing_routes(log.read_text(errors="replace"), TUTORIAL_ROUTES)
         if missing:
             raise RuntimeError(f"tutorial host did not list the documented routes: {missing}")
-        check_tutorial_calls(url)
+        first_invoke = check_tutorial_calls(url)
     check_host_log("tutorial", log)
+    print(
+        f"Tutorial timing (seconds since host start): first_health={first_health - started:.3f} "
+        f"first_invoke={first_invoke - started:.3f}"
+    )
 
 
 def run_hosts(temporary: Path) -> None:
