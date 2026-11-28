@@ -1435,6 +1435,18 @@ Expected outcomes (checked by `tests/test_topology_truth_table.py`, which builds
 
 Only one error is raised per build; a rejection also precedes every warning, so a rejected row lists a single rule (for example, `mixed-auth` wins over `thread-store-declared`).
 
+**Scoped Azure evidence, not universal certification.** The existing opt-in
+Y1 / Python 3.12 run is recorded in
+[PR #973](https://github.com/yeongseon/azure-functions-langgraph-python/pull/973).
+A [manual Flex / Python 3.12 observation](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/examples/e2e_topology_app/README.md#manual-flex-evidence-2026-11-27-utc)
+reused the same candidate-wheel payload and passed eight safe/refusal/recovery/
+warning phases. All three unsafe modes returned only 404 for four probed routes
+in bounded post-restart windows. Two always-ready HTTP instances were configured,
+but actual multi-instance routing was not observed. The owned Application
+Insights diagnostic query failed, so Azure diagnostic delivery remains unproven.
+Neither run observes every route or the full settings-change transition, proves
+checkpoint fencing, or supplies a maintainer compatibility classification.
+
 #### Opt-in guard for Blob checkpoint writes (#790)
 
 Off by default. When enabled, the Blob lock hands every run a small **guard bound
