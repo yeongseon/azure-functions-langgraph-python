@@ -116,8 +116,7 @@ Sanitized cleanup output, collected **before writing this page**:
 ```text
 az group exists -n <owned-group>: false
 az resource list --tag purpose=882-verify: []
-remaining groups: NetworkWatcherRG, rg-aibc, rg-persp-prod,
-                  rg-persp-games, cloud-shell-storage-southeastasia
+resource groups after cleanup: the same five unrelated groups as before the run
 DefaultResourceGroup-* remaining: none (also none at baseline)
 Entra app registrations: 2 before / 2 after
 ```
