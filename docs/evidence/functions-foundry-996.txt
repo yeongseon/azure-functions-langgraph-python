@@ -1,0 +1,232 @@
+Sanitized raw output excerpts for issue 996. Captured 2026-11-28 UTC.
+Requests retain exact curl time_total values. Graph-generated UUIDs,
+credentials, endpoint/resource identifiers and environment identity removed.
+Long discovery/Blob lists and publisher progress bars are excerpted, not complete.
+Interpretation and limitations: ../functions-foundry-measurement.md
+
+date UTC: 2026-11-28T03:23:06Z
+source: 07a2967980d2bdebfb79b4ff7a773bf3e1a35ea5
+wheel sha256: fca98285bc97dd2929674e329f3343ba8eb3404a4512eceb2ab433102dd98be3
+Azure CLI 2.83.0; Core Tools 4.8.0; uv 0.11.7
+
+EXACT PINNED UPSTREAM SNIPPET
+URL: https://raw.githubusercontent.com/langchain-ai/docs/42bc913ad89c7f288667184ae9fc485d9fa28023/src/snippets/code-samples/langgraph-graph-api-state-input-output-py.mdx
+```python
+from langgraph.graph import END, START, StateGraph
+from typing_extensions import TypedDict
+
+
+# Define the schema for the input
+class InputState(TypedDict):
+    question: str
+
+
+# Define the schema for the output
+class OutputState(TypedDict):
+    answer: str
+
+
+# Define the overall schema, combining both input and output
+class OverallState(InputState, OutputState):
+    pass
+
+
+# Define the node that processes the input and generates an answer
+def answer_node(state: InputState):
+    # Example answer and an extra key
+    return {"answer": "bye", "question": state["question"]}
+
+
+# Build the graph with input and output schemas specified
+builder = StateGraph(OverallState, input_schema=InputState, output_schema=OutputState)
+builder.add_node(answer_node)  # Add the answer node
+builder.add_edge(START, "answer_node")  # Define the starting edge
+builder.add_edge("answer_node", END)  # Define the ending edge
+graph = builder.compile()  # Compile the graph
+
+# Invoke the graph with an input and print the result
+print(graph.invoke({"question": "hi"}))
+```
+Staged graph removes only the final invoke/print and adds an MIT attribution.
+Conversation/basic modules reused from existing examples, with import-module
+renames only. Conversation graph.py retains shared-key Blob wiring.
+
+FULL DIRECT CONTROL ENTRYPOINT
+import json
+import azure.functions as func
+from basic_graph import graph as basic
+from conversation_graph import graph as conversation
+from schema_graph import graph as schema
+from langchain_core.messages import BaseMessage, message_to_dict
+
+app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
+
+@app.route(route="graphs/{name}/invoke", methods=["POST"])
+def invoke(req: func.HttpRequest) -> func.HttpResponse:
+    body = req.get_json()
+    graph = {"official_basic": basic, "official_conversation": conversation, "official_schema": schema}[req.route_params["name"]]
+    result = graph.invoke(body["input"], config=body.get("config"))
+    return func.HttpResponse(json.dumps({"output": result}, default=lambda value: message_to_dict(value) if isinstance(value, BaseMessage) else str(value)), mimetype="application/json")
+
+DIRECT RUN
+FC1/Python3.12/512MB/koreacentral; no Insights; no always-ready;
+fresh resources; shared-key host + checkpoints.
+az group create -n <owned-group> -l koreacentral --tags purpose=996-verify owner=opencode-temp -o none
+exit: 0; seconds: 1.608
+az deployment group create -g <owned-group> -f infra/flex.bicep -p functionAppName=<app> storageName=<storage> pythonVersion=3.12 instanceMemoryMB=512 maximumInstanceCount=40 identityBasedStorage=false -o none
+exit: 0; seconds: 99.476
+az functionapp config appsettings set -g <owned-group> -n <app> --settings AZURE_STORAGE_CONNECTION_STRING=<secret> LANGGRAPH_BLOB_CONTAINER=paired-conversation -o none
+exit: 0; seconds: 3.892
+30-second wait
+func azure functionapp publish <app> --python --build remote
+exit: 0; seconds: 102.382
+stdout excerpt:
+Local python version '3.10.12' is different from the version expected for your deployed Function App. This may result in 'ModuleNotFound' errors in Azure Functions.
+Performing remote build for functions project.
+[Kudu-OryxBuildStep] completed.
+Pipeline completed for FDM deployment.
+listFunctions response: [{"name":"invoke","language":"python","bindings":[{"type":"httpTrigger","direction":"IN"},{"type":"http","direction":"OUT"}]}]
+[2026-11-28T03:27:04.930Z] The deployment was successful!
+
+POST /api/graphs/official_basic/invoke, input messages=[{role:human,content:Hi}]
+No key: status=401 seconds=0.097533
+Wrong key: status=401 seconds=4.662951
+Valid key stdout:
+{"output": {"messages": [{"role": "human", "content": "Hi"}, {"type": "ai", "data": {"content": "Hello!", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": null, "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}], "extra_field": 10}}
+status=200 seconds=4.098063
+
+POST /api/graphs/official_schema/invoke, input={question:hi}
+No key: status=401 seconds=0.070649
+Wrong key: status=401 seconds=0.460437
+Valid key stdout:
+{"output": {"answer": "bye"}}
+status=200 seconds=0.077716
+
+POST /api/graphs/official_conversation/invoke
+input={messages:[{role:human,content:Hi}]}, config={configurable:{thread_id:paired-a}}
+Valid key stdout:
+{"output": {"messages": [{"type": "human", "data": {"content": "Hi", "additional_kwargs": {}, "response_metadata": {}, "type": "human", "name": null, "id": "<uuid>"}}, {"type": "ai", "data": {"content": "observed 1 human turn(s)", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": "<uuid>", "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}]}}
+status=200 seconds=0.940789
+input={messages:[{role:human,content:Continue}]}, config={configurable:{thread_id:paired-a}}
+Valid key stdout:
+{"output": {"messages": [{"type": "human", "data": {"content": "Hi", "additional_kwargs": {}, "response_metadata": {}, "type": "human", "name": null, "id": "<uuid>"}}, {"type": "ai", "data": {"content": "observed 1 human turn(s)", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": "<uuid>", "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}, {"type": "human", "data": {"content": "Continue", "additional_kwargs": {}, "response_metadata": {}, "type": "human", "name": null, "id": "<uuid>"}}, {"type": "ai", "data": {"content": "observed 2 human turn(s)", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": "<uuid>", "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}]}}
+status=200 seconds=0.397221
+input={messages:[{role:human,content:Separate}]}, config={configurable:{thread_id:paired-b}}
+Valid key stdout:
+{"output": {"messages": [{"type": "human", "data": {"content": "Separate", "additional_kwargs": {}, "response_metadata": {}, "type": "human", "name": null, "id": "<uuid>"}}, {"type": "ai", "data": {"content": "observed 1 human turn(s)", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": "<uuid>", "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}]}}
+status=200 seconds=4.613037
+
+Independent az storage blob list, paired-conversation container, excerpts:
+{"name": "threads/paired-a/ns//checkpoints/<uuid>/checkpoint.bin", "size": 217}
+{"name": "threads/paired-a/ns//checkpoints/<uuid>/metadata.bin", "size": 29}
+{"name": "threads/paired-a/ns//latest.json", "size": 82}
+{"name": "threads/paired-b/ns//checkpoints/<uuid>/checkpoint.bin", "size": 217}
+{"name": "threads/paired-b/ns//latest.json", "size": 82}
+az group delete: exit 0; seconds 76.854
+az group exists: false
+az resource list --tag purpose=996-verify --query 'length(@)': 0
+DefaultResourceGroup-* query: []
+
+EXISTING-APP RUN
+Same settings, wheel, three graph modules and requests as direct control.
+Existing HTTP/timer definitions retained from examples/existing_function_app.
+Added conversation/schema registrations before app.register_functions(...).
+az group create: exit 0; seconds 1.546
+az deployment group create: exit 0; seconds 69.573
+az functionapp config appsettings set: exit 0; seconds 6.927
+30-second wait
+func azure functionapp publish <app> --python --build remote
+exit: 0; seconds: 102.426
+stdout excerpt:
+Local python version '3.10.12' is different from the version expected for your deployed Function App.
+[Kudu-OryxBuildStep] completed.
+The deployment was successful!
+Discovery names (app-name prefixes removed):
+existing_http, existing_timer, aflg_health, aflg_health_details,
+aflg_official_basic_invoke, aflg_official_basic_stream, aflg_official_basic_state,
+aflg_official_conversation_invoke, aflg_official_conversation_stream, aflg_official_conversation_state,
+aflg_official_schema_invoke, aflg_official_schema_stream, aflg_official_schema_state
+timer binding excerpt:
+"schedule": "0 */5 * * * *", "runOnStartup": false, "useMonitor": true
+
+POST /api/graphs/official_basic/invoke, same input
+No key: status=401 seconds=0.097772
+Wrong key: status=401 seconds=0.515244
+Valid key stdout:
+{"output": {"messages": [{"role": "human", "content": "Hi"}, {"type": "ai", "data": {"content": "Hello!", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": null, "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}], "extra_field": 10}}
+status=200 seconds=4.326918
+
+POST /api/graphs/official_schema/invoke, same input
+No key: status=401 seconds=4.662731
+Wrong key: status=401 seconds=4.667478
+Valid key stdout:
+{"output": {"answer": "bye"}}
+status=200 seconds=4.196643
+
+GET /api/existing, valid key stdout:
+existing HTTP still works
+status=200 seconds=4.076948
+
+POST /api/graphs/official_conversation/invoke, same inputs/thread IDs
+First paired-a valid key stdout:
+{"output": {"messages": [{"type": "human", "data": {"content": "Hi", "additional_kwargs": {}, "response_metadata": {}, "type": "human", "name": null, "id": "<uuid>"}}, {"type": "ai", "data": {"content": "observed 1 human turn(s)", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": "<uuid>", "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}]}}
+status=200 seconds=4.616160
+Second paired-a valid key stdout:
+{"output": {"messages": [{"type": "human", "data": {"content": "Hi", "additional_kwargs": {}, "response_metadata": {}, "type": "human", "name": null, "id": "<uuid>"}}, {"type": "ai", "data": {"content": "observed 1 human turn(s)", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": "<uuid>", "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}, {"type": "human", "data": {"content": "Continue", "additional_kwargs": {}, "response_metadata": {}, "type": "human", "name": null, "id": "<uuid>"}}, {"type": "ai", "data": {"content": "observed 2 human turn(s)", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": "<uuid>", "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}]}}
+status=200 seconds=0.330489
+First paired-b valid key stdout:
+{"output": {"messages": [{"type": "human", "data": {"content": "Separate", "additional_kwargs": {}, "response_metadata": {}, "type": "human", "name": null, "id": "<uuid>"}}, {"type": "ai", "data": {"content": "observed 1 human turn(s)", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": "<uuid>", "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}}]}}
+status=200 seconds=1.109934
+Independent az storage blob list excerpts:
+"name": "threads/paired-a/ns//latest.json", "size": 82
+"name": "threads/paired-b/ns//latest.json", "size": 82
+az group delete: exit 0; seconds 76.822
+az group exists: false
+az resource list --tag purpose=996-verify --query 'length(@)': 0
+DefaultResourceGroup-* query: []
+
+FOUNDRY RUN
+date UTC: 2026-11-28T03:34:42Z
+S0 AIServices/project only; koreacentral; no models; no role assignments
+az group create: exit 0; seconds 1.371
+ARM PUT accounts/<owned-resource>?api-version=2025-06-01
+body: location koreacentral, kind AIServices, sku S0, system identity,
+allowProjectManagement true, customSubDomainName <owned-resource>, publicNetworkAccess Enabled
+exit: 0; seconds: 8.118
+stdout:
+{"kind": "AIServices", "location": "koreacentral", "sku": "S0", "state": "Creating"}
+ARM PUT accounts/<owned-resource>/projects/verify?api-version=2025-06-01
+body: location koreacentral, system identity, properties {}
+exit: 0; seconds: 2.146
+stdout:
+{"location": "koreacentral", "state": "Succeeded"}
+az rest --method GET --url https://<owned-resource>.services.ai.azure.com/api/projects/verify/agents?api-version=v1 --resource https://ai.azure.com -o json
+exit: 1; seconds: 1.902
+stderr:
+ERROR: Forbidden({
+  "error": {
+    "code": "UserError",
+    "severity": null,
+    "message": "Identity(object id: <uuid>) does not have permissions for Microsoft.CognitiveServices/accounts/AIServices/agents/read actions. Please refer to https://learn.microsoft.com/en-us/azure/foundry/concepts/rbac-foundry to fix the permissions issue.",
+    "messageFormat": null,
+    "messageParameters": null,
+    "referenceCode": null,
+    "detailsUri": null,
+    "target": null,
+    "details": [],
+    "innerError": {"code": "ForbiddenError", "innerError": null},
+    "debugInfo": null,
+    "additionalInfo": null
+  },
+  "correlation": {"operation": "<redacted>", "request": "<redacted>"},
+  "environment": "koreacentral",
+  "location": "koreacentral",
+  "time": "2026-11-28T03:34:56.0442597+00:00",
+  "componentName": null,
+  "statusCode": 403
+})
+Stopped on agent data-plane refusal; no role assignment or alternate principal attempted.
+az group delete: exit 0; seconds 76.891
+az group exists: false
+az resource list --tag purpose=996-verify --query 'length(@)': 0
+DefaultResourceGroup-* query: []
