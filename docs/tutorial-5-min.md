@@ -28,15 +28,19 @@ A LangGraph graph exposed as Azure Functions HTTP endpoints:
 
 ## Prerequisites
 
-- **Python 3.11+**
+- **git**, **bash** (commands below use bash syntax), and **curl**
+- **Python 3.11+**, available as `python3.11` below (substitute your installed 3.11+ executable)
+- **Network access** to GitHub, PyPI, and the Core Tools extension-bundle download
 - **[Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4** (`func`)
 - For the deploy step only: an **Azure subscription** and the **[Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)** (`az`)
 
 Pinned for the **demo**: Python 3.11 on Flex Consumption (see
-[Step 5](#step-5-deploy-to-azure-2-min)). Verify the tooling is present:
+[Step 5](#step-5-deploy-to-azure-2-min)). Prerequisite installation and checks are
+outside the timed steps; the step durations are estimates, not a reproducible benchmark.
+Verify the tooling is present:
 
 ```bash
-python --version   # 3.11 or newer
+python3.11 --version   # 3.11 or newer; no pre-venv `python` alias required
 func --version     # 4.x
 ```
 
@@ -47,11 +51,13 @@ git clone https://github.com/yeongseon/azure-functions-langgraph-python.git
 cd azure-functions-langgraph-python/examples/simple_agent
 ```
 
-The app is three small files:
+The app has five files, plus `README.md`:
 
 - `graph.py` — defines and compiles the `StateGraph` (nodes `greet` → `farewell`)
 - `function_app.py` — registers the compiled graph with `LangGraphApp` and exposes `app`
 - `requirements.txt` — `azure-functions`, `azure-functions-langgraph`, `langgraph`, `langchain-core`
+- `host.json` — Azure Functions host configuration
+- `local.settings.json` — local worker and empty host-storage settings
 
 The registration is the entire integration — no per-endpoint wiring:
 
@@ -74,7 +80,7 @@ app = langgraph_app.function_app
 ## Step 2 — Install dependencies (1–2 min)
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
