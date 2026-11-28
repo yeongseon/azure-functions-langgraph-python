@@ -286,3 +286,146 @@ certification, scale-out, exactly-once execution or a latency/cost claim. No
 additional deployment was attempted after cleanup. Offline policy tests cover
 the verified admission decisions; Azure-specific checks remain manual and
 opt-in, with no new required CI or release gate.
+
+### Independent telemetry and turnover follow-up (2026-11-28 UTC)
+
+One new maintainer-authorized deployment followed [PR #1076](https://github.com/yeongseon/azure-functions-langgraph-python/pull/1076),
+using current `origin/main` at `07a2967`. Telemetry collection ran **first** and
+was saved independently of the later turnover stage. All Azure resources were
+deleted and cleanup verified **before this section was written**. This is manual
+evidence for [#995](https://github.com/yeongseon/azure-functions-langgraph-python/issues/995),
+not a new CI or release certification gate.
+
+| Deployment input | Recorded value |
+| --- | --- |
+| Adapter wheel | `0.14.2`, built with `uv build --wheel` from `07a2967`, bundled under `wheels/` and installed by local-path requirements |
+| Wheel SHA256 | `fca98285bc97dd2929674e329f3343ba8eb3404a4512eceb2ab433102dd98be3` |
+| Staged recipe | This PR's `reference_function_app.py`, with the protected correlated checkpoint probe; SHA256 `8ca39d29e2d813769fab3f16655ae9f300d1d996ef901e1d129d59069b6e0218` at publish time |
+| Tools | Azure CLI `2.83.0`, Core Tools `4.8.0`, uv `0.11.7`; remote publish exit `0` |
+| Topology | Existing `infra/flex.bicep`, FC1 Flex Consumption, Python `3.12`, `512` MB, Korea Central, Standard_LRS storage, no always-ready instances |
+| Storage boundary | Connection-string host/deployment storage; system-assigned Managed Identity for application checkpoints, leases and owner records; one owned-account-scoped Storage Blob Data Contributor assignment |
+| Telemetry resources | Own workspace-based Application Insights component and Log Analytics workspace inside the disposable group; no default workspace/group |
+| Protected runtime | Python `3.12.16`, adapter `0.14.2`, azure-functions `1.26.0`, langgraph `1.2.24`, azure-storage-blob `12.31.1`, azure-identity `1.27.0` |
+
+The wheel itself is unchanged by the recipe edit. The entrypoint was staged from
+the working tree, not claimed to be the unmodified `origin/main` recipe. Its
+published hash above precedes local typing refinements (an explicit lock variable
+and typed, normalized probe input) and a docstring clarification. Those final
+refinements have offline coverage, not a second cloud run. No paid
+model, separate database, subscription-wide grant or provider registration was
+used. Easy Auth configuration and the settings above were retained; the owner
+was one temporary credentialed service principal. No custom delegated scope or
+CLI preauthorization was needed for this owner-only follow-up. The distinct
+non-owner and forged-header checks from #1076 were **not repeated** here.
+
+#### Captured telemetry, before turnover
+
+The owner sent one native invoke with `X-Request-ID: aflg995-followup-known`;
+it returned `200`. Host information logging and disabled sampling were configured
+as above. The following query ran against **the owned Log Analytics workspace**
+with `az monitor log-analytics query --workspace <customer-id> --analytics-query
+<query>`, retrying at one-minute intervals. The third query returned the rows
+below. This reports the query interval/count, not measured ingestion latency.
+
+```kusto
+let ops = AppTraces
+| where TimeGenerated > ago(1h)
+| where Message has 'aflg995-followup-known'
+| distinct OperationId;
+union
+(AppTraces
+ | where OperationId in (ops)
+ | extend Event = extract(@'(langgraph\.run\.\w+)', 1, Message)
+ | where isnotempty(Event)
+ | project Kind='trace', Event, OperationId, Status='', Success=''),
+(AppRequests
+ | where OperationId in (ops)
+ | project Kind='request', Event='', OperationId,
+           Status=ResultCode, Success=tostring(Success)),
+(AppExceptions
+ | where OperationId in (ops)
+ | project Kind='exception', Event='', OperationId, Status='', Success='')
+```
+
+| Kind | Event | HTTP status / success |
+| --- | --- | --- |
+| request | — | `200` / `True` |
+| trace | `langgraph.run.started` | — |
+| trace | `langgraph.run.completed` | — |
+
+All three rows shared **one operation correlation**. The query also
+included `AppExceptions`; no correlated exception row was returned. Operation
+IDs were compared in memory and omitted from saved notes; only kind, lifecycle
+event, status, success and counts were retained. No raw `Message`, `Properties`,
+principal, thread identifier, credentials or checkpoint content was exported.
+The known request ID appeared in lifecycle messages as the safe `run_id` summary;
+the host attached the operation correlation. This establishes request-to-graph
+lifecycle correlation for one successful invoke, **not** ingestion of the
+observer's complete structured `langgraph_run` extras, denial telemetry, failure
+telemetry, alerting, uniqueness of caller IDs or exactly-once execution.
+
+#### Correlated worker turnover and owner resume
+
+The method follows [PR #1049](https://github.com/yeongseon/azure-functions-langgraph-python/pull/1049):
+the private per-import worker token and the checkpoint read must come from the
+**same protected response**, with `Cache-Control: no-store`. Separate runtime
+and native state responses do not prove which worker read the state.
+
+This opt-in entrypoint now accepts `restart_thread=restart-<32 hex digits>` on
+the existing runtime route. The operator provisions its owner record first.
+POST checks RUN authorization, acquires the existing distributed lease lock,
+writes the deterministic `before` turn, releases the lock in `finally`, and
+reads the checkpoint. GET checks STATE_READ authorization and reads that same
+checkpoint. Both responses include the private process token and normalized
+message values, never identity claims. This graph is deterministic and makes no
+model calls; its upstream graph definition is unchanged. The probe does not
+emit native invoke lifecycle events and is not an alternative public graph API.
+
+| Check | Actual observation |
+| --- | --- |
+| Pre-turnover correlated POST | `200`; values contained `before`, `Hello!` |
+| `az functionapp restart` | Accepted; 120 GET probes over the five-minute polling budget did not confirm turnover |
+| `az functionapp stop` then `start` | Both accepted; changed token observed on probe 6 within the second five-minute budget; one transport error recorded during polling |
+| Changed-worker checkpoint response | `200`; token differed from the pre-turnover writer; complete normalized message values equal to the pre-turnover response |
+| Owner native resume | `200`; input supplied the prior normalized messages plus `after`, using the same entitled thread |
+| Owner native state read after resume | `200` |
+| Final appended-content assertion | **Not completed**: the scratch harness assumed every native state message had `data.content` and raised `KeyError: data` |
+
+Offline preparation exposed a related probe serialization mismatch: this official
+graph can retain dictionary input messages alongside `AIMessage` objects.
+`convert_to_messages` before `messages_to_dict` normalized the probe response;
+the focused test then passed and that recipe was published. The final native
+state assertion did not apply that normalization. Its `KeyError` is a harness
+finding, not an established persistence defect. Raw native responses were not
+saved, so the final accumulated message contents cannot be reconstructed or
+claimed verified after deletion. No extra deployment was made to repair the
+evidence gap.
+
+Confirmed different-serving-process state continuity and successful authorized
+resume are observed; complete post-resume accumulated contents remain unverified.
+The restart command alone did **not** establish turnover in this run; stop/start
+did. No assertion is made about retirement of every old worker, restart during
+active work, cancellation, scale-out, long-running workflows, other runtimes or
+regions, identity-only host storage, fencing, cold starts, latency or price.
+
+#### Immediate verified cleanup
+
+The final assertion raised, but `finally` still deleted the account-scoped role,
+awaited group deletion, and deleted the temporary credentialed service principal
+and app registration. It then captured this sanitized output before any docs:
+
+```text
+az group exists -n <owned-group>: false
+az resource list --tag purpose=995-verify --query 'length(@)': 0
+az group list --query "[?starts_with(name, 'DefaultResourceGroup-')].name": []
+az ad app list --all --query 'length(@)': 2 (baseline: 2)
+owned app registrations: 0
+owned service principals: 0
+created storage role assignment: deleted successfully
+cleanup failures: []
+```
+
+Unrelated resource groups were not modified or used. The system-assigned app
+identity was removed with its app; the short-lived credential was removed with
+its registration. Billing was not measured. This record uses `Refs #995` only;
+the maintainer decides acceptance, with issue checkboxes unchanged.
