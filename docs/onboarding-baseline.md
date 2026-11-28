@@ -44,6 +44,13 @@ API changes are tracked by the [API inventory](api-inventory.md).
 
 ## Friction observed
 
+For [tracker #913](https://github.com/yeongseon/azure-functions-langgraph-python/issues/913)'s deployment-choice evidence, see the
+[Functions/Foundry paired measurement](functions-foundry-measurement.md):
+handwritten Functions and existing-app adapter calls were measured on the same
+upstream conversation and non-messages graphs; Foundry stopped at a captured
+agent-read permission denial. This is partial evidence, not a latency ranking or
+an upstream-listing approval for #371.
+
 - The tutorial starts with a `git clone` of the whole repository, so the path does not show how to add the package to an existing project. That is a separate part of #913.
 - With the tutorial's empty `AzureWebJobsStorage` (Core Tools 4.8.0, no storage emulator) the host logs `Process reporting unhealthy: Unhealthy` with `"azure.functions.webjobs.storage":{"status":"Unhealthy","description":"Unable to create client for AzureWebJobsStorage"}` after start, while the web host and script host lifecycle entries stay Healthy and requests keep being answered. The tutorial notes this in Step 2.
 - First-run size: 9 code lines, 5 files, 4 requirements, 6 command lines to the first local response and 13 to deploy and verify (5 of them variable assignments).

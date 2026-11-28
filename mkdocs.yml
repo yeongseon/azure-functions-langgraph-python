@@ -81,6 +81,7 @@ nav:
       - Deferred Edge Triage: deferred-edge-triage.md
       - Agent Playbook: agent-playbook.md
       - First-run Baseline: onboarding-baseline.md
+      - Functions and Foundry Measurement: functions-foundry-measurement.md
 
 markdown_extensions:
   - admonition
