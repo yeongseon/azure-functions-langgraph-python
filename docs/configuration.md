@@ -1,5 +1,15 @@
 # Configuration
 
+## Choose an optional capability
+
+These are distinct transport/state/lifecycle choices, not interchangeable execution modes.
+
+| Need | Configuration | Transport or lifecycle difference |
+| --- | --- | --- |
+| Streaming | Classic `LangGraphApp` `/stream`, or experimental `StreamingLangGraphApp` (`streaming` extra) | Classic SSE is buffered until completion; true streaming flushes frames incrementally over app-wide ASGI and cannot share an app with classic routes. See [streaming behavior](adapter-reference.md#streaming-behavior). |
+| Persistence | `builder.compile(checkpointer=...)`, then request `config.configurable.thread_id` | Persists graph state across requests, not a new HTTP transport or background-run lifecycle. In-memory state is not distributed persistence. See [checkpointer configuration](#checkpointer-configuration) and [topology validation](#topology-validation). |
+| Long-running async runs | Experimental `LangGraphApp(async_runs="durable")` (`durable` extra) | Returns `202`/`run_id` for polling/cancellation; graph execution is a Durable activity, not a streamed HTTP response. Activity timeouts still apply; termination does not stop an already-running activity, and Durable history does not replace graph checkpoints. See [Durable lifecycle](production-guide.md#async-runs-via-durable-functions-experimental) and [cancellation limits](production-guide.md#cancellation-of-durable-runs). |
+
 ## LangGraphApp options
 
 The `LangGraphApp` constructor accepts the following parameters:
