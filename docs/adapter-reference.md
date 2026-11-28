@@ -1371,15 +1371,15 @@ throughput and sustained independent-process writers remain unproven. The mainta
 [accepted the extra write cost and cross-partition consistency contract on 2026-11-24](https://github.com/yeongseon/azure-functions-langgraph-python/issues/801#issuecomment-7145694851)
 for the Experimental, default-off opt-in only; this is not a support-tier promotion.
 
-**In-region follow-up (2026-11-28): no measurements captured.** One authorized,
-SSH-less Linux Container Instance and Standard_LRS account were requested in
-`koreacentral` to run the existing index benchmark at 1k/10k/100k threads and a
-five-minute, four-process writer workload. The result artifact was absent when
-retrieved (`BlobNotFound`), and the resources were immediately deleted. This
-does not establish that the benchmark or writer bodies executed. In-region
-latency, sustained writers, hot-partition throughput and the remaining service
-probes are **still unproven**. See the shared
-[failed-capture record and verified cleanup](testing.md#in-region-storage-attempt-2026-11-28-801-and-860).
+**In-region follow-up (2026-11-28): launcher failure diagnosed, no measurements.**
+The single authorized retry requested an SSH-less Linux ACI and Standard_LRS
+account in `koreacentral`. The log request returned
+`ContainerGroupDeploymentNotReady`; the launcher incorrectly aborted on this
+startup response, before smoke approval or benchmark launch. Its sequential
+capture also prevented saving instance state after the log error. Resources were
+deleted immediately. This is a launcher defect, not an observed adapter failure.
+In-region latency, sustained writers and hot-partition throughput remain
+**unproven**. See the [diagnosis and verified cleanup](testing.md#in-region-storage-attempt-2026-11-28-801-and-860).
 No checklist or support-tier decision changes.
 
 #### Real-Azure status-index evidence — 2026-11-24 (#801)
