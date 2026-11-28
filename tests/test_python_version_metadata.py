@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from email.parser import BytesParser
+import os
 from pathlib import Path
-import subprocess
-import sys
 import tarfile
 import tomllib
 from zipfile import ZipFile
@@ -16,26 +15,36 @@ SUPPORTED_PYTHON = SpecifierSet(">=3.11,<3.15")
 
 
 @pytest.fixture(scope="module")
-def built_metadata(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str]:
-    # Given isolated output for both distribution formats
-    output = tmp_path_factory.mktemp("dist")
+def built_metadata(request: pytest.FixtureRequest) -> tuple[str, str]:
+    # Given artifacts built once by CI or explicitly by the contributor
+    artifact_dir = os.environ.get("METADATA_DIST_DIR")
+    if artifact_dir is not None:
+        output = Path(artifact_dir)
+    elif request.config.inipath == PROJECT_ROOT / "tools/wheel-tests.ini":
+        # The release wheel-tests lane already downloads both artifacts here.
+        # Resolve from the checkout, not its scratch working directory.
+        output = PROJECT_ROOT / "dist"
+    else:
+        pytest.skip(
+            "Built wheel/sdist metadata NOT checked: run make build && make test-metadata "
+            "(or METADATA_DIST_DIR=/path/to/artifacts make test)"
+        )
 
-    # When the project builds its wheel and source distribution
-    subprocess.run(
-        [sys.executable, "-m", "build", "--outdir", str(output)],
-        cwd=PROJECT_ROOT,
-        check=True,
-    )
+    # When both distribution formats are selected, missing/ambiguous input fails.
+    wheels = list(output.glob("*.whl"))
+    sdists = list(output.glob("*.tar.gz"))
+    assert len(wheels) == 1, f"Expected one wheel in {output}, found {wheels}"
+    assert len(sdists) == 1, f"Expected one sdist in {output}, found {sdists}"
 
     # Then expose the metadata embedded in each artifact
-    wheel = next(output.glob("*.whl"))
+    wheel = wheels[0]
     with ZipFile(wheel) as archive:
         metadata_name = next(
             name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
         )
         wheel_metadata = archive.read(metadata_name).decode()
 
-    sdist = next(output.glob("*.tar.gz"))
+    sdist = sdists[0]
     with tarfile.open(sdist) as archive:
         pkg_info = next(
             member for member in archive.getmembers() if member.name.endswith("/PKG-INFO")
@@ -57,6 +66,25 @@ def test_requires_python_declares_supported_range() -> None:
 
     # Then the complete normalized range is exactly the supported range
     assert declared == SUPPORTED_PYTHON
+
+
+@pytest.mark.parametrize("artifact_index", [0, 1], ids=["wheel", "sdist"])
+def test_built_artifact_classifiers_match_supported_python_minors(
+    built_metadata: tuple[str, str], artifact_index: int
+) -> None:
+    # Given metadata from a built wheel or source distribution
+    metadata = BytesParser().parsebytes(built_metadata[artifact_index].encode())
+    prefix = "Programming Language :: Python :: 3."
+
+    # When version-specific Python classifiers are selected
+    classified_minors = {
+        classifier.removeprefix(prefix)
+        for classifier in metadata.get_all("Classifier", [])
+        if classifier.startswith(prefix)
+    }
+
+    # Then every and only supported minor version is advertised
+    assert classified_minors == {"11", "12", "13", "14"}
 
 
 @pytest.mark.parametrize(
