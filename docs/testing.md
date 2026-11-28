@@ -402,6 +402,92 @@ diagnostics with a temporary local Python 3.11/source-path configuration (not
 committed). Subsequent edits only make the same guarded configuration type-safe;
 the live run remains attributed to its actual tested revision, not a later SHA.
 
+### In-region storage attempt — 2026-11-28 (#801 and #860)
+
+**Outcome: failed evidence capture, not a completed benchmark.** After auditing
+the issue discussions and the partial evidence in PRs #910, #937, #969 and #970,
+one authorized in-region session was attempted. No new latency, throughput,
+pool-pressure, retry or compatibility result is available. Earlier results above
+remain valid only within their recorded scope; they are not reclassified as
+in-region evidence.
+
+| Item | Observed or requested value |
+| --- | --- |
+| Candidate | `origin/main` at `03cfda4f451e405e4087f40d79cd28df7dc6c48e`; unchanged version `0.14.2` |
+| Wheel | Built locally with `uv build --wheel`; sha256 `fca98285bc97dd2929674e329f3343ba8eb3404a4512eceb2ab433102dd98be3` |
+| Local tooling | Python 3.11.15 venv created with `uv`; Azure CLI 2.83.0, uv 0.11.7 |
+| Compute request | One Linux ACI, `python:3.11-slim-bookworm`, 1 CPU, 1.5 GiB, `restartPolicy=Never`, `koreacentral`; **no Functions hosting plan** |
+| Network and storage request | No IP address or ports in the ACI resource request; no SSH keys or inbound NSG rules; one StorageV2 Standard_LRS account in the same group/region, public Blob access disabled, TLS1_2 |
+| Packaging | Private bundle containing the candidate wheel under `wheels/`, existing repository tools and committed compatibility fixtures; session command selected the local wheel, not PyPI |
+| Credential handling | Connection string and short-lived read-only bundle SAS passed as ACI secure environment values through an ARM request on stdin; no secret settings file, role assignment, Entra object, Insights or workspace |
+| Control-plane observation | ACI creation PUT returned successfully; `az container attach` returned exit 0 |
+| Capture failure | Download of private `session/results.zip` returned HTTP 404 `BlobNotFound` at `2026-11-28T01:24:36Z` |
+| Cleanup completed | `2026-11-28T01:25:56.010528Z`, before documentation or result analysis |
+
+The accepted creation request and successful attach command **do not prove**
+image pull, Python startup, dependency installation, wheel installation, workload
+execution or successful container completion. Container state and attach/startup
+logs were not retained before deletion. The missing artifact's root cause is
+therefore **unknown**; neither quota, permission, image, network nor benchmark
+failure is established. Do not attribute it to the storage adapters. The failed
+capture cannot provide installed runtime/SDK versions, process RSS, actual
+compute start/end times, a measured compute lifetime or an invoice. The launcher
+bounded attach to 65 minutes, but that timeout is not observed lifecycle evidence.
+No second compute resource or alternative-region deployment was attempted.
+
+**Planned cells, all unproven in this attempt:**
+
+- Table: existing `tools/benchmark_table_status_index.py` at 1k/10k/100k with
+  three timed repetitions and its separate memory pass, followed by four
+  independent processes writing for five minutes with concurrent reads,
+  quiescent scan/index comparisons, audit/repair and the 14/15/16 RowKey-clause
+  comparison boundary. A small-client workload would not establish the maximum
+  service hot-partition rate even if it had completed.
+- Blob: existing `tools/benchmark_blob_checkpointer.py`, small 6/3/2 and medium
+  20/10/5 channels/writes/history, both APIs and three alternating before/after
+  pairs, using the same historical pre-optimization saver as #937/#970 and the
+  candidate wheel for the after runs. Nothing proves these pairs executed.
+- Remaining Blob probes: two-connection sync/native SDK pools, zero-limit reads,
+  bounded download pressure, a **client-substituted** HTTP 503 to exercise SDK
+  retry, independent-client create-only slot races, mapped-write overwrite and
+  persisted replay of the existing wheel-generated compatibility fixtures.
+  A substituted 503 is not a service-generated fault; fixture replay is not a
+  concurrently running old/new fleet or a downgrade test. No such proof is claimed.
+
+**Acceptance audit (issue checkboxes unchanged):**
+
+| Issue / acceptance items | This attempt adds | Remaining boundary |
+| --- | --- | --- |
+| #801 item 1, write-cost/consistency decision | Nothing; the maintainer's 2026-11-24 acceptance remains recorded in the issue | Experimental/default-off only, no support promotion |
+| #801 items 2–4, defaults/order/bounded reads | No new measurement; prior regression and controlled real-Azure results remain the evidence | Exhaustive offsets and concurrent snapshots are not established |
+| #801 items 5–6, writers/failures and rollout/repair/rollback | No sustained-writer or maintenance result | Independent-process sustained load, scale repair/admin memory/TTL remain unproven |
+| #801 items 7–8, scan compatibility and repository gates | No new cloud proof; documentation-only changes leave the implementation unchanged | Final-head required GitHub CI remains authoritative |
+| #801 item 9 and U2/U4, real-Azure in-region amplification/latency and limits | None; result artifact missing | In-region latency, comparison boundary and hot-partition throughput remain unproven |
+| #860 items 1 and 7, realistic baseline and before/after measurements | No new pair captured | Earlier workstation measurements are not in-region; large byte payloads remain untested |
+| #860 items 2–4, bounded reads/cleanup, early limits and write semantics | No live pressure, zero-limit or race result | Existing offline/emulator proof is not promoted to real-Azure coverage |
+| #860 items 5–6, publication/ownership, conflict/failure/cancellation/retry | No new fault result; prior sampled cancellation/lease-break evidence remains as recorded | Complete conflict matrix, service-generated transient faults and SDK retry/pool evidence remain unproven; lost-owner duplicate behavior still needs the recorded maintainer decision |
+| #860 additional memory/connection/rolling requirements | None | Prior self RSS is not pool occupancy; live rolling fleets, downgrade and full publication invariants remain unproven |
+
+**Cleanup evidence, saved locally.** Only the uniquely named
+`rg-aflg-801-verify-*` group created by this session was deleted. The launcher's
+`finally` executed synchronous `az group delete --yes`, then
+`az group wait --deleted`, followed by the required checks:
+
+```text
+az group exists -n <OWN_GROUP>: false
+az resource list --tag purpose=801-verify: []
+new DefaultResourceGroup-* groups relative to pre-run baseline: []
+```
+
+The group and resources carried `purpose=801-verify owner=opencode-temp`.
+No subscription/tenant/provider changes, unrelated resource-group access,
+role assignments or Entra objects were made. Identifier-redacted failure and
+cleanup facts are retained locally under `/tmp/opencode/evidence-801-inregion/`;
+there is **no raw benchmark results archive**. Resources were deleted before
+writing this record, including on capture failure. Reproduction of the missing
+measurements needs a newly authorized session with startup/state diagnostics
+retained before its mandatory cleanup; it must not be inferred from this run.
+
 ## Test structure
 
 ```
