@@ -663,6 +663,68 @@ covered. These are in-region, point-in-time observations only. Keep
 [#811](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811)
 open; the native release gate is unchanged.
 
+#### Post-effect interruption observation (2026-11-28, Y1 / Python 3.12)
+
+This follow-up for [#811](https://github.com/yeongseon/azure-functions-langgraph-python/issues/811)
+targets only the missing **effect committed, node result not yet checkpointed**
+window. It does not repeat the lifecycle, contention or termination scenarios
+already evidenced above. It uses the existing `examples/e2e_durable_app` and
+`infra/main.bicep`, with an opt-in 240 s hold inside the effect node **after**
+the atomic create-if-absent effect blob succeeds and **before** the node returns.
+The duplicate call skips that hold when the effect key already exists.
+
+| Environment / artifact | Recorded value |
+| --- | --- |
+| Hosting | One temporary Linux Consumption Y1 app, `koreacentral`, Functions v4; Azure Storage task hub, Standard_LRS storage, Blob checkpoints and Blob lease thread lock; Application Insights disabled |
+| Candidate | `origin/main` at `9417b9ba8170be59664894c3165a6af07983209d`, package `0.14.2`, built with `uv build --wheel`; bundled local wheel installed by remote Oryx build, not PyPI or editable source |
+| Wheel SHA-256 | `fca98285bc97dd2929674e329f3343ba8eb3404a4512eceb2ab433102dd98be3` |
+| Deployed versions | Python `3.12.16`, `azure-functions` `1.26.0`, `azure-functions-durable` `1.7.0`; publish output resolves LangGraph `1.2.24`, langchain-core `1.8.5`, azure-storage-blob `12.31.1` |
+| Tools | Azure CLI `2.83.0`, Core Tools `4.8.0`, Bicep `0.41.2`, uv `0.11.7`; remote Oryx `0.2.20261027.2` |
+| Extension | Bundle range `[4.*, 5.0.0)`; resolved Durable extension version **not captured** |
+
+**Observed, not assumed:** before `az functionapp restart`, the run was `running`,
+one Activity/node entry and one applied effect were visible, and no Activity
+completion existed. Restart returned successfully in 1.123 s. The final record
+has two Activity attempts, two graph node entries, two effect calls, zero
+rejections, **one applied effect** and one completion, from the second salted
+process tag only (`f9d97278f66ef6ca` → `ee86de5e16e4c906`). The second Activity
+started 414.420 s after the first, then completed 0.925 s later; the runner
+observed `running → success` 418.713 s after issuing restart. Its successful
+result had `effect_applied=false`: the second call found the already committed
+key. The optional test passed (one test, zero skips, 427.68 s including preflight),
+and the strict JUnit validator accepted it. Classification **B** is supported by
+the paired process/completion markers, not just the management command's exit code.
+The [sanitized evidence record](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/examples/e2e_durable_app/evidence-2026-11-28.json)
+preserves those counts, timestamps, salted tags and cleanup results.
+
+This demonstrates application-level duplicate suppression in one interrupted
+Activity on real Azure. The graph re-executed despite its Blob checkpoints;
+checkpoint persistence did not deduplicate fresh Activity input. The substitute's
+atomic effect blob represents both the claim and the effect: it does **not** prove
+that separately claiming a key and then calling an external payment/tool API is
+atomic. See [#810](https://github.com/yeongseon/azure-functions-langgraph-python/issues/810)
+for the local redelivery/idempotency contract. No exactly-once, automatic Activity
+abort, fencing, latency SLO or unlimited-duration claim follows from this run.
+
+**Ownership limitation:** the existing fixture exposes attempt/rejection markers,
+not owner tokens. Its checkpoint guard is not enabled. Earlier same-thread
+contention plus this second admitted attempt are indirect exclusion/reacquisition
+observations, **not direct owner-token handoff, stale-release or fencing proof**.
+No owner token was logged or exposed. That acceptance item remains incomplete;
+#811 stays open. Other SDK/Python lines, Flex/Premium, scale-out, alternative
+backends, deployment upgrades, cross-region and long-running workflows remain
+uncertified by this experiment.
+
+**Cleanup preceded this documentation:** the owned resource group was deleted
+synchronously immediately after evidence/JUnit capture. Verification returned
+`az group exists=false`, `az resource list --tag purpose=811-verify=[]`, and
+`az group list` filtered for `DefaultResourceGroup-*` returned `[]`. No Entra
+objects or role assignments were created. The local cleanup script's text diff
+reported an empty-file versus blank-line mismatch; a subsequent JSON query
+confirmed the default-group list was empty. This was a cleanup-report formatting
+failure, not a retained Azure resource. The reproduction settings are in the
+[fixture README](https://github.com/yeongseon/azure-functions-langgraph-python/blob/main/examples/e2e_durable_app/README.md#post-effect-restart-probe).
+
 ### Configure timeout explicitly
 
 Set `functionTimeout` in `host.json` to a value aligned with your plan and workload SLO.
