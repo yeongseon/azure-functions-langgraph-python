@@ -53,9 +53,13 @@ from time import monotonic
 from typing import Protocol, TypedDict
 from urllib.parse import quote
 
+from tools.release_audit_http import Fetcher, HTTPFetcher, get_json
+from tools.release_audit_parse import mapping, sequence
+
 Json = str | int | float | bool | None | list["Json"] | dict[str, "Json"]
 MARKER = "<!-- release-notes-format: v1 -->"
 CONFIG_PATH = Path(".github/release-notes.json")
+_STABLE_TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")
 MAX_LINE = 20_000
 MAX_BODY = 500_000
 
@@ -219,6 +223,7 @@ class Config:
     protected: dict[str, list[str]] = field(default_factory=dict)
     # Evidence-backed clarifications per tag: {tag: {"notes"|"highlights"|"upgrade": [lines]}}
     annotations: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    pypi_project: str | None = None
 
     @classmethod
     def load(cls, path: Path = CONFIG_PATH) -> Config:
@@ -229,6 +234,7 @@ class Config:
             legacy_repos=list(data.get("legacy_repos", [])),
             non_human_logins={x.lower() for x in data.get("non_human_logins", [])},
             protected={k: list(v) for k, v in data.get("protected", {}).items()},
+            pypi_project=data.get("pypi_project"),
             annotations={
                 tag: {block: list(lines) for block, lines in blocks.items()}
                 for tag, blocks in data.get("annotations", {}).items()
@@ -775,12 +781,71 @@ def apply_annotations(parsed: Parsed, blocks: dict[str, list[str]]) -> None:
             target.extend(["", *lines] if target else lines)
 
 
+def pypi_release_tags(project: str, fetcher: Fetcher) -> set[str]:
+    """Read stable PyPI versions that have at least one distribution file."""
+    data = mapping(get_json(fetcher, "pypi.org", f"/pypi/{quote(project, safe='')}/json"))
+    return {
+        f"v{version}"
+        for version, files in mapping(data["releases"]).items()
+        if _STABLE_TAG.fullmatch(f"v{version}") and sequence(files)
+    }
+
+
+def _load_pypi_release_tags(cfg: Config) -> set[str]:
+    if not cfg.pypi_project:
+        return set()
+    try:
+        return pypi_release_tags(cfg.pypi_project, HTTPFetcher(timeout=5, deadline_seconds=15))
+    except (KeyError, ValueError):
+        print(
+            "::warning::PyPI release history unavailable; "
+            "release notes omit the package upgrade range.",
+            file=sys.stderr,
+        )
+        return set()
+
+
+def _pypi_upgrade_note(
+    tag: str, releases: list[tuple[str, str]], published_tags: set[str], repo: str, original: str
+) -> str | None:
+    if not published_tags or not _STABLE_TAG.fullmatch(tag):
+        return None
+    current_version = _version_key(tag)
+    previous_published = max(
+        (name for name in published_tags if _version_key(name) < current_version),
+        key=_version_key,
+        default=None,
+    )
+    release_tags = {name for name, _ in releases if _STABLE_TAG.fullmatch(name)}
+    if previous_published is None or previous_published not in release_tags:
+        return None
+    previous_version = _version_key(previous_published)
+    between = sorted(
+        (name for name in release_tags if previous_version < _version_key(name) < current_version),
+        key=_version_key,
+    )
+    if not between:
+        return None
+    base_url = f"https://github.com/{repo}"
+    compare_url = f"{base_url}/compare/{previous_published}...{tag}"
+    if compare_url in original:
+        return None
+    links = ", ".join(f"[{name}]({base_url}/releases/tag/{name})" for name in between)
+    return (
+        f"**Upgrading from {previous_published} on PyPI?** Review the intervening GitHub release "
+        f"notes for changes and migration guidance ({links}), and see the "
+        f"[full upgrade comparison]({compare_url})."
+    )
+
+
 def build_notes(
     tag: str,
     original: str,
     gh: GitHub,
     cfg: Config,
     published: str | None = None,
+    *,
+    pypi_tags: set[str] | None = None,
 ) -> str:
     _check_size(original)
     releases = gh.releases()
@@ -794,6 +859,10 @@ def build_notes(
         parsed.items = _commit_items(commits)
         reconstructed = f"{prev}...{tag}"
     apply_annotations(parsed, cfg.annotations.get(tag, {}))
+    if pypi_tags:
+        upgrade_note = _pypi_upgrade_note(tag, releases, pypi_tags, cfg.repo, original)
+        if upgrade_note:
+            apply_annotations(parsed, {"notes": [upgrade_note]})
     pr_authors = gh.pr_authors()
     for item in parsed.items:
         attribute(item, commits, pr_authors, cfg)
@@ -1074,13 +1143,14 @@ def cmd_preview(args: argparse.Namespace, cfg: Config, gh: GitHub) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     failures = 0
+    pypi_tags = _load_pypi_release_tags(cfg)
     summary: list[str] = []
     for path in _backup_tags(Path(args.backup)):
         data = json.loads(path.read_text(encoding="utf-8"))
         tag = data["tagName"]
         old = data["body"] or ""
         try:
-            new = build_notes(tag, old, gh, cfg, data.get("publishedAt"))
+            new = build_notes(tag, old, gh, cfg, data.get("publishedAt"), pypi_tags=pypi_tags)
         except ValueError as err:
             failures += 1
             summary.append(f"FAIL {tag}: {err}")
@@ -1110,7 +1180,8 @@ def cmd_render(args: argparse.Namespace, cfg: Config, gh: GitHub) -> int:
         if args.body_file
         else gh.release_body(args.tag)
     )
-    sys.stdout.write(build_notes(args.tag, original, gh, cfg, published))
+    pypi_tags = _load_pypi_release_tags(cfg)
+    sys.stdout.write(build_notes(args.tag, original, gh, cfg, published, pypi_tags=pypi_tags))
     return 0
 
 
@@ -1130,7 +1201,8 @@ def cmd_apply(args: argparse.Namespace, cfg: Config, gh: GitHub) -> int:
         # the previous one instead of being appended next to it. The write is still guarded
         # against the live body, which is what set_body() compares.
         source = Path(source_file).read_text(encoding="utf-8")
-    new = build_notes(args.tag, source, gh, cfg, published)
+    pypi_tags = _load_pypi_release_tags(cfg)
+    new = build_notes(args.tag, source, gh, cfg, published, pypi_tags=pypi_tags)
     if args.dry_run:
         sys.stdout.write(new)
         return 0

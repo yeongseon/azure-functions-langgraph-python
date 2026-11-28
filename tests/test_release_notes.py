@@ -298,3 +298,67 @@ def test_apply_source_file_replaces_a_changed_annotation_instead_of_appending(
     args.force = False
     with pytest.raises(ValueError, match="requires --force"):
         rn.cmd_apply(args, CFG, gh)
+
+
+def test_package_upgrade_note_covers_skipped_github_releases() -> None:
+    gh = FakeGitHub(
+        tags=[
+            ("v0.13.0", "2026-11-06"),
+            ("v0.14.0", "2026-11-15"),
+            ("v0.14.1", "2026-11-23"),
+            ("v0.14.2", "2026-11-24"),
+            ("v0.15.0-rc1", "2026-11-25"),
+        ]
+    )
+    cfg = rn.Config(repo="acme/pkg")
+    original = "### Bug Fixes\n- fix a filter (#12)"
+    body = rn.build_notes("v0.14.2", original, gh, cfg, pypi_tags={"v0.13.0", "v0.14.2"})
+    assert body.index("Upgrading from v0.13.0 on PyPI?") < body.index("### Bug Fixes")
+    assert "[v0.14.0](https://github.com/acme/pkg/releases/tag/v0.14.0)" in body
+    assert "[v0.14.1](https://github.com/acme/pkg/releases/tag/v0.14.1)" in body
+    assert (
+        "[full upgrade comparison](https://github.com/acme/pkg/compare/v0.13.0...v0.14.2)" in body
+    )
+    assert "**Full Changelog**: https://github.com/acme/pkg/compare/v0.14.1...v0.14.2" in body
+    assert "rc1" not in body
+    rerendered = rn.build_notes("v0.14.2", body, gh, cfg, pypi_tags={"v0.13.0", "v0.14.2"})
+    assert rerendered.count("Upgrading from v0.13.0 on PyPI?") == 1
+
+
+@pytest.mark.parametrize("pypi_tags", [set(), {"v1.0.0"}, {"v0.10.0"}])
+def test_package_upgrade_note_needs_a_known_pypi_predecessor_and_intervening_tags(
+    pypi_tags: set[str],
+) -> None:
+    body = rn.build_notes("v1.0.1", RP_BODY, FakeGitHub(), CFG, pypi_tags=pypi_tags)
+    assert "full upgrade comparison" not in body
+
+
+def test_pypi_release_history_requires_distribution_files() -> None:
+    from tools.release_audit_http import Response
+
+    class FakePyPI:
+        def get(self, host: str, path: str, accept: str = "") -> Response:
+            assert (host, path) == ("pypi.org", "/pypi/acme-pkg/json")
+            return Response(
+                200,
+                '{"releases": {"0.13.0": [{}], "0.14.0": [], "0.14.1rc1": [{}]}}',
+            )
+
+    assert rn.pypi_release_tags("acme-pkg", FakePyPI()) == {"v0.13.0"}
+
+
+def test_pypi_lookup_failure_warns_and_allows_standardization(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unavailable(*args: object) -> set[str]:
+        raise ValueError("private upstream diagnostic")
+
+    monkeypatch.setattr(rn, "pypi_release_tags", unavailable)
+    cfg = rn.Config(repo="acme/pkg", pypi_project="acme-pkg")
+    gh = FakeGitHub(bodies={"v1.0.1": RP_BODY})
+    args = argparse.Namespace(tag="v1.0.1", body_file=None)
+    assert rn.cmd_render(args, cfg, gh) == 0
+    output = capsys.readouterr()
+    assert rn.MARKER in output.out
+    assert "::warning::PyPI release history unavailable" in output.err
+    assert "private upstream diagnostic" not in output.err
