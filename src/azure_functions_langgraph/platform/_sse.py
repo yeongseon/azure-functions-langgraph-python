@@ -43,10 +43,7 @@ def format_data_event(stream_mode: str, payload: Any) -> str:
     >>> format_data_event("values", {"messages": []})
     'event: values\\ndata: {"messages": []}\\n\\n'
     """
-    if isinstance(payload, dict):
-        serialized = dumps(payload)
-    else:
-        serialized = dumps({"data": payload})
+    serialized = dumps(payload) if isinstance(payload, dict) else dumps({"data": payload})
     return f"event: {stream_mode}\ndata: {serialized}\n\n"
 
 

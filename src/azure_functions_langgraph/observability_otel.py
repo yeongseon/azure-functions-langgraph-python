@@ -64,10 +64,7 @@ def _safe_attributes(ctx: RunContext) -> dict[str, AttributeValue]:
     valid homogeneous attribute sequence.
     """
     stream_mode: AttributeValue | None
-    if isinstance(ctx.stream_mode, tuple):
-        stream_mode = list(ctx.stream_mode)
-    else:
-        stream_mode = ctx.stream_mode
+    stream_mode = list(ctx.stream_mode) if isinstance(ctx.stream_mode, tuple) else ctx.stream_mode
 
     raw: dict[str, AttributeValue | None] = {
         f"{_ATTR_PREFIX}.graph_name": ctx.graph_name,
