@@ -85,3 +85,8 @@ app = LangGraphApp()
 print(app)
 # LangGraphApp(auth_level=<AuthLevel.FUNCTION: 'function'>, health_auth_level=<AuthLevel.ANONYMOUS: 'anonymous'>, ...)
 ```
+
+Deployed graph routes require an Azure Functions key by default (`FUNCTION`); `/api/health` is
+`ANONYMOUS` unless `health_auth_level` is set. For local development
+behavior, understanding host-level enforcement without cloud keys, and per-graph overrides, see
+[native endpoint auth levels](configuration.md#native-endpoint-auth-levels).

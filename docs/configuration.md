@@ -31,6 +31,81 @@ Available levels:
 | `FUNCTION` | Requires a function-specific API key (**default**) |
 | `ADMIN` | Requires the master host key |
 
+### Native endpoint auth levels
+
+`LangGraphApp` adapts compiled graphs into native Azure Functions routes. Developers should
+distinguish the adapter's route configuration from Azure Functions' actual runtime authorization
+checks and from documentation schemas.
+
+#### Minimal configuration
+
+The supported public API allows setting an application-level default and overriding it on
+specific native graphs:
+
+```python
+import azure.functions as func
+
+from azure_functions_langgraph import LangGraphApp
+
+# App-level default is FUNCTION; graph routes require an Azure Functions key when deployed
+app = LangGraphApp(auth_level=func.AuthLevel.FUNCTION)
+
+# Inherits app-level FUNCTION auth
+app.register(graph=compiled_graph, name="agent")
+
+# Optional: override auth_level for a specific public/demo graph (emits UserWarning)
+app.register(graph=demo_graph, name="demo", auth_level=func.AuthLevel.ANONYMOUS)
+
+func_app = app.function_app
+```
+
+#### Understanding the three security boundaries
+
+| Boundary | Owned by | What it does | Does it enforce access? |
+| --- | --- | --- | --- |
+| **Route Trigger Auth (`auth_level`)** | Azure Functions Host | Checks incoming requests for valid function or master keys (`?code=<FUNCTION_KEY>`). | **Yes**, in deployed environments (host-level gate). |
+| **Documentation Schemas / Metadata** | OpenAPI / Swagger (`get_app_metadata()`) | Documents routes, parameters, and declared security schemes for API consumers. | **No.** Documentation metadata is descriptive, not enforcing. |
+| **Resource / Thread Authorization (`authorize=...`)** | Application Callback (`ThreadAuthorizer`) | Validates caller identity, tenant isolation, and `thread_id` ownership on each run. | **Yes**, in Python adapter code on every invocation. |
+
+> A function key is a shared secret for the Azure Functions app, **not per-user authorization**.
+> It does not establish ownership of a LangGraph `thread_id`. See
+> [security guidance](security.md#authentication-and-thread-ownership) for implementing user and
+> tenant isolation.
+
+#### Offline verification vs. Live host behavior
+
+Understanding what happens locally versus in Azure avoids false assumptions:
+
+- **What can be verified offline (with a fake graph):**
+  - **Trigger binding metadata:** In Python tests, inspect `trigger.auth_level` on
+    `app.function_app.get_functions()` to confirm that routes carry the expected
+    `func.AuthLevel.FUNCTION` or `ANONYMOUS` setting.
+  - **Application authorization:** Unit tests can verify `LangGraphApp(authorize=...)` rejecting
+    unauthorized requests with HTTP `401` or `403` before graph execution.
+  - **Local Core Tools (`func start`):** By default, Azure Functions Core Tools **does not enforce
+    function keys locally**. A request sent to `http://localhost:7071/api/graphs/agent/invoke`
+    without any key succeeds with `200 OK`. This is expected local runtime behavior, not an
+    adapter defect or an indicator that the deployed route is unprotected.
+  - **Host key denial with `func start --enableAuth`:** The flag turns on the host's full
+    authentication pipeline locally. A request to a `FUNCTION`-level route without a key, or with
+    an invalid one in `?code=` or the `x-functions-key` header, is then rejected by the host with
+    `401`, while an `ANONYMOUS` route such as `/api/health` still answers `200`. No Azure
+    subscription is needed.
+
+- **What requires a live/deployed host to verify:**
+  - **Key rotation and scope:** Distinction between function-level keys and host-level master
+    (`ADMIN`) keys.
+  - Never commit real function keys, connection strings, or cloud secrets in documentation or
+    tests; use environment placeholders such as `$FUNCTION_KEY`.
+
+#### Focused validation & Out-of-scope checks
+
+- **Verified locally with:** In-memory trigger binding assertions (`tests/test_app.py` and
+  `tests/test_auth_docs.py`), offline fake graph runs, and Core Tools 4.8.0 with and
+  without `--enableAuth` (`200` without a key by default, `401` with `--enableAuth`).
+- **Intentionally not run:** Live Azure provisioning, cloud key generation, and expansion of
+  experimental Durable/Platform contracts.
+
 ### `max_request_body_bytes`
 
 Maximum accepted HTTP request body size before graph execution. Defaults to
