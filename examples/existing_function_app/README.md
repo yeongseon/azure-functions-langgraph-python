@@ -121,3 +121,50 @@ afterwards.
 Not exercised: a timer firing, timer recovery after a host restart, thread
 storage, other plans or regions, and multi-user authorization. First requests
 can include a cold start, so no latency is recorded.
+
+### Entra and telemetry follow-up attempt (2026-11-28 UTC)
+
+A maintainer-authorized experiment for [#995](https://github.com/yeongseon/azure-functions-langgraph-python/issues/995)
+attempted the combined existing-app composition, Flex/Blob persistence,
+trusted Entra ingress and Application Insights path. **It stopped before
+publishing an app. No authorization, telemetry ingestion or worker-turnover
+claim follows from this attempt.** The earlier successful composition run above
+and the [separate Flex worker-turnover evidence](../../docs/production-reference.md)
+remain distinct; neither proves the combined path.
+
+| Item | Observed result |
+| --- | --- |
+| Candidate source | `origin/main` at `6754c6c`; built with `uv build --wheel`, adapter `0.14.2` |
+| Candidate wheel SHA256 | `fca98285bc97dd2929674e329f3343ba8eb3404a4512eceb2ab433102dd98be3` |
+| Tools | Azure CLI `2.83.0`, Core Tools `4.8.0`, uv `0.11.7` |
+| Provisioned topology | Existing `infra/flex.bicep`, identity mode off: FC1 Flex Consumption, Python `3.12` configured, `512` MB, Korea Central, Standard_LRS storage |
+| Host/deployment storage | Connection-string settings from the existing template; not identity-only host storage |
+| Entra setup | One temporary, explicitly named single-tenant app registration created; API-exposure configuration via Microsoft Graph `PATCH` returned Azure CLI exit `1` |
+| Failure detail | No diagnostic/error code was retained, so permission, API validation and transient failure cannot be distinguished; no privilege elevation or alternate configuration attempted |
+| Publish/runtime | Not reached; no deployed wheel or running Python/package inventory established |
+| Two-principal authorization | Not run: owner resume, authenticated non-owner invoke/state denial, and unchanged checkpoints remain unverified |
+| Telemetry/turnover | Not run: no workspace/component created, no lifecycle/request correlation query, no restart or changed-worker-token check |
+| Cleanup | Owned resource group deleted synchronously; temporary Entra app deleted; checks below completed before this section was written |
+
+The experiment wrapper was interrupted by its terminal's 120-second timeout
+while cleanup was in progress. Cleanup was then completed explicitly for those
+same owned objects, without touching unrelated groups. This is a collection
+failure, not an established library defect. Raw credentials and identifiers
+are not retained in this document. Sanitized verification output:
+
+```text
+az group exists -n <owned-group>: false
+az resource list --tag purpose=995-verify --query 'length(@)': 0
+az group list --query "[?starts_with(name, 'DefaultResourceGroup-')].name": []
+az ad app list --all --query 'length(@)': 2 (baseline: 2)
+az ad sp list --display-name <owned-registration-name> --query 'length(@)': 0
+```
+
+Remaining recipe requirements are unchanged: require trusted ingress on every
+route and do not authenticate by decoding caller headers; enforce server-owned
+thread ownership for both RUN and STATE_READ; keep host/application storage
+identity separate from end-user identity; and verify sanitized lifecycle events
+against request telemetry on the owned Log Analytics workspace. A restart must
+show a different protected worker token plus preserved state, not merely an
+accepted restart command. No unverified recipe code, new CI gate or workflow
+change accompanies this blocked-run record.
